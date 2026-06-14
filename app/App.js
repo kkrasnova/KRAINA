@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { View, LogBox, Platform, DeviceEventEmitter } from 'react-native';
+import { View, LogBox, Platform, DeviceEventEmitter, InteractionManager } from 'react-native';
 import { useFonts, loadAsync as loadFontsAsync } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -208,19 +208,23 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    const cancel = scheduleIdleWork(() => {
-      if (cancelled) return;
-      try {
-        const m = require('./walkReminderSync');
-        m.installWalkReminderNotificationHandler();
-        void m.resyncWalkReminderOnAppColdStart();
-      } catch {
-        /* walk reminder sync is non-critical at startup */
-      }
+    let cancelIdle = null;
+    const task = InteractionManager.runAfterInteractions(() => {
+      cancelIdle = scheduleIdleWork(() => {
+        if (cancelled) return;
+        try {
+          const m = require('./walkReminderSync');
+          m.installWalkReminderNotificationHandler();
+          void m.resyncWalkReminderOnAppColdStart();
+        } catch {
+          /* walk reminder sync is non-critical at startup */
+        }
+      });
     });
     return () => {
       cancelled = true;
-      cancel();
+      task.cancel();
+      if (cancelIdle) cancelIdle();
     };
   }, []);
 

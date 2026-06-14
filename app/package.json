@@ -26,11 +26,15 @@
     "ios:prebuild": "echo \"Using native iOS project (no Expo prebuild).\"",
     "ios:pod": "cd ios && pod install",
     "google:ios-scheme": "node scripts/apply-google-ios-scheme.js",
+    "check:oauth": "node scripts/check-oauth-config.js",
     "web": "echo \"Web build is disabled in native mode.\"",
     "clean": "bash ./scripts/clean-rebuild.sh",
     "clean:soft": "bash ./scripts/clean-rebuild.sh --soft",
     "clean:start": "bash ./scripts/clean-rebuild.sh --start",
-    "clean:full": "bash ./scripts/clean-rebuild.sh"
+    "clean:full": "bash ./scripts/clean-rebuild.sh",
+    "update": "bash ./scripts/with-node20.sh eas update --channel development --message",
+    "update:preview": "bash ./scripts/with-node20.sh eas update --channel preview --message",
+    "update:production": "bash ./scripts/with-node20.sh eas update --channel production --message"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -8,11 +8,11 @@ const LEMON_GLOW = 'rgba(225, 255, 0, 0.5)';
 let heroInstanceCounter = 0;
 
 /** Нижній край героя — плавна хвиля (легкий провал зліва, пік справа). */
-function buildAuthHeroPaths(width, bodyHeight, topBleed = 0) {
+function buildAuthHeroPaths(width, height) {
   const w = width;
-  const h = bodyHeight;
+  const h = height;
   const amp = Math.max(12, Math.min(22, w * 0.045));
-  const baseline = topBleed + h - 6;
+  const baseline = h - 6;
 
   const yLeft = baseline - amp * 0.22;
   const yDip = baseline + amp * 0.38;
@@ -43,15 +43,14 @@ export default function AuthHeroHeader({ source, height, topInset = 0, style }) 
   const [width, setWidth] = useState(0);
   const href = useMemo(() => Image.resolveAssetSource(source), [source]);
   const bleedTop = Math.max(0, Math.round(topInset));
-  const canvasHeight = height + bleedTop;
   const paths = useMemo(
-    () => (width > 0 && height > 0 ? buildAuthHeroPaths(width, height, bleedTop) : null),
-    [width, height, bleedTop],
+    () => (width > 0 && height > 0 ? buildAuthHeroPaths(width, height) : null),
+    [width, height],
   );
 
   return (
     <View
-      style={[styles.shell, { height: canvasHeight }, style]}
+      style={[styles.shell, { height }, style]}
       onLayout={(e) => {
         const next = Math.round(e.nativeEvent.layout.width);
         if (next > 0) setWidth(next);
@@ -59,7 +58,7 @@ export default function AuthHeroHeader({ source, height, topInset = 0, style }) 
       pointerEvents="none"
     >
       {width > 0 && paths ? (
-        <Svg width={width} height={canvasHeight}>
+        <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
           <Defs>
             <ClipPath id={clipId}>
               <Path d={paths.clipD} />
@@ -67,10 +66,10 @@ export default function AuthHeroHeader({ source, height, topInset = 0, style }) 
           </Defs>
           <SvgImage
             x={0}
-            y={0}
+            y={-bleedTop}
             width={width}
-            height={canvasHeight}
-            preserveAspectRatio="xMidYMid slice"
+            height={height + bleedTop}
+            preserveAspectRatio="xMidYMin slice"
             href={href}
             clipPath={`url(#${clipId})`}
           />
@@ -100,7 +99,7 @@ const styles = StyleSheet.create({
   shell: {
     width: '100%',
     position: 'relative',
-    overflow: 'visible',
+    overflow: 'hidden',
     backgroundColor: 'transparent',
   },
 });

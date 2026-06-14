@@ -20,13 +20,35 @@ function readFirebaseAndroidGoogleServices() {
   }
 }
 
+function readIosClientIdFromPlist() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const candidates = [
+      path.join(__dirname, 'ios', 'KRANA', 'GoogleService-Info.plist'),
+      path.join(__dirname, 'GoogleService-Info.plist'),
+    ];
+    for (const plistPath of candidates) {
+      if (!fs.existsSync(plistPath)) continue;
+      const xml = fs.readFileSync(plistPath, 'utf8');
+      const m = xml.match(/<key>CLIENT_ID<\/key>\s*<string>([^<]+)<\/string>/);
+      const id = m?.[1]?.trim() || '';
+      if (id && !id.includes('YOUR_')) return id;
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
 function readIosClientIdFromJson() {
   try {
     const j = require('./google-ios-client.json');
     const id = j && typeof j.iosClientId === 'string' ? j.iosClientId.trim() : '';
-    return id;
+    if (id && !id.includes('YOUR_')) return id;
+    return readIosClientIdFromPlist();
   } catch {
-    return '';
+    return readIosClientIdFromPlist();
   }
 }
 

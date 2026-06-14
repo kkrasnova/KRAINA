@@ -44,6 +44,14 @@ const plistPath = path.join(appRoot, 'ios', 'KRANA', 'Info.plist');
 if (fs.existsSync(plistPath)) {
   let plist = fs.readFileSync(plistPath, 'utf8');
   plist = plist.replace(/com\.googleusercontent\.apps\.[0-9A-Za-z-]+/g, scheme);
+  plist = plist.replace(
+    /com\.googleusercontent\.apps\.YOUR_IOS_OAUTH_CLIENT_SUFFIX/g,
+    scheme,
+  );
+  plist = plist.replace(
+    /com\.googleusercontent\.apps\.[0-9A-Za-z-]+_IOS_OAUTH_CLIENT_SUFFIX/g,
+    scheme,
+  );
   fs.writeFileSync(plistPath, plist);
   console.log('[apply-google-ios-scheme] Info.plist →', scheme);
 } else {

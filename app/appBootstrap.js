@@ -32,13 +32,17 @@ export async function runAppBootstrap(opts, api) {
   } = api;
 
   try {
-    await initOfflineRuntime();
-    await warmOfflineMediaCache();
+    // Паралельно: offline runtime + hydrate + admin bundle + session
+    // Офлайн-кеш та адмін-бандл — не блокують навігацію (дефернуті)
     await useAuthStore.getState().hydrate();
-    await loadAdminLocationBundleOnStartup();
     if (getCancelled()) return;
     let session = await getSession();
     const hasAccessToken = !!useAuthStore.getState().accessToken;
+
+    // Дефернуті операції: не блокують навігацію
+    void initOfflineRuntime().catch(() => {});
+    void warmOfflineMediaCache().catch(() => {});
+    void loadAdminLocationBundleOnStartup().catch(() => {});
     if (session?.user && !hasAccessToken) {
       // Never trust stale local session without backend auth token.
       await clearSession();
@@ -137,26 +141,40 @@ export async function runAppBootstrap(opts, api) {
   }
 
   if (getCancelled()) return;
-  void prepareOfflineMediaPack({ limit: 120 });
-  void Asset.loadAsync([
-    require('./assets/kraina-logo-dark.png'),
-    require('./assets/kraina-logo-light.png'),
-    require('./assets/122.png'),
-    require('./assets/15.png'),
-    require('./assets/11221.png'),
-    require('./assets/Frame 1.png'),
-    require('./assets/16.png'),
-    require('./assets/kraina-title-light.png'),
-    require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4'),
-    require('./assets/icon_frame1.png'),
-    require('./assets/person-12.png'),
-    require('./assets/55.png'),
-    require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png'),
-    require('./assets/Rectangle 37.png'),
-    require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png'),
-    require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png'),
-    require('./assets/kling_20260405_IMAGE____________5495_1.png'),
-    require('./assets/Frame 23.png'),
-    require('./assets/11.png'),
-  ]).catch(() => {});
+  // Фонові prefetch-операції — не блокують навігацію
+  scheduleDeferredWork(() => {
+    void prepareOfflineMediaPack({ limit: 120 }).catch(() => {});
+    void Asset.loadAsync([
+      require('./assets/kraina-logo-dark.png'),
+      require('./assets/kraina-logo-light.png'),
+      require('./assets/122.png'),
+      require('./assets/15.png'),
+      require('./assets/11221.png'),
+      require('./assets/Frame 1.png'),
+      require('./assets/16.png'),
+      require('./assets/kraina-title-light.png'),
+      require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4'),
+      require('./assets/icon_frame1.png'),
+      require('./assets/person-12.png'),
+      require('./assets/55.png'),
+      require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png'),
+      require('./assets/Rectangle 37.png'),
+      require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png'),
+      require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png'),
+      require('./assets/kling_20260405_IMAGE____________5495_1.png'),
+      require('./assets/Frame 23.png'),
+      require('./assets/11.png'),
+    ]).catch(() => {});
+  });
+}
+
+/**
+ * Виконує роботу після того, як JS-потік звільниться (після першого рендера та навігації).
+ */
+function scheduleDeferredWork(fn) {
+  if (typeof globalThis.requestIdleCallback === 'function') {
+    globalThis.requestIdleCallback(() => { fn(); }, { timeout: 3000 });
+  } else {
+    setTimeout(fn, 50);
+  }
 }

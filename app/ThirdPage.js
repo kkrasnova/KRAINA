@@ -18,10 +18,12 @@ import {
   Easing,
   Dimensions,
   InteractionManager,
+  StatusBar as RNStatusBar,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import AuthHeroHeader from './AuthHeroHeader';
+import AuthTabSwitcher from './AuthTabSwitcher';
 import { useResponsive } from './useResponsive';
 import { brandFontText } from './brandFont';
 import { authOverlayFromErrorCode } from './authOverlayI18n';
@@ -1666,9 +1668,6 @@ function getTermsContent(langId) {
 function ThirdPageWithGoogleOAuth({ navigation, route }) {
   const { useAuthRequest, useAutoDiscovery } = AuthSessionModule;
   const makeRedirectUri = AuthSessionModule.makeRedirectUri;
-  const [, facebookResponse, facebookPromptAsync] = FacebookAuthSessionProvider.useAuthRequest({
-    clientId: FACEBOOK_APP_ID || '0000000000000000',
-  });
   const redirectUri = useMemo(() => {
     const envUri = typeof GOOGLE_REDIRECT_URI === 'string' ? GOOGLE_REDIRECT_URI.trim() : '';
     if (envUri) {
@@ -1684,6 +1683,10 @@ function ThirdPageWithGoogleOAuth({ navigation, route }) {
     }
     return 'com.kraina.app://oauth';
   }, [makeRedirectUri]);
+  const [, facebookResponse, facebookPromptAsync] = FacebookAuthSessionProvider.useAuthRequest({
+    clientId: FACEBOOK_APP_ID || '0000000000000000',
+    redirectUri,
+  });
   const googleAuthUseProxy = useMemo(
     () => typeof redirectUri === 'string' && redirectUri.startsWith('https://'),
     [redirectUri],
@@ -1756,6 +1759,8 @@ function ThirdPageContent({
     normalizeAppLanguage(route?.params?.language || 'en'),
   );
   const texts = getLoginTexts(language);
+  const showAppleLogin = Platform.OS === 'ios';
+  const socialProviderCount = 1 + (showFacebookLogin ? 1 : 0) + (showAppleLogin ? 1 : 0);
   const [activeTab, setActiveTab] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -2138,7 +2143,6 @@ function ThirdPageContent({
 
   const contentWidth = Math.min(r.width - r.horizontalPadding * 2, DESIGN_CONTENT_WIDTH);
   const contentHorizontalPadding = Math.max(r.horizontalPadding, (r.width - DESIGN_CONTENT_WIDTH) / 2);
-  const tabSegmentWidth = Math.max(0, Math.floor((contentWidth - 8 - 6) / 2));
   const termsContent = getTermsContent(language);
 
   const switchAuthTab = (tab) => {
@@ -2756,20 +2760,37 @@ function ThirdPageContent({
   const authHeroHeightRatio =
     activeTab === 'register'
       ? r.isVeryShortScreen
-        ? 0.22
+        ? 0.12
         : r.isShortScreen
-          ? 0.26
-          : 0.3
+          ? 0.15
+          : 0.18
       : r.isVeryShortScreen
         ? 0.26
         : r.isShortScreen
           ? 0.3
           : AUTH_HERO_HEIGHT_RATIO;
   const authHeroHeight = Math.round(formLayoutHeight * authHeroHeightRatio);
-  const authHeroTopInset = Math.round(r.insets?.top ?? 0);
+  const registerFormOverlapPx =
+    activeTab === 'register'
+      ? Math.round(Math.min(72, Math.max(40, formLayoutHeight * 0.052)))
+      : 0;
+  const authHeroSpacerHeight = Math.max(0, authHeroHeight - registerFormOverlapPx);
+  const authHeroTopInset = Math.max(
+    Math.round(r.insets?.top ?? 0),
+    Platform.OS === 'android' ? Math.round(RNStatusBar.currentHeight ?? 28) : 0,
+  ) + (Platform.OS === 'android' ? 6 : 0);
   const formGap = r.isVeryShortScreen ? 10 : r.isShortScreen ? 12 : AUTH_FORM_GAP;
   const scrollBottomPadding = formGap * 2 + (r.insets?.bottom ?? 0) + (r.isShortScreen ? 28 : 36);
   const formTitleMarginTop = r.isShortScreen ? 8 : 20;
+  const registerFormGap = r.isVeryShortScreen ? 6 : 8;
+  const activeFormGap = activeTab === 'register' ? registerFormGap : formGap;
+  const activeTitleMarginTop =
+    activeTab === 'register' ? (r.isShortScreen ? 2 : 6) : formTitleMarginTop;
+  const activeScrollPaddingTop = activeTab === 'register' ? 0 : r.isShortScreen ? 6 : 12;
+  const activeScrollBottomPadding =
+    activeTab === 'register'
+      ? Math.max(12, (r.insets?.bottom ?? 0) + (r.isShortScreen ? 8 : 12))
+      : scrollBottomPadding;
   const forgotModalMaxWidth = Math.min(r.width - 32, 400);
   const backgroundImageSource =
     activeTab === 'register'
@@ -2922,6 +2943,9 @@ function ThirdPageContent({
   return (
     <View style={styles.screen}>
       <StatusBar style="light" translucent />
+      {Platform.OS === 'android' ? (
+        <RNStatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      ) : null}
       <AuthHeroHeader
         source={backgroundImageSource}
         height={authHeroHeight}
@@ -2931,7 +2955,7 @@ function ThirdPageContent({
           authHeroTopInset > 0 ? { top: -authHeroTopInset } : null,
         ]}
       />
-      <View style={{ height: authHeroHeight }} pointerEvents="none" />
+      <View style={{ height: authHeroSpacerHeight }} pointerEvents="none" />
 
       <View
         style={[
@@ -2939,6 +2963,7 @@ function ThirdPageContent({
           {
             paddingTop: 0,
             paddingBottom: r.bottomPadding,
+            marginTop: registerFormOverlapPx > 0 ? -registerFormOverlapPx : 0,
           },
         ]}
       >
@@ -2953,8 +2978,8 @@ function ThirdPageContent({
               styles.scrollContent,
               {
                 paddingHorizontal: contentHorizontalPadding,
-                paddingTop: r.isShortScreen ? 6 : 12,
-                paddingBottom: scrollBottomPadding,
+                paddingTop: activeScrollPaddingTop,
+                paddingBottom: activeScrollBottomPadding,
                 flexGrow: 1,
               },
             ]}
@@ -2965,73 +2990,31 @@ function ThirdPageContent({
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           >
             <View style={[styles.content, { width: contentWidth, maxWidth: DESIGN_CONTENT_WIDTH, marginTop: formOffsetTop }]}>
-              <Text style={[styles.title, styles.loginFormTitleCompact, { marginTop: formTitleMarginTop }]}>
+              <Text
+                style={[
+                  styles.title,
+                  styles.loginFormTitleCompact,
+                  activeTab === 'register' && styles.registerFormTitleCompact,
+                  { marginTop: activeTitleMarginTop },
+                ]}
+              >
                 {activeTab === 'register' ? texts.registerTitle : texts.title}
               </Text>
 
-              <View style={[styles.tabs, styles.loginFormTabsCompact, { marginBottom: formGap }]} accessibilityRole="tablist">
-                <View style={[styles.tabCol, { width: tabSegmentWidth, flexGrow: 0, flexShrink: 0 }]}>
-                  <Pressable
-                    onPress={() => switchAuthTab('login')}
-                    style={({ pressed }) => [styles.tabTouchableFill, pressed && styles.tabTouchablePressed]}
-                    android_ripple={rippleOnDarkSurface}
-                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 2 }}
-                    accessibilityRole="tab"
-                    accessibilityLabel={texts.loginTab}
-                    accessibilityState={{ selected: activeTab === 'login' }}
-                  >
-                    <View
-                      style={[
-                        styles.tabPill,
-                        activeTab === 'login' && styles.tabPillActive,
-                        styles.loginFormTabPillCompact,
-                      ]}
-                    >
-                      <Text
-                        style={[styles.tabText, activeTab === 'login' && styles.tabTextActive]}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
-                      >
-                        {texts.loginTab}
-                      </Text>
-                    </View>
-                  </Pressable>
-                </View>
-                <View style={styles.tabMidGap} pointerEvents="none" />
-                <View style={[styles.tabCol, { width: tabSegmentWidth, flexGrow: 0, flexShrink: 0 }]}>
-                  <Pressable
-                    onPress={() => switchAuthTab('register')}
-                    style={({ pressed }) => [styles.tabTouchableFill, pressed && styles.tabTouchablePressed]}
-                    android_ripple={rippleOnDarkSurface}
-                    hitSlop={{ top: 8, bottom: 8, left: 2, right: 4 }}
-                    accessibilityRole="tab"
-                    accessibilityLabel={texts.registerTab}
-                    accessibilityState={{ selected: activeTab === 'register' }}
-                  >
-                    <View
-                      style={[
-                        styles.tabPill,
-                        activeTab === 'register' && styles.tabPillActive,
-                        styles.loginFormTabPillCompact,
-                      ]}
-                    >
-                      <Text
-                        style={[styles.tabText, activeTab === 'register' && styles.tabTextActive]}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
-                      >
-                        {texts.registerTab}
-                      </Text>
-                    </View>
-                  </Pressable>
-                </View>
-              </View>
+              <AuthTabSwitcher
+                activeTab={activeTab}
+                onChange={switchAuthTab}
+                loginLabel={texts.loginTab}
+                registerLabel={texts.registerTab}
+                style={{ marginBottom: activeFormGap }}
+              />
 
               <View
                 style={[
                   styles.inputWrap,
                   styles.loginFormInputWrapCompact,
-                  { marginBottom: registerPasswordInlineText ? 0 : formGap, gap: formGap },
+                  activeTab === 'register' && styles.registerFormInputWrap,
+                  { marginBottom: registerPasswordInlineText ? 0 : activeFormGap, gap: activeTab === 'register' ? 8 : 10 },
                 ]}
               >
                 {}
@@ -3039,6 +3022,7 @@ function ThirdPageContent({
                   collapsable={false}
                   style={[
                     styles.authFieldRow,
+                    activeTab === 'register' && styles.authFieldRowCompact,
                     activeTab !== 'register' && styles.authFieldRowHidden,
                     activeTab === 'register' &&
                       focusedAuthField === 'name' &&
@@ -3080,6 +3064,7 @@ function ThirdPageContent({
                   collapsable={false}
                   style={[
                     styles.authFieldRow,
+                    activeTab === 'register' && styles.authFieldRowCompact,
                     focusedAuthField === 'email' && styles.authFieldRowFocused,
                   ]}
                 >
@@ -3118,6 +3103,7 @@ function ThirdPageContent({
                   collapsable={false}
                   style={[
                     styles.authFieldRow,
+                    activeTab === 'register' && styles.authFieldRowCompact,
                     focusedAuthField === 'password' && styles.authFieldRowFocused,
                   ]}
                 >
@@ -3170,6 +3156,7 @@ function ThirdPageContent({
                   collapsable={false}
                   style={[
                     styles.authFieldRow,
+                    activeTab === 'register' && styles.authFieldRowCompact,
                     activeTab !== 'register' && styles.authFieldRowHidden,
                     activeTab === 'register' &&
                       focusedAuthField === 'confirm' &&
@@ -3256,7 +3243,7 @@ function ThirdPageContent({
                   </Pressable>
                 </View>
               ) : (
-                <View style={styles.termsRow}>
+                <View style={[styles.termsRow, styles.registerTermsRow]}>
                   <Pressable
                     onPress={() => {
                       authHydrationGuardRef.current.terms = true;
@@ -3292,7 +3279,7 @@ function ThirdPageContent({
                 </View>
               )}
 
-              <View style={styles.primarySubmitWrap} importantForAccessibility="yes">
+              <View style={[styles.primarySubmitWrap, activeTab === 'register' && styles.registerPrimarySubmitWrap]} importantForAccessibility="yes">
                 <Pressable
                   disabled={authSlideSubmitting}
                   onPress={() => void performAuthFullscreenRef.current({ skipSyncCheck: false })}
@@ -3300,6 +3287,7 @@ function ThirdPageContent({
                   onPressOut={onAuthSubmitCtaPressOut}
                   style={[
                     styles.authOnboardCtaOuter,
+                    activeTab === 'register' && styles.registerAuthOnboardCtaOuter,
                     styles.primarySubmitPressable,
                     {
                       width: contentWidth,
@@ -3338,7 +3326,7 @@ function ThirdPageContent({
                 </View>
               ) : null}
 
-              <View style={styles.dividerWrap}>
+              <View style={[styles.dividerWrap, activeTab === 'register' && styles.registerDividerWrap]}>
                 <View style={styles.dividerLine} />
                 <Text style={styles.dividerText}>
                   {activeTab === 'register' ? texts.orRegisterWith : texts.orLoginWith}
@@ -3349,8 +3337,9 @@ function ThirdPageContent({
               <View
                 style={[
                   styles.socialRow,
-                  Platform.OS === 'ios' ? styles.socialRowIosGrouped : null,
-                  !showFacebookLogin ? styles.socialRowTwoButtons : null,
+                  activeTab === 'register' && styles.registerSocialRow,
+                  Platform.OS === 'ios' && socialProviderCount >= 3 ? styles.socialRowIosGrouped : null,
+                  socialProviderCount <= 2 ? styles.socialRowTwoButtons : null,
                   { marginBottom: r.isShortScreen ? 8 : 0 },
                 ]}
               >
@@ -3384,20 +3373,19 @@ function ThirdPageContent({
                     />
                   </Pressable>
                 ) : null}
-                <Pressable
-                  style={[
-                    styles.socialButton,
-                    Platform.OS === 'ios' && styles.socialButtonIos,
-                    Platform.OS !== 'ios' && styles.socialButtonDisabled,
-                  ]}
-                  onPress={() => void handleAppleLogin()}
-                  disabled={Platform.OS !== 'ios'}
-                  android_ripple={rippleOnLightSurface}
-                  accessibilityRole="button"
-                  accessibilityLabel={activeTab === 'login' ? texts.loginWithApple : texts.registerWithApple}
-                >
-                  <Ionicons name="logo-apple" size={22} color="#000000" />
-                </Pressable>
+                {showAppleLogin ? (
+                  <Pressable
+                    style={[styles.socialButton, styles.socialButtonIos]}
+                    onPress={() => void handleAppleLogin()}
+                    android_ripple={rippleOnLightSurface}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      activeTab === 'login' ? texts.loginWithApple : texts.registerWithApple
+                    }
+                  >
+                    <Ionicons name="logo-apple" size={22} color="#000000" />
+                  </Pressable>
+                ) : null}
               </View>
             </View>
           </ScrollView>
@@ -3904,7 +3892,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     width: '100%',
-    overflow: 'hidden',
+    overflow: 'visible',
     backgroundColor: BG_DARK,
   },
   authHeroBackdrop: {
@@ -3989,6 +3977,34 @@ const styles = StyleSheet.create({
   loginFormTitleCompact: {
     marginTop: AUTH_FORM_GAP,
     marginBottom: AUTH_FORM_GAP,
+  },
+  registerFormTitleCompact: {
+    marginBottom: 8,
+  },
+  registerFormInputWrap: {
+    marginTop: 0,
+  },
+  authFieldRowCompact: {
+    minHeight: 42,
+    paddingVertical: 2,
+  },
+  registerTermsRow: {
+    minHeight: 40,
+    marginBottom: 8,
+  },
+  registerPrimarySubmitWrap: {
+    marginBottom: 8,
+  },
+  registerAuthOnboardCtaOuter: {
+    minHeight: 44,
+    height: 46,
+  },
+  registerDividerWrap: {
+    minHeight: 28,
+    marginBottom: 8,
+  },
+  registerSocialRow: {
+    marginBottom: 4,
   },
   loginFormTabsCompact: {
     marginTop: 0,
@@ -4136,7 +4152,6 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    marginBottom: AUTH_FORM_GAP,
   },
   authFieldRowFocused: {
     borderColor: LEMON_BRIGHT,

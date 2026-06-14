@@ -4,6 +4,12 @@
     "slug": "kraina",
     "scheme": "com.kraina.app",
     "plugins": [
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.58561963441-646snkkptpmes6aqhdcg1ki75pflvao7"
+        }
+      ],
       "expo-web-browser",
       "expo-secure-store",
       "expo-apple-authentication",
@@ -48,7 +54,9 @@
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "dark",
     "autolinking": {
-      "exclude": ["expo-av"],
+      "exclude": [
+        "expo-av"
+      ],
       "android": {
         "buildFromSource": []
       }

@@ -30,13 +30,12 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.kraina.app</string>
-				<string>com.kraina.app</string>
 			</array>
 		</dict>
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.YOUR_IOS_OAUTH_CLIENT_SUFFIX</string>
+				<string>com.googleusercontent.apps.58561963441-646snkkptpmes6aqhdcg1ki75pflvao7</string>
 			</array>
 		</dict>
 	</array>
