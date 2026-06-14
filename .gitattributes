@@ -1,0 +1,29 @@
+# Force LF line endings for all text files. Repo is developed on macOS/Linux;
+# Windows tools (incl. WSL with autocrlf) sometimes flip files to CRLF, which
+# breaks Docker shell scripts on Render and floods PRs with noise diffs.
+* text=auto eol=lf
+
+# Native binaries / images — never touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.mp3 binary
+*.mp4 binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary
+*.tar binary
+
+# Shell scripts MUST be LF (Docker/CI runs them in Linux)
+*.sh text eol=lf
+
+# Windows batch — keep CRLF if any
+*.bat text eol=crlf
+*.cmd text eol=crlf

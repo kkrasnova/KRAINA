@@ -1,0 +1,81 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kraina-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: kraina
+    ports:
+      - '5432:5432'
+    volumes:
+      - kraina_pg_data:/var/lib/postgresql/data
+    # pg_stat_statements — recommended for production query performance monitoring.
+    # Uncomment the command below to enable it, then restart the container and run:
+    #   CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    # On RDS/managed PostgreSQL: enable via the parameter group instead.
+    # command:
+    #   - postgres
+    #   - -c
+    #   - shared_preload_libraries=pg_stat_statements
+    #   - -c
+    #   - pg_stat_statements.track=all
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d kraina']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kraina-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    volumes:
+      # Named volume keeps uploads alive across container restarts.
+      # In production: replace with an S3-compatible object store.
+      - kraina_uploads:/app/uploads
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/kraina
+      DATABASE_SSL: 'false'
+
+      # -----------------------------------------------------------------------
+      # REQUIRED — replace these placeholders before any real deployment.
+      # Startup warnings will fire if these are left as-is.
+      # -----------------------------------------------------------------------
+      JWT_SECRET: change_me_jwt_secret_at_least_32_chars_long
+      REFRESH_SECRET: change_me_refresh_secret_at_least_32_chars
+
+      # -----------------------------------------------------------------------
+      # Recommended — set to the public HTTPS URL of this API.
+      # Used to build avatar/media URLs returned to the mobile client.
+      # -----------------------------------------------------------------------
+      PUBLIC_BASE_URL: http://localhost:3000
+
+      # -----------------------------------------------------------------------
+      # Set TRUST_PROXY=1 when a reverse proxy (nginx, ALB, Traefik) sits in
+      # front of this container. Required for IP-based rate limiting to work
+      # correctly. Without it every request appears to come from the proxy IP.
+      # -----------------------------------------------------------------------
+      # TRUST_PROXY: '1'
+
+      # -----------------------------------------------------------------------
+      # Optional — defaults are safe for local development
+      # -----------------------------------------------------------------------
+      # CORS_ORIGINS: https://yourapp.com
+      # FIREBASE_SERVICE_ACCOUNT_JSON: '{"type":"service_account","project_id":"..."}'
+      # UPLOAD_DIR: /app/uploads
+      # CLEANUP_ENABLED: '1'
+
+volumes:
+  kraina_pg_data:
+  kraina_uploads:

@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "iOS: открыть симулятор",
+      "type": "shell",
+      "command": "open -a Simulator",
+      "problemMatcher": [],
+      "group": "none",
+      "presentation": { "reveal": "silent" }
+    },
+    {
+      "label": "iOS: запустить приложение в симуляторе",
+      "type": "shell",
+      "command": "cd app && npx expo run:ios",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Android: открыть эмулятор",
+      "type": "shell",
+      "command": "emulator -avd $(emulator -list-avds 2>/dev/null | head -1)",
+      "problemMatcher": [],
+      "group": "none",
+      "presentation": { "reveal": "silent" }
+    },
+    {
+      "label": "Android: запустить приложение в эмуляторе",
+      "type": "shell",
+      "command": "cd app && npx expo run:android",
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Expo: старт (iOS + Android по i / a)",
+      "type": "shell",
+      "command": "npm run start:dev",
+      "problemMatcher": [],
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ]
+}

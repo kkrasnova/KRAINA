@@ -1,0 +1,86 @@
+{
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "node": "20.19.4",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "development"
+      },
+      "cache": {
+        "key": "dev-{{ hash('package-lock.json', 'yarn.lock', 'patches/*') }}",
+        "paths": [
+          "~/.ccache",
+          "node_modules/.cache/metro"
+        ]
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "node": "20.19.4",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "staging",
+        "EXPO_PUBLIC_KRAINA_API_URL": "https://kraina-api.onrender.com"
+      },
+      "cache": {
+        "key": "preview-{{ hash('package-lock.json', 'yarn.lock', 'patches/*') }}",
+        "paths": [
+          "~/.ccache",
+          "node_modules/.cache/metro"
+        ]
+      }
+    },
+    "production": {
+      "channel": "production",
+      "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "node": "20.19.4",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_KRAINA_API_URL": "https://kraina-api.onrender.com"
+      },
+      "cache": {
+        "key": "prod-{{ hash('package-lock.json', 'yarn.lock', 'patches/*') }}",
+        "paths": [
+          "~/.ccache",
+          "node_modules/.cache/metro"
+        ]
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
+        "appleTeamId": "REPLACE_WITH_APPLE_TEAM_ID"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}

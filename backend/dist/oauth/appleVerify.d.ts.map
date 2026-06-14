@@ -1,0 +1,1 @@
+{"version":3,"file":"appleVerify.d.ts","sourceRoot":"","sources":["../../src/oauth/appleVerify.ts"],"names":[],"mappings":"AAWA,wBAAsB,wBAAwB,CAAC,aAAa,EAAE,MAAM,GAAG,OAAO,CAAC;IAC7E,KAAK,EAAE,MAAM,CAAC;IACd,GAAG,EAAE,MAAM,CAAC;IACZ,IAAI,CAAC,EAAE,MAAM,CAAC;CACf,CAAC,CA6BD"}

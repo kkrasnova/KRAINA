@@ -1,0 +1,51 @@
+{
+  "name": "kraina",
+  "private": true,
+  "scripts": {
+    "start:expo": "cd app && npm run start:expo",
+    "start:expo:ui": "cd app && npm run start:expo:ui",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "cd backend && npm run migrate",
+    "firebase:deploy": "firebase deploy",
+    "firebase:deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "firebase:deploy:functions": "npm install --prefix functions && firebase deploy --only functions",
+    "dev:api": "cd backend && npm run dev",
+    "dev:all": "if lsof -ti:3000 > /dev/null; then echo \"API already running on :3000\"; else npm run dev:api & fi; if lsof -ti:8081 > /dev/null; then echo \"Metro already running on :8081\"; else npm run start:ios & fi; wait",
+    "start": "cd app && npm run start",
+    "start:clear": "cd app && npm run start:clear",
+    "start:force": "cd app && npm run start:force",
+    "start:go": "cd app && npm run start:go",
+    "start:ios": "cd app && npm run start:ios",
+    "start:ios-only": "cd app && npm run start:ios-only",
+    "start:dev": "cd app && npm run start",
+    "android": "cd app && npm run android",
+    "android:dev": "cd app && npm run android:dev",
+    "android:build": "cd app && npm run android:build",
+    "ios": "cd app && npm run ios --",
+    "ios:dev": "cd app && npm run ios:dev",
+    "ios:build": "cd app && npm run ios:build",
+    "install:app": "cd app && npm install",
+    "web": "cd app && npm run web",
+    "android:run": "cd app && npm run android",
+    "ios:run": "cd app && npm run ios",
+    "clean": "cd app && npm run clean",
+    "clean:soft": "cd app && npm run clean:soft",
+    "clean:start": "cd app && npm run clean:start",
+    "clean:full": "cd app && npm run clean:full"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "^20.1.2"
+  },
+  "engines": {
+    "node": ">=20.19.4"
+  },
+  "dependencies": {
+    "@expo/metro-config": "~56.0.0",
+    "@react-native-google-signin/google-signin": "^16.1.2",
+    "expo-file-system": "~56.0.7",
+    "expo-font": "~56.0.5",
+    "expo-network": "~56.0.4",
+    "typescript": "~6.0.3"
+  }
+}

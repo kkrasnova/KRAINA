@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "KRAÏNA",
+    "slug": "kraina",
+    "scheme": "com.kraina.app",
+    "plugins": [
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.YOUR_IOS_OAUTH_CLIENT_SUFFIX"
+        }
+      ],
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-apple-authentication",
+      "expo-asset",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Додаток використовує геолокацію, щоб запропонувати країну за вашим місцезнаходженням.",
+          "locationAlwaysAndWhenInUsePermission": "Додаток використовує геолокацію, щоб запропонувати країну за вашим місцезнаходженням."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камера потрібна, щоб фотографувати пам’ятки та показувати про них інформацію."
+        }
+      ],
+      "react-native-iap",
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
+    ],
+    "extra": {
+      "googleVisionApiKey": "",
+      "googleMapsApiKey": "",
+      "helpFaqUrl": "https://play.google.com/store/apps/details?id=com.kraina.app",
+      "helpDocsUrl": "https://play.google.com/store/apps/details?id=com.kraina.app"
+    },
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "backgroundColor": "#000000",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "dark",
+    "autolinking": {
+      "android": {
+        "buildFromSource": []
+      }
+    },
+    "newArchEnabled": false,
+    "splash": {
+      "backgroundColor": "#000000",
+      "resizeMode": "contain",
+      "image": "./assets/splash_blank.png"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kraina.app",
+      "usesAppleSignIn": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#000000"
+      },
+      "splash": {
+        "backgroundColor": "#000000",
+        "resizeMode": "contain",
+        "image": "./assets/splash_blank.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.kraina.app",
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "favicon": "./assets/logo.png"
+    }
+  }
+}

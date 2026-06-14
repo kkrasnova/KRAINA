@@ -1,0 +1,386 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Switch,
+  Alert,
+  Platform,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
+import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { resetToLanguageSelect } from './authNavigation';
+import { getAppTheme, setAppTheme as persistAppTheme } from './themeStorage';
+import { useSyncedAppLanguage } from './useAppLanguage';
+import { mt } from './mainPageI18n';
+import { st } from './settingsI18n';
+import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+
+const ACCENT = '#E1FF00';
+const ROW_ICON_DARK = '#F2F2EA';
+const BORDER_DARK = 'rgba(255, 255, 255, 0.08)';
+const BORDER_LIGHT = 'rgba(30, 30, 30, 0.12)';
+const BRAND_BLUE = '#6286E4';
+/** Figma: list + icons */
+const FIGMA_TEXT = '#1E1E1E';
+const FIGMA_ICON_MUTED = '#727272';
+const FIGMA_LOGOUT_RED = '#EB4335';
+/** PP Pangram Sans у макеті ≈ −1% від 14px */
+const FIGMA_LSP = -0.14;
+function SettingsRow({ icon, label, onPress, right, isLight }) {
+  const iconColor = isLight ? FIGMA_ICON_MUTED : ROW_ICON_DARK;
+  const labelColor = isLight ? FIGMA_TEXT : '#FFFFFF';
+  const borderColor = isLight ? 'rgba(30, 30, 30, 0.1)' : BORDER_DARK;
+  const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
+  const pressedBg = isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)';
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.row,
+        { borderBottomColor: borderColor },
+        pressed && { backgroundColor: pressedBg },
+      ]}
+      onPress={onPress}
+      android_ripple={ripple}
+    >
+      <Ionicons name={icon} size={22} color={iconColor} style={styles.rowIcon} />
+      <Text
+        style={[
+          styles.rowLabel,
+          { color: labelColor },
+        ]}
+      >
+        {label}
+      </Text>
+      {right != null ? <View style={styles.rowRight}>{right}</View> : null}
+    </Pressable>
+  );
+}
+
+export default function SettingsPage({ navigation, route }) {
+  const insets = useSafeAreaInsets();
+  const user = route?.params?.user || {};
+  const countryId = route?.params?.countryId;
+  const language = useSyncedAppLanguage(route, 'uk');
+  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const t = await getAppTheme();
+      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onThemeSwitch = async (nextLight) => {
+    const next = nextLight ? 'light' : 'dark';
+    setAppTheme(next);
+    await persistAppTheme(next);
+  };
+
+  const shellParams = useMemo(
+    () => ({
+      user,
+      language,
+      ...(countryId ? { countryId } : {}),
+      appTheme,
+    }),
+    [user, language, countryId, appTheme],
+  );
+
+  const goLanguage = useCallback(() => {
+    navigation.navigate('SettingsLanguage', shellParams);
+  }, [navigation, shellParams]);
+
+  const goGeo = useCallback(() => {
+    navigation.navigate('SettingsGeo', shellParams);
+  }, [navigation, shellParams]);
+
+  const goNotifications = useCallback(() => {
+    navigation.navigate('SettingsNotifications', shellParams);
+  }, [navigation, shellParams]);
+
+  const goWalkReminder = useCallback(() => {
+    navigation.navigate('WalkReminderSetup', { ...shellParams, fromOnboarding: false });
+  }, [navigation, shellParams]);
+
+  const goSteps = useCallback(() => {
+    navigation.navigate('SettingsSteps', shellParams);
+  }, [navigation, shellParams]);
+
+  const goPrivacy = useCallback(() => {
+    navigation.navigate('SettingsPrivacy', shellParams);
+  }, [navigation, shellParams]);
+
+  const goHelp = useCallback(() => {
+    navigation.navigate('SettingsHelp', shellParams);
+  }, [navigation, shellParams]);
+
+  const goAbout = useCallback(() => {
+    navigation.navigate('SettingsAbout', shellParams);
+  }, [navigation, shellParams]);
+
+  const goAdminPanel = useCallback(() => {
+    navigation.navigate('AdminPanel', shellParams);
+  }, [navigation, shellParams]);
+
+  const goSubscription = useCallback(() => {
+    navigation.navigate('ChoosePlan', {
+      user,
+      language,
+      appTheme,
+      fromSettings: true,
+      ...(countryId ? { countryId } : {}),
+    });
+  }, [navigation, user, language, countryId, appTheme]);
+
+  const goCancelSubscription = useCallback(() => {
+    navigation.navigate('ChoosePlan', {
+      user,
+      language,
+      appTheme,
+      fromSettings: true,
+      openCancelSubscription: true,
+      ...(countryId ? { countryId } : {}),
+    });
+  }, [navigation, user, language, countryId, appTheme]);
+
+  const signOut = useCallback(() => {
+    Alert.alert('', mt(language, 'signOutPrompt'), [
+      { text: mt(language, 'no'), style: 'cancel' },
+      {
+        text: mt(language, 'yes'),
+        style: 'destructive',
+        onPress: () => resetToLanguageSelect(navigation),
+      },
+    ]);
+  }, [navigation, language]);
+
+  const goArchive = useCallback(() => {
+    navigation.navigate('SettingsArchive', shellParams);
+  }, [navigation, shellParams]);
+
+  const light = appTheme === 'light';
+  const screenBg = light ? LIGHT_BAR_BG : APP_SCREEN_BG;
+  const isAdminUser = user?.role === 'admin' || user?.isAdmin === true;
+
+  const rows = (
+    <>
+      {isAdminUser ? (
+        <SettingsRow
+          icon="construct-outline"
+          label={st(language, 'adminPanel')}
+          onPress={goAdminPanel}
+          isLight={light}
+        />
+      ) : null}
+      <SettingsRow
+        icon="globe-outline"
+        label={st(language, 'language')}
+        onPress={goLanguage}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="location-outline"
+        label={st(language, 'geoSettings')}
+        onPress={goGeo}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="archive-outline"
+        label={st(language, 'archive')}
+        onPress={goArchive}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="notifications-outline"
+        label={st(language, 'notifications')}
+        onPress={goNotifications}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="alarm-outline"
+        label={st(language, 'walkReminderRow')}
+        onPress={goWalkReminder}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="footsteps-outline"
+        label={st(language, 'stepsSyncTitle')}
+        onPress={goSteps}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="flash-outline"
+        label={st(language, 'subscription')}
+        onPress={goSubscription}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="close-circle-outline"
+        label={st(language, 'cancelSubscriptionRow')}
+        onPress={goCancelSubscription}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="lock-closed-outline"
+        label={st(language, 'privacy')}
+        onPress={goPrivacy}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="headset-outline"
+        label={st(language, 'help')}
+        onPress={goHelp}
+        isLight={light}
+      />
+      <SettingsRow
+        icon="information-circle-outline"
+        label={st(language, 'info')}
+        onPress={goAbout}
+        isLight={light}
+      />
+      <View
+        style={[
+          styles.row,
+          styles.themeRow,
+          {
+            borderBottomWidth: light ? 0 : StyleSheet.hairlineWidth,
+            borderBottomColor: light ? 'transparent' : BORDER_DARK,
+          },
+        ]}
+      >
+        <Ionicons
+          name="sunny-outline"
+          size={22}
+          color={light ? FIGMA_ICON_MUTED : ROW_ICON_DARK}
+          style={styles.rowIcon}
+        />
+        <Text
+          style={[
+            styles.rowLabel,
+            { color: light ? FIGMA_TEXT : '#FFFFFF' },
+          ]}
+        >
+          {mt(language, 'lightTheme')}
+        </Text>
+        <Switch
+          value={appTheme === 'light'}
+          onValueChange={onThemeSwitch}
+          trackColor={
+            light
+              ? { false: '#D8D8D4', true: '#B4C4F0' }
+              : { false: '#2A2A2A', true: '#5a6a00' }
+          }
+          thumbColor={
+            light
+              ? appTheme === 'light'
+                ? BRAND_BLUE
+                : '#AEAEAA'
+              : appTheme === 'light'
+                ? ACCENT
+                : '#888888'
+          }
+          ios_backgroundColor={light ? '#D8D8D4' : '#2A2A2A'}
+        />
+      </View>
+    </>
+  );
+
+  return (
+    <View style={[styles.root, { backgroundColor: screenBg }]}>
+      <AppTopBar
+        appTheme={appTheme}
+        leftMode="back"
+        onBackPress={() => navigation.goBack()}
+        centerSubtitle={st(language, 'title')}
+        hideSendButton
+        lightBarBackgroundColor={light ? LIGHT_BAR_BG : undefined}
+      />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingBottom: Math.max(28, insets.bottom + 24) + lightTabBarExtraScrollPadding(),
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {light ? (
+          <View style={styles.lightList}>{rows}</View>
+        ) : (
+          <View style={styles.darkListWrap}>{rows}</View>
+        )}
+
+        <Pressable
+          style={styles.logoutRow}
+          onPress={signOut}
+          /** Без хвилі / зміни фону — лише діалог Так / Ні. */
+          android_ripple={null}
+        >
+          <Text style={styles.logoutText}>{st(language, 'logout')}</Text>
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  scroll: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: 0,
+    paddingTop: 4,
+  },
+  lightList: {
+    alignSelf: 'stretch',
+    backgroundColor: LIGHT_BAR_BG,
+  },
+  darkListWrap: {
+    alignSelf: 'stretch',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  themeRow: {
+    paddingRight: 16,
+  },
+  rowIcon: { marginRight: 12 },
+  rowLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: FIGMA_LSP,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  rowRight: { marginLeft: 8 },
+  logoutRow: {
+    marginTop: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  logoutText: {
+    color: FIGMA_LOGOUT_RED,
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: FIGMA_LSP,
+  },
+});

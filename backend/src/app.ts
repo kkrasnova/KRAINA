@@ -1,0 +1,76 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+
+import { config } from './config.js';
+import { buildCorsOptions } from './corsConfig.js';
+import './models/sequelize/index.js';
+import { authRouter } from './routes/authRoutes.js';
+import { profileRouter } from './routes/profileRoutes.js';
+import { adminRouter } from './routes/adminRoutes.js';
+import { billingRouter } from './routes/billingRoutes.js';
+import { messageRouter } from './routes/messageRoutes.js';
+import { socialRouter } from './routes/socialRoutes.js';
+import { feedRouter } from './routes/feedRoutes.js';
+import { locationsRouter } from './routes/locationsRoutes.js';
+import { aiRouteRouter } from './routes/aiRouteRoutes.js';
+import { routesCrudRouter } from './routes/routesCrudRoutes.js';
+import { postsTopRouter } from './routes/postsTopRoutes.js';
+import { appMetaRouter } from './routes/appMetaRoutes.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { landmarkContentAdminRouter } from './routes/landmarkContentAdminRoutes.js';
+
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const landmarksCmsPath = path.join(serverDir, '../../landmarks-admin/public');
+
+export function createApp(): express.Application {
+  const app = express();
+  if (config.trustProxy) {
+    app.set('trust proxy', config.trustProxy);
+  }
+  
+  app.use(
+    '/landmarks-cms',
+    express.static(landmarksCmsPath, {
+      extensions: ['html'],
+      index: 'index.html',
+      setHeaders(res) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      },
+    }),
+  );
+
+  app.use(helmet());
+  app.use(cors(buildCorsOptions()));
+  app.use(
+    '/api/admin/landmark-content',
+    express.json({ limit: '15mb' }),
+    landmarkContentAdminRouter,
+  );
+  app.use(express.json({ limit: '1mb' }));
+  app.use('/api/app', appMetaRouter);
+  app.use('/static/avatars', express.static(path.join(config.uploadDir, 'avatars')));
+  app.use('/static/feed', express.static(path.join(config.uploadDir, 'feed')));
+  app.use('/static/landmark-content', express.static(path.join(config.uploadDir, 'landmark-content')));
+  app.use('/api/auth', authRouter);
+  app.use('/api/profile', profileRouter);
+  app.use('/api/admin', adminRouter);
+  app.use('/api/billing', billingRouter);
+  app.use('/api/messages', messageRouter);
+  app.use('/api/social', socialRouter);
+  app.use('/api/feed', feedRouter);
+  app.use('/api/locations', locationsRouter);
+  app.use('/api/ai', aiRouteRouter);
+  app.use('/api/routes', routesCrudRouter);
+  app.use('/api/posts', postsTopRouter);
+  app.get('/health', (_req, res) => {
+    res.status(200).json({ ok: true });
+  });
+  app.use(errorHandler);
+  return app;
+}

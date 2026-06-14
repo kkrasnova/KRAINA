@@ -1,0 +1,753 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { config } from '../config.js';
+import { HttpError } from '../errors/HttpError.js';
+import { pool } from '../db/pool.js';
+const FEED_MEDIA_DIR = 'feed';
+function extFromMime(mimetype) {
+    if (mimetype === 'image/jpeg')
+        return 'jpg';
+    if (mimetype === 'image/png')
+        return 'png';
+    if (mimetype === 'image/webp')
+        return 'webp';
+    if (mimetype === 'video/mp4')
+        return 'mp4';
+    if (mimetype === 'video/quicktime')
+        return 'mov';
+    return 'bin';
+}
+// TODO(object-storage): replace local-disk write with S3-compatible upload.
+// Current implementation writes to config.uploadDir on the local filesystem.
+// This breaks on multi-pod deployments (each pod has its own disk) and has
+// no CDN in front of it. Migration path:
+//   1. Add env vars: STORAGE_PROVIDER=s3|local, S3_BUCKET, S3_REGION,
+//      S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_BASE_URL.
+//   2. Extract a StorageProvider interface: { upload(name, buffer, mime): Promise<string> }.
+//   3. Implement LocalStorageProvider (current logic) and S3StorageProvider (@aws-sdk/client-s3).
+//   4. Select provider at startup based on STORAGE_PROVIDER env var.
+//   5. Return the CDN/public URL from the provider; the rest of this function is unchanged.
+//   All uploaded URLs are stored in the DB so existing rows continue to work
+//   after the migration (local URLs stay local; new uploads go to S3).
+export async function saveFeedMediaFile(file) {
+    const allowed = new Set([
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'video/mp4',
+        'video/quicktime',
+    ]);
+    if (!allowed.has(file.mimetype)) {
+        throw new HttpError(400, 'invalid_format');
+    }
+    const ext = extFromMime(file.mimetype);
+    const media_kind = file.mimetype.startsWith('video/') ? 'video' : 'image';
+    const name = `${randomUUID()}.${ext}`;
+    const dir = path.join(config.uploadDir, FEED_MEDIA_DIR);
+    await fs.mkdir(dir, { recursive: true });
+    const dest = path.join(dir, name);
+    await fs.writeFile(dest, file.buffer);
+    const url = `${config.publicBaseUrl}/static/feed/${name}`;
+    return { url, media_kind };
+}
+export async function createPost(userId, body) {
+    const urls = Array.isArray(body.media_urls) ? body.media_urls.filter(Boolean) : [];
+    if (!urls.length) {
+        throw new HttpError(400, 'no_media');
+    }
+    if (urls.length > 10) {
+        throw new HttpError(400, 'too_many_media');
+    }
+    const text = body.content_text?.trim() || null;
+    if (text && text.length > 1000) {
+        throw new HttpError(400, 'text_too_long');
+    }
+    const vis = body.visibility || 'followers';
+    const plan = body.route_plan != null && typeof body.route_plan === 'object' ? body.route_plan : null;
+    const r = await pool.query(`INSERT INTO posts (user_id, content_text, media_urls, visibility, place_label, lat, lng, route_plan)
+     VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8::jsonb)
+     RETURNING id, user_id, content_text, media_urls, visibility, place_label, lat, lng, route_plan, created_at`, [
+        userId,
+        text,
+        urls,
+        vis,
+        body.place_label?.trim() || null,
+        body.lat != null && Number.isFinite(body.lat) ? body.lat : null,
+        body.lng != null && Number.isFinite(body.lng) ? body.lng : null,
+        plan ? JSON.stringify(plan) : null,
+    ]);
+    return r.rows[0];
+}
+function mapPostRow(row, author) {
+    const rawPlan = row.route_plan;
+    let route_plan = null;
+    if (rawPlan != null && typeof rawPlan === 'object' && !Array.isArray(rawPlan)) {
+        route_plan = rawPlan;
+    }
+    else if (typeof rawPlan === 'string' && rawPlan.trim()) {
+        try {
+            route_plan = JSON.parse(rawPlan);
+        }
+        catch {
+            route_plan = null;
+        }
+    }
+    return {
+        id: String(row.id),
+        user_id: String(row.user_id),
+        username: author.username,
+        avatar_url: author.avatar_url,
+        content_text: row.content_text == null ? '' : String(row.content_text),
+        media_urls: Array.isArray(row.media_urls) ? row.media_urls.map(String) : [],
+        visibility: String(row.visibility),
+        place_label: row.place_label == null ? '' : String(row.place_label),
+        lat: row.lat == null ? null : Number(row.lat),
+        lng: row.lng == null ? null : Number(row.lng),
+        route_plan,
+        likes_count: Number(row.likes_count) || 0,
+        comments_count: Number(row.comments_count) || 0,
+        reposts_count: Number(row.reposts_count) || 0,
+        liked_by_viewer: Boolean(row.liked_by_viewer),
+        reposted_by_viewer: Boolean(row.reposted_by_viewer),
+        created_at: new Date(String(row.created_at)).toISOString(),
+    };
+}
+async function loadAuthor(userId) {
+    const r = await pool.query(`SELECT username, avatar_url FROM profiles WHERE user_id = $1`, [userId]);
+    if (!r.rowCount) {
+        throw new HttpError(404, 'profile_not_found');
+    }
+    const row = r.rows[0];
+    return { username: row.username, avatar_url: row.avatar_url };
+}
+// TODO(cursor-pagination): replace limit-only with (created_at DESC, id DESC) composite cursor.
+// Add: before_created_at?: string, before_id?: string params.
+// WHERE addition: AND (p.created_at, p.id) < ($beforeCreatedAt, $beforeId)
+export async function listMyPosts(userId, limit = 60) {
+    const r = await pool.query(`SELECT p.*,
+        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = $1::uuid) AS liked_by_viewer,
+        EXISTS(SELECT 1 FROM post_reposts l WHERE l.post_id = p.id AND l.user_id = $1::uuid) AS reposted_by_viewer
+     FROM posts p
+     WHERE p.user_id = $1 AND p.archived_at IS NULL
+     ORDER BY p.created_at DESC
+     LIMIT $2`, [userId, limit]);
+    const author = await loadAuthor(userId);
+    return r.rows.map((row) => mapPostRow(row, author));
+}
+export async function listMyArchivedPosts(userId, limit = 40) {
+    const r = await pool.query(`SELECT p.*,
+        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = $1::uuid) AS liked_by_viewer,
+        EXISTS(SELECT 1 FROM post_reposts l WHERE l.post_id = p.id AND l.user_id = $1::uuid) AS reposted_by_viewer
+     FROM posts p
+     WHERE p.user_id = $1 AND p.archived_at IS NOT NULL
+     ORDER BY p.archived_at DESC
+     LIMIT $2`, [userId, Math.min(80, Math.max(1, limit))]);
+    const author = await loadAuthor(userId);
+    return r.rows.map((row) => mapPostRow(row, author));
+}
+export async function setPostArchived(userId, postId, archived) {
+    const r = await pool.query(`UPDATE posts
+     SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END
+     WHERE id = $1::uuid AND user_id = $2::uuid
+     RETURNING id`, [postId, userId, archived]);
+    if (!r.rowCount) {
+        throw new HttpError(404, 'post_not_found');
+    }
+}
+export async function updatePostByAuthor(userId, postId, patch) {
+    const text = patch.content_text == null ? null : String(patch.content_text).trim();
+    if (text != null && text.length > 1000) {
+        throw new HttpError(400, 'text_too_long');
+    }
+    const plan = patch.route_plan != null && typeof patch.route_plan === 'object' ? patch.route_plan : null;
+    const r = await pool.query(`UPDATE posts
+     SET content_text = COALESCE($3, content_text),
+         place_label = COALESCE($4, place_label),
+         lat = COALESCE($5, lat),
+         lng = COALESCE($6, lng),
+         route_plan = CASE WHEN $7::jsonb IS NULL THEN route_plan ELSE $7::jsonb END,
+         visibility = COALESCE($8, visibility)
+     WHERE id = $1::uuid AND user_id = $2::uuid
+     RETURNING id`, [
+        postId,
+        userId,
+        text,
+        patch.place_label == null ? null : String(patch.place_label).trim(),
+        patch.lat != null && Number.isFinite(patch.lat) ? patch.lat : null,
+        patch.lng != null && Number.isFinite(patch.lng) ? patch.lng : null,
+        plan ? JSON.stringify(plan) : null,
+        patch.visibility ?? null,
+    ]);
+    if (!r.rowCount) {
+        throw new HttpError(404, 'post_not_found');
+    }
+}
+export async function deletePostByAuthor(userId, postId) {
+    const r = await pool.query(`DELETE FROM posts WHERE id = $1::uuid AND user_id = $2::uuid RETURNING id`, [postId, userId]);
+    if (!r.rowCount) {
+        throw new HttpError(404, 'post_not_found');
+    }
+}
+// TODO(cursor-pagination): replace limit-only with (created_at DESC, id DESC) composite cursor.
+// Add: before_created_at?: string, before_id?: string params.
+// WHERE addition: AND (p.created_at, p.id) < ($beforeCreatedAt, $beforeId)
+export async function listWorldPosts(_viewerId, limit = 40) {
+    const viewerId = _viewerId || '00000000-0000-0000-0000-000000000000';
+    const r = await pool.query(`SELECT p.*, pr.username, pr.avatar_url,
+        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = $2::uuid) AS liked_by_viewer,
+        EXISTS(SELECT 1 FROM post_reposts l WHERE l.post_id = p.id AND l.user_id = $2::uuid) AS reposted_by_viewer
+     FROM posts p
+     JOIN profiles pr ON pr.user_id = p.user_id
+     JOIN users u ON u.id = p.user_id
+     WHERE p.visibility = 'public' AND u.status <> 'deleted' AND p.archived_at IS NULL
+     ORDER BY p.created_at DESC
+     LIMIT $1`, [limit, viewerId]);
+    return r.rows.map((row) => mapPostRow(row, {
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+    }));
+}
+// TODO(cursor-pagination): replace limit-only with (created_at DESC, id DESC) composite cursor.
+// Add: before_created_at?: string, before_id?: string params.
+// WHERE addition: AND (p.created_at, p.id) < ($beforeCreatedAt, $beforeId)
+// NOTE: the IN (SELECT following_id ...) subquery materialises the full following list on every
+// request. At >500 follows this becomes the dominant cost. Migrate to a fan-out materialised
+// feed table before this function is cursor-paginated.
+export async function listFriendsPosts(viewerId, limit = 40) {
+    const r = await pool.query(`SELECT p.*, pr.username, pr.avatar_url,
+        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = $1::uuid) AS liked_by_viewer,
+        EXISTS(SELECT 1 FROM post_reposts l WHERE l.post_id = p.id AND l.user_id = $1::uuid) AS reposted_by_viewer
+     FROM posts p
+     JOIN profiles pr ON pr.user_id = p.user_id
+     JOIN users u ON u.id = p.user_id
+     WHERE u.status <> 'deleted'
+       AND p.visibility IN ('public', 'followers')
+       AND p.archived_at IS NULL
+       AND (
+         p.user_id = $1
+        OR p.user_id IN (
+        SELECT f.following_id
+        FROM follows f
+        WHERE f.follower_id = $1::uuid
+      )
+       )
+     ORDER BY p.created_at DESC
+     LIMIT $2`, [viewerId, limit]);
+    return r.rows.map((row) => mapPostRow(row, {
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+    }));
+}
+// TODO(cursor-pagination): replace limit-only with (created_at DESC, id DESC) composite cursor.
+// Add: before_created_at?: string, before_id?: string params.
+// WHERE addition: AND (p.created_at, p.id) < ($beforeCreatedAt, $beforeId)
+export async function listUserPostsForViewer(viewerId, targetUsername, limit = 40) {
+    const uname = String(targetUsername || '')
+        .trim()
+        .replace(/^@/, '')
+        .replace(/[^a-zA-Z0-9_]/g, '');
+    if (!uname) {
+        throw new HttpError(400, 'invalid_body');
+    }
+    const pr = await pool.query(`SELECT user_id::text, is_public FROM profiles WHERE username = $1`, [uname]);
+    if (!pr.rowCount) {
+        throw new HttpError(404, 'profile_not_found');
+    }
+    const ownerId = String(pr.rows[0].user_id);
+    const isOwner = viewerId === ownerId;
+    const followR = await pool.query(`SELECT 1 FROM follows WHERE follower_id = $1::uuid AND following_id = $2::uuid`, [viewerId, ownerId]);
+    const isFollower = !!followR.rowCount;
+    const lim = Math.min(80, Math.max(1, limit));
+    const canSeeFollowersScope = isFollower;
+    const visClause = isOwner
+        ? 'TRUE'
+        : `(p.visibility = 'public' OR (p.visibility = 'followers' AND $4::boolean))`;
+    const r = await pool.query(`SELECT p.*, pr.username, pr.avatar_url,
+        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = $3::uuid) AS liked_by_viewer,
+        EXISTS(SELECT 1 FROM post_reposts l WHERE l.post_id = p.id AND l.user_id = $3::uuid) AS reposted_by_viewer
+     FROM posts p
+     JOIN profiles pr ON pr.user_id = p.user_id
+     JOIN users u ON u.id = p.user_id
+     WHERE p.user_id = $1::uuid
+       AND u.status <> 'deleted'
+       AND p.archived_at IS NULL
+       AND ${visClause}
+     ORDER BY p.created_at DESC
+     LIMIT $2`, isOwner ? [ownerId, lim, viewerId] : [ownerId, lim, viewerId, canSeeFollowersScope]);
+    return r.rows.map((row) => mapPostRow(row, {
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+    }));
+}
+async function canViewerAccessPost(postId, viewerId) {
+    const r = await pool.query(`SELECT p.user_id, p.visibility,
+            EXISTS(
+              SELECT 1
+              FROM follows f
+              WHERE f.follower_id = $2::uuid
+                AND f.following_id = p.user_id
+            ) AS is_follower
+     FROM posts p
+     JOIN users u ON u.id = p.user_id
+     WHERE p.id = $1::uuid
+       AND p.archived_at IS NULL
+       AND u.status <> 'deleted'`, [postId, viewerId]);
+    if (!r.rowCount)
+        return false;
+    const row = r.rows[0];
+    const ownerId = String(row.user_id);
+    const vis = String(row.visibility || 'public');
+    if (ownerId === viewerId)
+        return true;
+    if (vis === 'public')
+        return true;
+    if (vis === 'followers')
+        return Boolean(row.is_follower);
+    return false;
+}
+export async function togglePostLike(postId, viewerId) {
+    const allowed = await canViewerAccessPost(postId, viewerId);
+    if (!allowed)
+        throw new HttpError(403, 'forbidden');
+    const out = await pool.query(`WITH deleted AS (
+       DELETE FROM post_likes
+       WHERE post_id = $1::uuid AND user_id = $2::uuid
+       RETURNING 1
+     ),
+     inserted AS (
+       INSERT INTO post_likes (post_id, user_id)
+       SELECT $1::uuid, $2::uuid
+       WHERE NOT EXISTS (SELECT 1 FROM deleted)
+       ON CONFLICT DO NOTHING
+       RETURNING 1
+     ),
+     updated AS (
+       UPDATE posts
+       SET likes_count = GREATEST(
+         0,
+         likes_count
+         + COALESCE((SELECT COUNT(*) FROM inserted), 0)
+         - COALESCE((SELECT COUNT(*) FROM deleted), 0)
+       )
+       WHERE id = $1::uuid
+       RETURNING likes_count
+     )
+     SELECT
+       EXISTS(SELECT 1 FROM inserted) AS liked,
+       COALESCE((SELECT likes_count FROM updated), 0)::int AS likes_count`, [postId, viewerId]);
+    return {
+        liked: Boolean(out.rows[0]?.liked),
+        likes_count: Number(out.rows[0]?.likes_count) || 0,
+    };
+}
+export async function listPostComments(postId, viewerId, limit = 80) {
+    const allowed = await canViewerAccessPost(postId, viewerId);
+    if (!allowed)
+        throw new HttpError(403, 'forbidden');
+    const lim = Math.min(200, Math.max(1, limit));
+    const r = await pool.query(`SELECT c.id, c.post_id, c.user_id, c.parent_comment_id,
+            CASE WHEN c.deleted_at IS NULL THEN c.content ELSE '' END AS content,
+            c.likes_count,
+            c.deleted_at,
+            c.created_at,
+            p.username,
+            p.avatar_url,
+            EXISTS(
+              SELECT 1 FROM comment_likes cl
+              WHERE cl.comment_id = c.id AND cl.user_id = $2::uuid
+            ) AS liked_by_viewer
+     FROM comments c
+     JOIN profiles p ON p.user_id = c.user_id
+     WHERE c.post_id = $1::uuid
+     ORDER BY c.created_at ASC
+     LIMIT $3`, [postId, viewerId, lim]);
+    return r.rows.map((row) => ({
+        id: String(row.id),
+        post_id: String(row.post_id),
+        user_id: String(row.user_id),
+        parent_comment_id: row.parent_comment_id == null ? null : String(row.parent_comment_id),
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+        content: String(row.content || ''),
+        likes_count: Number(row.likes_count) || 0,
+        liked_by_viewer: Boolean(row.liked_by_viewer),
+        deleted: row.deleted_at != null,
+        created_at: new Date(String(row.created_at)).toISOString(),
+    }));
+}
+export async function addPostComment(postId, viewerId, content, parentCommentId = null) {
+    const allowed = await canViewerAccessPost(postId, viewerId);
+    if (!allowed)
+        throw new HttpError(403, 'forbidden');
+    const text = String(content || '').trim();
+    if (!text)
+        throw new HttpError(400, 'invalid_body');
+    if (text.length > 500)
+        throw new HttpError(400, 'text_too_long');
+    const parent = parentCommentId ? String(parentCommentId).trim() : null;
+    if (parent) {
+        const parentRow = await pool.query(`SELECT 1
+       FROM comments
+       WHERE id = $1::uuid
+         AND post_id = $2::uuid
+         AND deleted_at IS NULL`, [parent, postId]);
+        if (!parentRow.rowCount)
+            throw new HttpError(404, 'parent_comment_not_found');
+    }
+    // Resolve author profile before acquiring the connection so that a missing
+    // profile row (data integrity issue) fails fast without ever opening a tx.
+    const me = await loadAuthor(viewerId);
+    // Atomic: INSERT comment + increment posts.comments_count in one transaction.
+    // Without the transaction a crash between the two writes leaves the counter
+    // permanently wrong (row exists, count not incremented, or vice-versa).
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const ins = await client.query(`INSERT INTO comments (post_id, user_id, parent_comment_id, content)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4)
+       RETURNING id, post_id, user_id, parent_comment_id, content, likes_count, created_at`, [postId, viewerId, parent, text]);
+        await client.query(`UPDATE posts SET comments_count = comments_count + 1 WHERE id = $1::uuid`, [postId]);
+        await client.query('COMMIT');
+        const row = ins.rows[0];
+        return {
+            id: String(row.id),
+            post_id: String(row.post_id),
+            user_id: String(row.user_id),
+            parent_comment_id: row.parent_comment_id == null ? null : String(row.parent_comment_id),
+            username: me.username,
+            avatar_url: me.avatar_url,
+            content: String(row.content || ''),
+            likes_count: Number(row.likes_count) || 0,
+            liked_by_viewer: false,
+            deleted: false,
+            created_at: new Date(String(row.created_at)).toISOString(),
+        };
+    }
+    catch (e) {
+        // .catch() absorbs any ROLLBACK error (e.g. broken connection) so the
+        // original error is always what propagates to the caller.
+        await client.query('ROLLBACK').catch(() => { });
+        throw e;
+    }
+    finally {
+        client.release();
+    }
+}
+const STORY_TTL_MS = 24 * 60 * 60 * 1000;
+export async function createStory(userId, media_url, media_kind, caption) {
+    const cap = caption?.trim() || '';
+    if (cap.length > 500) {
+        throw new HttpError(400, 'caption_too_long');
+    }
+    const expires = new Date(Date.now() + STORY_TTL_MS);
+    const r = await pool.query(`INSERT INTO stories (user_id, media_url, media_kind, caption, expires_at)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, user_id, media_url, media_kind, caption, created_at, expires_at`, [userId, media_url, media_kind, cap || null, expires.toISOString()]);
+    return r.rows[0];
+}
+// TODO(feed-fanout): same IN-subquery fan-out problem as listFriendsPosts.
+// At >500 follows, materialising the full following list for EVERY story tray
+// request becomes the dominant cost. Fix path mirrors listFriendsPosts:
+// maintain a materialised `story_feed_entries (viewer_id, story_id, author_id)`
+// table updated by a follow/unfollow trigger or background worker, then replace
+// the IN subquery with a JOIN on that table.
+export async function listActiveStoriesTray(viewerId) {
+    const r = await pool.query(`SELECT DISTINCT ON (s.user_id)
+        s.id,
+        s.user_id,
+        s.media_url,
+        s.media_kind,
+        s.caption,
+        s.created_at,
+        s.expires_at,
+        p.username,
+        p.avatar_url,
+        p.display_name,
+        (SELECT COUNT(*)::int FROM story_views v WHERE v.story_id = s.id) AS view_count,
+        EXISTS (SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $1) AS seen_by_viewer
+     FROM stories s
+     JOIN profiles p ON p.user_id = s.user_id
+     JOIN users u ON u.id = s.user_id
+     WHERE s.expires_at > now()
+       AND u.status <> 'deleted'
+       AND (
+         s.user_id = $1
+        OR s.user_id IN (
+        SELECT f.following_id
+        FROM follows f
+        WHERE f.follower_id = $1::uuid
+        )
+       )
+     ORDER BY s.user_id, s.created_at DESC`, [viewerId]);
+    return r.rows.map((row) => ({
+        id: String(row.id),
+        user_id: String(row.user_id),
+        media_url: String(row.media_url),
+        media_kind: String(row.media_kind),
+        caption: row.caption == null ? '' : String(row.caption),
+        created_at: new Date(String(row.created_at)).toISOString(),
+        expires_at: new Date(String(row.expires_at)).toISOString(),
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+        display_name: row.display_name == null || String(row.display_name).trim() === ''
+            ? null
+            : String(row.display_name).trim(),
+        view_count: Number(row.view_count) || 0,
+        seen_by_viewer: Boolean(row.seen_by_viewer),
+    }));
+}
+export async function listActiveStoriesForUser(authorId, viewerId) {
+    if (authorId !== viewerId) {
+        const f = await pool.query(`SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2`, [viewerId, authorId]);
+        if (!f.rowCount) {
+            const pr = await pool.query(`SELECT is_public FROM profiles WHERE user_id = $1::uuid`, [authorId]);
+            const isPublicProfile = !!pr.rowCount && Boolean(pr.rows[0].is_public);
+            if (!isPublicProfile) {
+                throw new HttpError(403, 'forbidden');
+            }
+        }
+    }
+    const r = await pool.query(`SELECT s.id, s.user_id, s.media_url, s.media_kind, s.caption, s.created_at, s.expires_at,
+        p.username AS author_username,
+        p.avatar_url AS author_avatar_url,
+        p.display_name AS author_display_name,
+        (SELECT COUNT(*)::int FROM story_views v WHERE v.story_id = s.id) AS view_count,
+        EXISTS (
+          SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $2
+        ) AS seen_by_viewer,
+        EXISTS (
+          SELECT 1 FROM story_likes l WHERE l.story_id = s.id AND l.user_id = $2::uuid
+        ) AS liked_by_viewer
+     FROM stories s
+     JOIN users u ON u.id = s.user_id
+     LEFT JOIN profiles p ON p.user_id = s.user_id
+     WHERE s.user_id = $1 AND s.expires_at > now() AND u.status <> 'deleted'
+     ORDER BY s.created_at ASC`, [authorId, viewerId]);
+    return r.rows.map((row) => ({
+        id: String(row.id),
+        user_id: String(row.user_id),
+        media_url: String(row.media_url),
+        media_kind: String(row.media_kind),
+        caption: row.caption == null ? '' : String(row.caption),
+        created_at: new Date(String(row.created_at)).toISOString(),
+        expires_at: new Date(String(row.expires_at)).toISOString(),
+        view_count: Number(row.view_count) || 0,
+        seen_by_viewer: Boolean(row.seen_by_viewer),
+        liked_by_viewer: Boolean(row.liked_by_viewer),
+        username: row.author_username == null ? '' : String(row.author_username),
+        avatar_url: row.author_avatar_url == null ? null : String(row.author_avatar_url),
+        display_name: row.author_display_name == null ||
+            String(row.author_display_name).trim() === ''
+            ? null
+            : String(row.author_display_name).trim(),
+    }));
+}
+export async function recordStoryView(storyId, viewerId) {
+    const s = await pool.query(`SELECT user_id FROM stories WHERE id = $1 AND expires_at > now()`, [storyId]);
+    if (!s.rowCount) {
+        throw new HttpError(404, 'story_not_found');
+    }
+    const authorId = String(s.rows[0].user_id);
+    if (authorId === viewerId) {
+        return { ok: true };
+    }
+    const f = await pool.query(`SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2`, [viewerId, authorId]);
+    if (!f.rowCount) {
+        throw new HttpError(403, 'forbidden');
+    }
+    await pool.query(`INSERT INTO story_views (story_id, viewer_id) VALUES ($1, $2)
+     ON CONFLICT (story_id, viewer_id) DO NOTHING`, [storyId, viewerId]);
+    return { ok: true };
+}
+export async function getStoryViewers(storyId, authorId) {
+    const s = await pool.query(`SELECT user_id FROM stories WHERE id = $1`, [storyId]);
+    if (!s.rowCount) {
+        throw new HttpError(404, 'story_not_found');
+    }
+    if (String(s.rows[0].user_id) !== authorId) {
+        throw new HttpError(403, 'forbidden');
+    }
+    const r = await pool.query(`SELECT v.viewer_id, v.viewed_at, p.username, p.avatar_url
+     FROM story_views v
+     JOIN profiles p ON p.user_id = v.viewer_id
+     WHERE v.story_id = $1
+     ORDER BY v.viewed_at DESC
+     LIMIT 200`, [storyId]);
+    return r.rows.map((row) => ({
+        viewer_id: String(row.viewer_id),
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+        viewed_at: new Date(String(row.viewed_at)).toISOString(),
+    }));
+}
+export async function getStoryLikers(storyId, authorId) {
+    const s = await pool.query(`SELECT user_id FROM stories WHERE id = $1`, [storyId]);
+    if (!s.rowCount) {
+        throw new HttpError(404, 'story_not_found');
+    }
+    if (String(s.rows[0].user_id) !== authorId) {
+        throw new HttpError(403, 'forbidden');
+    }
+    const r = await pool.query(`SELECT l.user_id, l.liked_at, p.username, p.avatar_url
+     FROM story_likes l
+     JOIN profiles p ON p.user_id = l.user_id
+     WHERE l.story_id = $1::uuid
+     ORDER BY l.liked_at ASC
+     LIMIT 200`, [storyId]);
+    return r.rows.map((row) => ({
+        user_id: String(row.user_id),
+        username: String(row.username),
+        avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+        liked_at: new Date(String(row.liked_at)).toISOString(),
+    }));
+}
+export async function deleteStoryAsAuthor(storyId, authorId) {
+    const r = await pool.query(`DELETE FROM stories WHERE id = $1::uuid AND user_id = $2::uuid RETURNING id`, [storyId, authorId]);
+    if (!r.rowCount) {
+        throw new HttpError(404, 'story_not_found');
+    }
+}
+export async function toggleStoryLike(storyId, viewerId) {
+    // Single multi-CTE statement replaces the old SELECT→DELETE/INSERT pattern.
+    // The old approach had a race window: two concurrent requests could both read
+    // "not liked" and both INSERT, hitting the PK constraint. The CTE executes
+    // atomically: deleted CTE runs first; inserted CTE only fires when deleted
+    // returns no rows. ON CONFLICT DO NOTHING handles any remaining edge races.
+    const out = await pool.query(`WITH story_check AS (
+       SELECT id FROM stories WHERE id = $1::uuid
+     ),
+     deleted AS (
+       DELETE FROM story_likes
+       WHERE story_id = $1::uuid AND user_id = $2::uuid
+         AND (SELECT COUNT(*) FROM story_check) > 0
+       RETURNING 1
+     ),
+     inserted AS (
+       INSERT INTO story_likes (story_id, user_id)
+       SELECT $1::uuid, $2::uuid
+       WHERE NOT EXISTS (SELECT 1 FROM deleted)
+         AND (SELECT COUNT(*) FROM story_check) > 0
+       ON CONFLICT DO NOTHING
+       RETURNING 1
+     )
+     SELECT
+       (SELECT COUNT(*) FROM story_check) > 0 AS story_exists,
+       EXISTS (SELECT 1 FROM inserted) AS liked`, [storyId, viewerId]);
+    const row = out.rows[0];
+    if (!row?.story_exists) {
+        throw new HttpError(404, 'story_not_found');
+    }
+    return { liked: Boolean(row.liked) };
+}
+export async function toggleCommentLike(commentId, viewerId) {
+    const cr = await pool.query(`SELECT post_id::text AS post_id
+     FROM comments
+     WHERE id = $1::uuid AND deleted_at IS NULL`, [commentId]);
+    if (!cr.rowCount)
+        throw new HttpError(404, 'comment_not_found');
+    const postId = String(cr.rows[0].post_id);
+    const allowed = await canViewerAccessPost(postId, viewerId);
+    if (!allowed)
+        throw new HttpError(403, 'forbidden');
+    const out = await pool.query(`WITH deleted AS (
+       DELETE FROM comment_likes
+       WHERE comment_id = $1::uuid AND user_id = $2::uuid
+       RETURNING 1
+     ),
+     inserted AS (
+       INSERT INTO comment_likes (comment_id, user_id)
+       SELECT $1::uuid, $2::uuid
+       WHERE NOT EXISTS (SELECT 1 FROM deleted)
+       ON CONFLICT DO NOTHING
+       RETURNING 1
+     ),
+     updated AS (
+       UPDATE comments
+       SET likes_count = GREATEST(
+         0,
+         likes_count
+         + COALESCE((SELECT COUNT(*) FROM inserted), 0)
+         - COALESCE((SELECT COUNT(*) FROM deleted), 0)
+       )
+       WHERE id = $1::uuid
+       RETURNING likes_count
+     )
+     SELECT
+       EXISTS(SELECT 1 FROM inserted) AS liked,
+       COALESCE((SELECT likes_count FROM updated), 0)::int AS likes_count`, [commentId, viewerId]);
+    return {
+        liked: Boolean(out.rows[0]?.liked),
+        likes_count: Number(out.rows[0]?.likes_count) || 0,
+    };
+}
+export async function deletePostCommentByAuthor(commentId, viewerId) {
+    const cr = await pool.query(`SELECT c.id, c.post_id, c.user_id, p.user_id AS post_author_id
+     FROM comments c
+     JOIN posts p ON p.id = c.post_id
+     WHERE c.id = $1::uuid
+       AND c.deleted_at IS NULL`, [commentId]);
+    if (!cr.rowCount)
+        throw new HttpError(404, 'comment_not_found');
+    const row = cr.rows[0];
+    const canDelete = String(row.user_id) === viewerId || String(row.post_author_id) === viewerId;
+    if (!canDelete)
+        throw new HttpError(403, 'forbidden');
+    // Atomic: soft-delete the comment row + decrement posts.comments_count.
+    // Without the transaction the counter can drift if one write succeeds and
+    // the other doesn't. GREATEST(0, ...) prevents the counter going negative
+    // from any pre-existing drift in the data.
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`UPDATE comments SET deleted_at = now(), content = '' WHERE id = $1::uuid`, [commentId]);
+        await client.query(`UPDATE posts SET comments_count = GREATEST(0, comments_count - 1) WHERE id = $1::uuid`, [String(row.post_id)]);
+        await client.query('COMMIT');
+    }
+    catch (e) {
+        await client.query('ROLLBACK').catch(() => { });
+        throw e;
+    }
+    finally {
+        client.release();
+    }
+}
+export async function togglePostRepost(postId, viewerId, caption = '') {
+    const allowed = await canViewerAccessPost(postId, viewerId);
+    if (!allowed)
+        throw new HttpError(403, 'forbidden');
+    const text = String(caption || '').trim();
+    if (text.length > 1000)
+        throw new HttpError(400, 'text_too_long');
+    const out = await pool.query(`WITH deleted AS (
+       DELETE FROM post_reposts
+       WHERE post_id = $1::uuid AND user_id = $2::uuid
+       RETURNING 1
+     ),
+     inserted AS (
+       INSERT INTO post_reposts (post_id, user_id, caption)
+       SELECT $1::uuid, $2::uuid, NULLIF($3, '')
+       WHERE NOT EXISTS (SELECT 1 FROM deleted)
+       ON CONFLICT DO NOTHING
+       RETURNING 1
+     ),
+     updated AS (
+       UPDATE posts
+       SET reposts_count = GREATEST(
+         0,
+         reposts_count
+         + COALESCE((SELECT COUNT(*) FROM inserted), 0)
+         - COALESCE((SELECT COUNT(*) FROM deleted), 0)
+       )
+       WHERE id = $1::uuid
+       RETURNING reposts_count
+     )
+     SELECT
+       EXISTS(SELECT 1 FROM inserted) AS reposted,
+       COALESCE((SELECT reposts_count FROM updated), 0)::int AS reposts_count`, [postId, viewerId, text]);
+    return {
+        reposted: Boolean(out.rows[0]?.reposted),
+        reposts_count: Number(out.rows[0]?.reposts_count) || 0,
+    };
+}
+//# sourceMappingURL=feedService.js.map

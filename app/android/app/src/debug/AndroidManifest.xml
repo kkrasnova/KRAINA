@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Локальний API (http://10.0.2.2:3000) у debug — без цього Android 9+ блокує cleartext. Release збирається без цієї папки якщо не використовується debug variant. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+  <application android:usesCleartextTraffic="true">
+    <!-- Local Metro dev: expo-updates delay-load can block JS before devSupportManager is ready. -->
+    <meta-data android:name="expo.modules.updates.ENABLED" android:value="false" tools:replace="android:value" />
+    <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="NEVER" tools:replace="android:value" />
+  </application>
+</manifest>

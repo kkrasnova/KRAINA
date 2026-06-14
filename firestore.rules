@@ -1,0 +1,216 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    /** Документ socialFollows має id виду followerUid__followingUid */
+    function followsEdge(fromUid, toUid) {
+      return exists(/databases/$(database)/documents/socialFollows/$(fromUid + '__' + toUid));
+    }
+
+    /** Взаємні підписники («друзі»): ребро туди й назад. */
+    function mutualFollow(viewerUid, authorUid) {
+      return followsEdge(viewerUid, authorUid) && followsEdge(authorUid, viewerUid);
+    }
+
+    /** Пости «для підписників» не входять сюди; «public» або без поля — для усіх залогінених (глобальна стрічка за правилами + запитами клієнта). */
+    function feedPostBroadlyReadable(postData) {
+      return !('visibility' in postData)
+        || postData.visibility == 'public';
+    }
+
+    function feedPostFollowersOnly(postData) {
+      return ('visibility' in postData) && postData.visibility == 'followers';
+    }
+
+    function feedPostReadableByData(postData) {
+      return signedIn()
+        && postData.keys().hasAll(['user_id'])
+        && (
+          request.auth.uid == postData.user_id
+          || mutualFollow(request.auth.uid, postData.user_id)
+          || feedPostBroadlyReadable(postData)
+          || (
+            feedPostFollowersOnly(postData)
+            && followsEdge(request.auth.uid, postData.user_id)
+          )
+        );
+    }
+
+    /** Історії без поля visibility або з public — глобально в стрічці; visibility=followers — автор і підписники (ребро viewer→автор). */
+    function feedStoryBroadlyReadable(storyData) {
+      return !('visibility' in storyData)
+        || storyData.visibility == 'public';
+    }
+
+    function feedStoryFollowersOnly(storyData) {
+      return ('visibility' in storyData) && storyData.visibility == 'followers';
+    }
+
+    function feedStoryReadableByData(storyData) {
+      return signedIn()
+        && storyData.keys().hasAll(['user_id'])
+        && (
+          request.auth.uid == storyData.user_id
+          || mutualFollow(request.auth.uid, storyData.user_id)
+          || feedStoryBroadlyReadable(storyData)
+          || (
+            feedStoryFollowersOnly(storyData)
+            && followsEdge(request.auth.uid, storyData.user_id)
+          )
+        );
+    }
+
+    function feedPostReadable(postId) {
+      return exists(/databases/$(database)/documents/feedPosts/$(postId))
+        && feedPostReadableByData(get(/databases/$(database)/documents/feedPosts/$(postId)).data);
+    }
+
+    function feedStoryReadable(storyId) {
+      return exists(/databases/$(database)/documents/feedStories/$(storyId))
+        && feedStoryReadableByData(get(/databases/$(database)/documents/feedStories/$(storyId)).data);
+    }
+
+    match /profiles/{uid} {
+      allow read: if true;
+      allow write: if isSelf(uid);
+    }
+
+    match /subscriptions/{uid} {
+      allow read: if isSelf(uid);
+      allow write: if isSelf(uid);
+    }
+
+    match /users/{uid} {
+      allow read: if isSelf(uid);
+      allow write: if isSelf(uid);
+    }
+
+    match /billingCancelFeedback/{docId} {
+      allow read: if false;
+      allow create: if signedIn();
+    }
+
+    // Публічне читання графа підписок (личильники, списки друзів): клієнт також міг втрати
+    // сесію Firebase Auth після тайм-ауту входу, тоді signedIn() хибний — запит не має пада́ти.
+    match /socialFollows/{edgeId} {
+      allow read: if true;
+      // Зазвичай ребро створює сам followerId. Винятково — followingId
+      // може створити дзеркало, якщо є відкритий запит на підписку (accept request).
+      allow create: if signedIn()
+        && request.resource.data.followerId is string
+        && request.resource.data.followingId is string
+        && request.resource.data.followerId != request.resource.data.followingId
+        && (
+          request.resource.data.followerId == request.auth.uid
+          || (
+            request.resource.data.followingId == request.auth.uid
+            && exists(/databases/$(database)/documents/socialFollowRequests/$(request.resource.data.followerId + '__' + request.auth.uid))
+          )
+        );
+      // followerId може зняти підписку. followingId може видалити чужу підписку на себе (kick follower).
+      allow delete: if signedIn() && (
+        resource.data.followerId == request.auth.uid
+        || resource.data.followingId == request.auth.uid
+      );
+      allow update: if false;
+    }
+
+    // Запит на підписку (приватний профіль): fromUserId → toUserId, id = fromUserId + '__' + toUserId
+    match /socialFollowRequests/{reqId} {
+      allow read: if signedIn() && (
+        request.auth.uid == resource.data.fromUserId ||
+        request.auth.uid == resource.data.toUserId
+      );
+      allow create: if signedIn()
+        && request.auth.uid == request.resource.data.fromUserId
+        && request.resource.data.fromUserId is string
+        && request.resource.data.toUserId is string
+        && request.resource.data.fromUserId != request.resource.data.toUserId
+        && reqId == request.resource.data.fromUserId + '__' + request.resource.data.toUserId;
+      allow delete: if signedIn() && (
+        request.auth.uid == resource.data.fromUserId ||
+        request.auth.uid == resource.data.toUserId
+      );
+      allow update: if false;
+    }
+
+    // get на неіснуючий документ: `resource` без даних, тому read по memberIds падав раніше.
+    // Короткозамкнення: дозволити get, якщо фізично треду ще нема, або uid у memberIds.
+    match /messageThreads/{threadId} {
+      allow get: if signedIn() && (
+        !exists(/databases/$(database)/documents/messageThreads/$(threadId))
+        || request.auth.uid in resource.data.memberIds
+      );
+      allow list: if signedIn() && request.auth.uid in resource.data.memberIds;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.memberIds;
+      allow update, delete: if signedIn() && request.auth.uid in resource.data.memberIds;
+    }
+
+    match /messageThreads/{threadId}/messages/{messageId} {
+      allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/messageThreads/$(threadId)).data.memberIds;
+      allow create: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/messageThreads/$(threadId)).data.memberIds
+        && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /feedPosts/{postId} {
+      allow read: if feedPostReadableByData(resource.data);
+      allow create, update, delete: if signedIn();
+
+      // Лайки постів: по одному документу на користувача, id == uid автора лайка.
+      match /likes/{likeId} {
+        allow read: if feedPostReadable(postId);
+        allow create, update, delete: if isSelf(likeId);
+      }
+
+      // Коментарі до посту: створює лише автор коментаря (user_id у тілі = auth.uid);
+      // автор коментаря може редагувати/видаляти власний коментар; читати — усі.
+      match /comments/{commentId} {
+        allow read: if feedPostReadable(postId);
+        allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+        allow update, delete: if signedIn() && resource.data.user_id == request.auth.uid;
+      }
+    }
+
+    match /feedStories/{storyId} {
+      allow read: if feedStoryReadableByData(resource.data);
+      allow create, update, delete: if signedIn();
+
+      match /views/{viewerId} {
+        allow read: if feedStoryReadable(storyId);
+        allow create, update, delete: if isSelf(viewerId);
+      }
+
+      match /likes/{likerId} {
+        allow read: if feedStoryReadable(storyId);
+        allow create, update, delete: if isSelf(likerId);
+      }
+    }
+
+    match /appConfig/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /*
+     * Каталог опублікованих локацій для геопросторового модуля.
+     * Читання — публічне (карта/пошук на головній не вимагають входу),
+     * запис — лише через адмін-CMS (бекенд-токен), мобільний клієнт не пише.
+     */
+    match /locations/{locationId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

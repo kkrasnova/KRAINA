@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="uk" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta id="metaThemeColor" name="theme-color" content="#f5f7fa" />
+    <meta name="description" content="KRAÏNA — редактор пам'яток і бандла локацій для застосунку" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <title>KRAÏNA — редактор локацій</title>
+    <script>
+      (function () {
+        try {
+          var k = 'landmarksCms:theme';
+          var t = localStorage.getItem(k);
+          if (t !== 'light' && t !== 'dark') t = 'light';
+          document.documentElement.setAttribute('data-theme', t);
+          var mc = document.getElementById('metaThemeColor');
+          if (mc) mc.setAttribute('content', t === 'dark' ? '#000000' : '#f5f7fa');
+        } catch (e) {}
+      })();
+    </script>
+    <!-- Абсолютні шляхи: працюють навіть без кінцевого / у URL; не покладаємося на <base> -->
+    <link rel="stylesheet" href="/landmarks-cms/fonts.css?v=25" />
+    <link rel="stylesheet" href="/landmarks-cms/style.css?v=33" />
+    <!-- Якщо основний CSS не дійде — мінімальний fallback під світлу тему -->
+    <style>
+      html {
+        color-scheme: light;
+        background: #f5f7fa;
+        color: #1a1a1a;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-bg" aria-hidden="true"></div>
+    <div class="page-noise" aria-hidden="true"></div>
+
+    <div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+    <div class="shell shell--login">
+      <div id="authStage" class="auth-stage">
+      <header id="globalBrand" class="brand">
+        <div class="brand-left">
+          <div class="brand-lockup">
+            <div class="brand-mark" aria-hidden="true">
+              <img
+                class="brand-mark-img"
+                src="/landmarks-cms/branding/app-mark.png?v=26"
+                alt=""
+                width="42"
+                height="42"
+                decoding="async"
+              />
+            </div>
+            <div class="brand-text">
+              <div class="brand-title-row">
+                <span class="brand-name brand-name--logo">KRAÏNA</span>
+                <span class="brand-chip">CMS локацій</span>
+              </div>
+              <p class="brand-sub">Пам’ятки на карті та в застосунку: бандл JSON + фото на сервері</p>
+            </div>
+          </div>
+        </div>
+        <div class="brand-actions">
+          <button type="button" id="btnThemeToggle" class="btn btn-theme" aria-pressed="false" title="Перемкнути тему">
+            <span class="btn-theme-icon btn-theme-icon-light" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" />
+                <path
+                  d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span class="btn-theme-icon btn-theme-icon-dark hidden" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M21 14.5A8.5 8.5 0 019.5 3 9 9 0 1017 21c-.9-.8-1.7-1.8-2.3-3"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span class="btn-theme-label">Тема</span>
+          </button>
+          <button
+            type="button"
+            id="btnHardRefresh"
+            class="btn btn-ghost btn-hard"
+            title="Перезавантажити сторінку та скинути кеш (Cmd+Shift+R)"
+          >
+            Без кешу
+          </button>
+        </div>
+      </header>
+
+      <section id="loginPanel" class="panel login-panel">
+        <div class="login-wrap">
+          <div class="login-card">
+            <div class="login-card-glow" aria-hidden="true"></div>
+            <div class="login-card-shine" aria-hidden="true"></div>
+            <p class="login-kicker">Доступ для команди контенту</p>
+            <h1 class="login-heading">Увійдіть у редактор</h1>
+            <label class="field">
+              <span class="field-label">База API (за потреби)</span>
+              <input
+                id="apiBase"
+                type="url"
+                placeholder="https://api.yoursite.com — залиште порожнім для localhost"
+                autocomplete="off"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">Email</span>
+              <input id="email" type="email" autocomplete="username" placeholder="admin@company.com" />
+            </label>
+            <label class="field">
+              <span class="field-label">Пароль</span>
+              <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
+            </label>
+            <button type="button" id="btnLogin" class="btn btn-primary btn-block">Увійти</button>
+            <p id="loginError" class="banner banner-error" hidden></p>
+          </div>
+        </div>
+      </section>
+      </div>
+
+      <!-- Робоча зона -->
+      <section id="mainPanel" class="panel main-panel hidden">
+        <div class="topbar">
+          <div class="topbar-user">
+            <span class="pill" id="userInfo"></span>
+            <span class="pill pill-muted" id="jsonStatus">—</span>
+          </div>
+          <div class="topbar-actions">
+            <button type="button" id="btnReload" class="btn btn-secondary btn-icon" title="Підтягнути з сервера останній бандл і медіа">
+              <span class="ico ico-reload" aria-hidden="true"></span> З сервера
+            </button>
+            <button type="button" id="btnSave" class="btn btn-primary btn-icon" title="Зберегти бандл (Cmd/Ctrl+S)">
+              <span class="ico ico-save" aria-hidden="true"></span> Зберегти
+            </button>
+            <button type="button" id="btnLogout" class="btn btn-ghost">Вийти</button>
+          </div>
+        </div>
+
+        <p id="mainError" class="banner banner-error" hidden></p>
+
+        <nav class="tabs-wrap">
+          <p class="tabs-hint">
+            <strong>Бандл</strong> — редагування JSON · <strong>Як у застосунку</strong> — перегляд карток пам’яток і фото перед публікацією · <strong>Медіа</strong> — завантажити зображення й скопіювати HTTPS-URL у поля бандла.
+          </p>
+          <div class="tabs" role="tablist" aria-label="Розділи редактора">
+            <button type="button" class="tab tab-active" data-tab="bundle" role="tab" aria-selected="true">
+              <svg class="tab-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M7 3h8l4 4v13a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                />
+                <path d="M14 3v4h4M9 13h6M9 17h4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+              </svg>
+              Бандл локацій
+            </button>
+            <button type="button" class="tab" data-tab="preview" role="tab" aria-selected="false">
+              <svg class="tab-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                />
+                <circle cx="12" cy="17" r="1" fill="currentColor" />
+              </svg>
+              Як у застосунку
+            </button>
+            <button type="button" class="tab" data-tab="media" role="tab" aria-selected="false">
+              <svg class="tab-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 16l4.5-5 4 4 4.5-6 5 7v3a2 2 0 01-2 2H6a2 2 0 01-2-2v-5z"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                />
+                <circle cx="9" cy="8" r="2" stroke="currentColor" stroke-width="1.75" />
+              </svg>
+              Медіа
+            </button>
+          </div>
+        </nav>
+
+        <div id="tabBundle" class="tab-pane tab-pane-bundle">
+          <aside class="side-guide" aria-labelledby="guide-json-title">
+            <span class="side-guide-tag">Швидка довідка</span>
+            <h3 id="guide-json-title" class="side-guide-title">Де що лежить у JSON</h3>
+            <ul class="side-guide-list">
+              <li><code>regions</code> — міста / регіони. Усередині — <code>landmarks[]</code> пам’ятки з координатами.</li>
+              <li>Кожна пам’ятка: <code>titleUk</code>, <code>titleEn</code>, <code>lat</code>, <code>lng</code>, описи, <code>galleryUris</code> (URL з вкладки Медіа).</li>
+              <li>Імпорт готового файлу — <strong>Імпорт</strong>. Експорт копії — <strong>Експорт</strong>.</li>
+            </ul>
+            <details class="guide-details">
+              <summary>Мінімальний приклад фрагмента</summary>
+              <pre class="guide-pre" id="guidePreJson">"regions": {
+  "kyiv": {
+    "id": "kyiv",
+    "titleUk": "Київ",
+    "landmarks": [
+      {
+        "id": "example",
+        "titleUk": "Назва",
+        "lat": 50.45,
+        "lng": 30.52,
+        "galleryUris": ["https://..."]
+      }
+    ]
+  }
+}</pre>
+            </details>
+          </aside>
+
+          <div class="card card-elevated card-main-editor">
+            <div class="card-head">
+              <div class="card-icon card-icon--doc" aria-hidden="true"></div>
+              <div class="card-head-text">
+                <h2>Редактор бандла</h2>
+                <p class="hint hint-tight">
+                  Повний знімок, як у застосунку: <code>homeCountryOrder</code>, <code>regions</code>,
+                  <code>homeRegionIdsByCountry</code>… Якщо вперше — натисніть <strong>З сервера</strong>, щоб підтягнути збережене або шаблон.
+                </p>
+              </div>
+            </div>
+            <div class="toolbar-editor" role="toolbar" aria-label="Дії з JSON">
+              <div class="toolbar-cluster">
+                <span class="toolbar-label">Файл</span>
+                <div class="toolbar-actions">
+                  <button type="button" id="btnImportFile" class="btn btn-secondary btn-compact">Імпорт…</button>
+                  <input type="file" id="importJsonFile" accept="application/json,.json" hidden />
+                  <button type="button" id="btnExport" class="btn btn-secondary btn-compact">Експорт</button>
+                </div>
+              </div>
+              <span class="toolbar-divider" aria-hidden="true"></span>
+              <div class="toolbar-cluster">
+                <span class="toolbar-label">Якість</span>
+                <div class="toolbar-actions">
+                  <button type="button" id="btnFormat" class="btn btn-secondary btn-compact">Форматувати</button>
+                  <button type="button" id="btnValidate" class="btn btn-secondary btn-compact">Перевірка</button>
+                </div>
+              </div>
+            </div>
+            <div class="editor-frame">
+              <div class="editor-frame-head">
+                <span class="editor-frame-label">Редактор JSON</span>
+                <span class="editor-frame-tip">Рядки збільшуйте за нижній край</span>
+              </div>
+              <label class="sr-only" for="jsonEditor">Текст JSON бандла</label>
+              <textarea id="jsonEditor" spellcheck="false" placeholder="{ }" rows="22"></textarea>
+            </div>
+            <div class="editor-meta" id="editorMeta"></div>
+          </div>
+        </div>
+
+        <div id="tabPreview" class="tab-pane tab-pane-preview hidden">
+          <div class="card card-elevated preview-pane-card">
+            <div class="card-head">
+              <div class="card-icon card-icon--eye" aria-hidden="true"></div>
+              <div class="card-head-text">
+                <h2>Перегляд пам’яток</h2>
+                <p class="hint hint-tight">
+                  Зліва — список усіх пам’яток із пошуком і швидке редагування полів (запис у JSON). Справа — картки прев’ю. Фото беруться з
+                  <code>thumbUri</code>, <code>galleryUris</code>, <code>story.*Uri</code>; нові файли — вкладка <strong>Медіа</strong>.
+                </p>
+              </div>
+            </div>
+            <div class="preview-toolbar">
+              <button type="button" id="btnPreviewRefresh" class="btn btn-secondary btn-compact">Оновити з редактора</button>
+              <span id="previewMeta" class="preview-meta" aria-live="polite"></span>
+            </div>
+            <div id="previewEmptyBanner" class="preview-empty-banner hidden" role="note">
+              <p class="preview-empty-banner-text">
+                Порожньо, бо в JSON <strong>немає жодного елемента в</strong>
+                <code>regions.*.landmarks[]</code> (на сервері міг зберегтися порожній бандл). Відкрийте
+                <strong>Бандл локацій</strong> → імпортуйте файл як у застосунку, або натисніть кнопку нижче — після цього натисніть
+                <strong>Зберегти</strong>.
+              </p>
+              <button type="button" id="btnPreviewLoadExample" class="btn btn-secondary btn-compact">
+                Вставити приклад (Київ + одна пам’ятка)
+              </button>
+            </div>
+
+            <div class="preview-split">
+              <aside class="preview-sidebar" aria-labelledby="previewListHeading">
+                <h3 id="previewListHeading" class="preview-side-h">Усі пам’ятки</h3>
+                <label class="field preview-field-search">
+                  <span class="field-label">Пошук</span>
+                  <input type="search" id="previewSearch" class="field-input" placeholder="Назва, id, регіон…" autocomplete="off" />
+                </label>
+                <div id="previewLandmarkList" class="preview-landmark-list" role="list"></div>
+
+                <div id="previewEditPanel" class="preview-edit-panel hidden">
+                  <h4 class="preview-edit-heading" id="previewEditHeading">Редагування</h4>
+                  <p id="previewEditHint" class="hint preview-edit-hint"></p>
+                  <label class="field">
+                    <span class="field-label">Назва (UK)</span>
+                    <input type="text" id="previewEditTitleUk" class="field-input" autocomplete="off" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Назва (EN)</span>
+                    <input type="text" id="previewEditTitleEn" class="field-input" autocomplete="off" />
+                  </label>
+                  <div class="preview-edit-row">
+                    <label class="field preview-edit-half">
+                      <span class="field-label">Широта</span>
+                      <input type="text" id="previewEditLat" class="field-input" inputmode="decimal" />
+                    </label>
+                    <label class="field preview-edit-half">
+                      <span class="field-label">Довгота</span>
+                      <input type="text" id="previewEditLng" class="field-input" inputmode="decimal" />
+                    </label>
+                  </div>
+                  <label class="field">
+                    <span class="field-label">thumbUri (HTTPS прев’ю)</span>
+                    <input type="url" id="previewEditThumbUri" class="field-input" placeholder="https://…" autocomplete="off" />
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Короткий вступ (story.shortIntroUk)</span>
+                    <textarea id="previewEditShortIntro" class="field-input field-textarea" rows="2" spellcheck="true"></textarea>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Опис (descUk)</span>
+                    <textarea id="previewEditDescUk" class="field-input field-textarea" rows="4" spellcheck="true"></textarea>
+                  </label>
+                  <div class="preview-edit-actions">
+                    <button type="button" id="btnPreviewSaveLandmark" class="btn btn-primary btn-compact">Зберегти в JSON</button>
+                    <button type="button" id="btnPreviewClearLandmark" class="btn btn-ghost btn-compact">Зняти вибір</button>
+                  </div>
+                </div>
+              </aside>
+              <div class="preview-main">
+                <div id="previewGrid" class="preview-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tabMedia" class="tab-pane hidden">
+          <div class="card card-elevated card-media-block">
+            <div class="card-head">
+              <div class="card-icon card-icon--img" aria-hidden="true"></div>
+              <div class="card-head-text">
+                <h2>Завантаження зображень</h2>
+                <p class="hint hint-tight">
+                  Можна обрати або перетягнути <strong>кілька зображень відразу</strong>. Файли зберігаються на сервері — ви отримуєте
+                  <strong>HTTPS-URL</strong> для кожного; усі посилання можна скопіювати одним блоком і розставити в JSON (прев’ю,
+                  галерея, <code>story</code>).
+                </p>
+              </div>
+            </div>
+            <div class="upload-zone" id="uploadZone">
+              <div class="upload-zone-graphic" aria-hidden="true">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                  <path
+                    d="M10 38h28a4 4 0 004-4V18l-8-8H14a4 4 0 00-4 4v20a4 4 0 004 4z"
+                    stroke="url(#ug)"
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M30 10v8h8" stroke="url(#ug)" stroke-width="2" stroke-linecap="round" />
+                  <circle cx="20" cy="22" r="3" fill="url(#ug)" opacity="0.6" />
+                  <defs>
+                    <linearGradient id="ug" x1="10" y1="10" x2="38" y2="38" gradientUnits="userSpaceOnUse">
+                      <stop stop-color="#60a5fa" />
+                      <stop offset="1" stop-color="#e8b44c" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+              <p class="upload-zone-title">Перетягніть зображення сюди</p>
+              <p class="upload-zone-sub">Кілька файлів одразу · JPEG, PNG, WebP або GIF · макс. розмір задає сервер</p>
+              <div class="upload-row">
+                <label class="file-pick">
+                  <input
+                    type="file"
+                    id="fileInput"
+                    class="file-input-native"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
+                  />
+                  <span class="file-pick-ui">Обрати файли…</span>
+                </label>
+                <button type="button" id="btnUpload" class="btn btn-primary">Завантажити на сервер</button>
+              </div>
+            </div>
+            <p class="upload-hint-label">Останні завантажені URL (через новий рядок; можна скопіювати блоком):</p>
+            <div id="lastUpload" class="last-upload" role="status" aria-live="polite"></div>
+            <h3 class="media-grid-title">Уже на сервері</h3>
+            <div id="mediaGrid" class="media-grid"></div>
+            <p id="mediaEmpty" class="hint media-empty-hint hidden">Ще нічого не завантажено — оберіть файл вище.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script src="/landmarks-cms/app.js?v=34" defer></script>
+  </body>
+</html>

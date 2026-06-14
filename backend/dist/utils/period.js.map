@@ -1,0 +1,1 @@
+{"version":3,"file":"period.js","sourceRoot":"","sources":["../../src/utils/period.ts"],"names":[],"mappings":"AAAA,MAAM,UAAU,kBAAkB;IAChC,MAAM,CAAC,GAAG,IAAI,IAAI,EAAE,CAAC;IACrB,OAAO,GAAG,CAAC,CAAC,WAAW,EAAE,IAAI,MAAM,CAAC,CAAC,CAAC,QAAQ,EAAE,GAAG,CAAC,CAAC,CAAC,QAAQ,CAAC,CAAC,EAAE,GAAG,CAAC,EAAE,CAAC;AAC3E,CAAC"}

@@ -1,0 +1,26 @@
+{
+  "java.project.resourceFilters": [
+    "node_modules",
+    "**/node_modules",
+    "**/node_modules/**",
+    "node_modules/@react-native-async-storage/**",
+    "node_modules/expo-modules-core/**",
+    ".git",
+    "build",
+    ".gradle",
+    "**/build",
+    "**/.gradle"
+  ],
+  "java.import.exclusions": [
+    "**/node_modules/**",
+    "**/node_modules",
+    "node_modules/@react-native-async-storage/**",
+    "node_modules/expo-modules-core/**"
+  ],
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.gradle/**": true
+  },
+  "java.import.gradle.enabled": false,
+  "java.import.gradle.wrapper.enabled": false
+}

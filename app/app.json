@@ -1,0 +1,94 @@
+{
+  "expo": {
+    "name": "KRAÏNA",
+    "slug": "kraina",
+    "scheme": "com.kraina.app",
+    "plugins": [
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-apple-authentication",
+      "expo-asset",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Додаток використовує геолокацію, щоб запропонувати країну за вашим місцезнаходженням.",
+          "locationAlwaysAndWhenInUsePermission": "Додаток використовує геолокацію, щоб запропонувати країну за вашим місцезнаходженням."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камера потрібна, щоб фотографувати пам’ятки та показувати про них інформацію."
+        }
+      ],
+      "react-native-iap",
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-notifications",
+      "expo-audio",
+      "expo-image",
+      "expo-video"
+    ],
+    "extra": {
+      "googleVisionApiKey": "",
+      "googleMapsApiKey": "",
+      "helpFaqUrl": "https://play.google.com/store/apps/details?id=com.kraina.app",
+      "helpDocsUrl": "https://play.google.com/store/apps/details?id=com.kraina.app",
+      "eas": {
+        "projectId": "9643216e-eb27-4acd-9b1c-ac4c5a42883c"
+      }
+    },
+    "version": "1.0.1",
+    "runtimeVersion": "1.0.1",
+    "updates": {
+      "url": "https://u.expo.dev/9643216e-eb27-4acd-9b1c-ac4c5a42883c"
+    },
+    "orientation": "portrait",
+    "backgroundColor": "#000000",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "dark",
+    "autolinking": {
+      "exclude": ["expo-av"],
+      "android": {
+        "buildFromSource": []
+      }
+    },
+    "newArchEnabled": false,
+    "splash": {
+      "backgroundColor": "#000000",
+      "resizeMode": "contain",
+      "image": "./assets/splash_blank.png"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kraina.app",
+      "buildNumber": "1",
+      "usesAppleSignIn": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#000000"
+      },
+      "splash": {
+        "backgroundColor": "#000000",
+        "resizeMode": "contain",
+        "image": "./assets/splash_blank.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.kraina.app",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/logo.png"
+    }
+  }
+}

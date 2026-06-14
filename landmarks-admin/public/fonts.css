@@ -1,0 +1,65 @@
+
+
+@font-face {
+  font-family: 'PangramSans';
+  src: url('./fonts/PPPangramSans-Light.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PangramSans';
+  src: url('./fonts/PPPangramSans-CompactRegular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PangramSans';
+  src: url('./fonts/PPPangramSans-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PangramSans';
+  src: url('./fonts/PPPangramSans-Semibold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PangramSans';
+  src: url('./fonts/PPPangramSans-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'e-UkraineHead';
+  src: url('./fonts/e-UkraineHead-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'e-UkraineHead';
+  src: url('./fonts/e-UkraineHead-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'e-UkraineHeadLOGO';
+  src: url('./fonts/e-UkraineHead-LOGO.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}

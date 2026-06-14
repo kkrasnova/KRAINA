@@ -1,0 +1,61 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+package-lock.json
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files (never commit API keys)
+.env
+.env*.local
+
+# Firebase / Google (завантажити з Firebase Console локально, не комітити)
+google-services.json
+GoogleService-Info.plist
+**/GoogleService-Info.plist
+google-ios-client.json
+
+# typescript
+*.tsbuildinfo
+
+# Native projects are tracked; ignore generated artifacts only (не ховати весь ios/android у git).
+ios/Pods/
+ios/build/
+ios/**/*.xcuserstate
+ios/**/*.xcuserdata/
+
+android/.gradle/
+android/app/build/
+android/build/
+android/.cxx/
+android/local.properties
+android/app/.cxx/
+android/*.iml
+android/.idea/
+android/captures/
