@@ -36,12 +36,47 @@ export async function backendLogin(email, password) {
   return postJson('/api/auth/login', { email, password });
 }
 
-export async function backendRegister(email, password, username) {
-  const u = String(username || '')
+export async function backendEmailExists(email) {
+  if (!API_BASE_URL) return false;
+  try {
+    const data = await postJson('/api/auth/email-exists', {
+      email: String(email || '').trim().toLowerCase(),
+    });
+    return !!data?.exists;
+  } catch (e) {
+    if (__DEV__) console.warn('[backendAuthApi] email-exists', e?.message);
+    return false;
+  }
+}
+
+export async function backendStoreAppPasswordResetOtp(email, code, expiresAtMs) {
+  if (!API_BASE_URL) return;
+  await postJson('/api/auth/app-password-reset/otp', {
+    email: String(email || '').trim().toLowerCase(),
+    code: String(code || '').replace(/\s/g, ''),
+    expires_at: expiresAtMs,
+  });
+}
+
+export async function backendResetPasswordWithAppOtp(email, code, newPassword) {
+  if (!API_BASE_URL) return;
+  await postJson('/api/auth/app-password-reset/confirm', {
+    email: String(email || '').trim().toLowerCase(),
+    code: String(code || '').replace(/\s/g, ''),
+    new_password: newPassword,
+  });
+}
+
+export async function backendRegister(email, password, opts = {}) {
+  const body = { email, password };
+  const u = String(opts.username || '')
     .trim()
     .replace(/^@/, '')
     .toLowerCase();
-  return postJson('/api/auth/register', { email, password, username: u });
+  if (u.length >= 3) body.username = u;
+  const displayName = String(opts.display_name || '').trim();
+  if (displayName) body.display_name = displayName;
+  return postJson('/api/auth/register', body);
 }
 
 export async function backendGoogle(id_token) {
@@ -111,6 +146,38 @@ export async function backendAuthFetch(method, path, body) {
   }
   if (!res.ok) await parseApiError(res);
   if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Multipart upload (voice, images) — не ставить Content-Type вручную. */
+export async function backendAuthUpload(path, formData) {
+  const base = API_BASE_URL;
+  if (!base) throw new ApiError(503, { error: 'API_UNAVAILABLE' }, 'API_UNAVAILABLE');
+
+  let token = await getValidBackendAccessToken();
+  if (!token) throw new ApiError(401, { error: 'UNAUTHORIZED' }, 'UNAUTHORIZED');
+
+  const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
+  const opts = { method: 'POST', headers, body: formData };
+
+  let res = await fetch(`${base}${path}`, opts);
+  if (res.status === 401) {
+    const refreshed = await useAuthStore.getState().refreshSession();
+    if (refreshed) {
+      token = useAuthStore.getState().accessToken;
+      if (isBackendJwt(token)) {
+        headers.Authorization = `Bearer ${token}`;
+        res = await fetch(`${base}${path}`, opts);
+      }
+    }
+  }
+  if (!res.ok) await parseApiError(res);
   const text = await res.text();
   if (!text) return null;
   try {

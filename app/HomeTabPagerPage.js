@@ -9,6 +9,7 @@ import MapTabPage from './MapTabPage';
 import ProfilePage from './ProfilePage';
 import { markReturningUserAfterSuccessfulAuth } from './onboardingStorage';
 import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { RenderProfiler, markEnd } from './performanceMetrics';
 
 function clampTab(i) {
   const n = Number(i);
@@ -31,6 +32,7 @@ export default function HomeTabPagerPage({ navigation, route }) {
      ми показуємо лише FirstPage → BackendAuth, без вибору мови та банерів онбордингу. */
   useEffect(() => {
     markReturningUserAfterSuccessfulAuth();
+    markEnd('home_tabs_mounted');
   }, []);
   /** Актуальна мова зі сховища / події — підставляємо в усі вкладки, бо route.params часто не оновлюється. */
   const syncLang = useSyncedAppLanguage(route, 'uk');
@@ -165,6 +167,7 @@ export default function HomeTabPagerPage({ navigation, route }) {
   );
 
   return (
+    <RenderProfiler id="HomeTabPagerPage">
     <View style={styles.flex}>
       <PagerView
         ref={pagerRef}
@@ -191,6 +194,7 @@ export default function HomeTabPagerPage({ navigation, route }) {
         </View>
       </PagerView>
     </View>
+    </RenderProfiler>
   );
 }
 

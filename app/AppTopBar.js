@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState, memo } from 'react';
-import { View, Pressable, Text, StyleSheet, Platform, InteractionManager } from 'react-native';
+import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
+import { runAfterInteractions } from './runAfterInteractions';
 import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -116,7 +117,7 @@ export default memo(function AppTopBar({
 
   useEffect(() => {
     if (!send) return undefined;
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = runAfterInteractions(() => {
       void reloadUnread();
     });
     const timer = setInterval(() => {

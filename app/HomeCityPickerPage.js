@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, Platform, DeviceEventEmitter } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { View, Text, StyleSheet, Pressable, Platform, DeviceEventEmitter } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -128,10 +129,11 @@ export default function HomeCityPickerPage({ navigation, route }) {
         hideSendButton
         replaceCenterTitle={mt(language, 'homePickCity')}
       />
-      <FlatList
+      <FlashList
         data={regions}
         keyExtractor={(r) => r.id}
         renderItem={renderItem}
+        estimatedItemSize={85}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: Math.max(24, insets.bottom + 24),

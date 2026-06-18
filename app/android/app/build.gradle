@@ -3,6 +3,61 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+/** Корінь Expo-проєкту (app/package.json, app/.env). */
+def appRootDir = rootDir.getAbsoluteFile().getParentFile().getParentFile()
+
+def googleMapsApiKey = ''
+def fromMapsProp = findProperty('GOOGLE_MAPS_API_KEY')
+if (fromMapsProp != null && fromMapsProp.toString().trim()) {
+    googleMapsApiKey = fromMapsProp.toString().trim()
+} else {
+    def fromEnv = System.getenv('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY')
+    if (fromEnv != null && fromEnv.trim()) {
+        googleMapsApiKey = fromEnv.trim()
+    } else {
+        for (def envFile : [new File(appRootDir, '.env'), new File(projectRoot, '.env')]) {
+            if (!envFile.exists()) {
+                continue
+            }
+            envFile.eachLine { line ->
+                if (googleMapsApiKey) {
+                    return
+                }
+                def trimmed = line.trim()
+                if (!trimmed || trimmed.startsWith('#') || !trimmed.contains('=')) {
+                    return
+                }
+                def parts = trimmed.split('=', 2)
+                if (parts.length == 2 && parts[0].trim() == 'EXPO_PUBLIC_GOOGLE_MAPS_API_KEY') {
+                    googleMapsApiKey = parts[1].trim().replaceAll(/^["']|["']$/, '')
+                }
+            }
+            if (googleMapsApiKey) {
+                break
+            }
+        }
+    }
+}
+if (!googleMapsApiKey) {
+    def gsFile = new File(appRootDir, 'google-services.json')
+    if (gsFile.exists()) {
+        try {
+            def json = new groovy.json.JsonSlurper().parse(gsFile)
+            def key = json?.client?.getAt(0)?.api_key?.getAt(0)?.current_key
+            if (key) {
+                googleMapsApiKey = key.toString()
+            }
+        } catch (ignored) {
+            // fall through
+        }
+    }
+}
+if (!googleMapsApiKey) {
+    logger.warn(
+        '[KRAINA] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is empty — Google Maps will fail on Android. ' +
+        'Add the key to app/.env and run a full native rebuild (npm run android).'
+    )
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -11,10 +66,10 @@ def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 react {
     entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
     reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
-    hermesCommand = new File(["node", "--print", "require.resolve('hermes-compiler/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/hermesc/%OS-BIN%/hermesc"
+    hermesCommand = new File(["node", "--print", "require.resolve('hermes-compiler/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/hermesc/%OS-BIN%/hermesc"
     codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
 
-    enableBundleCompression = (findProperty('android.enableBundleCompression') ?: true).toBoolean()
+    enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
     // Use Expo CLI to bundle the app, this ensures the Metro config
     // works correctly with Expo projects.
     cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
@@ -57,34 +112,10 @@ react {
     // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
     //
     //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    //   -w: suppress warnings from generated code
-    hermesFlags = ["-O", "-output-source-map", "-w"]
+    // hermesFlags = ["-O", "-output-source-map"]
 
     /* Autolinking */
     autolinkLibrariesWithApp()
-}
-
-tasks.matching { it.name == "generateAutolinkingNewArchitectureFiles" }.configureEach {
-    doLast {
-        def generatedJniDir = file("$buildDir/generated/autolinking/src/main/jni")
-        def cmakeFile = new File(generatedJniDir, "Android-autolinking.cmake")
-        if (cmakeFile.exists()) {
-            cmakeFile.text = cmakeFile.text
-                .replaceAll(/(?m)^add_subdirectory\(".*react-native-health-connect\/android\/build\/generated\/source\/codegen\/jni\/" RNHealthConnectSpec_autolinked_build\)\R?/, "")
-                .replaceAll(/(?m)^add_subdirectory\(".*react-native-nitro-modules\/android\/build\/generated\/source\/codegen\/jni\/" NitroModulesSpec_autolinked_build\)\R?/, "")
-                .replaceAll(/(?m)^\s*react_codegen_RNHealthConnectSpec\s*\R?/, "")
-                .replaceAll(/(?m)^\s*react_codegen_NitroModulesSpec\s*\R?/, "")
-        }
-
-        def cppFile = new File(generatedJniDir, "autolinking.cpp")
-        if (cppFile.exists()) {
-            cppFile.text = cppFile.text
-                .replaceAll(/(?m)^#include <RNHealthConnectSpec\.h>\R?/, "")
-                .replaceAll(/(?m)^#include <NitroModulesSpec\.h>\R?/, "")
-                .replaceAll(/(?s)auto module_RNHealthConnectSpec = RNHealthConnectSpec_ModuleProvider\(moduleName, params\);\s*if \(module_RNHealthConnectSpec != nullptr\) \{\s*return module_RNHealthConnectSpec;\s*\}\s*/, "")
-                .replaceAll(/(?s)auto module_NitroModulesSpec = NitroModulesSpec_ModuleProvider\(moduleName, params\);\s*if \(module_NitroModulesSpec != nullptr\) \{\s*return module_NitroModulesSpec;\s*\}\s*/, "")
-        }
-    }
 }
 
 /**
@@ -114,12 +145,13 @@ android {
     namespace 'com.kraina.app'
     defaultConfig {
         applicationId 'com.kraina.app'
-        // react-native-health-connect → androidx.health.connect (minSdk 26)
-        minSdkVersion Math.max(26, rootProject.ext.minSdkVersion as int)
+        minSdkVersion 26
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
+        versionCode 1
         versionName "1.0.1"
 
+        manifestPlaceholders = [googleMapsApiKey: googleMapsApiKey]
+        resValue 'string', 'google_maps_api_key', googleMapsApiKey ?: 'missing-google-maps-api-key'
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
@@ -178,8 +210,7 @@ android {
 }
 
 dependencies {
-    implementation "design.spline:spline-runtime:0.2.+"
-    implementation "io.github.hyochan.openiap:openiap-google:1.3.7"
+    implementation "io.github.hyochan.openiap:openiap-google:1.3.28"
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

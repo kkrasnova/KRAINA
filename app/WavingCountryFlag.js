@@ -32,8 +32,8 @@ export function countryFlagSource(countryId) {
   return COUNTRY_FLAG_PNG[k] ?? null;
 }
 
-/** Хвилястий контур прапора — верх і низ як хвиля. */
-function waveFlagPath(w, h, amp = 3.2, waves = 2.5, phase = 0) {
+/** Хвилястий контур прапора — верх і низ як одна плавна хвиля. */
+function waveFlagPath(w, h, amp = 4, waves = 1, phase = 0) {
   const steps = 12;
   const stepW = w / steps;
   const topBase = amp + 1.5;

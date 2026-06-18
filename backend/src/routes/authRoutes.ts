@@ -9,6 +9,9 @@ import {
   refreshSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  emailExistsSchema,
+  appPasswordResetOtpSchema,
+  appPasswordResetConfirmSchema,
 } from '../schemas/auth.schemas.js';
 import {
   registerUser,
@@ -19,6 +22,9 @@ import {
   logoutAllRefreshTokens,
   requestPasswordReset,
   resetPasswordWithToken,
+  userEmailExists,
+  storeAppPasswordResetOtp,
+  resetPasswordWithAppOtp,
   type AuthTokens,
 } from '../services/authService.js';
 import { createFirebaseCustomToken } from '../services/firebaseAdminAuthService.js';
@@ -132,6 +138,52 @@ router.post('/refresh', authRefreshRateLimiter, async (req, res, next) => {
     const { user_id: _user_id, ...rest } = tokens;
     void _user_id;
     res.status(200).json(firebase_custom_token ? { ...rest, firebase_custom_token } : rest);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/email-exists', authForgotPasswordRateLimiter, async (req, res, next) => {
+  try {
+    const parsed = emailExistsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, zodFirstCode(parsed.error));
+    }
+    const exists = await userEmailExists(parsed.data.email);
+    res.status(200).json({ exists });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/app-password-reset/otp', authForgotPasswordRateLimiter, async (req, res, next) => {
+  try {
+    const parsed = appPasswordResetOtpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, zodFirstCode(parsed.error));
+    }
+    await storeAppPasswordResetOtp(parsed.data.email, parsed.data.code, parsed.data.expires_at);
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/app-password-reset/confirm', authResetPasswordRateLimiter, async (req, res, next) => {
+  try {
+    const parsed = appPasswordResetConfirmSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const code =
+        issue?.message === 'weak_password'
+          ? 'weak_password'
+          : issue?.message === 'invalid_email'
+            ? 'invalid_email'
+            : 'token_invalid';
+      throw new HttpError(400, code);
+    }
+    await resetPasswordWithAppOtp(parsed.data.email, parsed.data.code, parsed.data.new_password);
+    res.status(200).json({ message: 'password_reset' });
   } catch (e) {
     next(e);
   }

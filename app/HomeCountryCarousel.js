@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme } from './themeAccent';
-import WavingCountryFlag from './WavingCountryFlag';
+import { countryFlagSource } from './WavingCountryFlag';
 const CARD_RADIUS = 16;
 const GAP = 12;
 /** Одна висота для всіх карток; фото — на всю площу, contain + градієнт лише знизу. */
@@ -82,6 +82,7 @@ export default memo(function HomeCountryCarousel({
               : `${nPlaces} cities & towns`;
       const locationsLine = mtHomeLocationsCount(language, item.locationCount);
       const titleLine = item.countryLabel;
+      const flagSrc = countryFlagSource(item.id);
       return (
         <Pressable
           onPress={() => onSelectCountry?.(item.id)}
@@ -100,12 +101,12 @@ export default memo(function HomeCountryCarousel({
             },
           ]}
         >
-          <View style={styles.cardMedia} pointerEvents="none">
+           <View style={styles.cardMedia} pointerEvents="none">
             {item.heroThumb ? (
               <Image
                 source={item.heroThumb}
-                style={[styles.heroImage, item.id === 'UA' && styles.heroUa]}
-                resizeMode={item.id === 'UA' ? 'cover' : 'contain'}
+                style={styles.heroImage}
+                resizeMode="cover"
               />
             ) : (
               <View style={styles.heroPlaceholder} />
@@ -113,8 +114,8 @@ export default memo(function HomeCountryCarousel({
           </View>
           <LinearGradient
             pointerEvents="none"
-            colors={['transparent', 'rgba(0,0,0,0.78)', 'rgba(0,0,0,0.92)']}
-            locations={[0, 0.45, 1]}
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.92)']}
+            locations={[0, 0.3, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={styles.cardBottomFade}
@@ -131,13 +132,18 @@ export default memo(function HomeCountryCarousel({
                   <Text style={styles.countPart}>{locationsLine}</Text>
                 </View>
               </View>
-              <WavingCountryFlag
-                countryId={item.id}
-                emoji={item.flag}
-                width={50}
-                height={36}
-                accessibilityLabel={item.countryLabel}
-              />
+              {flagSrc ? (
+                <Image
+                  source={flagSrc}
+                  style={styles.countryFlagImg}
+                  resizeMode="cover"
+                  accessibilityLabel={item.countryLabel}
+                />
+              ) : (
+                <Text style={styles.flagEmoji} allowFontScaling={false} accessibilityLabel={item.countryLabel}>
+                  {item.flag || '🏳️'}
+                </Text>
+              )}
             </View>
           </View>
         </Pressable>
@@ -191,6 +197,10 @@ export default memo(function HomeCountryCarousel({
         contentContainerStyle={{ paddingRight: 24, paddingVertical: 4 }}
         onMomentumScrollEnd={onScrollEnd}
         getItemLayout={getItemLayout}
+        removeClippedSubviews={Platform.OS === 'android'}
+        maxToRenderPerBatch={6}
+        windowSize={3}
+        initialNumToRender={4}
         renderItem={renderItem}
         {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
         onScrollToIndexFailed={(info) => {
@@ -241,11 +251,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
-  },
-  /** UA: cover + легкий зсув вгору — без чорної смуги зверху при contain. */
-  heroUa: {
-    height: '118%',
-    top: -14,
   },
   heroPlaceholder: {
     ...StyleSheet.absoluteFillObject,
@@ -299,5 +304,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: 'rgba(255,255,255,0.45)',
+  },
+  countryFlagImg: {
+    width: 50,
+    height: 36,
+    borderRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  flagEmoji: {
+    fontSize: 28,
+    lineHeight: 32,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
 });

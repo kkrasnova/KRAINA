@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { View, Text, StyleSheet, Animated, PanResponder, Pressable } from 'react-native';
+import { RenderProfiler } from './performanceMetrics';
 
 const DELETE_W = 88;
 
@@ -39,6 +40,7 @@ export default function ChatSwipeRow({ children, onDelete, deleteLabel, disabled
   ).current;
 
   return (
+    <RenderProfiler id="ChatSwipeRow">
     <View style={styles.wrap}>
       <View style={styles.deleteUnder}>
         <Pressable
@@ -56,6 +58,7 @@ export default function ChatSwipeRow({ children, onDelete, deleteLabel, disabled
         {children}
       </Animated.View>
     </View>
+    </RenderProfiler>
   );
 }
 

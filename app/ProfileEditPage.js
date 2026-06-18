@@ -268,7 +268,11 @@ export default function ProfileEditPage({ navigation, route }) {
           try {
             await useAuthStore.getState().loadProfileMe();
             const p = useAuthStore.getState().profileMe?.profile;
-            if (p?.username) setUsername(`@${String(p.username).replace(/^@/, '')}`);
+            if (p?.username) {
+              const handle = `@${String(p.username).replace(/^@/, '')}`;
+              setUsername(handle);
+              await setProfileUsername(String(p.username).replace(/^@/, ''));
+            }
             if (p?.bio != null) setBio(String(p.bio));
             if (p?.display_name != null && String(p.display_name).trim()) {
               setName(String(p.display_name).trim());
@@ -366,6 +370,26 @@ export default function ProfileEditPage({ navigation, route }) {
     ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
     appTheme,
   };
+
+  const persistUsernameField = useCallback(
+    async (rawValue) => {
+      const uRaw = String(rawValue || '').trim().replace(/^@/, '');
+      if (uRaw.length > 0 && uRaw.length < 3) return;
+      await setProfileUsername(uRaw);
+      const token = useAuthStore.getState().accessToken;
+      if (!token || uRaw.length < 3) return;
+      try {
+        await patchProfileMe(token, { username: uRaw });
+        await useAuthStore.getState().loadProfileMe();
+        const saved = useAuthStore.getState().profileMe?.profile?.username;
+        if (saved) setUsername(`@${String(saved).replace(/^@/, '')}`);
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : e?.message || '';
+        if (msg) Alert.alert('', msg);
+      }
+    },
+    [],
+  );
 
   const onSave = async () => {
     const uRaw = username.trim().replace(/^@/, '');
@@ -489,6 +513,9 @@ export default function ProfileEditPage({ navigation, route }) {
           <TextInput
             value={username}
             onChangeText={setUsername}
+            onBlur={() => {
+              void persistUsernameField(username);
+            }}
             style={[
               styles.input,
               brandFontSans,
@@ -790,6 +817,10 @@ export default function ProfileEditPage({ navigation, route }) {
               keyExtractor={(item) => item.regionId}
               keyboardShouldPersistTaps="handled"
               style={{ maxHeight: 320 }}
+              removeClippedSubviews={Platform.OS === 'android'}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              initialNumToRender={8}
               renderItem={({ item }) => (
                 <Pressable
                   style={({ pressed }) => [

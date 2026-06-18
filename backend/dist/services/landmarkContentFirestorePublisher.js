@@ -1,7 +1,4 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getPublisherFirestoreDb } from './firebaseAdmin.js';
 function safeIdSegment(input) {
     return String(input ?? '')
         .trim()
@@ -96,64 +93,6 @@ export function bundleSnapshotToFirestoreWrites(snapshot) {
     }
     return out;
 }
-function loadServiceAccount() {
-    const raw = (process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? '').trim();
-    if (raw) {
-        try {
-            return JSON.parse(raw);
-        }
-        catch (e) {
-            console.warn('[landmarkPublisher] FIREBASE_SERVICE_ACCOUNT_JSON parse failed', e);
-            return null;
-        }
-    }
-    const accountPath = (process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? '').trim();
-    if (accountPath) {
-        const abs = path.isAbsolute(accountPath) ? accountPath : path.resolve(process.cwd(), accountPath);
-        if (!fs.existsSync(abs)) {
-            console.warn('[landmarkPublisher] FIREBASE_SERVICE_ACCOUNT_PATH not found:', abs);
-            return null;
-        }
-        try {
-            return JSON.parse(fs.readFileSync(abs, 'utf8'));
-        }
-        catch (e) {
-            console.warn('[landmarkPublisher] FIREBASE_SERVICE_ACCOUNT_PATH parse failed', e);
-            return null;
-        }
-    }
-    return null;
-}
-let cachedDb;
-function getLocationsDb() {
-    if (cachedDb !== undefined)
-        return cachedDb;
-    const serviceAccount = loadServiceAccount();
-    if (!serviceAccount) {
-        cachedDb = null;
-        return cachedDb;
-    }
-    try {
-        const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || serviceAccount.project_id;
-        const appName = 'kraina-landmark-publisher';
-        const existing = admin.apps.find((a) => a?.name === appName) ?? null;
-        const app = existing ||
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount),
-                projectId,
-            }, appName);
-        const databaseId = (process.env.FIRESTORE_DATABASE_ID ?? '').trim() || '(default)';
-        const db = getFirestore(app, databaseId);
-        db.settings({ ignoreUndefinedProperties: true });
-        cachedDb = db;
-        return cachedDb;
-    }
-    catch (e) {
-        console.warn('[landmarkPublisher] init failed', e);
-        cachedDb = null;
-        return cachedDb;
-    }
-}
 export async function publishLandmarkBundleToFirestore(snapshot) {
     if (snapshot && typeof snapshot === 'object' && snapshot._skip) {
         return { status: 'skipped', reason: 'skip_flag' };
@@ -162,7 +101,7 @@ export async function publishLandmarkBundleToFirestore(snapshot) {
     if (writes.length === 0) {
         return { status: 'empty' };
     }
-    const db = getLocationsDb();
+    const db = getPublisherFirestoreDb();
     if (!db) {
         return { status: 'skipped', reason: 'no_admin' };
     }
@@ -180,6 +119,8 @@ export async function publishLandmarkBundleToFirestore(snapshot) {
     }
     catch (e) {
         const message = e instanceof Error ? e.message : String(e);
+        // Use the shared logger — import is not available here because this
+        // module is loaded from a CLI script that may not have logger configured.
         console.warn('[landmarkPublisher] publish failed', message);
         return { status: 'error', message };
     }

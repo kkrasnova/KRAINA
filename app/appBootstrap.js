@@ -1,7 +1,6 @@
-import { Asset } from 'expo-asset';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from './auth/authStore';
-import { clearSession, getSession, saveSession } from './db';
+import { clearSession, getSession } from './db';
 import { loadAdminLocationBundleOnStartup } from './adminLocationData';
 import { getSavedCountryIdForUser, saveCountryForUser } from './countryStorage';
 import { HOME_COUNTRY_ORDER } from './homeExploreData';
@@ -10,6 +9,11 @@ import { getSubscriptionState } from './subscriptionStorage';
 import { initOfflineRuntime } from './offline/runtime';
 import { prepareOfflineMediaPack } from './offline/mediaOfflinePack';
 import { warmOfflineMediaCache } from './offline/localCacheStore';
+import { clearAllAppCaches, clearMemoryCaches } from './cacheCleanup';
+import { markStart, markEnd } from './performanceMetrics';
+import { prefetchChatsBundle } from './screenLoaders';
+import { setupCallKeep } from './callkeepService';
+import { installVoIPListeners } from './voipPushService';
 
 /**
  * Сесія, маршрут після заставки та префетч асетів (спільно для звичайного старту і після force-update).
@@ -31,7 +35,12 @@ export async function runAppBootstrap(opts, api) {
     setSavedLanguage,
   } = api;
 
+  markStart('app_bootstrap');
+
   try {
+    // Очищуємо in-memory TTL кеш при холодному старті
+    clearMemoryCaches();
+
     // Паралельно: offline runtime + hydrate + admin bundle + session
     // Офлайн-кеш та адмін-бандл — не блокують навігацію (дефернуті)
     await useAuthStore.getState().hydrate();
@@ -45,37 +54,18 @@ export async function runAppBootstrap(opts, api) {
     void loadAdminLocationBundleOnStartup().catch(() => {});
     if (session?.user && !hasAccessToken) {
       // Never trust stale local session without backend auth token.
+      // Очищаємо всі кеші — сесія невалідна
+      await clearAllAppCaches();
       await clearSession();
       session = null;
     }
     const language = await AsyncStorage.getItem('@kraina_app_language');
     if (getCancelled()) return;
     if (session?.user && hasAccessToken) {
-      try {
-        await useAuthStore.getState().loadProfileMe();
-        const pm = useAuthStore.getState().profileMe?.profile;
-        const authUser = useAuthStore.getState().user;
-        const uid = authUser?.id || pm?.user_id;
-        if (uid && String(session.user.id) !== String(uid)) {
-          // Cached session belongs to a different account than the current token.
-          // Discard stale fields (name, avatar, etc.) — keep only the new identity
-          // so the UI doesn't flash the previous user on cold start.
-          await saveSession({
-            id: uid,
-            email: authUser?.email || pm?.email || '',
-            name: pm?.display_name || pm?.username || (authUser?.email ? String(authUser.email).split('@')[0] : 'User'),
-            role: authUser?.role || 'user',
-            status: authUser?.status || 'active',
-            provider: session.user.provider || 'email',
-          });
-          session = await getSession();
-        }
-      } catch {
-        // Token/session mismatch or expired auth: force a clean login.
-        await useAuthStore.getState().clearLocalSession();
-        await clearSession();
-        session = null;
-      }
+      // loadProfileMe() is deferred to after navigation — hydrate() already built
+      // profileMe from local session data, which is sufficient for route selection.
+      // The full profile fetch was blocking cold start by ~4s (network request).
+      // It will fire in the background after navigation completes.
     }
     if (getCancelled()) return;
     if (session?.user) {
@@ -141,30 +131,31 @@ export async function runAppBootstrap(opts, api) {
   }
 
   if (getCancelled()) return;
+
+  markEnd('app_bootstrap');
+
   // Фонові prefetch-операції — не блокують навігацію
   scheduleDeferredWork(() => {
+    prefetchChatsBundle();
     void prepareOfflineMediaPack({ limit: 120 }).catch(() => {});
-    void Asset.loadAsync([
-      require('./assets/kraina-logo-dark.png'),
-      require('./assets/kraina-logo-light.png'),
-      require('./assets/122.png'),
-      require('./assets/15.png'),
-      require('./assets/11221.png'),
-      require('./assets/Frame 1.png'),
-      require('./assets/16.png'),
-      require('./assets/kraina-title-light.png'),
-      require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4'),
-      require('./assets/icon_frame1.png'),
-      require('./assets/person-12.png'),
-      require('./assets/55.png'),
-      require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png'),
-      require('./assets/Rectangle 37.png'),
-      require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png'),
-      require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png'),
-      require('./assets/kling_20260405_IMAGE____________5495_1.png'),
-      require('./assets/Frame 23.png'),
-      require('./assets/11.png'),
-    ]).catch(() => {});
+  });
+
+  // CallKit + VoIP push — ініціалізація
+  scheduleDeferredWork(() => {
+    setupCallKeep();
+    installVoIPListeners();
+  });
+
+  // Профіль з бекенду — теж не блокусмо навігацію.
+  // hydrate() уже побудував profileMe з локальної сесії.
+  scheduleDeferredWork(() => {
+    markStart('profile_load');
+    void useAuthStore.getState()
+      .loadProfileMe()
+      .catch(() => {})
+      .finally(() => {
+        markEnd('profile_load');
+      });
   });
 }
 

@@ -1,10 +1,7 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { config } from '../config.js';
 import { HttpError } from '../errors/HttpError.js';
 import { pool } from '../db/pool.js';
-const FEED_MEDIA_DIR = 'feed';
+import { getStorageProvider } from '../storage/index.js';
 function extFromMime(mimetype) {
     if (mimetype === 'image/jpeg')
         return 'jpg';
@@ -16,39 +13,55 @@ function extFromMime(mimetype) {
         return 'mp4';
     if (mimetype === 'video/quicktime')
         return 'mov';
+    if (mimetype === 'audio/mp4' || mimetype === 'audio/m4a' || mimetype === 'audio/x-m4a')
+        return 'm4a';
+    if (mimetype === 'audio/aac')
+        return 'aac';
+    if (mimetype === 'audio/mpeg')
+        return 'mp3';
+    if (mimetype === 'audio/wav' || mimetype === 'audio/x-wav')
+        return 'wav';
     return 'bin';
 }
-// TODO(object-storage): replace local-disk write with S3-compatible upload.
-// Current implementation writes to config.uploadDir on the local filesystem.
-// This breaks on multi-pod deployments (each pod has its own disk) and has
-// no CDN in front of it. Migration path:
-//   1. Add env vars: STORAGE_PROVIDER=s3|local, S3_BUCKET, S3_REGION,
-//      S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_BASE_URL.
-//   2. Extract a StorageProvider interface: { upload(name, buffer, mime): Promise<string> }.
-//   3. Implement LocalStorageProvider (current logic) and S3StorageProvider (@aws-sdk/client-s3).
-//   4. Select provider at startup based on STORAGE_PROVIDER env var.
-//   5. Return the CDN/public URL from the provider; the rest of this function is unchanged.
-//   All uploaded URLs are stored in the DB so existing rows continue to work
-//   after the migration (local URLs stay local; new uploads go to S3).
 export async function saveFeedMediaFile(file) {
+    let mimetype = String(file.mimetype || '');
+    const originalname = String(file.originalname || '').toLowerCase();
+    if (mimetype === 'application/octet-stream') {
+        if (/\.(m4a|mp4)$/i.test(originalname))
+            mimetype = 'audio/m4a';
+        else if (/\.aac$/i.test(originalname))
+            mimetype = 'audio/aac';
+        else if (/\.mp3$/i.test(originalname))
+            mimetype = 'audio/mpeg';
+        else if (/\.wav$/i.test(originalname))
+            mimetype = 'audio/wav';
+    }
     const allowed = new Set([
         'image/jpeg',
         'image/png',
         'image/webp',
         'video/mp4',
         'video/quicktime',
+        'audio/mp4',
+        'audio/m4a',
+        'audio/x-m4a',
+        'audio/aac',
+        'audio/mpeg',
+        'audio/wav',
+        'audio/x-wav',
     ]);
-    if (!allowed.has(file.mimetype)) {
+    if (!allowed.has(mimetype)) {
         throw new HttpError(400, 'invalid_format');
     }
-    const ext = extFromMime(file.mimetype);
-    const media_kind = file.mimetype.startsWith('video/') ? 'video' : 'image';
+    const ext = extFromMime(mimetype);
+    const media_kind = mimetype.startsWith('video/')
+        ? 'video'
+        : mimetype.startsWith('audio/')
+            ? 'audio'
+            : 'image';
     const name = `${randomUUID()}.${ext}`;
-    const dir = path.join(config.uploadDir, FEED_MEDIA_DIR);
-    await fs.mkdir(dir, { recursive: true });
-    const dest = path.join(dir, name);
-    await fs.writeFile(dest, file.buffer);
-    const url = `${config.publicBaseUrl}/static/feed/${name}`;
+    const key = `feed/${name}`;
+    const url = await getStorageProvider().upload(key, file.buffer, mimetype);
     return { url, media_kind };
 }
 export async function createPost(userId, body) {

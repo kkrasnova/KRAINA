@@ -10,6 +10,8 @@
     "firebase:deploy": "firebase deploy",
     "firebase:deploy:rules": "firebase deploy --only firestore:rules,storage",
     "firebase:deploy:functions": "npm install --prefix functions && firebase deploy --only functions",
+    "firebase:emulators": "firebase emulators:start",
+    "firebase:emulators:export": "firebase emulators:start --import=./emulator-data --export-on-exit",
     "dev:api": "cd backend && npm run dev",
     "dev:all": "if lsof -ti:3000 > /dev/null; then echo \"API already running on :3000\"; else npm run dev:api & fi; if lsof -ti:8081 > /dev/null; then echo \"Metro already running on :8081\"; else npm run start:ios & fi; wait",
     "start": "cd app && npm run start",
@@ -41,11 +43,15 @@
     "node": ">=20.19.4"
   },
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "^15.0.1",
     "@expo/metro-config": "~56.0.0",
+    "@livekit/react-native": "^2.11.0",
+    "@livekit/react-native-expo-plugin": "^1.0.2",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "expo-file-system": "~56.0.7",
     "expo-font": "~56.0.5",
     "expo-network": "~56.0.4",
+    "livekit-client": "^2.19.2",
     "typescript": "~6.0.3"
   }
 }

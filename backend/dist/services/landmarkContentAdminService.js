@@ -1,23 +1,24 @@
 import { randomBytes } from 'node:crypto';
-import { readdir, readFile, writeFile, mkdir, stat, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { HttpError } from '../errors/HttpError.js';
+import { getStorageProvider } from '../storage/index.js';
 const SUB = 'landmark-content';
 const BUNDLE_FILE = 'landmark_bundle.json';
-const MEDIA = 'media';
+const MEDIA_PREFIX = 'landmark-content/media';
 function rootDir() {
     return path.join(config.uploadDir, SUB);
 }
 function bundlePath() {
     return path.join(rootDir(), BUNDLE_FILE);
 }
-function mediaPath() {
-    return path.join(rootDir(), MEDIA);
-}
 export async function ensureLandmarkContentDirs() {
     await mkdir(rootDir(), { recursive: true });
-    await mkdir(mediaPath(), { recursive: true });
+    // local provider needs the media subdirectory created upfront
+    if (getStorageProvider().type === 'local') {
+        await mkdir(path.join(rootDir(), 'media'), { recursive: true });
+    }
 }
 export async function hasLandmarkContentBundle() {
     try {
@@ -59,46 +60,31 @@ export async function saveLandmarkMedia(buffer, origName) {
     }
     const ext = extFromName(origName);
     const name = `${Date.now()}_${randomBytes(5).toString('hex')}${ext}`;
-    await ensureLandmarkContentDirs();
-    const fp = path.join(mediaPath(), name);
-    await writeFile(fp, buffer);
-    const rel = `static/${SUB}/${MEDIA}/${name}`.replace(/\\/g, '/');
-    const base = config.publicBaseUrl.replace(/\/$/, '');
-    return { fileName: name, url: `${base}/${rel}` };
+    const key = `${MEDIA_PREFIX}/${name}`;
+    const mime = ext === '.gif' ? 'image/gif' : `image/${ext.replace('.', '')}`;
+    const url = await getStorageProvider().upload(key, buffer, mime);
+    return { fileName: name, url };
 }
 export async function listLandmarkMedia() {
-    await ensureLandmarkContentDirs();
-    const names = await readdir(mediaPath());
+    const keys = await getStorageProvider().list(MEDIA_PREFIX);
     const out = [];
-    const base = config.publicBaseUrl.replace(/\/$/, '');
-    for (const f of names) {
-        if (f.startsWith('.'))
-            continue;
-        const fp = path.join(mediaPath(), f);
-        const st = await stat(fp);
-        if (!st.isFile())
-            continue;
+    for (const key of keys) {
+        const name = path.basename(key);
+        const base = getStorageProvider().type === 'local'
+            ? `${config.publicBaseUrl.replace(/\/$/, '')}/static/`
+            : config.s3PublicBaseUrl.replace(/\/$/, '') + '/';
         out.push({
-            fileName: f,
-            url: `${base}/static/${SUB}/${MEDIA}/${f}`,
-            size: st.size,
-            mtimeMs: st.mtimeMs,
+            fileName: name,
+            url: `${base}${key}`,
+            size: 0,
+            mtimeMs: 0,
         });
     }
-    out.sort((a, b) => b.mtimeMs - a.mtimeMs);
     return out;
 }
-export async function removeLandmarkMedia(fileName) {
-    const base = path.basename(String(fileName || ''));
-    if (base !== fileName || !base) {
-        throw new HttpError(400, 'invalid_name');
-    }
-    const fp = path.join(mediaPath(), base);
-    try {
-        await unlink(fp);
-    }
-    catch {
-        throw new HttpError(404, 'not_found');
+export async function removeLandmarkMedia(url) {
+    if (url && typeof url === 'string') {
+        await getStorageProvider().delete(url).catch(() => { });
     }
 }
 //# sourceMappingURL=landmarkContentAdminService.js.map

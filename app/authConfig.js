@@ -1,6 +1,8 @@
 
 
 
+import { Platform } from 'react-native';
+
 function readFirebaseAndroidGoogleServices() {
   try {
     const gs = require('./google-services.json');
@@ -109,14 +111,16 @@ if (__DEV__) {
       '[authConfig] EXPO_PUBLIC_GOOGLE_CLIENT_ID не збігається з Web client у google-services.json — можливий DEVELOPER_ERROR на Android.',
     );
   }
-  if (GOOGLE_IOS_CLIENT_ID && firebaseGs.projectNumber && !GOOGLE_IOS_CLIENT_ID.startsWith(firebaseGs.projectNumber)) {
-    console.warn(
-      '[authConfig] GOOGLE_IOS_CLIENT_ID з іншого GCP-проєкту, ніж google-services.json — Firebase Google login може не прийняти idToken. Додай iOS у Firebase kraina-207c5 і онови google-ios-client.json',
-    );
-  }
-  if (!GOOGLE_IOS_CLIENT_ID) {
-    console.warn(
-      '[authConfig] Не задано GOOGLE_IOS_CLIENT_ID (google-ios-client.json порожній). Для iOS нативного Google: Firebase → iOS app → CLIENT_ID у google-ios-client.json, потім npm run google:ios-scheme',
-    );
+  if (Platform.OS === 'ios') {
+    if (GOOGLE_IOS_CLIENT_ID && firebaseGs.projectNumber && !GOOGLE_IOS_CLIENT_ID.startsWith(firebaseGs.projectNumber)) {
+      console.warn(
+        '[authConfig] GOOGLE_IOS_CLIENT_ID з іншого GCP-проєкту, ніж google-services.json — Firebase Google login може не прийняти idToken. Додай iOS у Firebase kraina-207c5 і онови google-ios-client.json',
+      );
+    }
+    if (!GOOGLE_IOS_CLIENT_ID) {
+      console.warn(
+        '[authConfig] Не задано GOOGLE_IOS_CLIENT_ID (google-ios-client.json порожній). Для iOS нативного Google: Firebase → iOS app → CLIENT_ID у google-ios-client.json, потім npm run google:ios-scheme',
+      );
+    }
   }
 }

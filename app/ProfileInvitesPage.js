@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Pressable, Alert, Image } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { View, Text, StyleSheet, TextInput, Pressable, Alert, Image, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -20,6 +21,7 @@ export default function ProfileInvitesPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const [q, setQ] = useState('');
   const [invites, setInvites] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
 
   const isLight = appTheme === 'light';
@@ -35,8 +37,10 @@ export default function ProfileInvitesPage({ navigation, route }) {
     appTheme,
   };
 
-  const reload = useCallback(async () => {
-    const t = await getAppTheme();
+  const reload = useCallback(async (withSpinner = false) => {
+    if (withSpinner) setRefreshing(true);
+    try {
+      const t = await getAppTheme();
     setAppTheme(t === 'light' ? 'light' : 'dark');
     if (!hasSocialApi()) {
       setInvites([]);
@@ -48,15 +52,14 @@ export default function ProfileInvitesPage({ navigation, route }) {
     } catch {
       setInvites([]);
     }
+  } finally {
+    if (withSpinner) setRefreshing(false);
+  }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-      const timer = setInterval(() => {
-        void reload();
-      }, 7000);
-      return () => clearInterval(timer);
     }, [reload]),
   );
 
@@ -109,13 +112,21 @@ export default function ProfileInvitesPage({ navigation, route }) {
         />
         <Ionicons name="search-outline" size={22} color={accent} />
       </View>
-      <FlatList
+      <FlashList
         data={filtered}
         keyExtractor={(item) => item.user_id}
+        estimatedItemSize={72}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 20,
         }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void reload(true)}
+            tintColor={accent}
+          />
+        }
         renderItem={({ item }) => (
           <View
             style={[

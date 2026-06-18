@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { config } from '../config.js';
 import { HttpError } from '../errors/HttpError.js';
 import { pool } from '../db/pool.js';
@@ -20,6 +20,26 @@ async function ensureUniqueUsername(c, base) {
         const r = await c.query('SELECT 1 FROM profiles WHERE username = $1', [u]);
         if (r.rowCount === 0)
             return u;
+    }
+    throw new HttpError(500, 'username_generation_failed');
+}
+/** Послідовний нік за замовчуванням: user000001, user000002, … */
+async function allocateSequentialUsername(c) {
+    const r = await c.query(`SELECT COALESCE(MAX(
+       CASE
+         WHEN username ~ '^user[0-9]+$'
+         THEN NULLIF(substring(username from 5), '')::integer
+         ELSE 0
+       END
+     ), 0) AS max_num
+     FROM profiles`);
+    let n = Number(r.rows[0]?.max_num ?? 0) + 1;
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+        const u = `user${String(n).padStart(6, '0')}`;
+        const taken = await c.query('SELECT 1 FROM profiles WHERE lower(username) = lower($1)', [u]);
+        if (!taken.rowCount)
+            return u;
+        n += 1;
     }
     throw new HttpError(500, 'username_generation_failed');
 }
@@ -51,10 +71,6 @@ function rowToUserDTO(row) {
 }
 export async function registerUser(input) {
     const email = input.email.trim().toLowerCase();
-    const username = input.username
-        .trim()
-        .replace(/^@/, '')
-        .toLowerCase();
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -63,17 +79,30 @@ export async function registerUser(input) {
             await client.query('ROLLBACK');
             throw new HttpError(400, 'email_taken');
         }
-        const uTaken = await client.query('SELECT 1 FROM profiles WHERE lower(username) = lower($1)', [username]);
-        if (uTaken.rowCount) {
-            await client.query('ROLLBACK');
-            throw new HttpError(400, 'username_taken');
+        let username = String(input.username || '')
+            .trim()
+            .replace(/^@/, '')
+            .toLowerCase();
+        if (!username || username.length < 3 || !/^[a-z0-9_]+$/.test(username)) {
+            username = await allocateSequentialUsername(client);
+        }
+        else {
+            const uTaken = await client.query('SELECT 1 FROM profiles WHERE lower(username) = lower($1)', [username]);
+            if (uTaken.rowCount) {
+                await client.query('ROLLBACK');
+                throw new HttpError(400, 'username_taken');
+            }
         }
         const password_hash = await hashPassword(input.password);
         const ins = await client.query(`INSERT INTO users (email, password_hash, auth_provider, role, status)
        VALUES ($1, $2, 'email', 'user', 'active')
        RETURNING id, email, role, status`, [email, password_hash]);
         const u = ins.rows[0];
-        const displayName = email.split('@')[0]?.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim() || null;
+        const displayName = String(input.display_name || '')
+            .trim()
+            .slice(0, 120) ||
+            email.split('@')[0]?.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim() ||
+            null;
         await client.query(`INSERT INTO profiles (user_id, username, display_name, language, level)
        VALUES ($1, $2, $3, 'uk', 1)`, [u.id, username, displayName]);
         await insertFreeSubscriptionAndUsage(client, u.id);
@@ -291,6 +320,62 @@ export async function requestPasswordReset(emailRaw) {
     }
     else {
         logger.info('password_reset_token_issued', { email });
+    }
+}
+function appOtpHash(email, code) {
+    const emailLower = email.trim().toLowerCase();
+    const codeDigits = String(code).replace(/\s/g, '');
+    return createHash('sha256').update(`kraina_pw_otp_v1|${emailLower}|${codeDigits}`).digest('hex');
+}
+export async function userEmailExists(emailRaw) {
+    const email = emailRaw.trim().toLowerCase();
+    const r = await pool.query(`SELECT 1 FROM users WHERE lower(email) = lower($1) AND status = 'active' LIMIT 1`, [email]);
+    return (r.rowCount ?? 0) > 0;
+}
+/** OTP з додатку (Resend) — той самий hash, що в app/db.js otpHashForCode. */
+export async function storeAppPasswordResetOtp(emailRaw, code, expiresAtMs) {
+    const email = emailRaw.trim().toLowerCase();
+    const ur = await pool.query(`SELECT id FROM users WHERE lower(email) = lower($1) AND status = 'active' LIMIT 1`, [email]);
+    if (!ur.rowCount)
+        return;
+    const userId = ur.rows[0].id;
+    const h = appOtpHash(email, code);
+    const expires = new Date(expiresAtMs);
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
+    await pool.query(`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, [userId, h, expires.toISOString()]);
+}
+export async function resetPasswordWithAppOtp(emailRaw, code, newPassword) {
+    const email = emailRaw.trim().toLowerCase();
+    const h = appOtpHash(email, code);
+    const r = await pool.query(`SELECT prt.id, prt.user_id
+     FROM password_reset_tokens prt
+     JOIN users u ON u.id = prt.user_id
+     WHERE lower(u.email) = lower($1)
+       AND prt.token_hash = $2
+       AND prt.expires_at > now()
+     LIMIT 1`, [email, h]);
+    if (!r.rowCount) {
+        throw new HttpError(400, 'token_invalid');
+    }
+    const row = r.rows[0];
+    const password_hash = await hashPassword(newPassword);
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`, [
+            password_hash,
+            row.user_id,
+        ]);
+        await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [row.user_id]);
+        await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [row.user_id]);
+        await client.query('COMMIT');
+    }
+    catch (e) {
+        await client.query('ROLLBACK').catch(() => { });
+        throw e;
+    }
+    finally {
+        client.release();
     }
 }
 export async function resetPasswordWithToken(rawToken, newPassword) {

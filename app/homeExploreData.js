@@ -4,6 +4,7 @@ import { normalizeHeroImageSource } from './krainaHeroThumbs';
 
 /** Картка країни на головній: прев’ю t1–t4 або URL (керується з адмін-панелі). */
 export const HOME_COUNTRY_HERO_REFS = {
+  UA: require('./assets/kyiv-main-hero.png'),
   ES: require('./assets/spain-card-hero.png'),
   FR: require('./assets/france-card-hero.png'),
   IT: require('./assets/italy-card-hero.png'),
@@ -19,6 +20,7 @@ export const HOME_COUNTRY_HERO_REFS = {
 export const HOME_COUNTRY_HERO_URIS = {};
 /** Вбудовані fallback-фото карток (працюють навіть якщо адмін-перевизначення порожні). */
 const HOME_COUNTRY_HERO_DEFAULTS = {
+  UA: require('./assets/kyiv-main-hero.png'),
   ES: require('./assets/spain-card-hero.png'),
   FR: require('./assets/france-card-hero.png'),
   IT: require('./assets/italy-card-hero.png'),
@@ -85,6 +87,12 @@ function resolveCarouselHeroForCountry(countryId, regions) {
   }
   if (first.heroThumb) return first.heroThumb;
   return first.landmarks?.[0]?.thumb ?? null;
+}
+
+/** Те саме фото картки країни, що й у каруселі на головній. */
+export function getHomeCountryHeroAsset(countryId) {
+  const regions = getHomeRegionsForCountry(countryId);
+  return resolveCarouselHeroForCountry(countryId, regions);
 }
 
 export function getHomeCountriesForCarousel(language, locationsEpoch = 0) {

@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TextInput,
   Pressable,
   Platform,
@@ -132,9 +132,10 @@ export default function ProfileCommentsPage({ navigation, route }) {
       />
       <View style={[styles.panel, { backgroundColor: panelBg, borderColor: panelBorder }]}>
         <View style={styles.panelBar} />
-        <FlatList
+        <FlashList
           data={list}
           keyExtractor={(item) => item.id}
+          estimatedItemSize={100}
           contentContainerStyle={{ paddingTop: 4, paddingBottom: 12 }}
           renderItem={({ item }) => (
             <View

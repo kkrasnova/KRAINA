@@ -12,7 +12,8 @@ export interface AuthTokens {
 export declare function registerUser(input: {
     email: string;
     password: string;
-    username: string;
+    username?: string;
+    display_name?: string;
 }): Promise<AuthTokens>;
 export declare function loginWithPassword(emailRaw: string, password: string): Promise<AuthTokens>;
 export declare function loginOrRegisterGoogle(idToken: string): Promise<AuthTokens>;
@@ -24,5 +25,9 @@ export declare function rotateRefreshToken(rawRefresh: string): Promise<{
 }>;
 export declare function logoutAllRefreshTokens(userId: string): Promise<void>;
 export declare function requestPasswordReset(emailRaw: string): Promise<void>;
+export declare function userEmailExists(emailRaw: string): Promise<boolean>;
+/** OTP з додатку (Resend) — той самий hash, що в app/db.js otpHashForCode. */
+export declare function storeAppPasswordResetOtp(emailRaw: string, code: string, expiresAtMs: number): Promise<void>;
+export declare function resetPasswordWithAppOtp(emailRaw: string, code: string, newPassword: string): Promise<void>;
 export declare function resetPasswordWithToken(rawToken: string, newPassword: string): Promise<void>;
 //# sourceMappingURL=authService.d.ts.map

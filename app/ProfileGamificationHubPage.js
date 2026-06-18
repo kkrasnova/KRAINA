@@ -136,7 +136,7 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
       (async () => {
         if (useAuthStore.getState().accessToken) {
           try {
-            await useAuthStore.getState().loadProfileMe();
+            await useAuthStore.getState().loadProfileMeIfStale();
           } catch {
             /* */
           }

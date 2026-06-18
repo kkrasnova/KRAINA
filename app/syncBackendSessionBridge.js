@@ -7,16 +7,18 @@ const ADMIN_LOCAL_ID = 'kraina_gate_admin_v1';
 
 export async function mergeBackendUserIntoLocalSession() {
   const backendUser = useAuthStore.getState().user;
+  const profile = useAuthStore.getState().profileMe?.profile;
   const s = await getSession();
   if (!backendUser?.id) return;
+  const profileUsername = profile?.username ? String(profile.username).replace(/^@/, '') : '';
+  const profileDisplayName = profile?.display_name ? String(profile.display_name).trim() : '';
   const sameUser = !!s?.user && String(s.user.id) === String(backendUser.id);
   if (!s?.user || !sameUser) {
-    // No cached user, or cached user belongs to a different account — replace fully.
-    // Otherwise the UI would briefly show name/avatar from the previous account.
     await saveSession({
       id: backendUser.id,
       email: backendUser.email,
-      name: backendUser.email ? String(backendUser.email).split('@')[0] : 'User',
+      name: profileDisplayName || (backendUser.email ? String(backendUser.email).split('@')[0] : 'User'),
+      accountUsername: profileUsername || undefined,
       role: backendUser.role || 'user',
       status: backendUser.status || 'active',
       provider: s?.user?.provider || 'email',
@@ -28,30 +30,11 @@ export async function mergeBackendUserIntoLocalSession() {
     ...s.user,
     id: backendUser.id,
     email: backendUser.email || s.user.email,
+    ...(profileDisplayName ? { name: profileDisplayName } : {}),
+    ...(profileUsername ? { accountUsername: profileUsername } : {}),
   };
   await saveSession(merged);
   DeviceEventEmitter.emit('kraina_backend_session_merged_v1');
-}
-
-function deriveBackendUsername(displayName, email) {
-  const fromEmail = String(email || '')
-    .split('@')[0]
-    .replace(/[^a-zA-Z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase()
-    .slice(0, 28);
-  let s = String(displayName || '')
-    .trim()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 28);
-  if (s.length < 3) s = fromEmail;
-  if (s.length < 3) s = 'user';
-  const rnd = Math.random().toString(36).slice(2, 8);
-  return `${s}_${rnd}`.slice(0, 32);
 }
 
 function shouldSkipBackendSyncForLocalUser(user) {
@@ -78,26 +61,18 @@ export async function syncBackendSessionAfterThirdPageEmailAuth({
 
   try {
     if (mode === 'register') {
-      let registered = false;
-      for (let attempt = 0; attempt < 4 && !registered; attempt++) {
-        const username = deriveBackendUsername(displayName, em);
-        try {
-          await useAuthStore.getState().registerWithPassword(em, pw, username, username);
-          registered = true;
-        } catch (e) {
-          const emailTaken =
-            e instanceof ApiError &&
-            (e.payload?.error === 'email_taken' ||
-              e.payload?.error === 'email_exists' ||
-              /email_taken|email_exists/i.test(String(e.payload?.error || '')));
-          if (emailTaken) {
-            await useAuthStore.getState().loginWithPassword(em, pw);
-            registered = true;
-          } else if (e instanceof ApiError && e.payload?.error === 'username_taken' && attempt < 3) {
-            continue;
-          } else {
-            throw e;
-          }
+      try {
+        await useAuthStore.getState().registerWithPassword(em, pw, String(displayName || '').trim());
+      } catch (e) {
+        const emailTaken =
+          e instanceof ApiError &&
+          (e.payload?.error === 'email_taken' ||
+            e.payload?.error === 'email_exists' ||
+            /email_taken|email_exists/i.test(String(e.payload?.error || '')));
+        if (emailTaken) {
+          await useAuthStore.getState().loginWithPassword(em, pw);
+        } else {
+          throw e;
         }
       }
     } else {

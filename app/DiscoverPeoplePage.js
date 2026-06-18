@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
-  FlatList,
   Pressable,
   Image,
   Platform,
@@ -17,15 +17,18 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
-import { accentForTheme } from './themeAccent';
+import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { RenderProfiler } from './performanceMetrics';
 import {
   isDiscoverSearchAvailable,
   socialGetCachedPublicProfileFull,
   socialPrefetchPublicProfileFull,
   socialSearchProfiles,
   socialListTopProfiles,
+  socialFollowUsername,
+  socialUnfollowUsername,
 } from './socialApi';
 
 const QUICK_SUGGESTIONS = ['anna', 'travel', 'kyiv', 'mountains', 'coffee'];
@@ -41,6 +44,8 @@ export default function DiscoverPeoplePage({ navigation, route }) {
   const [results, setResults] = useState([]);
   const [topProfiles, setTopProfiles] = useState([]);
   const [lastError, setLastError] = useState('');
+  const [followBusyMap, setFollowBusyMap] = useState({});
+  const [followMap, setFollowMap] = useState({});
   const debRef = useRef(null);
   const discoverSearchOk = useMemo(() => isDiscoverSearchAvailable(), []);
 
@@ -63,11 +68,9 @@ export default function DiscoverPeoplePage({ navigation, route }) {
     tagBg,
     tagBorder,
     chipText,
-    sectionTitle,
-    cardHighlight,
-    cardShadow,
-    onlineDot,
     warmText,
+    sectionTitle,
+    cardShadow,
   } = useMemo(
     () => ({
       accent: accentForTheme(isLight),
@@ -87,11 +90,9 @@ export default function DiscoverPeoplePage({ navigation, route }) {
       tagBg: isLight ? 'rgba(2,18,235,0.08)' : 'rgba(255,255,255,0.08)',
       tagBorder: isLight ? 'rgba(2,18,235,0.2)' : 'rgba(255,255,255,0.15)',
       chipText: isLight ? '#1B2AFE' : '#E1FF00',
+      warmText: isLight ? '#6B6B75' : 'rgba(238,255,102,0.72)',
       sectionTitle: isLight ? '#1F1F26' : '#F4F4F6',
-      cardHighlight: isLight ? 'rgba(2,18,235,0.05)' : 'rgba(255,255,255,0.04)',
       cardShadow: isLight ? 'rgba(17,28,99,0.12)' : 'rgba(0,0,0,0.45)',
-      onlineDot: isLight ? '#0FA958' : '#3BE27B',
-      warmText: isLight ? '#3D3D46' : '#D1D1D9',
     }),
     [isLight],
   );
@@ -181,72 +182,87 @@ export default function DiscoverPeoplePage({ navigation, route }) {
 
   const showIntro = q.trim().length < 2 && !busy && displayRows.length === 0;
 
+  const handleFollow = useCallback(async (item) => {
+    const userId = String(item.user_id);
+    if (followBusyMap[userId]) return;
+    const currentFollow = followMap[userId] !== undefined ? followMap[userId] : !!item.is_following;
+    setFollowBusyMap((m) => ({ ...m, [userId]: true }));
+    setFollowMap((m) => ({ ...m, [userId]: !currentFollow }));
+    try {
+      if (currentFollow) await socialUnfollowUsername(item.username);
+      else await socialFollowUsername(item.username);
+    } catch {
+      setFollowMap((m) => ({ ...m, [userId]: currentFollow }));
+    } finally {
+      setFollowBusyMap((m) => ({ ...m, [userId]: false }));
+    }
+  }, [followBusyMap, followMap]);
+
   const renderItem = useCallback(
     ({ item }) => {
       const dn = item.display_name != null ? String(item.display_name).trim() : '';
       const bio = item.bio != null ? String(item.bio).trim() : '';
+      const userId = String(item.user_id);
+      const isFollowed = followMap[userId] !== undefined ? followMap[userId] : !!item.is_following;
+      const isFollowBusy = !!followBusyMap[userId];
       return (
-        <Pressable
-          onPressIn={() => void socialPrefetchPublicProfileFull(item.username, 80)}
-          onPress={() => openUser(item.username, item)}
-          style={({ pressed }) => [
-            styles.row,
-            {
-              backgroundColor: cardBg,
-              borderColor: border,
-              opacity: pressed ? 0.9 : 1,
-              transform: [{ scale: pressed ? 0.99 : 1 }],
-              shadowColor: cardShadow,
-              shadowOpacity: isLight ? 0.2 : 0.45,
-              shadowRadius: 14,
-              shadowOffset: { width: 0, height: 8 },
-              elevation: isLight ? 3 : 2,
-            },
-          ]}
-          android_ripple={ripple}
-        >
-          <View>
-            {item.avatar_url ? (
-              <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, { backgroundColor: isLight ? '#E8E8E4' : '#333' }]} />
-            )}
-            <View style={[styles.onlineDot, { backgroundColor: onlineDot, borderColor: cardBg }]} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.uname, { color: textMain }]} numberOfLines={1}>
-              {dn || `@${item.username}`}
-            </Text>
-            {dn ? (
+        <View style={[styles.row, { backgroundColor: cardBg, borderColor: border, shadowColor: cardShadow }]}>
+          <Pressable
+            onPressIn={() => void socialPrefetchPublicProfileFull(item.username, 80)}
+            onPress={() => openUser(item.username, item)}
+            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+          >
+            <View>
+              {item.avatar_url ? (
+                <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, { backgroundColor: isLight ? '#E8E8E4' : '#333' }]} />
+              )}
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.uname, { color: textMain }]} numberOfLines={1}>
+                {dn || `@${item.username}`}
+              </Text>
               <Text style={[styles.subName, { color: muted }]} numberOfLines={1}>
                 @{item.username}
               </Text>
-            ) : null}
-            {bio ? (
-              <Text style={[styles.bio, { color: muted }]} numberOfLines={2}>
-                {bio}
-              </Text>
-            ) : (
-              <Text style={[styles.bio, { color: warmText }]} numberOfLines={1}>
-                {pf(language, 'discoverOpenProfileHint')}
-              </Text>
-            )}
-            <View style={styles.metaRow}>
-              <View style={[styles.metaPill, { backgroundColor: cardHighlight }]}>
-                <Ionicons name="person-outline" size={12} color={muted} />
-                <Text style={[styles.metaText, { color: muted }]}>@{item.username}</Text>
-              </View>
+              {bio ? (
+                <Text style={[styles.bio, { color: muted }]} numberOfLines={2}>
+                  {bio}
+                </Text>
+              ) : null}
             </View>
-          </View>
-          {item.is_following ? (
-            <View style={[styles.followBadge, { backgroundColor: badgeBg }]}>
-              <Ionicons name="checkmark" size={13} color={isLight ? '#0212EB' : '#E1FF00'} />
-            </View>
-          ) : null}
-        </Pressable>
+          </Pressable>
+          <Pressable
+            onPress={() => handleFollow(item)}
+            disabled={isFollowBusy}
+            style={({ pressed }) => [
+              styles.followBtn,
+              {
+                backgroundColor: isFollowed
+                  ? (isLight ? 'rgba(2,18,235,0.08)' : 'rgba(255,255,255,0.08)')
+                  : accent,
+                borderColor: isFollowed ? (isLight ? 'rgba(2,18,235,0.2)' : 'rgba(255,255,255,0.2)') : accent,
+                opacity: pressed || isFollowBusy ? 0.85 : 1,
+              },
+            ]}
+            android_ripple={ripple}
+          >
+            <Text
+              style={[
+                styles.followBtnText,
+                {
+                  color: isFollowed ? (isLight ? '#0212EB' : '#E1FF00') : onAccentButtonText(isLight),
+                },
+              ]}
+            >
+              {isFollowed ? pf(language, 'following') : pf(language, 'follow')}
+            </Text>
+          </Pressable>
+        </View>
       );
     },
-    [badgeBg, border, cardBg, cardHighlight, cardShadow, isLight, language, muted, onlineDot, openUser, ripple, textMain, warmText],
+    [border, cardBg, cardShadow, followBusyMap, followMap, handleFollow, isLight, language, muted, openUser, ripple, textMain],
   );
 
   return (
@@ -363,10 +379,12 @@ export default function DiscoverPeoplePage({ navigation, route }) {
           </View>
         ) : null}
       </View>
-      <FlatList
+      <RenderProfiler id="DiscoverPeoplePage">
+      <FlashList
         data={displayRows}
         keyExtractor={(it) => it.user_id}
         renderItem={renderItem}
+        estimatedItemSize={72}
         contentContainerStyle={{
           paddingHorizontal: 16,
           paddingTop: 8,
@@ -402,6 +420,7 @@ export default function DiscoverPeoplePage({ navigation, route }) {
           ) : null
         }
       />
+      </RenderProfiler>
     </View>
   );
 }
@@ -506,12 +525,17 @@ const styles = StyleSheet.create({
     bottom: 1,
     borderWidth: 2,
   },
-  followBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  followBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    alignSelf: 'center',
+  },
+  followBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   avatar: { width: 48, height: 48, borderRadius: 24 },
   uname: { fontSize: 16, fontWeight: '700' },

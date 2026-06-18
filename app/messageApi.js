@@ -1,6 +1,7 @@
+import { Platform } from 'react-native';
 import { useAuthStore } from './auth/authStore';
 import { db } from './firebaseConfig';
-import { backendAuthFetch, hasBackendSession } from './backendAuthApi';
+import { backendAuthFetch, backendAuthUpload, hasBackendSession } from './backendAuthApi';
 import { getKrainaRestApiBase } from './krainaApiBase';
 
 export function hasMessageApiToken() {
@@ -18,6 +19,9 @@ function formatPreview(content, langUk) {
     const parsed = JSON.parse(text);
     if (parsed?.type === 'kraina_saved_route') {
       return String(parsed.title || (langUk ? 'Маршрут' : 'Route'));
+    }
+    if (parsed?.type === 'kraina_voice') {
+      return langUk ? 'Голосове' : 'Voice';
     }
   } catch {
     /* not json */
@@ -91,6 +95,40 @@ export async function messagesAcceptThread(threadId) {
     `/api/messages/threads/${encodeURIComponent(String(threadId))}/accept`,
   );
   return data || { ok: true };
+}
+
+/** Очистити повідомлення в треді (REST API). */
+export async function messagesClearThread(threadId) {
+  await backendAuthFetch(
+    'DELETE',
+    `/api/messages/threads/${encodeURIComponent(String(threadId))}/messages`,
+  );
+  return { ok: true };
+}
+
+/** Завантажити голосове на бекенд (REST API). */
+export async function messagesUploadVoice(localUri) {
+  const uri = String(localUri || '').trim();
+  if (!uri) throw new Error('empty_voice');
+  const formData = new FormData();
+  formData.append('file', {
+    uri,
+    type: Platform.OS === 'ios' ? 'audio/m4a' : 'audio/mp4',
+    name: `voice_${Date.now()}.m4a`,
+  });
+  const data = await backendAuthUpload('/api/feed/upload', formData);
+  const url = data?.url || data?.media_url;
+  if (!url) throw new Error('upload_failed');
+  return String(url);
+}
+
+/** Видалити чат (REST API). */
+export async function messagesDeleteThread(threadId) {
+  await backendAuthFetch(
+    'DELETE',
+    `/api/messages/threads/${encodeURIComponent(String(threadId))}`,
+  );
+  return { ok: true };
 }
 
 /** Отримати список взаємних підписок (мьючуалів) з бекенду. */

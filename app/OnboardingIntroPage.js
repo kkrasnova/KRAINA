@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,19 +8,28 @@ import {
   Animated,
   Easing,
   Platform,
-  InteractionManager,
   PanResponder,
   Dimensions,
+  StatusBar,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { runAfterInteractions } from './runAfterInteractions';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from './expoAvCompat';
 import { useResponsive } from './useResponsive';
+import PddHeaderWordmark from './PddHeaderWordmark';
 import { rippleOnDarkSurface } from './androidFeedback';
 import LemonBannerGlow from './components/ui/LemonBannerGlow';
 import { setOnboardingSlidesSeenFlag } from './onboardingStorage';
 import { PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION } from './flowFlags';
 import { useAppLanguage } from './useAppLanguage';
+import AuthHeroHeader from './AuthHeroHeader';
+import {
+  androidCopyPaddingTopFromHero,
+  androidHeroBannerExtraDownPx,
+  androidHeroTextGapPx,
+  authHeroBannerBottomY,
+} from './authHeroLayout';
+import OnboardingFinalAtlasHero from './OnboardingFinalAtlasHero';
 
 const ACCENT = '#E1FF00';
 const BODY = '#FAFAF6';
@@ -82,14 +91,6 @@ const ROUTE_FIND_ILLUSTRATION = require('./assets/Снимок экрана 2026
 const SHARE_ROUTES_ILLUSTRATION = require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png');
 /** Фото слайду «Спілкуйся з друзями». */
 const FRIENDS_SLIDE_HERO = require('./assets/kling_20260405_IMAGE____________5495_1.png');
-/** Останній крок онбордингу: колаж міст (PL / IT / UA). */
-const FINAL_ONBOARD_BRAND_HERO = require('./assets/Group 65.png');
-/**
- * Анімація «Zoom» перед слоганом (останній слайд).
- * Звичайний H.264 MP4 не має альфи — чорний усередині кадру лишиться, доки не замінити на ролик із прозорістю (напр. ProRes 4444 / WebM VP9 alpha).
- */
-const FINAL_TAGLINE_ZOOM_VIDEO = require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4');
-
 const SLIDES_UK = [
   {
     title: 'Шукай цікаві пам’ятки',
@@ -440,6 +441,7 @@ const SKIP_LABEL = {
   lt: 'Praleisti',
   lv: 'Izlaist',
   ro: 'Sari peste',
+  it: 'Salta',
   hy: 'Բաց թողնել',
 };
 
@@ -475,7 +477,7 @@ function getSlidesForLanguage(langId) {
   if (!langId || typeof langId !== 'string') return SLIDES_EN;
   const base = String(langId).split('-')[0].toLowerCase();
   if (base === 'ru') return SLIDES_UK;
-  return SLIDES_BY_LANG[langId] || SLIDES_BY_LANG[base] || SLIDES_EN;
+  return SLIDES_BY_LANG[base] || SLIDES_EN;
 }
 
 function getSkipLabel(langId) {
@@ -695,7 +697,7 @@ function DoubleRect37Strip({
   );
 }
 
-export default function OnboardingIntroPageLegacy({ navigation, route }) {
+export default function OnboardingIntroPage({ navigation, route }) {
   const r = useResponsive();
   const screenW = r.width;
   const screenH = r.height;
@@ -741,10 +743,12 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
   const skipWord = useMemo(() => getSkipLabel(lang), [lang]);
   const continueWord = useMemo(() => getContinueLabel(lang), [lang]);
   const slide = slides[step] ?? slides[0];
+  const heroSlideCopy = slide;
+  const heroSlideCopyLang = lang;
   const onboardingTitleDisplayed = useOnboardingTypewriterTitle(
-    slide?.title ?? '',
+    heroSlideCopy?.title ?? '',
     step,
-    lang,
+    heroSlideCopyLang,
   );
 
   const columnMaxWidth = Math.min(341, Math.max(0, r.width - r.horizontalPadding * 2));
@@ -755,7 +759,7 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
   const skipArrowSize = Math.round(18 * Math.min(r.scale, 1.15));
   /** Усі слайди з героєм: підйом фото (трохи нижче — ближче до смуги Rectangle 37 на переході). */
   const onboardHeroPhotoLiftUpPx = Math.round(Math.max(32, screenH * 0.044));
-  const onboardCopyShiftDownPx = Math.round(Math.max(10, screenH * 0.014));
+  const onboardCopyShiftDownPx = 0;
 
   const isScanSlide = step === 1;
   /**
@@ -992,6 +996,11 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
     isAndroidEn && isScanSlide
       ? -Math.round(Math.max(65, screenH * 0.06))
       : 0;
+  /** Android + en, скан: текст трохи нижче під банером. */
+  const androidEnScanCopyNudgeDownPx =
+    isAndroidEn && isScanSlide
+      ? Math.round(Math.max(14, screenH * 0.016))
+      : 0;
   /** Android + uk, скан: додатковий підйом фото (той самий `scanPhotoImageTranslateY`, що й для en). */
   const androidUkScanHeroBonusLiftPx =
     Platform.OS === 'android' && lang === 'uk' && isScanSlide
@@ -1067,10 +1076,10 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
     Platform.OS === 'android' && lang === 'de' && isScanSlide
       ? -Math.round(Math.max(30, screenH * 0.018))
       : 0;
-  /** Android + en, слайд маршруту: додатковий підйом фото й тіні (translateY −). */
+  /** Android + en, слайд маршруту: додатковий підйом фото й лаймової лінії (translateY −). */
   const androidEnRouteHeroExtraLiftPx =
     isAndroidEn && isRouteSlide
-      ? -Math.round(Math.max(26, screenH * 0.026))
+      ? -Math.round(Math.max(36, screenH * 0.032))
       : 0;
   /** Android + en, слайд «поділитися»: фото й тінь трохи вище (translateY −). */
   const androidEnShareHeroExtraLiftPx =
@@ -1263,87 +1272,111 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
   /** Раніше окремий зсув на iPhone; сумарний зсув тепер у androidShareFriends* / per-lang px. */
   const iosEnDeShareFriendsHeroExtraDownPx = 0;
   const friendsCopyOnlyExtraDownPx = Math.round(Math.max(8, screenH * 0.013));
-  /** Останній слайд: слоган лише на відео; знизу — індикатори та кнопка. */
+  /** Останній слайд: колаж по хвилі; логотип і слоган — у футері над кнопкою. */
   const isFinalBrandSlide = step === TOTAL_STEPS - 1;
+  /** Кроки 0…4: єдиний герой з хвилястим низом і лимонною лінією (AuthHeroHeader). */
+  const isHeroSlide =
+    isLandmarksSlide ||
+    isScanSlide ||
+    isRouteSlide ||
+    isShareSlide ||
+    isFriendsSlide;
+  const onboardHeroSource = isLandmarksSlide
+    ? LANDMARKS_SEARCH_BG
+    : isScanSlide
+      ? SCAN_SLIDE_HERO
+      : isRouteSlide
+        ? ROUTE_FIND_ILLUSTRATION
+        : isShareSlide
+          ? SHARE_ROUTES_ILLUSTRATION
+          : isFriendsSlide
+            ? FRIENDS_SLIDE_HERO
+            : null;
+  const onboardHeroHeight = Math.round(
+    screenH *
+      (r.isVeryShortScreen ? 0.56 : r.isShortScreen ? 0.66 : 0.7),
+  );
+  const onboardHeroTopInset = Math.max(
+    Math.round(r.insets?.top ?? 0),
+    Platform.OS === 'android' ? Math.round(StatusBar.currentHeight ?? 28) : 0,
+  );
   /**
    * Додатковий відступ знизу — крапки + CTA. На Android ті самі значення, що на iOS,
    * щоб відступ «крапки ↔ текст» збігався з iPhone.
    */
   const onboardFooterExtraBottomPx = Math.min(
-    32,
-    Math.max(12, Math.round(screenH * 0.02)),
+    24,
+    Math.max(8, Math.round(screenH * 0.012)),
   );
   /** Базовий відступ тексту над крапками / кнопкою (багаторядковий body на всіх мовах). */
-  const ONBOARD_COPY_GAP_ABOVE_FOOTER_PX = 24;
+  const ONBOARD_COPY_GAP_ABOVE_FOOTER_PX = 6;
+  /** Android, герой-слайди: невеликий зазор між текстом і крапками / CTA. */
+  const onboardAndroidHeroFooterGapPx =
+    isHeroSlide && Platform.OS === 'android'
+      ? Math.round(Math.max(14, screenH * 0.018))
+      : ONBOARD_COPY_GAP_ABOVE_FOOTER_PX;
   /** Як у `styles.dots` (marginTop / marginBottom) — відступ «низ фото → заголовок» на слайді маршруту. */
-  const ONBOARD_DOTS_ROW_MARGIN_PX = 20;
+  const ONBOARD_DOTS_ROW_MARGIN_PX = 8;
   /** PL: інтервал заголовок ↔ текст як у крапок `marginTop` (узгоднено з укр. макетом). */
   const onboardPlTitleBodyGapStyle =
     lang === 'pl' ? { gap: ONBOARD_DOTS_ROW_MARGIN_PX } : null;
-  const onboardPlTitleTopAfterHeroPx = Math.round(Math.max(6, screenH * 0.008));
+  const onboardPlTitleTopAfterHeroPx = 0;
   /**
    * Відступ тексту над крапками / кнопкою (кроки 0…4, без ScrollView — текст закріплений унизу).
    */
   const ONBOARD_COPY_BOTTOM_SAFE_PX = Math.max(
-    ONBOARD_COPY_GAP_ABOVE_FOOTER_PX + 10,
-    22,
+    ONBOARD_COPY_GAP_ABOVE_FOOTER_PX + 4,
+    10,
   );
   /** Легкий зсув копі трохи нижче (усі мови / слайди 0…4). */
-  const ONBOARD_COPY_NUDGE_DOWN_PX = 11;
+  const ONBOARD_COPY_NUDGE_DOWN_PX = 0;
   /**
    * Фіксований вертикальний зсув копі (без onLayout / «тісного» режиму), щоб текст
    * не стрибав вгору-вниз між кадрами.
    */
   /** Як на iOS — той самий вертикальний зсув копі на Android (фото ↔ заголовок у тому ж ритмі). */
-  const onboardCopySafeExtraDownPx = 8 + 10;
+  const onboardCopySafeExtraDownPx = 0;
   /** Скан: той самий вертикальний баланс, що й маршрут / поділитися (без підйому копі). */
   const scanCopyLiftPx = 0;
   const onboardCopyBlockTranslateY =
-    ONBOARD_COPY_NUDGE_DOWN_PX +
-    onboardCopySafeExtraDownPx +
-    scanCopyLiftPx +
-    onboardCopyShiftDownPx;
-  /**
-   * Пам’ятки + скан: копія вище на всіх мовах / iOS+Android — щоб body не різався й не наїжджав на Skip.
-   */
-  /** Пам’ятки / скан: підйом копії — як на Android (без додаткового iOS-штовху). */
-  const landmarksScanCopyVisualLiftPx =
-    isLandmarksSlide || isScanSlide
-      ? -Math.round(Math.max(22, screenH * 0.023))
-      : 0;
-  /** RSF: підйом копії — як на Android. */
-  const rsfCopyVisualLiftPx =
-    isRouteSlide || isShareSlide || isFriendsSlide
-      ? -Math.round(Math.max(16, screenH * 0.018))
-      : 0;
-  /**
-   * Android: додатковий підйом копії на всіх герой-слайдах (0…4). Інакше текст часто лишається під
-   * смугами з elevation або занадто низько; входить у scanCopyVisualUpCompensationPx.
-   */
-  const androidHeroCopyExtraLiftPx =
-    onboardPixelTuningMobile &&
-    (isLandmarksSlide ||
-      isScanSlide ||
-      isRouteSlide ||
-      isShareSlide ||
-      isFriendsSlide)
-      ? -Math.round(Math.max(40, screenH * 0.048))
-      : 0;
-  /** Раніше окремий підйом копії uk на iPhone; тепер спільна логіка з Android. */
+    ONBOARD_COPY_NUDGE_DOWN_PX + onboardCopyShiftDownPx;
+  /** Текст під фото — без підйому на зображення. */
+  const landmarksScanCopyVisualLiftPx = 0;
+  const rsfCopyVisualLiftPx = 0;
+  const androidHeroCopyExtraLiftPx = 0;
   const iosUkScanCopyNudgeUpPx = 0;
   /**
-   * Пам’ятки / скан: paddingTop уже ставить копію під героєм — додатковий зсув униз виштовхує текст за екран.
-   * RSF: зсув у чорній зоні (Android + en — сильніше).
+   * Android, кроки 0…4: один і той самий невеликий зазор «фото / лаймова лінія → заголовок»
+   * на всіх слайдах і мовах (per-lang зсуви героя не повинні з’їдати відступ).
    */
-  const onboardHeroCopyNudgeDownPx = isLandmarksSlide
-    ? 0
-    : isScanSlide
-      ? Math.round(Math.max(8, screenH * 0.01))
-      : onboardPixelTuningMobile && lang === 'en'
-        ? Math.round(Math.max(95, screenH * 0.045))
-        : Math.round(Math.max(95, screenH * 0.012));
+  /** Зазор «фото / лаймова лінія → заголовок» на Android — лише через paddingTop (див. authHeroLayout). */
+  const onboardHeroCopyNudgeDownPx = 0;
+  /** Android, усі герой-слайди: фото й лаймова лінія трохи нижче. */
+  const onboardHeroExtraLiftPx =
+    isHeroSlide && Platform.OS === 'android'
+      ? androidHeroBannerExtraDownPx(screenH)
+      : 0;
+  const onboardHeroTitleGapAfterWavePx =
+    isHeroSlide && Platform.OS === 'ios'
+      ? Math.round(Math.max(18, screenH * 0.02))
+      : 0;
+  /**
+   * iPhone, кроки 0…4 і всі мови: фото й лаймова лінія трохи нижче на сторінці.
+   */
+  const iosHeroSlideExtraDownPx = isLandmarksSlide && Platform.OS === 'ios'
+    ? Math.round(Math.max(42, screenH * 0.044))
+    : isScanSlide && Platform.OS === 'ios'
+      ? Math.round(Math.max(36, screenH * 0.036))
+      : (isRouteSlide || isShareSlide || isFriendsSlide) && Platform.OS === 'ios'
+        ? Math.round(Math.max(28, screenH * 0.032))
+        : 0;
+  const onboardHeroCombinedLiftPx =
+    onboardHeroExtraLiftPx +
+    iosHeroSlideExtraDownPx +
+    androidEnRouteHeroExtraLiftPx;
+  const onboardHeroCombinedTitleGapPx = onboardHeroTitleGapAfterWavePx;
   /** Запас між низом тексту й футером (крапки / CTA). */
-  const overflowScrollReliefBottomPx = 36;
+  const overflowScrollReliefBottomPx = 8;
 
   /** Android + it, слайд «поділитися» — окремі відступи копі. */
   const isAndroidItShareSlide =
@@ -1366,10 +1399,11 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
   const onboardCopyRoShareAndroidBottomPadReliefPx = isAndroidRoShareSlide
     ? Math.round(Math.max(28, screenH * 0.03))
     : 0;
-  const onboardCopyScrollInnerPaddingBottomPx =
-    ONBOARD_COPY_BOTTOM_SAFE_PX +
-    overflowScrollReliefBottomPx -
-    onboardCopyRoShareAndroidBottomPadReliefPx;
+  const onboardCopyScrollInnerPaddingBottomPx = isHeroSlide
+    ? onboardAndroidHeroFooterGapPx
+    : ONBOARD_COPY_BOTTOM_SAFE_PX +
+      overflowScrollReliefBottomPx -
+      onboardCopyRoShareAndroidBottomPadReliefPx;
   /** Раніше окремі зсуви de/pl на iPhone; per-lang android* px покривають те саме. */
   const iosDeRouteCopyNudgeDownPx = 0;
   const iosDeShareCopyNudgeDownPx = 0;
@@ -1512,73 +1546,21 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
     lang,
   ]);
 
-  /** Слоган останнього слайду + ілюстрація Group 65. */
+  /** Слоган останнього слайду + «живий атлас» замість колажу. */
   const finalVideoTaglineSizeBase = Math.min(18, Math.round(16 * r.scale));
-  /**
-   * Android + de + останній слайд: довший слоган — трохи менший шрифт, щоб вміщувався в рядок.
-   */
   const finalVideoTaglineSize =
     onboardPixelTuningMobile && lang === 'de' && isFinalBrandSlide
       ? Math.max(13, Math.round(finalVideoTaglineSizeBase * 0.87))
       : finalVideoTaglineSizeBase;
   const finalVideoTaglineLineHeight = Math.round(finalVideoTaglineSize * 1.35);
-  /**
-   * Від’ємний margin зверху — верхня смуга колажу заходить вище (iOS і Android).
-   * Додаємо невеликий додаток від висоти екрана, якщо inset малий (частіше Android).
-   */
-  /** Трохи менший підйом зверху — анімація + історія трохи нижче. */
-  const finalVideoBandTopOffset =
-    12 -
+  const finalBrandLogoFontSize = Math.min(34, Math.round(30 * r.scale));
+  const finalAtlasHeroHeight = Math.round(screenH * 0.58);
+  const finalAtlasBandTopOffset =
+    8 -
     Math.min(
-      58,
-      Math.round((r.insets?.top ?? 0) * 0.72) + Math.round(screenH * 0.022),
+      48,
+      Math.round((r.insets?.top ?? 0) * 0.65) + Math.round(screenH * 0.018),
     );
-  const finalLowerVideoGap = 4;
-  /** Нижня чорна смуга під блоком героя. */
-  const finalLowerVideoBandHeight = Math.min(Math.round(screenH * 0.36), 320);
-  const finalVideoTaglineBlockPaddingBottom = 10;
-  const finalOnboardLayout = useMemo(() => {
-    const src = Image.resolveAssetSource(FINAL_ONBOARD_BRAND_HERO);
-    const iw = src?.width || 1;
-    const ih = src?.height || 1;
-    const naturalH = (screenW * ih) / iw;
-    /** Вища межа колажу; на iPhone трохи більше — візуально тягнеться нижче. */
-    const maxImageH = Math.round(screenH * 0.73);
-    const finalOnboardImageHeight = Math.min(Math.round(naturalH), maxImageH);
-    /** Компактне відео перед текстом; ×0.92 — трохи менша анімація на останньому слайді. */
-    const finalTaglineVideoH = Math.round(
-      Math.min(136, Math.max(104, screenH * 0.14)) * 0.92,
-    );
-    /** Відступ між відео й текстом (узгоджено з marginTop у finalVideoTaglineTextBelowVideo). */
-    const finalTaglineVideoToTextGap = 4;
-    const taglineBlockH =
-      4 +
-      finalTaglineVideoH +
-      finalTaglineVideoToTextGap +
-      Math.round(finalVideoTaglineLineHeight * 2.6) +
-      finalVideoTaglineBlockPaddingBottom +
-      12;
-    const finalBrandHeroHeight = finalOnboardImageHeight + taglineBlockH;
-    return {
-      finalOnboardImageHeight,
-      finalBrandHeroHeight,
-      taglineBlockH,
-      finalTaglineVideoH,
-    };
-  }, [
-    screenW,
-    screenH,
-    finalVideoTaglineLineHeight,
-    finalVideoTaglineBlockPaddingBottom,
-    isFinalBrandSlide,
-    lang,
-  ]);
-  const {
-    finalOnboardImageHeight,
-    finalBrandHeroHeight,
-    taglineBlockH,
-    finalTaglineVideoH,
-  } = finalOnboardLayout;
   /** Фото пам’яток не заходить на зону тексту + CTA.
    *  topBleed — зона вгору; photoZoomScale — рівномірне збільшення (contain + clip). */
   const landmarksBgLayout = useMemo(() => {
@@ -1873,43 +1855,21 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
    * Верхній padding зони копії = відступ до цієї межі + зазор, щоб текст не наїжджав на банер.
    */
   const overlayContentTopPad = r.insets.top + 8;
-  const onboardCopyBannerClearancePx = Math.round(Math.max(12, screenH * 0.014));
+  const onboardCopyBannerClearancePx = 0;
+  const isAndroidHeroSlide = Platform.OS === 'android' && isHeroSlide;
+  const ONBOARD_ANDROID_HERO_TEXT_GAP_PX = androidHeroTextGapPx(screenH);
   let onboardBannerBottomScreenY = null;
-  if (isLandmarksSlide && landmarksBgLayout) {
-    /** Видимий низ фото (смуга Rectangle 37), не низ кліп-контейнера з bleed. */
-    const photoClipTopY = -landmarksBgLayout.topBleed - 8;
-    const scrimTopInClip =
-      landmarksHeroStripTop ??
-      Math.max(
-        0,
-        landmarksBgLayout.photoH -
-          landmarksHeroScrimH -
-          landmarksHeroStripLiftUpPx +
-          landmarksBgLayout.photoImageTranslateY,
-      );
-    onboardBannerBottomScreenY =
-      photoClipTopY + scrimTopInClip + landmarksHeroScrimH;
-  } else if (isScanSlide && scanBgLayout && scanHeroInnerClipH != null) {
-    onboardBannerBottomScreenY =
-      -scanBgLayout.topBleed -
-      8 +
-      scanHeroInnerClipH +
-      landmarksScanHeroScrimClipBleedPx;
-  } else if (
-    (isRouteSlide || isShareSlide || isFriendsSlide) &&
-    routeShareFriendsScrimLayout
-  ) {
-    onboardBannerBottomScreenY =
-      routeShareFriendsScrimLayout.outerTop + routeShareFriendsScrimLayout.outerH;
+  if (isHeroSlide && onboardHeroSource) {
+    onboardBannerBottomScreenY = authHeroBannerBottomY({
+      heroHeight: onboardHeroHeight,
+      topInset: onboardHeroTopInset,
+      heroLiftPx: onboardHeroCombinedLiftPx,
+    });
+  } else if (isFinalBrandSlide) {
+    onboardBannerBottomScreenY = null;
   }
   /** Компенсація від’ємного translateY на блоці копії (не змінює layout, але зсуває малюнок угору). */
-  const scanCopyVisualUpCompensationPx = -Math.min(
-    0,
-    landmarksScanCopyVisualLiftPx +
-      iosUkScanCopyNudgeUpPx +
-      rsfCopyVisualLiftPx +
-      androidHeroCopyExtraLiftPx,
-  );
+  const scanCopyVisualUpCompensationPx = 0;
   const onboardCopyScrollTopReserveRaw =
     onboardBannerBottomScreenY != null
       ? Math.max(
@@ -1944,10 +1904,17 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
           ),
         )
       : Number.POSITIVE_INFINITY;
-  const onboardCopyScrollTopReservePx = Math.min(
-    onboardCopyScrollTopReserveRaw,
-    onboardCopyMaxTopReservePx,
-  );
+  const onboardAndroidHeroCopyPaddingTop = isAndroidHeroSlide
+    ? androidCopyPaddingTopFromHero({
+        bannerBottomY: onboardBannerBottomScreenY ?? 0,
+        overlayTopPad: overlayContentTopPad,
+        textGapPx: ONBOARD_ANDROID_HERO_TEXT_GAP_PX,
+        maxTopReservePx: onboardCopyMaxTopReservePx,
+      })
+    : 0;
+  const onboardCopyScrollTopReservePx = isHeroSlide
+    ? 0
+    : Math.min(onboardCopyScrollTopReserveRaw, onboardCopyMaxTopReservePx);
 
   const goNextOrAuth = () => {
     if (isTransitioning || advanceLockRef.current) return;
@@ -1966,7 +1933,7 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
           advanceLockRef.current = false;
           return;
         }
-        InteractionManager.runAfterInteractions(() => {
+        runAfterInteractions(() => {
           void (async () => {
             await setOnboardingSlidesSeenFlag();
             navigation.reset({
@@ -2000,9 +1967,24 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
   const goNextOrAuthRef = useRef(goNextOrAuth);
   goNextOrAuthRef.current = goNextOrAuth;
 
+  const goPrev = () => {
+    if (isTransitioning || advanceLockRef.current) return;
+    if (step <= 0) return;
+    advanceLockRef.current = true;
+    setIsTransitioning(true);
+    setStep((s) => Math.max(0, s - 1));
+    contentOpacity.setValue(1);
+    requestAnimationFrame(() => {
+      setIsTransitioning(false);
+      advanceLockRef.current = false;
+    });
+  };
+
+  const goPrevRef = useRef(goPrev);
+  goPrevRef.current = goPrev;
+
   /**
-   * Горизонтальний свайп: жест «листає справа наліво» (палець рухається вліво, dx < 0) —
-   * наступний слайд. Назад по свайпу не перходимо.
+   * Горизонтальний свайп: вліво (dx < 0) — наступний слайд; вправо (dx > 0) — попередній.
    */
   const onboardingPanResponder = useMemo(
     () =>
@@ -2018,6 +2000,8 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
           const vThreshold = 0.32;
           if (g.dx < -threshold || g.vx < -vThreshold) {
             goNextOrAuthRef.current();
+          } else if (g.dx > threshold || g.vx > vThreshold) {
+            goPrevRef.current();
           }
         },
       }),
@@ -2097,7 +2081,7 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
     </Animated.View>
   );
 
-  /** Останній слайд: без крапок — лише «Продовжити». */
+  /** Останній слайд: логотип + слоган над кнопкою «Продовжити». */
   const finalContinueFooterEl = (
     <Animated.View
       style={[
@@ -2113,12 +2097,28 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
         },
       ]}
     >
+      <View style={styles.finalFooterBrandBlock}>
+        <PddHeaderWordmark isLight={false} fontSize={finalBrandLogoFontSize} />
+        <Text
+          style={[
+            styles.finalVideoTaglineText,
+            {
+              fontSize: finalVideoTaglineSize,
+              lineHeight: finalVideoTaglineLineHeight,
+              marginTop: 10,
+            },
+          ]}
+          accessibilityRole="text"
+        >
+          {slide.body}
+        </Text>
+      </View>
       <Pressable
         onPress={goNextOrAuth}
         onPressIn={onCtaPressIn}
         onPressOut={onCtaPressOut}
         disabled={isTransitioning}
-        style={styles.ctaOuter}
+        style={[styles.ctaOuter, styles.finalContinueCta]}
         android_ripple={rippleOnDarkSurface}
         accessibilityRole="button"
         accessibilityLabel={continueWord}
@@ -2158,197 +2158,14 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
           <View
             style={{
               width: screenW,
-              marginTop: finalVideoBandTopOffset,
+              marginTop: finalAtlasBandTopOffset,
               zIndex: 1,
             }}
           >
-            <View
-              style={[
-                styles.finalBrandHeroBand,
-                {
-                  width: screenW,
-                  height: finalBrandHeroHeight,
-                },
-              ]}
-            >
-              <View
-                pointerEvents="none"
-                style={{
-                  width: screenW,
-                  height: finalOnboardImageHeight,
-                  position: 'relative',
-                  overflow: 'visible',
-                  backgroundColor: '#000000',
-                  zIndex: 1,
-                }}
-              >
-                <Image
-                  source={FINAL_ONBOARD_BRAND_HERO}
-                  style={{
-                    width: screenW,
-                    height: finalOnboardImageHeight,
-                    transform: [
-                      {
-                        translateY:
-                          -onboardHeroPhotoLiftUpPx +
-                          androidOnboardHeroImageExtraDownPx,
-                      },
-                    ],
-                  }}
-                  resizeMode="cover"
-                  {...(onboardPixelTuningMobile ? { resizeMethod: 'resize' } : {})}
-                  accessibilityIgnoresInvertColors
-                  accessible
-                  accessibilityRole="image"
-                  accessibilityLabel={slide.title || 'KRAÏNA'}
-                />
-              </View>
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.finalBrandShadowGradientWrap,
-                  {
-                    width: screenW + 32,
-                    left: -16,
-                    height: Math.round(Math.min(158, screenH * 0.175)),
-                    bottom: taglineBlockH - 36,
-                    zIndex: 24,
-                    elevation: onboardPixelTuningMobile ? 24 : 0,
-                  },
-                ]}
-              >
-                <LinearGradient
-                  colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.2)']}
-                  locations={[0, 0.62, 1]}
-                  start={{ x: 0.5, y: 0 }}
-                  end={{ x: 0.5, y: 1 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
-                <LinearGradient
-                  colors={[
-                    'rgba(0,0,0,0)',
-                    'rgba(0,0,0,0.22)',
-                    'rgba(0,0,0,0.62)',
-                    '#000000',
-                    '#000000',
-                  ]}
-                  locations={[0, 0.22, 0.52, 0.88, 1]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
-              </View>
-              {Array.from({ length: 4 }, (_, finalRectI) => (
-                <View
-                  key={`final-onboard-rect36-${finalRectI}`}
-                  pointerEvents="none"
-                  collapsable={onboardPixelTuningMobile ? false : undefined}
-                  style={[
-                    styles.landmarksBottomFadeWrap,
-                    styles.finalBrandRect36Strip,
-                    {
-                      left: heroBottomFadeStripLeftPx,
-                      width: heroBottomFadeStripWidthPx,
-                      height: Math.round(
-                        Math.max(48, Math.min(84, screenH * 0.074)),
-                      ),
-                      bottom:
-                        taglineBlockH -
-                        98 +
-                        finalRectI * 7 -
-                        androidOnboardShadowStripExtraDownPx,
-                      zIndex: 30 + finalRectI,
-                      elevation:
-                        onboardPixelTuningMobile ? 30 + finalRectI : 0,
-                    },
-                  ]}
-                >
-                  <DoubleRect37Strip
-                    firstOpacity={0.12}
-                    secondOpacity={0.09}
-                    androidResize={onboardPixelTuningMobile}
-                  />
-                </View>
-              ))}
-              <View
-                style={[
-                  styles.finalBrandTaglineWrap,
-                  styles.finalBrandTaglineWrapAboveStrips,
-                  onboardPixelTuningMobile && {
-                    transform: [
-                      {
-                        translateY: Math.round(
-                          Math.max(12, screenH * 0.016),
-                        ),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.finalBrandTaglineVideoOuter,
-                    {
-                      height: finalTaglineVideoH,
-                      width: Math.round(
-                        Math.min(308, Math.round(screenW * 0.8)) * 0.92,
-                      ),
-                      /** Негативний відступ — відео заходить на колаж (трохи нижче за попередній варіант). */
-                      marginTop:
-                        14 - Math.round(Math.max(40, screenH * 0.048)),
-                      zIndex: 101,
-                      elevation: onboardPixelTuningMobile ? 101 : 0,
-                    },
-                  ]}
-                >
-                  <Video
-                    source={FINAL_TAGLINE_ZOOM_VIDEO}
-                    style={[
-                      StyleSheet.absoluteFillObject,
-                      { backgroundColor: 'transparent' },
-                    ]}
-                    videoStyle={{ backgroundColor: 'transparent' }}
-                    resizeMode={ResizeMode.COVER}
-                    shouldPlay
-                    isLooping
-                    isMuted
-                    useNativeControls={false}
-                    accessibilityLabel="KRAÏNA"
-                    accessibilityIgnoresInvertColors
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.finalVideoTaglineText,
-                    {
-                      fontSize: finalVideoTaglineSize,
-                      lineHeight: finalVideoTaglineLineHeight,
-                      /** Текст під анімацією: трохи нижче, ніж раніше (менше негативний margin). */
-                      marginTop:
-                        -Math.round(
-                          Math.max(38, finalTaglineVideoH * 0.28),
-                        ) +
-                        12 +
-                        onboardCopyShiftDownPx,
-                      zIndex: 102,
-                      elevation: onboardPixelTuningMobile ? 102 : 0,
-                      paddingHorizontal: 8,
-                    },
-                  ]}
-                  accessibilityRole="text"
-                >
-                  {slide.body}
-                </Text>
-              </View>
-            </View>
-            <View
-              pointerEvents="none"
-              style={{
-                width: screenW,
-                height: finalLowerVideoBandHeight,
-                marginTop: finalLowerVideoGap,
-                backgroundColor: '#000000',
-              }}
+            <OnboardingFinalAtlasHero
+              width={screenW}
+              height={finalAtlasHeroHeight}
+              style={{ zIndex: 1 }}
             />
           </View>
         </View>
@@ -2361,513 +2178,23 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
               (isRouteSlide || isFriendsSlide) && { backgroundColor: ROUTE_SLIDE_BG },
             ]}
           />
-          {isLandmarksSlide && landmarksBgLayout ? (
-            <View
+          {onboardHeroSource ? (
+            <AuthHeroHeader
+              source={onboardHeroSource}
+              height={onboardHeroHeight}
+              topInset={onboardHeroTopInset}
               style={[
-                styles.landmarksPhotoClip,
                 {
-                  width: screenW,
-                  height:
-                    landmarksBgLayout.photoH +
-                    landmarksScanHeroScrimClipBleedPx +
-                    landmarksSlideOnlyClipBleedExtraPx,
-                  top: -landmarksBgLayout.topBleed - 8,
-                },
-              ]}
-            >
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.landmarksPhotoImageClip,
-                  {
-                    width: screenW,
-                    height: landmarksBgLayout.photoH,
-                    zIndex: 0,
-                    elevation: 0,
-                  },
-                ]}
-              >
-                <Image
-                  source={LANDMARKS_SEARCH_BG}
-                  style={[
-                    styles.landmarksBgImage,
-                    {
-                      width: screenW,
-                      height: landmarksBgLayout.photoH,
-                      transform: [
-                        { scale: landmarksBgLayout.photoZoomScale },
-                        { translateY: landmarksBgLayout.photoImageTranslateY },
-                      ],
-                    },
-                  ]}
-                  resizeMode="contain"
-                  {...(onboardPixelTuningMobile ? { resizeMethod: 'scale' } : {})}
-                  accessibilityIgnoresInvertColors
-                  accessible={false}
-                />
-              </View>
-              {Array.from({ length: LANDMARKS_SCAN_HERO_SCRIM_COUNT }, (_, scrimI) => {
-                const rawBase =
-                  (landmarksHeroStripTop ??
-                    Math.max(
-                      0,
-                      landmarksBgLayout.photoH -
-                        landmarksHeroScrimH -
-                        landmarksHeroStripLiftUpPx +
-                        landmarksBgLayout.photoImageTranslateY,
-                    )) +
-                  landmarksSlideOnlyScrimNudgeDownPx -
-                  iosDeLandmarksScrimNudgeUpPx -
-                  androidDeLandmarksScrimNudgeUpPx -
-                  nlLandmarksScrimNudgeUpPx -
-                  esLandmarksScrimNudgeUpPx -
-                  roLandmarksScrimNudgeUpPx -
-                  itLandmarksScrimNudgeUpPx;
-                const baseTop = Number.isFinite(rawBase) ? rawBase : 0;
-                const rawTop = baseTop + scrimI * landmarksHeroScrimDupExtraDownPx;
-                const top =
-                  (Number.isFinite(rawTop) ? Math.max(0, rawTop) : 0) +
-                  androidOnboardShadowStripExtraDownPx;
-                return (
-                  <View
-                    key={`landmarks-hero-scrim-${scrimI}`}
-                    pointerEvents="none"
-                    collapsable={onboardPixelTuningMobile ? false : undefined}
-                    style={[
-                      styles.landmarksHeroBottomStrip,
-                      {
-                        width: landmarksRect37StripWidthPx,
-                        left: landmarksRect37StripLeftPx,
-                        top,
-                        height: landmarksHeroScrimH,
-                        zIndex: 10 + scrimI,
-                        elevation: onboardPixelTuningMobile ? 4 + scrimI : 0,
-                      },
-                    ]}
-                  >
-                    <LinearGradient
-                      colors={LANDMARKS_SCAN_HERO_SCRIM_GRADIENT_COLORS}
-                      locations={LANDMARKS_SCAN_HERO_SCRIM_GRADIENT_LOCATIONS}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 1 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                    <DoubleRect37Strip firstOpacity={1} secondOpacity={0.84} />
-                  </View>
-                );
-              })}
-              {onboardPixelTuningMobile
-                ? Array.from({ length: 2 }, (_, androidRectI) => (
-                    <View
-                      key={`landmarks-android-rect-36-${androidRectI}`}
-                      pointerEvents="none"
-                      collapsable={false}
-                      style={[
-                        styles.landmarksBottomFadeWrap,
-                        {
-                          width: landmarksRect37StripWidthPx,
-                          left: landmarksRect37StripLeftPx,
-                          height: 76,
-                          top:
-                            Math.max(
-                              0,
-                              landmarksBgLayout.photoH -
-                                74 +
-                                androidRectI * 6 +
-                                Math.round(Math.max(36, screenH * 0.038)) -
-                                androidDeLandmarksScrimNudgeUpPx +
-                                (lang === 'lt'
-                                  ? iosLtLandmarksScrimNudgeUpPx +
-                                    ltLandmarksImageNudgeDownPx +
-                                    androidLtLandmarksImageExtraLiftPx
-                                  : lang === 'lv'
-                                    ? iosLvLandmarksScrimNudgeUpPx +
-                                      lvLandmarksImageNudgeDownPx
-                                    : lang === 'it'
-                                      ? androidItLandmarksImageNudgeDownPx
-                                      : 0) + androidHyLandmarksHeroLiftPx,
-                            ) + androidOnboardShadowStripExtraDownPx,
-                          zIndex: 14 + androidRectI,
-                          elevation: 8 + androidRectI,
-                        },
-                      ]}
-                    >
-                      <DoubleRect37Strip firstOpacity={1} secondOpacity={0.84} />
-                    </View>
-                  ))
-                : null}
-            </View>
-          ) : null}
-          {isScanSlide && scanBgLayout && scanHeroInnerClipH != null ? (
-            <View
-              style={[
-                styles.landmarksPhotoClip,
-                {
-                  width: scanHeroClipWidthPx,
-                  left: scanHeroClipLeftPx,
-                  height: scanHeroInnerClipH + landmarksScanHeroScrimClipBleedPx,
-                  top: -scanBgLayout.topBleed - 8,
-                },
-              ]}
-            >
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.landmarksPhotoImageClip,
-                  {
-                    width: scanLayoutFullWidthPx,
-                    left: scanHeroShadowHorizontalBleedPx,
-                    height: scanHeroInnerClipH,
-                    zIndex: 0,
-                    elevation: 0,
-                  },
-                ]}
-              >
-                <Image
-                  source={SCAN_SLIDE_HERO}
-                  style={[
-                    styles.landmarksBgImage,
-                    {
-                      width: scanLayoutFullWidthPx,
-                      left: 0,
-                      height: scanHeroInnerClipH,
-                      zIndex: 0,
-                      transform: [
-                        { scaleY: scanBgLayout.photoScaleY },
-                        { translateY: scanPhotoImageTranslateY },
-                      ],
-                    },
-                  ]}
-                  resizeMode="cover"
-                  {...(onboardPixelTuningMobile ? { resizeMethod: 'scale' } : {})}
-                  accessibilityIgnoresInvertColors
-                  accessible={false}
-                />
-              </View>
-              {Array.from({ length: LANDMARKS_SCAN_HERO_SCRIM_COUNT }, (_, scrimI) => {
-                const rawBase =
-                  Math.max(
-                    0,
-                    scanHeroInnerClipH -
-                      landmarksHeroScrimH -
-                      landmarksHeroStripLiftUpPx +
-                      scanPhotoImageTranslateY,
-                  ) +
-                  androidOnboardShadowStripExtraDownPx +
-                  scanSlideShadowOffsetDownPx;
-                const rawTop = rawBase + scrimI * landmarksHeroScrimDupExtraDownPx;
-                const top = Number.isFinite(rawTop) ? Math.max(0, rawTop) : 0;
-                return (
-                  <View
-                    key={`scan-hero-scrim-${scrimI}`}
-                    pointerEvents="none"
-                    collapsable={onboardPixelTuningMobile ? false : undefined}
-                    style={[
-                      styles.landmarksHeroBottomStrip,
-                      {
-                        width: scanHeroClipWidthPx,
-                        left: 0,
-                        top,
-                        height: landmarksHeroScrimH,
-                        zIndex: 10 + scrimI,
-                        elevation: onboardPixelTuningMobile ? 4 + scrimI : 0,
-                      },
-                    ]}
-                  >
-                    <LinearGradient
-                      colors={LANDMARKS_SCAN_HERO_SCRIM_GRADIENT_COLORS}
-                      locations={LANDMARKS_SCAN_HERO_SCRIM_GRADIENT_LOCATIONS}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 1 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                    <DoubleRect37Strip
-                      firstOpacity={1}
-                      secondOpacity={0.84}
-                      androidResize={onboardPixelTuningMobile}
-                    />
-                  </View>
-                );
-              })}
-              {onboardPixelTuningMobile
-                ? Array.from({ length: 2 }, (_, androidRectI) => (
-                    <View
-                      key={`scan-android-rect-36-${androidRectI}`}
-                      pointerEvents="none"
-                      collapsable={false}
-                      style={[
-                        styles.landmarksBottomFadeWrap,
-                        {
-                          width: scanHeroClipWidthPx,
-                          left: 0,
-                          height: 76,
-                          top:
-                            Math.max(
-                              0,
-                              scanHeroInnerClipH -
-                                74 +
-                                androidRectI * 6 +
-                                Math.round(Math.max(36, screenH * 0.038)),
-                            ) +
-                            androidOnboardShadowStripExtraDownPx +
-                            scanSlideShadowOffsetDownPx +
-                            androidHyScanAndroidOnlyExtraLiftPx,
-                          zIndex: 14 + androidRectI,
-                          elevation: 8 + androidRectI,
-                        },
-                      ]}
-                    >
-                      <DoubleRect37Strip
-                        firstOpacity={1}
-                        secondOpacity={0.84}
-                        androidResize={onboardPixelTuningMobile}
-                      />
-                    </View>
-                  ))
-                : null}
-              {scanPhotoCoverFrame ? (
-                <View
-                  pointerEvents="none"
-                  accessible={false}
-                  collapsable={false}
-                  style={{
-                    position: 'absolute',
-                    left: scanHeroShadowHorizontalBleedPx,
-                    top: 0,
-                    width: scanLayoutFullWidthPx,
-                    height: scanHeroInnerClipH,
-                    zIndex: 22,
-                    elevation: onboardPixelTuningMobile ? 22 : 0,
-                  }}
-                >
-                  <ScanHeroLemonCorners
-                    containFrame={scanPhotoCoverFrame}
-                    screenW={scanLayoutFullWidthPx}
-                    imageTranslateY={scanPhotoImageTranslateY}
-                    topNudgeDownPx={
-                      Math.max(64, Math.round(screenH * 0.07)) +
-                      Math.round((r.insets?.top ?? 0) * 0.85)
-                    }
-                    frameNudgeUpPx={38}
-                    bottomCornersExtraUpPx={36}
-                    topCornersExtraDownPx={14}
-                    showTopCorners={false}
-                    showBottomCorners
-                  />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-          {isLandmarksSlide || isScanSlide ? null : isRouteSlide ||
-          isShareSlide ||
-          isFriendsSlide ? (
-            routeShareFriendsScrimLayout ? (
-              <View
-                pointerEvents="none"
-                style={{
                   position: 'absolute',
-                  left: routeShareFriendsScrimLayout.outerLeft,
-                  top: routeShareFriendsScrimLayout.outerTop,
-                  width: routeShareFriendsScrimLayout.outerW,
-                  height: routeShareFriendsScrimLayout.outerH,
-                  backgroundColor: 'transparent',
+                  left: 0,
                   zIndex: 1,
-                  overflow: 'visible',
-                }}
-              >
-                <View
-                  style={{
-                    width: routeShareFriendsScrimLayout.outerW,
-                    height: routeShareFriendsScrimLayout.heroH,
-                    overflow: 'visible',
-                  }}
-                >
-                  <Image
-                    source={
-                      isRouteSlide
-                        ? ROUTE_FIND_ILLUSTRATION
-                        : isShareSlide
-                          ? SHARE_ROUTES_ILLUSTRATION
-                          : FRIENDS_SLIDE_HERO
-                    }
-                    style={{
-                      width: screenW,
-                      height: routeShareFriendsScrimLayout.heroH,
-                      transform: [
-                        { scale: 1.17 },
-                        { scaleX: 1.03 },
-                        { translateX: -6 },
-                        {
-                          translateY:
-                            Math.round(screenH * 0.016) -
-                            rsfHeroImageNudgeUpPx -
-                            onboardHeroPhotoLiftUpPx -
-                            rsfHeroSharedVerticalNudgeUpPx +
-                            androidOnboardHeroImageExtraDownPx -
-                            androidRsfHeroImageExtraLiftUpPx +
-                            androidShareFriendsHeroExtraDownPx +
-                            androidShareSlideHeroExtraDownPx +
-                            androidEnShareHeroExtraLiftPx +
-                            androidUkShareHeroExtraLiftPx +
-                            androidDeShareHeroExtraLiftPx +
-                            androidPlShareHeroExtraLiftPx +
-                            androidNlShareHeroExtraLiftPx +
-                            androidHyShareHeroExtraLiftPx +
-                            androidItShareHeroExtraDownPx +
-                            androidRoShareHeroExtraDownPx +
-                            iosEnDeShareFriendsHeroExtraDownPx +
-                            onboardLongTitleHeroLiftPx +
-                            androidEnRouteHeroExtraLiftPx +
-                            androidDeRouteHeroExtraLiftPx +
-                            androidUkRouteHeroExtraLiftPx +
-                            androidPlRouteHeroExtraLiftPx +
-                            androidNlRouteHeroExtraLiftPx +
-                            androidEsRouteHeroExtraLiftPx +
-                            androidItRouteHeroExtraLiftPx +
-                            androidHyRouteHeroExtraLiftPx +
-                            androidRouteHeroExtraDownPx +
-                            androidEnFriendsHeroExtraDownPx +
-                            androidDeFriendsHeroExtraDownPx +
-                            androidItFriendsHeroExtraDownPx +
-                            androidUkFriendsHeroExtraDownPx +
-                            androidPlFriendsHeroExtraDownPx +
-                            androidRoFriendsHeroExtraDownPx +
-                            androidNlFriendsHeroExtraDownPx +
-                            androidEsFriendsHeroExtraDownPx +
-                            androidLtFriendsHeroExtraDownPx +
-                            androidLvFriendsHeroExtraDownPx +
-                            iosDeShareHeroExtraDownPx +
-                            iosDeFriendsHeroExtraDownPx +
-                            iosPlFriendsHeroExtraDownPx,
-                        },
-                      ],
-                    }}
-                    resizeMode="cover"
-                    {...(onboardPixelTuningMobile ? { resizeMethod: 'resize' } : {})}
-                    accessibilityIgnoresInvertColors
-                    accessible={false}
-                  />
-                </View>
-                {Array.from(
-                  {
-                    length: isRouteSlide ? ROUTE_RSF_SCRIM_COUNT : RSF_HERO_SCRIM_COUNT,
-                  },
-                  (_, scrimI) => {
-                    const lowerNudgePx = isRouteSlide
-                      ? routeRsfScrimLowerNudgePx
-                      : landmarksHeroScrimLowerNudgePx;
-                    const rawTop =
-                      routeShareFriendsScrimLayout.scrimBaseTop +
-                      lowerNudgePx +
-                      scrimI * landmarksHeroScrimDupExtraDownPx;
-                    const top =
-                      (Number.isFinite(rawTop) ? Math.max(0, rawTop) : 0) +
-                      androidOnboardShadowStripExtraDownPx +
-                      androidUkFriendsScrimExtraDownPx;
-                    const gradColors = isRouteSlide
-                      ? ROUTE_RSF_SCRIM_GRADIENT_COLORS
-                      : RSF_HERO_SCRIM_GRADIENT_COLORS;
-                    const gradLocs = isRouteSlide
-                      ? ROUTE_RSF_SCRIM_GRADIENT_LOCATIONS
-                      : RSF_HERO_SCRIM_GRADIENT_LOCATIONS;
-                    const rectStripOpacity = 1;
-                    return (
-                      <View
-                        key={`rsf-hero-scrim-${scrimI}`}
-                        pointerEvents="none"
-                        collapsable={onboardPixelTuningMobile ? false : undefined}
-                        style={[
-                          styles.landmarksHeroBottomStrip,
-                          {
-                            width: routeShareFriendsScrimLayout.heroFadeWidthPx,
-                            left: routeShareFriendsScrimLayout.heroFadeLeftPx,
-                            top,
-                            height: landmarksHeroScrimH,
-                            zIndex: 10 + scrimI,
-                            elevation: onboardPixelTuningMobile ? 4 + scrimI : 0,
-                          },
-                        ]}
-                      >
-                        <LinearGradient
-                          colors={gradColors}
-                          locations={gradLocs}
-                          start={{ x: 0.5, y: 0 }}
-                          end={{ x: 0.5, y: 1 }}
-                          style={StyleSheet.absoluteFillObject}
-                        />
-                        <DoubleRect37Strip
-                          firstOpacity={rectStripOpacity}
-                          secondOpacity={rectStripOpacity * 0.84}
-                          androidResize={onboardPixelTuningMobile}
-                        />
-                      </View>
-                    );
-                  },
-                )}
-                {onboardPixelTuningMobile
-                  ? Array.from(
-                      { length: isRouteSlide ? 2 : 4 },
-                      (_, androidRectI) => (
-                        <View
-                          key={`rsf-android-rect-36-${androidRectI}`}
-                          pointerEvents="none"
-                          collapsable={false}
-                          style={[
-                            styles.landmarksBottomFadeWrap,
-                            {
-                              width: routeShareFriendsScrimLayout.heroFadeWidthPx,
-                              left: routeShareFriendsScrimLayout.heroFadeLeftPx,
-                              height: 76,
-                              top: Math.max(
-                                0,
-                                routeShareFriendsScrimLayout.heroH -
-                                  74 +
-                                  androidRectI * 6 +
-                                  (isRouteSlide
-                                    ? routeRsfScrimLowerNudgePx
-                                    : landmarksHeroScrimLowerNudgePx) -
-                                  androidRsfHeroImageExtraLiftUpPx +
-                                  androidShareFriendsHeroExtraDownPx +
-                                  androidUkFriendsScrimExtraDownPx +
-                                  androidDeFriendsHeroExtraDownPx +
-                                  androidItFriendsHeroExtraDownPx +
-                                  androidPlFriendsHeroExtraDownPx +
-                                  androidRoFriendsHeroExtraDownPx +
-                                  androidNlFriendsHeroExtraDownPx +
-                                  androidEsFriendsHeroExtraDownPx +
-                                  androidLtFriendsHeroExtraDownPx +
-                                  androidLvFriendsHeroExtraDownPx +
-                                  androidRouteHeroExtraDownPx +
-                                  androidEnRouteHeroExtraLiftPx +
-                                  androidDeRouteHeroExtraLiftPx +
-                                  androidUkRouteHeroExtraLiftPx +
-                                  androidPlRouteHeroExtraLiftPx +
-                                  androidNlRouteHeroExtraLiftPx +
-                                  androidEsRouteHeroExtraLiftPx +
-                                  androidItRouteHeroExtraLiftPx +
-                                  androidHyRouteHeroExtraLiftPx +
-                                  androidShareSlideHeroExtraDownPx +
-                                  androidEnShareHeroExtraLiftPx +
-                                  androidUkShareHeroExtraLiftPx +
-                                  androidDeShareHeroExtraLiftPx +
-                                  androidPlShareHeroExtraLiftPx +
-                                  androidNlShareHeroExtraLiftPx +
-                                  androidHyShareHeroExtraLiftPx +
-                                  androidItShareHeroExtraDownPx +
-                                  androidRoShareHeroExtraDownPx,
-                              ),
-                              zIndex: 18 + androidRectI,
-                              elevation: 8 + androidRectI,
-                            },
-                          ]}
-                        >
-                          <DoubleRect37Strip firstOpacity={1} secondOpacity={0.84} />
-                        </View>
-                      ),
-                    )
-                  : null}
-              </View>
-            ) : null
+                  ...(onboardHeroCombinedLiftPx !== 0 && {
+                    transform: [{ translateY: onboardHeroCombinedLiftPx }],
+                  }),
+                },
+                onboardHeroTopInset > 0 ? { top: -onboardHeroTopInset } : { top: 0 },
+              ]}
+            />
           ) : (
             <LinearGradient
               colors={lemonGlow.colors}
@@ -2893,13 +2220,7 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
           styles.overlay,
           isFinalBrandSlide && styles.overlayFinalBrand,
           !isFinalBrandSlide && styles.overlayWithFixedCopy,
-          /**
-           * Android: у героя смуги з elevation до ~22 — без elevation оверлея копія малюється ПІД ними
-           * (видно лише футер). Фінальний слайд не чіпаємо — там свій z-стек.
-           */
-          !isFinalBrandSlide &&
-            onboardPixelTuningMobile &&
-            styles.overlayHeroAndroidAboveHeroDecor,
+          isHeroSlide && styles.overlayWithFixedCopyHeroBottom,
           {
             paddingTop: r.insets.top + 8,
             paddingBottom: r.bottomPadding + onboardFooterExtraBottomPx,
@@ -2920,13 +2241,13 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
                   isShareSlide ||
                   isFriendsSlide) &&
                   styles.onboardCopyScrollLandmarks,
+                isHeroSlide && styles.onboardCopyScrollHero,
               ]}
             >
               <View
                 style={[
                   styles.onboardCopyScrollInner,
-                  (isLandmarksSlide || isScanSlide) &&
-                    styles.onboardCopyScrollInnerLandmarks,
+                  isHeroSlide && styles.onboardCopyScrollInnerHero,
                   {
                     paddingTop: onboardCopyScrollTopReservePx,
                     paddingBottom: onboardCopyScrollInnerPaddingBottomPx,
@@ -2936,119 +2257,32 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
               <Animated.View
                 style={[
                   styles.column,
-                  (isLandmarksSlide ||
-                    isScanSlide ||
-                    isRouteSlide ||
-                    isShareSlide ||
-                    isFriendsSlide) &&
-                    styles.columnScanCopy,
                   {
                     width: '100%',
                     maxWidth: columnMaxWidth,
                     alignSelf: 'center',
                     opacity: contentOpacity,
-                    ...((isLandmarksSlide ||
-                      isScanSlide ||
-                      isRouteSlide ||
-                      isShareSlide ||
-                      isFriendsSlide) && {
-                      zIndex: 10,
-                      ...(onboardPixelTuningMobile
-                        ? { elevation: 34 }
-                        : { elevation: 0 }),
-                    }),
                   },
                 ]}
               >
-                {isLandmarksSlide || isScanSlide ? (
-                  <>
-                    <View
-                      collapsable={onboardPixelTuningMobile ? false : undefined}
-                      style={[
-                        styles.landmarksTextBlock,
-                        isScanSlide && styles.landmarksTextBlockScanBelowPhoto,
-                        onboardPlTitleBodyGapStyle,
-                        onboardPixelTuningMobile && styles.landmarksTextBlockAndroidElevated,
-                        {
-                          transform: [
-                            {
-                              translateY:
-                                onboardCopyBlockTranslateY +
-                                landmarksScanCopyVisualLiftPx +
-                                iosUkScanCopyNudgeUpPx +
-                                androidHeroCopyExtraLiftPx +
-                                onboardHeroCopyNudgeDownPx,
-                            },
-                          ],
-                        },
-                      ]}
-                    >
-                      <Text
-                        accessibilityRole="header"
-                        accessibilityLabel={slide.title}
-                        style={[
-                          styles.titleLandmarksPlain,
-                          {
-                            fontSize: leftAccentTitleSize,
-                            lineHeight: Math.round(leftAccentTitleSize * 1.22),
-                          },
-                          styles.onboardRouteShareFriendsTextNoShadow,
-                          isLandmarksSlide && {
-                            marginTop: onboardPlTitleTopAfterHeroPx,
-                          },
-                          lang === 'pl' && isScanSlide && {
-                            marginTop: onboardPlTitleTopAfterHeroPx,
-                          },
-                        ]}
-                      >
-                        {onboardingTitleDisplayed}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.bodyLandmarksPlain,
-                          {
-                            fontSize: leftAccentBodySize,
-                            lineHeight: Math.round(leftAccentBodySize * 1.55),
-                          },
-                          styles.onboardRouteShareFriendsTextNoShadow,
-                        ]}
-                      >
-                        {isScanSlide
-                          ? slide.body.replace(/\s*\n+\s*/g, ' ').trim()
-                          : slide.body}
-                      </Text>
-                    </View>
-                  </>
-                ) : isRouteSlide || isShareSlide || isFriendsSlide ? (
+                {isHeroSlide ? (
                   <View
                     collapsable={onboardPixelTuningMobile ? false : undefined}
                     style={[
                       styles.landmarksTextBlock,
+                      styles.landmarksTextBlockBelowHero,
                       onboardPlTitleBodyGapStyle,
                       onboardRoShareTitleBodyGapStyle,
-                      (isRouteSlide ||
-                        isShareSlide ||
-                        isFriendsSlide) && {
-                        zIndex: 10,
-                        elevation: onboardPixelTuningMobile ? 12 : 0,
+                      isAndroidHeroSlide && {
+                        gap: Math.round(Math.max(10, screenH * 0.014)),
                       },
-                      onboardPixelTuningMobile && styles.landmarksTextBlockAndroidElevated,
                       {
                         transform: [
                           {
                             translateY:
                               onboardCopyBlockTranslateY +
-                              rsfCopyVisualLiftPx +
-                              androidHeroCopyExtraLiftPx +
                               onboardHeroCopyNudgeDownPx +
-                              androidItShareCopyLiftPx +
-                              androidRoShareCopyLiftPx +
-                              iosDeRouteCopyNudgeDownPx +
-                              iosDeShareCopyNudgeDownPx +
-                              (isFriendsSlide
-                                ? friendsCopyOnlyExtraDownPx
-                                : 0) -
-                              ONBOARD_DOTS_ROW_MARGIN_PX,
+                              androidEnScanCopyNudgeDownPx,
                           },
                         ],
                       },
@@ -3056,28 +2290,23 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
                   >
                     <Text
                       accessibilityRole="header"
-                      accessibilityLabel={slide.title}
+                      accessibilityLabel={heroSlideCopy.title}
                       style={[
                         styles.titleLandmarksPlain,
+                        styles.onboardRouteShareFriendsTextNoShadow,
                         {
                           fontSize: leftAccentTitleSize,
                           lineHeight: Math.round(leftAccentTitleSize * 1.22),
-                        },
-                        styles.onboardRouteShareFriendsTextNoShadow,
-                        lang === 'pl' && {
-                          marginTop: onboardPlTitleTopAfterHeroPx,
+                          marginTop: isAndroidHeroSlide
+                            ? 0
+                            : onboardPlTitleTopAfterHeroPx +
+                              onboardHeroCombinedTitleGapPx,
                         },
                         isAndroidItShareSlide && {
                           includeFontPadding: false,
-                          marginBottom: -4,
                         },
-                        /**
-                         * Android + ro + share: typewriter + flex-end — фіксована висота під 2 рядки,
-                         * щоб блок не стрибав; щільніший низ до body.
-                         */
                         isAndroidRoShareSlide && {
                           minHeight: Math.round(leftAccentTitleSize * 1.22 * 2),
-                          marginBottom: -6,
                         },
                       ]}
                       {...(isAndroidRoShareSlide
@@ -3089,26 +2318,22 @@ export default function OnboardingIntroPageLegacy({ navigation, route }) {
                     <Text
                       style={[
                         styles.bodyLandmarksPlain,
+                        styles.onboardRouteShareFriendsTextNoShadow,
                         {
                           fontSize: leftAccentBodySize,
                           lineHeight: Math.round(leftAccentBodySize * 1.55),
                         },
-                        styles.onboardRouteShareFriendsTextNoShadow,
                         isAndroidItShareSlide && {
                           includeFontPadding: false,
-                          marginTop: -2,
-                        },
-                        isAndroidRoShareSlide && {
-                          marginTop: -4,
                         },
                       ]}
                       {...(isAndroidRoShareSlide
                         ? { textBreakStrategy: 'simple' }
                         : {})}
                     >
-                      {isRouteSlide || isFriendsSlide
-                        ? slide.body.replace(/\s*\n+\s*/g, ' ').trim()
-                        : slide.body}
+                      {isScanSlide || isRouteSlide || isFriendsSlide
+                        ? heroSlideCopy.body.replace(/\s*\n+\s*/g, ' ').trim()
+                        : heroSlideCopy.body}
                     </Text>
                   </View>
                 ) : (
@@ -3218,10 +2443,14 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
     maxWidth: 341,
-    gap: 12,
-    transform: [{ translateY: 10 }],
+    gap: 6,
     paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingVertical: 0,
+  },
+  /** Текст одразу під хвилястим героєм — без накладання на фото. */
+  landmarksTextBlockBelowHero: {
+    transform: [{ translateY: 0 }],
+    marginTop: 0,
   },
   /** Android: окремий elevated-шар для копії (разом з виправленням elevation на батьківській колонці). */
   landmarksTextBlockAndroidElevated: {
@@ -3287,10 +2516,9 @@ const styles = StyleSheet.create({
   },
   finalBrandHeroBand: {
     position: 'relative',
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
     justifyContent: 'flex-start',
     alignItems: 'stretch',
-    /** Смуги Rectangle 37 поверх колажу і слогану — не обрізати. */
     overflow: 'visible',
   },
   finalBrandTaglineWrap: {
@@ -3377,6 +2605,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     minHeight: 0,
   },
+  /** Герой-слайди: текст + крапки + CTA щільно внизу екрана. */
+  overlayWithFixedCopyHeroBottom: {
+    justifyContent: 'flex-end',
+  },
   onboardCopyScroll: {
     flex: 1,
     minHeight: 0,
@@ -3386,6 +2618,12 @@ const styles = StyleSheet.create({
   onboardCopyScrollLandmarks: {
     backgroundColor: 'transparent',
   },
+  /** Герой-слайди: не розтягувати зону копії — лишається компактним блоком над футером. */
+  onboardCopyScrollHero: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flex: 0,
+  },
   onboardCopyScrollInner: {
     flex: 1,
     minHeight: 0,
@@ -3393,28 +2631,41 @@ const styles = StyleSheet.create({
     width: '100%',
     overflow: 'visible',
   },
-  onboardCopyScrollInnerLandmarks: {
-    paddingTop: 0,
+  /** Герой-слайди: текст одразу над крапками, без великого чорного поля. */
+  onboardCopyScrollInnerHero: {
+    justifyContent: 'flex-start',
+    flexGrow: 0,
+    flexShrink: 0,
+    flex: 0,
   },
   onboardFooter: {
     flexShrink: 0,
-    paddingTop: 2,
+    paddingTop: 0,
     zIndex: 30,
     ...Platform.select({
       android: { elevation: 60 },
       ios: {},
     }),
   },
-  /** Фінальний крок: без ряду крапок. */
+  /** Фінальний крок: логотип + слоган над кнопкою. */
   onboardFooterFinalContinue: {
-    paddingTop: 4,
+    paddingTop: 8,
+    gap: 18,
+  },
+  finalFooterBrandBlock: {
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+  },
+  finalContinueCta: {
+    marginTop: 2,
   },
   flexSpacer: {
     flex: 1,
     minHeight: 0,
   },
   column: {
-    paddingBottom: 8,
+    paddingBottom: 0,
   },
   /** Усі слайди: лайм зліва, білий текст. */
   titleBodyBlock: {
@@ -3461,8 +2712,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'stretch',
     gap: 8,
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 6,
+    marginBottom: 8,
     width: '100%',
   },
   dot: {
@@ -3533,24 +2784,3 @@ const styles = StyleSheet.create({
   },
 });
 
-/** Банери вимкнено — одразу на вхід / вибір країни (навіть якщо навігація ще веде сюди). */
-function OnboardingIntroPage({ navigation, route }) {
-  const lang = useAppLanguage(route);
-  useLayoutEffect(() => {
-    void setOnboardingSlidesSeenFlag();
-    navigation.reset({
-      index: 0,
-      routes: [
-        PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION
-          ? {
-              name: 'SelectCountry',
-              params: { language: lang, previewBeforeAuth: true },
-            }
-          : { name: 'ThirdPage', params: { language: lang } },
-      ],
-    });
-  }, [navigation, lang]);
-  return null;
-}
-
-export default OnboardingIntroPage;

@@ -1,7 +1,9 @@
+import { createRequire } from 'node:module';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const _require = createRequire(import.meta.url);
 const backendEnvPath = path.join(__dirname, '../.env');
 const repoEnvPath = path.join(__dirname, '../../.env');
 dotenv.config({ path: repoEnvPath });
@@ -74,6 +76,12 @@ export const aiRouteConfig = {
 };
 export const config = {
     nodeEnv: process.env.NODE_ENV ?? 'development',
+    sentryDsn: opt('SENTRY_DSN'),
+    sentryEnv: opt('SENTRY_ENV') || process.env.NODE_ENV || 'production',
+    sentryTracesSampleRate: (() => {
+        const v = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
+        return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.1;
+    })(),
     port: Number(process.env.PORT ?? 3000),
     databaseUrl: req('DATABASE_URL'),
     databaseSsl: parseDatabaseSsl(),
@@ -82,6 +90,23 @@ export const config = {
     googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
     appleClientId: process.env.APPLE_CLIENT_ID ?? '',
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000',
+    appVersion: (() => {
+        try {
+            const p = _require('../../package.json');
+            return p.version || '0.0.0';
+        }
+        catch {
+            return '0.0.0';
+        }
+    })(),
+    // --- Object storage (S3-compatible) ---
+    storageProvider: (process.env.STORAGE_PROVIDER ?? 'local').trim().toLowerCase(),
+    s3Bucket: opt('S3_BUCKET'),
+    s3Region: opt('S3_REGION') || 'us-east-1',
+    s3AccessKeyId: opt('S3_ACCESS_KEY_ID'),
+    s3SecretAccessKey: opt('S3_SECRET_ACCESS_KEY'),
+    s3PublicBaseUrl: opt('S3_PUBLIC_BASE_URL'),
+    s3Endpoint: opt('S3_ENDPOINT'),
     minSupportedAppVersion: opt('MIN_SUPPORTED_APP_VERSION'),
     iosAppStoreUrl: opt('IOS_APP_STORE_URL'),
     androidPlayStoreUrl: opt('ANDROID_PLAY_STORE_URL'),
@@ -94,7 +119,18 @@ export const config = {
     accessTokenTtlSec: 15 * 60,
     refreshTokenTtlDays: 30,
     passwordResetTtlMin: 60,
+    // --- LiveKit (аудіо- та відеодзвінки) ---
+    livekitApiKey: opt('LIVEKIT_API_KEY'),
+    livekitApiSecret: opt('LIVEKIT_API_SECRET'),
+    livekitUrl: opt('LIVEKIT_URL'),
+    // --- APNs (VoIP push notifications) ---
+    apnsKeyId: opt('APNS_KEY_ID'),
+    apnsTeamId: opt('APNS_TEAM_ID'),
+    apnsTopic: opt('APNS_TOPIC'),
+    apnsProduction: /^(1|true|yes)$/i.test(process.env.APNS_PRODUCTION ?? ''),
     corsOrigins: parseCorsOrigins(),
     trustProxy: parseTrustProxy(),
+    // Helper: true if APNs env vars are present (not necessarily valid)
+    apnsConfigured: !!(opt('APNS_KEY_ID') && opt('APNS_TEAM_ID') && opt('APNS_TOPIC')),
 };
 //# sourceMappingURL=config.js.map

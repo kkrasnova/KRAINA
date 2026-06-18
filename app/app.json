@@ -31,7 +31,12 @@
       "expo-font",
       "@react-native-community/datetimepicker",
       "expo-notifications",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Мікрофон потрібен, щоб записувати та надсилати голосові повідомлення в чаті."
+        }
+      ],
       "expo-image",
       "expo-video"
     ],
@@ -47,17 +52,23 @@
     "version": "1.0.1",
     "runtimeVersion": "1.0.1",
     "updates": {
-      "url": "https://u.expo.dev/9643216e-eb27-4acd-9b1c-ac4c5a42883c"
+      "url": "https://u.expo.dev/9643216e-eb27-4acd-9b1c-ac4c5a42883c",
+      "requestHeaders": {
+        "expo-channel-name": "development"
+      }
     },
     "orientation": "portrait",
     "backgroundColor": "#000000",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "dark",
     "autolinking": {
       "exclude": [
         "expo-av"
       ],
       "android": {
+        "exclude": [
+          "react-native-performance"
+        ],
         "buildFromSource": []
       }
     },
@@ -75,8 +86,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
-        "backgroundColor": "#000000"
+        "foregroundImage": "./assets/app-icon.png",
+        "backgroundColor": "#0B0F1A"
       },
       "splash": {
         "backgroundColor": "#000000",
@@ -96,7 +107,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/logo.png"
+      "favicon": "./assets/app-icon.png"
     }
   }
 }

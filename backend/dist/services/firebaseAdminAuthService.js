@@ -1,59 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import admin from 'firebase-admin';
-let cachedAuth;
-function loadServiceAccount() {
-    const raw = (process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? '').trim();
-    if (raw) {
-        try {
-            return JSON.parse(raw);
-        }
-        catch (e) {
-            console.warn('[firebaseAdminAuth] FIREBASE_SERVICE_ACCOUNT_JSON parse failed', e);
-            return null;
-        }
-    }
-    const p = (process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? '').trim();
-    if (p) {
-        const abs = path.isAbsolute(p) ? p : path.resolve(process.cwd(), p);
-        if (!fs.existsSync(abs)) {
-            console.warn('[firebaseAdminAuth] FIREBASE_SERVICE_ACCOUNT_PATH not found:', abs);
-            return null;
-        }
-        try {
-            return JSON.parse(fs.readFileSync(abs, 'utf8'));
-        }
-        catch (e) {
-            console.warn('[firebaseAdminAuth] FIREBASE_SERVICE_ACCOUNT_PATH parse failed', e);
-            return null;
-        }
-    }
-    return null;
-}
-function getAdminAuth() {
-    if (cachedAuth !== undefined)
-        return cachedAuth;
-    const account = loadServiceAccount();
-    if (!account) {
-        cachedAuth = null;
-        return cachedAuth;
-    }
-    try {
-        if (!admin.apps.length) {
-            admin.initializeApp({
-                credential: admin.credential.cert(account),
-                projectId: account.project_id,
-            });
-        }
-        cachedAuth = admin.auth();
-        return cachedAuth;
-    }
-    catch (e) {
-        console.warn('[firebaseAdminAuth] init failed', e);
-        cachedAuth = null;
-        return cachedAuth;
-    }
-}
+import { getAdminAuth } from './firebaseAdmin.js';
+import { logger } from '../logger.js';
 export async function createFirebaseCustomToken(uid, claims) {
     const a = getAdminAuth();
     if (!a)
@@ -65,7 +11,9 @@ export async function createFirebaseCustomToken(uid, claims) {
         return await a.createCustomToken(id, claims);
     }
     catch (e) {
-        console.warn('[firebaseAdminAuth] createCustomToken failed', e);
+        logger.warn('[firebaseAdminAuth] createCustomToken failed', {
+            error: e instanceof Error ? e.message : String(e),
+        });
         return null;
     }
 }

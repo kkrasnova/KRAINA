@@ -31,34 +31,7 @@ import { useAppLanguage } from './useAppLanguage';
 import { GOOGLE_GEOCODING_API_KEY } from './authConfig';
 import { brandFontText } from './brandFont';
 
-
 export const COUNTRY_STORAGE_KEY = LEGACY_COUNTRY_STORAGE_KEY;
-
-/**
- * Якщо нативний ExpoImage не злінкований (типова помилка iOS після змін pods без clean build),
- * require кинеться одразу — тоді плитки країн рендеряться через RN Image (без contentPosition).
- */
-let ExpoImageNative = null;
-try {
-  ExpoImageNative = require('expo-image').Image;
-} catch {
-  ExpoImageNative = null;
-}
-
-function CountryTilePhotoImage({ expoProps, style }) {
-  if (ExpoImageNative) {
-    return <ExpoImageNative {...expoProps} style={style} />;
-  }
-  return (
-    <Image
-      source={expoProps.source}
-      style={style}
-      resizeMode="cover"
-      accessibilityIgnoresInvertColors={expoProps.accessibilityIgnoresInvertColors}
-      onError={expoProps.onError}
-    />
-  );
-}
 
 /** Лише країни, що відповідають мовам з екрана вибору мови (SecondPage / APP_LANG_IDS). */
 const COUNTRIES = countriesAlignedWithAppLanguages();
@@ -66,77 +39,52 @@ const SUPPORTED_COUNTRY_IDS = new Set(COUNTRIES.map((c) => c.id));
 
 const GRID_GAP = 10;
 
-/** Маленьке «вікно» для плиток (зараз порожньо — усі країни з фото на всю плитку). */
-const COUNTRY_TILE_PHOTO_INSET_IDS = new Set();
-/** Для цих плиток піднімаємо текст у верхню частину кадру (зона неба). */
-const COUNTRY_TILE_LABEL_ON_SKY_IDS = new Set(['UA', 'PL', 'ES', 'NL', 'LT', 'LV', 'RO', 'IT', 'AM']);
+/** Ті самі hero PNG, що в каруселі на головній (без AVIF — стабільніше на Android). */
+const COUNTRY_SELECT_TILE_PHOTOS = {
+  DE: require('./assets/germany-card-hero.png'),
+  NL: require('./assets/netherlands-card-hero.png'),
+  PL: require('./assets/poland-card-hero.png'),
+  ES: require('./assets/spain-card-hero.png'),
+  LT: require('./assets/lithuania-card-hero.png'),
+  LV: require('./assets/latvia-card-hero.png'),
+  RO: require('./assets/romania-card-hero.png'),
+  IT: require('./assets/italy-card-hero.png'),
+  AM: require('./assets/armenia-card-hero.png'),
+  UA: require('./assets/kyiv-main-hero.png'),
+};
 
-/** Фото всередині плитки країни (решта країн — градієнт). AVIF → jpg/png у кандидатах. */
-const COUNTRY_TILE_BACKGROUND_CANDIDATES = {
-  DE: [
-    require('./assets/country-tile-germany-castle.png'),
-    require('./assets/country-tile-germany-hero.jpg'),
-  ],
-  NL: [
-    require('./assets/country-tile-netherlands-hero.jpg'),
-    require('./assets/country-tile-netherlands.png'),
-  ],
-  UA: [
-    require('./assets/photo-1639341267320-2d062b250c0d.avif'),
-    require('./assets/country-tile-ua.jpg'),
-  ],
-  PL: [
-    require('./assets/photo-1519197924294-4ba991a11128.avif'),
-    require('./assets/country-tile-pl.jpg'),
-  ],
-  ES: [
-    require('./assets/spain-card-hero.png'),
-    require('./assets/photo-1579282240050-352db0a14c21.avif'),
-  ],
-  LT: [require('./assets/country-tile-lithuania.png')],
-  LV: [
-    require('./assets/country-tile-latvia-hero.jpg'),
-    require('./assets/country-tile-latvia.jpg'),
-  ],
-  RO: [require('./assets/country-tile-romania-hero.jpg')],
-  IT: [require('./assets/country-tile-italy-hero.jpg')],
-  AM: [require('./assets/tyquxnnd.jpg')],
+const COUNTRY_SELECT_TILE_FALLBACKS = {
+  DE: require('./assets/country-tile-germany-hero.jpg'),
+  NL: require('./assets/country-tile-netherlands-hero.jpg'),
+  PL: require('./assets/country-tile-pl.jpg'),
+  LT: require('./assets/country-tile-lithuania.png'),
+  LV: require('./assets/country-tile-latvia-hero.jpg'),
+  RO: require('./assets/country-tile-romania-hero.jpg'),
+  IT: require('./assets/country-tile-italy-hero.jpg'),
+  AM: require('./assets/tyquxnnd.jpg'),
+  UA: require('./assets/country-tile-ua.jpg'),
 };
 
 function getCountryTilePhotoCandidates(countryId) {
-  const list = COUNTRY_TILE_BACKGROUND_CANDIDATES[countryId];
-  return Array.isArray(list) ? list : [];
+  const primary = COUNTRY_SELECT_TILE_PHOTOS[countryId];
+  const fallback = COUNTRY_SELECT_TILE_FALLBACKS[countryId];
+  const out = [];
+  if (primary) out.push(primary);
+  if (fallback && fallback !== primary) out.push(fallback);
+  return out;
 }
 
-/** expo-image: object-position; NL/RO — додатково pan через COUNTRY_TILE_EXPO_EXTRA_PAN. */
-const COUNTRY_TILE_EXPO_CONTENT_POSITION = {
-  DE: 'center',
-  NL: 'center',
-  UA: 'top center',
-  PL: 'top center',
-  ES: 'center',
-  LT: 'bottom center',
-  LV: 'bottom center',
-  RO: 'bottom center',
-  IT: 'top center',
-  AM: 'top center',
-};
-
 /**
- * scale + translateY від висоти плитки (expo-image).
+ * scale + translateY від висоти плитки.
  * translateYFrac < 0 — зсунути кадр вгору (RO).
  */
-const COUNTRY_TILE_EXPO_EXTRA_PAN = {
+const COUNTRY_TILE_PHOTO_PAN = {
   NL: { scale: 1.14, translateYFrac: 0.045 },
   RO: { scale: 1.34, translateYFrac: -0.08 },
 };
 
-function countryTileExpoContentPosition(countryId) {
-  return COUNTRY_TILE_EXPO_CONTENT_POSITION[countryId] ?? 'center';
-}
-
-function countryTileExpoExtraStyle(countryId, layoutHeight) {
-  const cfg = COUNTRY_TILE_EXPO_EXTRA_PAN[countryId];
+function countryTilePanStyle(countryId, layoutHeight) {
+  const cfg = COUNTRY_TILE_PHOTO_PAN[countryId];
   if (!cfg || !layoutHeight) return undefined;
   const scale = cfg.scale ?? 1;
   const translateYFrac = cfg.translateYFrac ?? 0;
@@ -1115,7 +1063,8 @@ export default function SelectCountryPage({ navigation, route }) {
   const buttonMinHeight = Math.max(48, Math.round(48 * r.scale));
   const searchBorderColor = searchFocused ? 'rgba(225, 255, 0, 0.55)' : 'rgba(255, 255, 255, 0.12)';
   const searchIconSize = Math.max(14, Math.round(14 * r.scale));
-  const geoCardHeight = Math.max(110, Math.round(110 * r.scale));
+  const countryTileHeight = Math.max(132, Math.round(152 * r.scale));
+  const geoCardHeight = countryTileHeight;
   const geoLocIconSize = Math.max(20, Math.round(20 * r.scale));
   const tileW = useMemo(
     () => Math.max(132, Math.floor((r.contentMaxWidth - GRID_GAP) / 2)),
@@ -1126,7 +1075,7 @@ export default function SelectCountryPage({ navigation, route }) {
   const geoGlobeH = Math.round(geoCardHeight * 1.18);
   const geoCardPrimary =
     locating || (selectionSource === 'geo' && !!countryId);
-  const titleLimeSize = Math.min(27, Math.round((r.titleFontSize + 3) * (r.isNarrow ? 0.92 : 0.96)));
+  const titleLimeSize = Math.min(23, Math.round((r.titleFontSize + 1) * (r.isNarrow ? 0.84 : 0.88)));
   const fontUkraine = brandFontText;
 
   return (
@@ -1265,7 +1214,7 @@ export default function SelectCountryPage({ navigation, route }) {
                 disabled={locating}
                 style={({ pressed }) => [
                   styles.tileOuter,
-                  { width: tileW, minHeight: geoCardHeight },
+                  { width: tileW, height: geoCardHeight },
                   geoCardPrimary && styles.tileSelected,
                   !geoCardPrimary && {
                     borderColor: 'rgba(255, 255, 255, 0.12)',
@@ -1279,7 +1228,7 @@ export default function SelectCountryPage({ navigation, route }) {
                 accessibilityState={{ disabled: locating }}
               >
                 <View
-                  style={[styles.geoCardInner, { minHeight: geoCardHeight }]}
+                  style={[styles.geoCardInner, { height: geoCardHeight }]}
                   pointerEvents="box-none"
                   collapsable={false}
                 >
@@ -1357,7 +1306,7 @@ export default function SelectCountryPage({ navigation, route }) {
                   <View
                     style={[
                       styles.countryTileInner,
-                      COUNTRY_TILE_LABEL_ON_SKY_IDS.has(opt.id) && styles.countryTileInnerSky,
+                      tilePhoto ? styles.countryTileInnerPhotoBottom : null,
                     ]}
                   >
                     <View style={styles.countryTileLabelRow}>
@@ -1378,23 +1327,6 @@ export default function SelectCountryPage({ navigation, route }) {
                       />
                     </View>
                   ) : null;
-                const tileContentPosition = countryTileExpoContentPosition(opt.id);
-                const photoInset = COUNTRY_TILE_PHOTO_INSET_IDS.has(opt.id);
-                const expoTileSharedProps = {
-                  source: tilePhoto,
-                  contentFit: 'cover',
-                  contentPosition: tileContentPosition,
-                  transition: null,
-                  cachePolicy: 'memory-disk',
-                  allowDownscaling: true,
-                  recyclingKey: `country-tile-${opt.id}-${tilePhotoIndex}`,
-                  accessibilityIgnoresInvertColors: true,
-                  onError: handleTilePhotoError,
-                };
-                const photoFrameW = Math.max(62, Math.round(tileW * 0.46));
-                const photoFrameH = Math.max(54, Math.round(geoCardHeight * 0.34));
-                const photoFrameTop = Math.round(geoCardHeight * 0.2);
-                const photoFrameLeft = Math.round((tileW - photoFrameW) / 2);
                 return (
                   <Pressable
                     key={opt.id}
@@ -1406,7 +1338,7 @@ export default function SelectCountryPage({ navigation, route }) {
                     }}
                     style={({ pressed }) => [
                       styles.tileOuter,
-                      { width: tileW, minHeight: geoCardHeight },
+                      { width: tileW, height: countryTileHeight },
                       selected && styles.tileSelected,
                       pressed && styles.tilePressed,
                     ]}
@@ -1416,43 +1348,30 @@ export default function SelectCountryPage({ navigation, route }) {
                     accessibilityLabel={opt.label}
                   >
                     {tilePhoto ? (
-                      <View
-                        style={[StyleSheet.absoluteFillObject, styles.countryTilePhotoWrap]}
-                        pointerEvents="box-none"
-                        collapsable={false}
-                      >
-                        {photoInset ? (
-                          <View
-                            style={[
-                              styles.countryTilePhotoFrame,
-                              {
-                                top: photoFrameTop,
-                                left: photoFrameLeft,
-                                width: photoFrameW,
-                                height: photoFrameH,
-                              },
-                            ]}
-                          >
-                            <CountryTilePhotoImage
-                              expoProps={expoTileSharedProps}
-                              style={[
-                                styles.countryTilePhotoFrameImage,
-                                countryTileExpoExtraStyle(opt.id, photoFrameH),
-                              ]}
-                            />
-                          </View>
-                        ) : (
-                          <CountryTilePhotoImage
-                            expoProps={expoTileSharedProps}
+                      <>
+                        <View style={styles.countryTileMedia} pointerEvents="none">
+                          <Image
+                            source={tilePhoto}
                             style={[
                               styles.countryTilePhotoImage,
-                              countryTileExpoExtraStyle(opt.id, geoCardHeight),
+                              countryTilePanStyle(opt.id, countryTileHeight),
                             ]}
+                            resizeMode="cover"
+                            onError={handleTilePhotoError}
+                            accessibilityIgnoresInvertColors
                           />
-                        )}
+                        </View>
+                        <LinearGradient
+                          pointerEvents="none"
+                          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.92)']}
+                          locations={[0, 0.3, 1]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 1 }}
+                          style={styles.countryTilePhotoFade}
+                        />
                         {labelBlock}
                         {checkBlock}
-                      </View>
+                      </>
                     ) : (
                       <>
                         <LinearGradient
@@ -1534,24 +1453,14 @@ const styles = StyleSheet.create({
   tilePressed: {
     opacity: 0.92,
   },
-  countryTilePhotoWrap: {
-    backgroundColor: '#06060a',
-  },
-  /** Маленьке «вікно» з фото по центру плитки; навколо темне поле. */
-  countryTilePhotoFrame: {
-    position: 'absolute',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-    backgroundColor: '#0a0a10',
-  },
-  countryTilePhotoFrameImage: {
+  countryTileMedia: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#1A1A1A',
   },
-  /** Повна плитка (UA, PL, ES). */
   countryTilePhotoImage: {
     ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   tileDisabled: {
     opacity: 0.88,
@@ -1697,12 +1606,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingTop: 10,
     paddingBottom: 8,
-    zIndex: 1,
+    zIndex: 2,
     justifyContent: 'flex-start',
     minHeight: 48,
   },
-  countryTileInnerSky: {
-    paddingTop: 6,
+  countryTileInnerPhotoBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: undefined,
+    flex: undefined,
+    paddingTop: 8,
+    paddingBottom: 10,
+    justifyContent: 'flex-end',
+  },
+  countryTilePhotoFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '56%',
+    zIndex: 1,
   },
   countryTileLabelRow: {
     flexDirection: 'row',

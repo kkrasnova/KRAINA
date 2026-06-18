@@ -38,8 +38,18 @@ export function decodeGooglePolyline(encoded) {
 }
 
 export function getGoogleMapsApiKey() {
-  const k = Constants.expoConfig?.extra?.googleMapsApiKey;
-  return typeof k === 'string' && k.trim() ? k.trim() : '';
+  const fromExtra = Constants.expoConfig?.extra?.googleMapsApiKey;
+  if (typeof fromExtra === 'string' && fromExtra.trim()) return fromExtra.trim();
+  const fromEnv =
+    typeof process !== 'undefined' && process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+      ? String(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY).trim()
+      : '';
+  if (fromEnv) return fromEnv;
+  const fromGeocode =
+    typeof process !== 'undefined' && process.env.EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY
+      ? String(process.env.EXPO_PUBLIC_GOOGLE_GEOCODING_API_KEY).trim()
+      : '';
+  return fromGeocode;
 }
 
 function directionsMode(transport) {

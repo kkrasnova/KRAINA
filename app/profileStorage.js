@@ -114,20 +114,9 @@ export function stripRoutePlanForStorage(plan) {
   };
 }
 
-const DEFAULT_FRIENDS = [
-  { id: 'f1', name: 'Ангеліна Романова' },
-  { id: 'f2', name: 'Максим Коваленко' },
-  { id: 'f3', name: 'Олександр Петренко' },
-];
-
-const DEFAULT_INVITES = [
-  { id: 'i1', name: 'Ангеліна Романова' },
-  { id: 'i2', name: 'Ірина Мельник' },
-];
-
 export async function getProfileDisplayName(fallbackName) {
   const v = await AsyncStorage.getItem(K.name);
-  return v && v.trim() ? v.trim() : fallbackName || "Мар'яна Роза";
+  return v && v.trim() ? v.trim() : (fallbackName || '');
 }
 
 export async function setProfileDisplayName(name) {
@@ -136,7 +125,7 @@ export async function setProfileDisplayName(name) {
 
 export async function getProfileUsername() {
   const v = await AsyncStorage.getItem(K.username);
-  return v && v.trim() ? v.trim() : '@marro';
+  return v && v.trim() ? v.trim() : '';
 }
 
 export async function setProfileUsername(u) {
@@ -154,7 +143,7 @@ export async function setProfileBio(text) {
 
 export async function getProfileCity() {
   const v = await AsyncStorage.getItem(K.city);
-  return v && v.trim() ? v.trim() : '🇺🇦 Україна, м. Київ';
+  return v && v.trim() ? v.trim() : '';
 }
 
 export async function setProfileCity(c) {
@@ -197,13 +186,12 @@ export async function getFriends() {
   if (raw) {
     try {
       const j = JSON.parse(raw);
-      if (Array.isArray(j) && j.length) return j;
+      if (Array.isArray(j)) return j;
     } catch {
       /* fallthrough */
     }
   }
-  await AsyncStorage.setItem(K.friends, JSON.stringify(DEFAULT_FRIENDS));
-  return DEFAULT_FRIENDS;
+  return [];
 }
 
 export async function setFriends(list) {
@@ -220,8 +208,7 @@ export async function getInvitations() {
       /* fallthrough */
     }
   }
-  await AsyncStorage.setItem(K.invitations, JSON.stringify(DEFAULT_INVITES));
-  return DEFAULT_INVITES;
+  return [];
 }
 
 export async function setInvitations(list) {
@@ -311,10 +298,7 @@ export async function getPostLikeState(postId) {
       /* noop */
     }
   }
-  if (postStorageScope(postId)) {
-    return { liked: false, count: 0 };
-  }
-  return { liked: false, count: 221 };
+  return { liked: false, count: 0 };
 }
 
 export async function setPostLikeState(state, postId) {
@@ -341,22 +325,7 @@ export async function getPostComments(postId) {
       /* noop */
     }
   }
-  if (postStorageScope(postId)) {
-    return [];
-  }
-  const seed = [
-    {
-      id: 'c1',
-      author: 'Ангеліна Романова',
-      time: '5дн.',
-      text:
-        'Дуже круте місці і ця історія створена так що люди ніби повертаються та проживають ці моменті. ви не хочете прогулятись разом по площі?',
-      likes: 123,
-      liked: false,
-    },
-  ];
-  await AsyncStorage.setItem(key, JSON.stringify(seed));
-  return seed;
+  return [];
 }
 
 export async function addPostComment(postId, text) {

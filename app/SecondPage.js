@@ -18,8 +18,7 @@ import Lemon3DButton from './Lemon3DButton';
 import GlowingLanguageButton from './components/ui/GlowingLanguageButton';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { LANG_PICKER_DONE_KEY, setOnboardingSlidesSeenFlag } from './onboardingStorage';
-import { PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION } from './flowFlags';
+import { LANG_PICKER_DONE_KEY } from './onboardingStorage';
 import { KFONT, fontPad } from './appTypography';
 import { brandFontHeadBold } from './brandFont';
 
@@ -798,14 +797,9 @@ export default function SecondPage({ navigation }) {
     if (!language) return;
     safeSetItem(LANGUAGE_STORAGE_KEY, language);
     safeSetItem(LANG_PICKER_DONE_KEY, '1');
-    void setOnboardingSlidesSeenFlag();
-    const nextRoute = PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION ? 'SelectCountry' : 'ThirdPage';
-    const nextParams = PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION
-      ? { language, previewBeforeAuth: true }
-      : { language };
     navigation?.reset?.({
       index: 0,
-      routes: [{ name: nextRoute, params: nextParams }],
+      routes: [{ name: 'OnboardingIntro', params: { language } }],
     });
   };
 
@@ -888,8 +882,8 @@ export default function SecondPage({ navigation }) {
     inputRange: [0, 1],
     outputRange: [-6, -9],
   });
-  const titleFontSize = r.titleFontSize;
-  const titleLineHeight = titleFontSize + 6;
+  const titleFontSize = Math.max(20, Math.round(r.titleFontSize * 0.84));
+  const titleLineHeight = titleFontSize + 5;
 
   const carouselScale =
     Math.min(r.scale, 1.08) * 0.88 * (r.isShortScreen ? 0.58 : 0.88) * 1.1;
@@ -1033,7 +1027,15 @@ export default function SecondPage({ navigation }) {
         ]}
       >
         <View style={styles.header}>
-          <View style={[styles.titleBlock, { width: r.titleBlockWidth }]}>
+          <View
+            style={[
+              styles.titleBlock,
+              {
+                width: r.titleBlockWidth,
+                paddingVertical: 4,
+              },
+            ]}
+          >
             <Text
               style={[
                 styles.title,

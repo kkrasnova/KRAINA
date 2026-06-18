@@ -7,6 +7,7 @@ export interface ThreadMetaDTO {
     id: string;
     peer_user_id: string;
     peer_username: string;
+    peer_display_name: string | null;
     peer_avatar_url: string | null;
     pending_for_me: boolean;
     pending_for_peer: boolean;
@@ -33,4 +34,6 @@ export declare function listMessages(threadId: string, meId: string, limit: numb
 export declare function markThreadRead(threadId: string, meId: string): Promise<void>;
 export declare function sendTextMessage(threadId: string, senderId: string, content: string): Promise<MessageRowDTO>;
 export declare function acceptThread(threadId: string, meId: string): Promise<ThreadMetaDTO>;
+export declare function clearThreadMessages(threadId: string, meId: string): Promise<void>;
+export declare function removeThread(threadId: string, meId: string): Promise<void>;
 //# sourceMappingURL=messageService.d.ts.map

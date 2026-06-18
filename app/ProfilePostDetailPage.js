@@ -64,7 +64,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
 
   const [likes, setLikes] = useState({ liked: false, count: 0 });
   const [caption, setCaption] = useState('');
-  const [author, setAuthor] = useState('Марія');
+  const [author, setAuthor] = useState('');
   const [placeLine, setPlaceLine] = useState('');
   const [postedAt, setPostedAt] = useState(null);
   const [feedPost, setFeedPost] = useState(null);
@@ -108,7 +108,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
     const token = useAuthStore.getState().accessToken;
     if (token) {
       try {
-        await useAuthStore.getState().loadProfileMe();
+        await useAuthStore.getState().loadProfileMeIfStale();
       } catch {
         /* */
       }
@@ -137,7 +137,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
       setPlaceLine(loaded.place_label || '');
       setPostedAt(loaded.created_at || null);
       const uname = (loaded.username || '').replace(/^@/, '');
-      const display = await getProfileDisplayName(user?.name || user?.email || uname || "Мар'яна Роза");
+      const display = await getProfileDisplayName(user?.name || user?.email || uname || '');
       const label = uname || display;
       setAuthor((label.split(/\s+/)[0] || label).trim() || '—');
     } else if (useFeed) {
@@ -146,17 +146,17 @@ export default function ProfilePostDetailPage({ navigation, route }) {
       setCaption(await getPostCaption(pid, pf(language, 'postCaption')));
       setPlaceLine('');
       setPostedAt(null);
-      const n = await getProfileDisplayName(user?.name || user?.email || "Мар'яна Роза");
-      const short = n.split(/\s+/)[0] || 'Марія';
+      const n = await getProfileDisplayName(user?.name || user?.email || '');
+      const short = n.split(/\s+/)[0] || n || '—';
       setAuthor(short);
     } else {
       setAuthorAvatarUri(null);
       const cap = await getPostCaption(pid, pf(language, 'postCaption'));
       setCaption(cap);
-      const n = await getProfileDisplayName(user?.name || user?.email || "Мар'яна Роза");
-      const short = n.split(/\s+/)[0] || 'Марія';
+      const n = await getProfileDisplayName(user?.name || user?.email || '');
+      const short = n.split(/\s+/)[0] || n || '—';
       setAuthor(short);
-      setPlaceLine(langUk ? 'Рим — Колізей' : 'Rome — Colosseum');
+      setPlaceLine('');
       setPostedAt(null);
     }
 
@@ -262,6 +262,10 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                   const idx = Math.max(0, Math.min(mediaUrls.length - 1, Math.round(x / w)));
                   setMediaIndex(idx);
                 }}
+                maxToRenderPerBatch={3}
+                windowSize={3}
+                removeClippedSubviews={Platform.OS === 'android'}
+                initialNumToRender={3}
                 renderItem={({ item }) => {
                   const u = String(item || '');
                   const isVid = /\.(mp4|mov|m4v)(\?|$)/i.test(u);

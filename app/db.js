@@ -941,8 +941,23 @@ async function fetchFacebookProfileFromGraph(accessToken) {
 export async function canRequestPasswordReset(normalizedEmail) {
   const e = (normalizedEmail || '').trim().toLowerCase();
   if (!e) return false;
-  /** Лише локальна база додатку — без Firebase-only, щоб «немає такої пошти» = реєстрація. */
-  return userExistsByEmail(e);
+  if (await userExistsByEmail(e)) return true;
+  try {
+    const { backendEmailExists } = require('./backendAuthApi');
+    if (await backendEmailExists(e)) return true;
+  } catch (_) {}
+  return false;
+}
+
+async function syncBackendPasswordResetOtp(emailLower, code, expiresAt) {
+  try {
+    const { backendEmailExists, backendStoreAppPasswordResetOtp } = require('./backendAuthApi');
+    if (await backendEmailExists(emailLower)) {
+      await backendStoreAppPasswordResetOtp(emailLower, code, expiresAt);
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[db] syncBackendPasswordResetOtp', e?.message);
+  }
 }
 
 const OTP_STORE_PREFIX = 'kraina_pw_otp_v1_';
@@ -1004,46 +1019,63 @@ const PASSWORD_RESET_OTP_TTL_MS = 15 * 60 * 1000;
 function resetOtpEmailPayload(code, lang) {
   const raw = String(lang || 'en').split('-')[0].toLowerCase();
   const langNorm = raw === 'ru' ? 'uk' : raw;
-  const c = `<strong style="font-size:20px;letter-spacing:4px">${code}</strong>`;
+  const safeCode = String(code || '').replace(/[^\d]/g, '').slice(0, 6);
   const packs = {
     uk: {
       subject: 'KRAÏNA — код для відновлення пароля',
-      html: `<p>Вітаємо!</p><p>Ваш код підтвердження: ${c}</p><p>Введіть його в додатку на екрані «Забули пароль». Код дійсний 15 хвилин.</p><p>Якщо ви не запитували відновлення — проігноруйте цей лист.</p>`,
+      intro: 'Вітаємо! Ось код для відновлення пароля у додатку.',
+      hint: 'Введіть його на екрані «Забули пароль». Код дійсний 15 хвилин.',
+      ignore: 'Якщо ви не запитували відновлення пароля — проігноруйте цей лист.',
+      codeLabel: 'Ваш код',
     },
     en: {
       subject: 'KRAÏNA — password reset code',
-      html: `<p>Hello,</p><p>Your verification code: ${c}</p><p>Enter it in the app on the Forgot password screen. The code expires in 15 minutes.</p><p>If you did not request this, ignore this email.</p>`,
-    },
-    de: {
-      subject: 'KRAÏNA — Code zum Zurücksetzen des Passworts',
-      html: `<p>Hallo,</p><p>Ihr Bestätigungscode: ${c}</p><p>Geben Sie ihn in der App unter „Passwort vergessen“ ein. Der Code ist 15 Minuten gültig.</p><p>Wenn Sie das nicht angefordert haben, ignorieren Sie diese E-Mail.</p>`,
-    },
-    pl: {
-      subject: 'KRAÏNA — kod resetowania hasła',
-      html: `<p>Witaj,</p><p>Twój kod weryfikacyjny: ${c}</p><p>Wpisz go w aplikacji na ekranie „Zapomniałeś hasła?”. Kod ważny jest 15 minut.</p><p>Jeśli nie prosiłeś o reset, zignoruj tę wiadomość.</p>`,
-    },
-    nl: {
-      subject: 'KRAÏNA — code om je wachtwoord te resetten',
-      html: `<p>Hallo,</p><p>Je verificatiecode: ${c}</p><p>Voer deze in de app in bij „Wachtwoord vergeten?”. De code is 15 minuten geldig.</p><p>Heb je dit niet aangevraagd? Negeer deze e-mail.</p>`,
-    },
-    es: {
-      subject: 'KRAÏNA — código para restablecer la contraseña',
-      html: `<p>Hola,</p><p>Tu código de verificación: ${c}</p><p>Introdúcelo en la app en «¿Olvidaste tu contraseña?». El código caduca en 15 minutos.</p><p>Si no lo solicitaste, ignora este correo.</p>`,
-    },
-    lt: {
-      subject: 'KRAÏNA — slaptažodžio atkūrimo kodas',
-      html: `<p>Sveiki,</p><p>Jūsų patvirtinimo kodas: ${c}</p><p>Įveskite jį programėlėje skiltyje „Pamiršote slaptažodį?“. Kodas galioja 15 min.</p><p>Jei neprašėte atkūrimo, ignoruokite šį laišką.</p>`,
-    },
-    lv: {
-      subject: 'KRAÏNA — paroles atiestatīšanas kods',
-      html: `<p>Sveiki,</p><p>Jūsu apstiprinājuma kods: ${c}</p><p>Ievadiet to lietotnē sadaļā «Aizmirsi paroli?». Kods derīgs 15 minūtes.</p><p>Ja nepieprasījāt atiestatīšanu, ignorējiet šo e-pastu.</p>`,
-    },
-    ro: {
-      subject: 'KRAÏNA — cod pentru resetarea parolei',
-      html: `<p>Bună,</p><p>Codul tău de verificare: ${c}</p><p>Introdu-l în aplicație la „Ai uitat parola?”. Codul este valabil 15 minute.</p><p>Dacă nu ai solicitat resetarea, ignoră acest e-mail.</p>`,
+      intro: 'Hello! Here is your password reset verification code.',
+      hint: 'Enter it in the app on the “Forgot password” screen. The code expires in 15 minutes.',
+      ignore: 'If you did not request a password reset, you can safely ignore this email.',
+      codeLabel: 'Your code',
     },
   };
-  return packs[langNorm] || packs.en;
+  const p = packs[langNorm] || packs.en;
+  const html = `<!DOCTYPE html>
+<html lang="${langNorm}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+  <title>KRAÏNA</title>
+</head>
+<body style="margin:0;padding:0;background:#F3F3EF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F3EF;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border:1px solid #E6E6E0;border-radius:20px;overflow:hidden;box-shadow:0 10px 32px rgba(0,0,0,0.06);">
+          <tr>
+            <td style="height:5px;background:linear-gradient(90deg,#E1FF00,#C6DB00);"></td>
+          </tr>
+          <tr>
+            <td style="padding:34px 28px 28px;text-align:center;">
+              <div style="text-align:center;margin:0 0 22px;">
+                <span style="display:inline-block;font-size:30px;line-height:1;font-weight:700;letter-spacing:0.16em;color:#1A1A1A;">KRA</span><span style="display:inline-block;font-size:30px;line-height:1;font-weight:700;letter-spacing:0.16em;color:#5A6600;">Ï</span><span style="display:inline-block;font-size:30px;line-height:1;font-weight:700;letter-spacing:0.16em;color:#1A1A1A;">NA</span>
+              </div>
+              <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5C5C58;text-align:center;">${p.intro}</p>
+              <div style="margin:6px 0 20px;padding:22px 18px 20px;border-radius:16px;background:linear-gradient(180deg,#FCFFE8 0%,#F4FAD1 100%);border:1px solid rgba(198,219,0,0.45);">
+                <div style="font-size:12px;line-height:1.4;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#5A6600;margin-bottom:12px;">${p.codeLabel}</div>
+                <span style="display:inline-block;font-size:36px;line-height:1;font-weight:700;letter-spacing:12px;color:#1A1A1A;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">${safeCode}</span>
+              </div>
+              <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5C5C58;text-align:center;">${p.hint}</p>
+              <p style="margin:18px 0 0;font-size:12px;line-height:1.55;color:#8A8A86;text-align:center;">${p.ignore}</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:18px 0 0;font-size:11px;line-height:1.4;color:#A0A09A;letter-spacing:0.06em;">© KRAÏNA</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  return { subject: p.subject, html };
 }
 
 
@@ -1177,9 +1209,21 @@ export async function requestPasswordResetCode(email, options) {
   const lang = options?.language || 'en';
   const mail = await sendPasswordResetCodeViaResend(normalizedEmail, code, lang);
 
+  const saveOtpAndReturnInApp = async () => {
+    try {
+      await otpPayloadWrite(normalizedEmail, payload);
+      await syncBackendPasswordResetOtp(normalizedEmail, code, expiresAt);
+    } catch (e) {
+      if (__DEV__) console.warn('[db] requestPasswordResetCode storage', e?.message);
+      return { ok: false, reason: 'STORAGE_ERROR' };
+    }
+    return { ok: true, code, delivery: 'in_app_code' };
+  };
+
   if (mail.ok) {
     try {
       await otpPayloadWrite(normalizedEmail, payload);
+      await syncBackendPasswordResetOtp(normalizedEmail, code, expiresAt);
     } catch (e) {
       if (__DEV__) console.warn('[db] requestPasswordResetCode storage', e?.message);
       return { ok: false, reason: 'STORAGE_ERROR' };
@@ -1187,13 +1231,7 @@ export async function requestPasswordResetCode(email, options) {
     return { ok: true, delivery: 'email' };
   }
   if (mail.reason === 'NO_MAILER') {
-    try {
-      await otpPayloadWrite(normalizedEmail, payload);
-    } catch (e) {
-      if (__DEV__) console.warn('[db] requestPasswordResetCode storage', e?.message);
-      return { ok: false, reason: 'STORAGE_ERROR' };
-    }
-    return { ok: true, code, delivery: 'in_app_code' };
+    return saveOtpAndReturnInApp();
   }
   if (mail.reason === 'INVALID_RESEND_KEY') {
     return { ok: false, reason: 'INVALID_RESEND_KEY' };
@@ -1334,7 +1372,7 @@ export async function finalizePasswordResetAfterPhoneSignIn(newPassword) {
 }
 
 
-export async function updateUserPassword({ email, newPassword }) {
+export async function updateUserPassword({ email, newPassword, resetCode }) {
   const users = await getUsers();
   const emailLower = (email || '').trim().toLowerCase();
   const emailTrim = (email || '').trim();
@@ -1354,12 +1392,31 @@ export async function updateUserPassword({ email, newPassword }) {
       createdAt: new Date().toISOString(),
     };
     await persistUser(user);
-    return true;
+  } else {
+    const passwordHash = await hashPassword(newPassword);
+    user.passwordHash = passwordHash;
+    await persistUser(user);
   }
 
-  const passwordHash = await hashPassword(newPassword);
-  user.passwordHash = passwordHash;
-  await persistUser(user);
+  if (resetCode) {
+    try {
+      const { backendEmailExists, backendResetPasswordWithAppOtp } = require('./backendAuthApi');
+      if (await backendEmailExists(emailLower)) {
+        await backendResetPasswordWithAppOtp(
+          emailLower,
+          String(resetCode).replace(/\s/g, ''),
+          newPassword,
+        );
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[db] updateUserPassword backend', e?.message);
+      try {
+        const { backendEmailExists } = require('./backendAuthApi');
+        if (await backendEmailExists(emailLower)) return false;
+      } catch (_) {}
+    }
+  }
+
   return true;
 }
 

@@ -7,9 +7,17 @@ void EventEmitter.EventEmitter;
 import { enableFreeze } from 'react-native-screens';
 import { registerRootComponent } from 'expo';
 import App from './App';
+import { initPerformanceMetrics } from './performanceMetrics';
+import { startMetricsReporting } from './metricsReporter';
 
 // Замораживает экраны вне фокуса (react-freeze): они перестают ре-рендериться,
 // пока не активны. Делает переключение страниц плавнее по всему приложению.
 enableFreeze(true);
+
+// Ініціалізація системи збору метрик продуктивності
+initPerformanceMetrics();
+
+// Запуск періодичної відправки метрик на сервер (тільки production)
+startMetricsReporting();
 
 registerRootComponent(App);

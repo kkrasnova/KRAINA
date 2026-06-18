@@ -9,6 +9,9 @@ if [ ! -s "$NVM_DIR/nvm.sh" ]; then
   exit 1
 fi
 
+# npm_config_prefix ламає nvm (часто з глобального npm / CI).
+unset npm_config_prefix
+
 # shellcheck disable=SC1090
 source "$NVM_DIR/nvm.sh"
 

@@ -101,9 +101,8 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
   useEffect(() => {
     const list = Array.isArray(route?.params?.initialUris) ? route.params.initialUris.filter(Boolean) : [];
     const first = list[0];
-    if (!first) return;
-    setHeroUri(first);
-    setHeroIsVideo(/\.(mp4|mov|m4v)(\?|$)/i.test(String(first)));
+    if (!first) return;      setHeroUri(first);
+      setHeroIsVideo(/\.(mp4|mov|m4v)(\?|$)/i.test(String(first)));
   }, [initialUrisKey, route?.params?.initialUris]);
 
   const totalCount = pinnedUris.length + pickedIds.length + pickedExternalUris.length;
@@ -322,6 +321,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
               isLooping
               isMuted
               useNativeControls={false}
+              showPoster
             />
           ) : (
             <Image source={{ uri: heroUri }} style={[styles.hero, { borderColor: tileBorder }]} resizeMode="cover" />
@@ -350,6 +350,10 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
           contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 12 }]}
           renderItem={renderThumb}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          maxToRenderPerBatch={12}
+          windowSize={5}
+          initialNumToRender={12}
         />
       )}
     </View>

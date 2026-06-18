@@ -60,6 +60,7 @@ import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { RenderProfiler } from './performanceMetrics';
 
 /** Вирівнювання «+» з `FeedPage` / `FeedHeader`: у `AppTopBar.leftSlotWrap` є paddingLeft 16, у стрічці — лише 18. */
 const PROFILE_ADD_LEFT_NUDGE = -16;
@@ -111,8 +112,8 @@ export default function ProfilePage({ navigation, route }) {
     };
   }, []);
   const [tab, setTab] = useState('posts');
-  const [name, setName] = useState("Мар'яна Роза");
-  const [city, setCity] = useState('🇺🇦 Україна, м. Київ');
+  const [name, setName] = useState('');
+  const [city, setCity] = useState('');
   const [bioPreview, setBioPreview] = useState('');
   const [birthIso, setBirthIso] = useState(null);
   const [friendsCount, setFriendsCount] = useState(0);
@@ -183,7 +184,7 @@ export default function ProfilePage({ navigation, route }) {
       }
       if (useAuthStore.getState().accessToken) {
         try {
-          await useAuthStore.getState().loadProfileMe();
+          await useAuthStore.getState().loadProfileMeIfStale();
         } catch {
           /* */
         }
@@ -193,7 +194,7 @@ export default function ProfilePage({ navigation, route }) {
       const n =
         token && pm?.display_name != null && String(pm.display_name).trim()
           ? String(pm.display_name).trim()
-          : await getProfileDisplayName(user?.name || user?.email || "Мар'яна Роза");
+          : await getProfileDisplayName(user?.name || user?.email || '');
       const c =
         token && pm?.location_label != null && String(pm.location_label).trim()
           ? String(pm.location_label).trim()
@@ -362,10 +363,6 @@ export default function ProfilePage({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       void reload();
-      const timer = setInterval(() => {
-        void reload();
-      }, 4000);
-      return () => clearInterval(timer);
     }, [reload]),
   );
 
@@ -550,6 +547,7 @@ export default function ProfilePage({ navigation, route }) {
         rightSlot={topBarRight}
         hideSendButton
       />
+      <RenderProfiler id="ProfilePage">
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -1063,6 +1061,7 @@ export default function ProfilePage({ navigation, route }) {
           <ProfileVisitStats language={language} isLight={isLight} navigation={navigation} shell={shell} />
         )}
       </ScrollView>
+      </RenderProfiler>
     </View>
   );
 }

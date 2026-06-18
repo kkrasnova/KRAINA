@@ -1,10 +1,10 @@
-import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import React, { memo, useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
   Image,
   StyleSheet,
-  FlatList,
   Pressable,
   Platform,
   DeviceEventEmitter,
@@ -22,7 +22,6 @@ import { countriesForSelectCountryScreen } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import {
   brandFontSans,
-  brandFontSansMedium,
   brandFontText,
   brandFontTextMedium,
   brandFontHeadBold,
@@ -35,9 +34,15 @@ import {
   regionTitle,
   collectAllCountriesWithRegions,
 } from './routeRegionsData';
+import { RenderProfiler } from './performanceMetrics';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme } from './themeAccent';
 import OfflineStatusBanner from './OfflineStatusBanner';
+
+/** Групи країн із регіонами — статичні дані, не змінюються під час роботи. */
+const ALL_COUNTRY_GROUPS = collectAllCountriesWithRegions();
+
+function keyExtractorPlain(c) { return String(c.countryId); }
 
 /** Як у HomeExploreSection / MainPage. */
 const CARD_DARK = '#1A1A1A';
@@ -102,7 +107,18 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debounceTimerRef = useRef(null);
   const [expandedCountry, setExpandedCountry] = useState(null);
+
+  /** Debounce пошуку: 150мс, щоб не перераховувати список на кожен символ. */
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => setDebouncedQuery(query), 150);
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [query]);
 
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? MUTED_LIGHT : MUTED_DARK;
@@ -130,8 +146,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   const countries = useMemo(() => {
     const countryList = countriesForSelectCountryScreen(language);
     const byId = Object.fromEntries(countryList.map((c) => [c.id, c]));
-    const groups = collectAllCountriesWithRegions();
-    return groups.map((g) => {
+    return ALL_COUNTRY_GROUPS.map((g) => {
       const regions = g.regionIds.map((id) => ROUTE_REGIONS[id]).filter(Boolean);
       const totalLandmarks = regions.reduce((n, r) => n + (r.landmarks?.length || 0), 0);
       return {
@@ -145,7 +160,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   }, [language, langUk]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (!q) return countries;
     return countries
       .map((c) => {
@@ -161,13 +176,13 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
         return null;
       })
       .filter(Boolean);
-  }, [countries, query]);
+  }, [countries, debouncedQuery]);
 
   useEffect(() => {
-    if (query.trim() && filtered.length && !expandedCountry) {
+    if (debouncedQuery.trim() && filtered.length && !expandedCountry) {
       setExpandedCountry(filtered[0].countryId);
     }
-  }, [query, filtered, expandedCountry]);
+  }, [debouncedQuery, filtered, expandedCountry]);
 
   /** Тільки країна: головна з цією країною, локації за збереженим/першим містом. */
   const onPickCountry = useCallback(
@@ -203,7 +218,33 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
     [navigation, user, language, appTheme],
   );
 
-  const listIntro = query.trim()
+  const renderCountryCard = useCallback(
+    ({ item: c, index: idx }) => (
+      <CountryCard
+        country={c}
+        langUk={langUk}
+        language={language}
+        expanded={expandedCountry === c.countryId}
+        onToggle={() => setExpandedCountry((prev) => (prev === c.countryId ? null : c.countryId))}
+        onPickCountry={onPickCountry}
+        onPickRegion={onPickRegion}
+        textMain={textMain}
+        textMuted={textMuted}
+        cardBg={cardBg}
+        cardBorder={cardBorder}
+        accent={accent}
+        ripple={ripple}
+        isLast={idx === filtered.length - 1}
+      />
+    ),
+    [
+      langUk, language, expandedCountry,
+      onPickCountry, onPickRegion,
+      textMain, textMuted, cardBg, cardBorder, accent, ripple, filtered,
+    ],
+  );
+
+  const listIntro = debouncedQuery.trim()
     ? (langUk ? 'За твоїм запитом' : 'Matching your search')
     : (langUk ? 'Обери країну' : 'Pick a country');
 
@@ -216,9 +257,11 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
         hideSendButton
         replaceCenterTitle={mt(language, 'homeAllCountriesScreenTitle')}
       />
-      <FlatList
+      <RenderProfiler id="AllCountriesLocationsPage">
+      <FlashList
         data={filtered}
-        keyExtractor={(c) => String(c.countryId)}
+        keyExtractor={keyExtractorPlain}
+        estimatedItemSize={90}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: HOME_SCROLL_PAD_H,
@@ -226,10 +269,10 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
           paddingBottom: Math.max(24, insets.bottom + 24),
         }}
         keyboardShouldPersistTaps="handled"
-        initialNumToRender={8}
-        maxToRenderPerBatch={10}
-        windowSize={9}
         removeClippedSubviews={Platform.OS === 'android'}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        initialNumToRender={8}
         {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
         ListHeaderComponent={
@@ -264,31 +307,15 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
             </Text>
           </View>
         }
-        renderItem={({ item: c, index: idx }) => (
-          <CountryCard
-            country={c}
-            langUk={langUk}
-            language={language}
-            expanded={expandedCountry === c.countryId}
-            onToggle={() => setExpandedCountry((prev) => (prev === c.countryId ? null : c.countryId))}
-            onPickCountry={onPickCountry}
-            onPickRegion={onPickRegion}
-            textMain={textMain}
-            textMuted={textMuted}
-            cardBg={cardBg}
-            cardBorder={cardBorder}
-            accent={accent}
-            ripple={ripple}
-            isLast={idx === filtered.length - 1}
-          />
-        )}
+        renderItem={renderCountryCard}
       />
+      </RenderProfiler>
       <OfflineStatusBanner isLight={isLight} top={insets.top + 66} />
     </View>
   );
 }
 
-function CountryCard({
+const CountryCard = memo(function CountryCard({
   country,
   langUk,
   language,
@@ -403,7 +430,7 @@ function CountryCard({
       ) : null}
     </View>
   );
-}
+});
 
 const s = StyleSheet.create({
   safe: { flex: 1 },

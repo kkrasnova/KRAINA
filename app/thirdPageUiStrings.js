@@ -53,6 +53,18 @@ const L = {
     ro: 'Înapoi',
     it: 'Indietro',
   },
+  swipeBackHint: {
+    uk: 'Свайп вправо — назад',
+    en: 'Swipe right to go back',
+    pl: 'Przesuń w prawo, aby wrócić',
+    nl: 'Veeg naar rechts om terug te gaan',
+    es: 'Desliza a la derecha para volver',
+    de: 'Nach rechts wischen zum Zurück',
+    lt: 'Braukite dešinėn — atgal',
+    lv: 'Velciet pa labi — atpakaļ',
+    ro: 'Glisează la dreapta pentru înapoi',
+    it: 'Scorri a destra per tornare indietro',
+  },
   checkDetails: {
     uk: 'Перевірте дані',
     en: 'Check your details',

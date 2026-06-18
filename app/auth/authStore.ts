@@ -30,6 +30,7 @@ export interface AuthState {
   refreshToken: string | null;
   user: UserDTO | null;
   profileMe: ProfileMeBody | null;
+  profileMeLoadedAt: number | null;
   hydrated: boolean;
   busy: boolean;
   lastError: string | null;
@@ -41,7 +42,7 @@ export interface AuthState {
     email: string,
     password: string,
     displayName: string,
-    accountUsername: string,
+    accountUsername?: string,
   ) => Promise<void>;
   loginWithTokens: (body: {
     access_token: string;
@@ -53,6 +54,7 @@ export interface AuthState {
   refreshSession: () => Promise<boolean>;
   logoutRemote: () => Promise<void>;
   loadProfileMe: () => Promise<void>;
+  loadProfileMeIfStale: (staleMs?: number) => Promise<void>;
 }
 
 async function persistTokens(access: string, refresh: string): Promise<void> {
@@ -117,6 +119,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   refreshToken: null,
   user: null,
   profileMe: null,
+  profileMeLoadedAt: null,
   hydrated: false,
   busy: false,
   lastError: null,
@@ -205,31 +208,59 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  registerWithPassword: async (email, password, usernameOrDisplay, accountUsername?) => {
+  registerWithPassword: async (email, password, displayName, accountUsername?) => {
     set({ busy: true, lastError: null });
-    const username = String(accountUsername || usernameOrDisplay || '')
+    const trimmedDisplay = String(displayName || '').trim();
+    const explicitUsername = String(accountUsername || '')
       .trim()
-      .replace(/^@/, '');
-    const displayName = accountUsername ? String(usernameOrDisplay || '').trim() : username;
+      .replace(/^@/, '')
+      .toLowerCase();
     try {
-      const body = await backendRegister(email, password, username);
+      const body = await backendRegister(email, password, {
+        username: explicitUsername || undefined,
+        display_name: trimmedDisplay || undefined,
+      });
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
       await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+      await get().loadProfileMe().catch(() => {});
+      const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
+      const profileDisplayName =
+        get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
       try {
-        const userRaw = await registerUser({ email, password, name: displayName || username });
-        await saveLegacySession(userRaw as any);
+        const userRaw = await registerUser({
+          email,
+          password,
+          name: profileDisplayName,
+        });
+        const merged = {
+          ...(userRaw as Record<string, unknown>),
+          accountUsername: profileUsername,
+          name: profileDisplayName,
+        };
+        await saveLegacySession(merged as any);
+        if (profileUsername) {
+          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+          await setProfileUsername(profileUsername);
+          await setProfileDisplayName(profileDisplayName);
+        }
       } catch {
         await saveLegacySession({
           id: body.user.id,
           email: body.user.email,
-          name: displayName || username || body.user.email.split('@')[0] || 'User',
+          name: profileDisplayName,
+          accountUsername: profileUsername || undefined,
           role: body.user.role,
           status: body.user.status,
           provider: 'email',
         } as any);
+        if (profileUsername) {
+          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+          await setProfileUsername(profileUsername);
+          await setProfileDisplayName(profileDisplayName);
+        }
       }
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
@@ -352,7 +383,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const data = (await backendGetProfileMe()) as ProfileMeBody;
         const { hydrateSavedRoutesFromProfileMe } = await import('../savedRoutesSync');
         await hydrateSavedRoutesFromProfileMe(data.profile);
-        set({ profileMe: data, user: get().user, lastError: null });
+        set({ profileMe: data, user: get().user, lastError: null, profileMeLoadedAt: Date.now() });
         return;
       }
       const s = await getLegacySession();
@@ -360,12 +391,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const data = buildProfileMe(s.user);
       const { hydrateSavedRoutesFromProfileMe } = await import('../savedRoutesSync');
       await hydrateSavedRoutesFromProfileMe(data.profile);
-      set({ profileMe: data, user: mapLegacyUserToDto(s.user) });
+      set({ profileMe: data, user: mapLegacyUserToDto(s.user), profileMeLoadedAt: Date.now() });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'profile_load_failed';
       set({ lastError: msg });
     } finally {
       set({ busy: false });
     }
+  },
+
+  loadProfileMeIfStale: async (staleMs = 30000) => {
+    const state = get();
+    const elapsed = state.profileMeLoadedAt != null ? Date.now() - state.profileMeLoadedAt : Infinity;
+    if (elapsed < staleMs && state.profileMe != null) {
+      return; // still fresh enough
+    }
+    await state.loadProfileMe();
   },
 }));

@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
+import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
@@ -18,6 +19,7 @@ import {
   DeviceEventEmitter,
   useWindowDimensions,
 } from 'react-native';
+
 import { Video, ResizeMode } from './expoAvCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -26,6 +28,7 @@ import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
+import { RenderProfiler, markEnd } from './performanceMetrics';
 import { ft } from './feedI18n';
 import { pf } from './profileI18n';
 import { routeRegionTitle } from './routePlanTitles';
@@ -46,61 +49,12 @@ import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { hydrateRoutePlan } from './profileStorage';
 import { hasMessageApiToken, messagesOpenThread, messagesSendText, socialListMutuals } from './messageApi';
 import { useAuthStore } from './auth/authStore';
-import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { emitFeedMediaUpdated, KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
 
 const CARD_LIGHT = '#FFFFFF';
 const CARD_DARK = '#141414';
 
 const AVATAR = require('./assets/person-12.png');
-const POST_IMG_A = require('./assets/kling_20260405_IMAGE____________5495_1.png');
-const POST_IMG_B = require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png');
-const POST_IMG_C = require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png');
-const MOCK_POSTS = [
-  {
-    id: '1',
-    scope: 'friends',
-    name: 'Марія',
-    place: 'Рим — Колізей',
-    image: POST_IMG_A,
-    caption: 'Моє сьогодні біля Колізею…',
-    route_plan: null,
-    lat: null,
-    lng: null,
-  },
-  {
-    id: '2',
-    scope: 'friends',
-    name: 'Олег',
-    place: 'Київ — Поділ',
-    image: POST_IMG_B,
-    caption: '',
-    route_plan: null,
-    lat: null,
-    lng: null,
-  },
-  {
-    id: '3',
-    scope: 'world',
-    name: 'Sofia',
-    place: 'Barcelona — Gothic Quarter',
-    image: POST_IMG_C,
-    caption: '',
-    route_plan: null,
-    lat: null,
-    lng: null,
-  },
-  {
-    id: '4',
-    scope: 'world',
-    name: 'Alex',
-    place: 'Lisbon — Alfama',
-    image: POST_IMG_A,
-    caption: '',
-    route_plan: null,
-    lat: null,
-    lng: null,
-  },
-];
 
 function storyAvatarRingStyle(story, viewerId, isLight) {
   if (!story) return { borderWidth: 0 };
@@ -203,6 +157,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
     );
   }
   return (
+    <RenderProfiler id="FeedPage:MediaCarousel">
     <View>
       <FlatList
         data={media}
@@ -211,6 +166,8 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
         keyExtractor={(it, i) => `${i}_${it}`}
         showsHorizontalScrollIndicator={false}
         getItemLayout={(_, index) => ({ length: slideW, offset: slideW * index, index })}
+        maxToRenderPerBatch={3}
+        windowSize={3}
         onMomentumScrollEnd={(e) => {
           const w = e?.nativeEvent?.layoutMeasurement?.width || slideW;
           const x = e?.nativeEvent?.contentOffset?.x || 0;
@@ -242,6 +199,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
         ))}
       </View>
     </View>
+    </RenderProfiler>
   );
 });
 
@@ -255,6 +213,9 @@ export default function FeedPage({ navigation, route }) {
   const [apiFriendsPosts, setApiFriendsPosts] = useState(null);
   const [apiWorldPosts, setApiWorldPosts] = useState(null);
   const [trayStories, setTrayStories] = useState([]);
+  const feedApiCache = useRef({});
+  const FEED_API_CACHE_TTL = 120000;
+  const FEED_CACHE_KEY = 'feed_main';
   const [postLikeMap, setPostLikeMap] = useState({});
   const [postLikeCountMap, setPostLikeCountMap] = useState({});
   const [postCommentCountMap, setPostCommentCountMap] = useState({});
@@ -267,6 +228,42 @@ export default function FeedPage({ navigation, route }) {
   const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
   const viewerUserId = profileMeUserId ? String(profileMeUserId) : String(user?.id || '');
 
+  /** При події оновлення медіа (новий пост, лайк, коментар) — чистимо кеш, щоб стрічка оновилася при наступному фокусі. */
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, () => {
+      if (__DEV__) console.log('[Cache] FeedPage media updated — cache cleared');
+      feedApiCache.current = {};
+    });
+    return () => sub.remove();
+  }, []);
+
+  const fetchApiFeed = useCallback(async () => {
+    if (!hasFeedApiToken()) return null;
+    try {
+      const [fp, wp, st] = await Promise.all([
+        feedListFriendsPosts(50),
+        feedListWorldPosts(50),
+        feedListStoriesTray(),
+      ]);
+      return { fp: Array.isArray(fp) ? fp : [], wp: Array.isArray(wp) ? wp : [], st: Array.isArray(st) ? st : [] };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /** Застосувати результат API-запиту до стейтів. */
+  const applyApiResult = useCallback((apiResult) => {
+    if (!apiResult) {
+      setApiFriendsPosts(null);
+      setApiWorldPosts(null);
+      setTrayStories([]);
+      return;
+    }
+    setApiFriendsPosts(apiResult.fp);
+    setApiWorldPosts(apiResult.wp);
+    setTrayStories(apiResult.st);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -277,55 +274,47 @@ export default function FeedPage({ navigation, route }) {
           setUserPosts(posts);
           setUserStory(story);
         }
-        if (hasFeedApiToken()) {
-          try {
-            const [fp, wp, st] = await Promise.all([
-              feedListFriendsPosts(50),
-              feedListWorldPosts(50),
-              feedListStoriesTray(),
-            ]);
-            if (!cancelled) {
-              setApiFriendsPosts(Array.isArray(fp) ? fp : []);
-              setApiWorldPosts(Array.isArray(wp) ? wp : []);
-              setTrayStories(Array.isArray(st) ? st : []);
-            }
-          } catch {
-            if (!cancelled) {
-              setApiFriendsPosts(null);
-              setApiWorldPosts(null);
-              setTrayStories([]);
-            }
-          }
-        } else if (!cancelled) {
-          setApiFriendsPosts(null);
-          setApiWorldPosts(null);
-          setTrayStories([]);
+
+        // Кеш для API-даних (friends + world + stories tray)
+        const cached = feedApiCache.current[FEED_CACHE_KEY];
+        const cacheFresh = cached && Date.now() - cached.at < FEED_API_CACHE_TTL;
+
+        // Fresh cache → використати, без API-запиту
+        if (!cancelled && cacheFresh) {
+          if (__DEV__) console.log(`[Cache] FeedPage HIT fresh age=${Date.now() - cached.at}ms`);
+          applyApiResult(cached.data);
+          markEnd('feed_interactive');
+          return;
         }
+
+        // Stale cache → показати негайно, фонова ревалідація
+        if (!cancelled && cached) {
+          if (__DEV__) console.log(`[Cache] FeedPage STALE hit age=${Date.now() - cached.at}ms — background revalidation`);
+          applyApiResult(cached.data);
+          markEnd('feed_interactive');
+        } else if (__DEV__ && !cancelled) {
+          console.log(`[Cache] FeedPage MISS`);
+        }
+
+        if (cancelled) return;
+
+        const apiResult = await fetchApiFeed();
+        if (cancelled) return;
+
+        if (apiResult) {
+          feedApiCache.current[FEED_CACHE_KEY] = { at: Date.now(), data: apiResult };
+          applyApiResult(apiResult);
+          if (__DEV__) console.log(`[Cache] FeedPage refreshed from API`);
+        } else if (!cached) {
+          // No cache and API failed — set null
+          applyApiResult(null);
+        }
+        markEnd('feed_interactive');
       })();
-      const timer = setInterval(() => {
-        (async () => {
-          if (!hasFeedApiToken()) return;
-          try {
-            const [fp, wp, st] = await Promise.all([
-              feedListFriendsPosts(50),
-              feedListWorldPosts(50),
-              feedListStoriesTray(),
-            ]);
-            if (!cancelled) {
-              setApiFriendsPosts(Array.isArray(fp) ? fp : []);
-              setApiWorldPosts(Array.isArray(wp) ? wp : []);
-              setTrayStories(Array.isArray(st) ? st : []);
-            }
-          } catch {
-            /* */
-          }
-        })();
-      }, 10000);
       return () => {
         cancelled = true;
-        clearInterval(timer);
       };
-    }, [user?.id, user?.firebaseUid, user?.email]),
+    }, [user?.id, user?.firebaseUid, user?.email, fetchApiFeed, applyApiResult]),
   );
 
   useEffect(() => {
@@ -409,9 +398,7 @@ export default function FeedPage({ navigation, route }) {
       likesCount: 0,
       commentsCount: 0,
     }));
-    const mock = MOCK_POSTS.filter((p) => p.scope === segment);
-    if (segment === 'friends') return [...local, ...mock.map((m) => ({ ...m, media_urls: [] }))];
-    return mock.map((m) => ({ ...m, media_urls: [] }));
+    return local;
   }, [userPosts, segment, user, language, apiFriendsPosts, apiWorldPosts]);
 
   useEffect(() => {
@@ -632,7 +619,7 @@ export default function FeedPage({ navigation, route }) {
   );
 
   const storyItems = useMemo(() => {
-    const rows = [];
+    const rows = [{ type: 'add', key: 'add' }];
     if (userStory?.uri && !trayStoriesFiltered.some((s) => String(s.user_id) === viewerUserId)) {
       rows.push({ type: 'local', key: 'local', uri: userStory.uri });
     }
@@ -650,10 +637,12 @@ export default function FeedPage({ navigation, route }) {
         onAdd={openCreate}
         onMessages={openChats}
       />
-      <FlatList
+      <RenderProfiler id="FeedPage:FlashList">
+      <FlashList
         style={styles.scroll}
         data={posts}
         keyExtractor={(post) => String(post.id)}
+        estimatedItemSize={450}
         contentContainerStyle={[
           styles.scrollContent,
           {
@@ -662,10 +651,6 @@ export default function FeedPage({ navigation, route }) {
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        initialNumToRender={4}
-        maxToRenderPerBatch={6}
-        windowSize={9}
-        removeClippedSubviews={Platform.OS === 'android'}
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
         ListHeaderComponent={
           <>
@@ -680,19 +665,21 @@ export default function FeedPage({ navigation, route }) {
           snapToInterval={108}
           snapToAlignment="start"
           disableIntervalMomentum
+          windowSize={3}
+          maxToRenderPerBatch={4}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={4}
           renderItem={({ item }) => {
             if (item.type === 'add') {
               return (
                 <Pressable
                   onPress={openCreate}
-                  style={({ pressed }) => [styles.storyCard, styles.storyCreateCard, pressed && { opacity: 0.88 }]}
+                  style={({ pressed }) => [styles.storyCreateCard, pressed && { opacity: 0.88 }]}
                   accessibilityRole="button"
                   accessibilityLabel={ft(language, 'createStory')}
                 >
-                  <View style={[styles.storyCreateInner, { borderColor: accent }]}>
-                    <Ionicons name="camera" size={28} color={accent} />
-                  </View>
-                  <Text style={[styles.storyCreateLabel, { color: textMain }]}>{ft(language, 'createStory')}</Text>
+                  <View style={[styles.storyCreateBorder, { borderColor: accent }]} />
+                  <Ionicons name="add" size={32} color={accent} />
                 </Pressable>
               );
             }
@@ -895,6 +882,7 @@ export default function FeedPage({ navigation, route }) {
           </View>
         )}
       />
+      </RenderProfiler>
       <Modal visible={!!commentModalPost} transparent animationType="slide" onRequestClose={() => setCommentModalPost(null)}>
         <View style={styles.commentsModalBg}>
           <View style={[styles.commentsModalCard, { backgroundColor: isLight ? '#FFFFFF' : '#1A1A1A' }]}>
@@ -1032,20 +1020,24 @@ const styles = StyleSheet.create({
   },
   storyCreateCard: {
     width: 96,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    overflow: 'visible',
-  },
-  storyCreateInner: {
-    width: 96,
-    height: 132,
+    height: 152,
     borderRadius: 18,
-    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
+    overflow: 'hidden',
   },
-  storyCreateLabel: { fontSize: 11, marginTop: 6, fontWeight: '600', textAlign: 'center' },
+  storyCreateBorder: {
+    position: 'absolute',
+    left: 1,
+    top: 1,
+    right: 1,
+    bottom: 1,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    opacity: 0.6,
+  },
   storyImage: { width: '100%', height: '100%' },
   storyAvatarWrap: {
     position: 'absolute',

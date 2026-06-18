@@ -16,6 +16,9 @@ export declare const aiRouteConfig: {
 };
 export declare const config: {
     nodeEnv: string;
+    sentryDsn: string;
+    sentryEnv: string;
+    sentryTracesSampleRate: number;
     port: number;
     databaseUrl: string;
     databaseSsl: false | {
@@ -26,6 +29,14 @@ export declare const config: {
     googleClientId: string;
     appleClientId: string;
     publicBaseUrl: string;
+    appVersion: string;
+    storageProvider: "local" | "s3";
+    s3Bucket: string;
+    s3Region: string;
+    s3AccessKeyId: string;
+    s3SecretAccessKey: string;
+    s3PublicBaseUrl: string;
+    s3Endpoint: string;
     minSupportedAppVersion: string;
     iosAppStoreUrl: string;
     androidPlayStoreUrl: string;
@@ -38,7 +49,15 @@ export declare const config: {
     accessTokenTtlSec: number;
     refreshTokenTtlDays: number;
     passwordResetTtlMin: number;
+    livekitApiKey: string;
+    livekitApiSecret: string;
+    livekitUrl: string;
+    apnsKeyId: string;
+    apnsTeamId: string;
+    apnsTopic: string;
+    apnsProduction: boolean;
     corsOrigins: string[];
     trustProxy: number | boolean;
+    apnsConfigured: boolean;
 };
 //# sourceMappingURL=config.d.ts.map

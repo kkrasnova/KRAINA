@@ -21,6 +21,7 @@ import { mt } from './mainPageI18n';
 import { st } from './settingsI18n';
 import { shellPush } from './shellNavigate';
 import { prefetchGeoStatus } from './SettingsSubScreens';
+import { prefetchArchiveBundle } from './screenLoaders';
 
 const FAST_PRESS = { delayPressIn: 0, delayPressOut: 0 };
 
@@ -97,6 +98,7 @@ export default function SettingsPage({ navigation, route }) {
 
   useEffect(() => {
     void prefetchGeoStatus();
+    void prefetchArchiveBundle();
   }, []);
 
   const onThemeSwitch = async (nextLight) => {
@@ -162,6 +164,7 @@ export default function SettingsPage({ navigation, route }) {
   }, [navigation, language]);
 
   const goArchive = useCallback(() => {
+    void prefetchArchiveBundle();
     shellPush('SettingsArchive', {}, appTheme);
   }, [appTheme]);
 

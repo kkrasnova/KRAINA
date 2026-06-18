@@ -50,6 +50,7 @@ import LandmarkQuizContent from './LandmarkQuizContent';
 import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import OfflineStatusBanner from './OfflineStatusBanner';
+import { RenderProfiler } from './performanceMetrics';
 
 /** Ті самі кольори, що кнопка «Вхід» / «Реєстрація» у ThirdPage (`authOnboardCta*`). */
 const AUTH_CTA_ACCENT = '#E1FF00';
@@ -1258,7 +1259,7 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   if (phase === 'mini') {
     return (
-      <>
+      <RenderProfiler id="LandmarkResultPage">
       <View
         style={[styles.screen, isLight && styles.screenLight]}
         {...(miniOpenPanResponder?.panHandlers || {})}
@@ -1377,7 +1378,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         </Animated.View>
       </View>
       {landmarkParamsMenu}
-      </>
+      </RenderProfiler>
     );
   }
 
@@ -1524,7 +1525,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   );
 
   return (
-    <>
+    <RenderProfiler id="LandmarkResultPage">
       <View
         style={[styles.screen, isLight && styles.screenLight]}
         {...(currentPage?.type === 'compare' ? {} : fullBackPanResponder?.panHandlers || {})}
@@ -1598,7 +1599,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         </View>
       </View>
       {landmarkParamsMenu}
-    </>
+    </RenderProfiler>
   );
 }
 

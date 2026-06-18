@@ -11,10 +11,10 @@ android/app/build/
 android/app/.cxx/
 android/local.properties
 
-iOS/Pods/
-iOS/build/
-iOS/**/*.xcuserstate
-iOS/**/*.xcuserdata/
+ios/Pods/
+ios/build/
+ios/**/*.xcuserstate
+ios/**/*.xcuserdata/
 ios/DerivedData/
 
 .env

@@ -17,14 +17,23 @@ import {
   Animated,
   Easing,
   Dimensions,
-  InteractionManager,
   StatusBar as RNStatusBar,
+  PanResponder,
+  BackHandler,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
-import AuthHeroHeader from './AuthHeroHeader';
+import AuthHeroHeader, { WAVE_STROKE_PAD as AUTH_HERO_WAVE_PAD } from './AuthHeroHeader';
+import {
+  androidHeroBannerExtraDownPx,
+  androidHeroTextGapPx,
+  authHeroBannerBottomY,
+} from './authHeroLayout';
 import AuthTabSwitcher from './AuthTabSwitcher';
+import ForgotPasswordLockAnimation from './ForgotPasswordLockAnimation';
+import ForgotPasswordOtpInput from './ForgotPasswordOtpInput';
 import { useResponsive } from './useResponsive';
+import { runAfterInteractions } from './runAfterInteractions';
 import { brandFontText } from './brandFont';
 import { authOverlayFromErrorCode } from './authOverlayI18n';
 import { thirdPageUi } from './thirdPageUiStrings';
@@ -243,26 +252,56 @@ const LEMON_LINK_GLOW = Platform.select({
 
 const DESIGN_CONTENT_WIDTH = 335;
 const DESIGN_INPUT_WIDTH = 273;
-const DESIGN_TITLE_HEIGHT = 29;
-const DESIGN_TITLE_FONT_SIZE = 24;
+const DESIGN_TITLE_HEIGHT = 26;
+const DESIGN_TITLE_FONT_SIZE = 21;
+/** iPhone: компактніший заголовок і вкладки на всіх мовах. */
+const AUTH_IOS_TITLE_FONT_SIZE = 18;
+const AUTH_IOS_TITLE_LINE_HEIGHT = 22;
+const AUTH_INPUT_FONT_SIZE = 14;
 
-const AUTH_FORM_GAP = 16;
+const AUTH_FORM_GAP = 13;
 const AUTH_HERO_HEIGHT_RATIO = 0.34;
 
 function AuthFieldLeadingIcon({ name }) {
   return (
     <View style={authFieldIconStyles.wrap}>
-      <Ionicons name={name} size={20} color="rgba(255,255,255,0.92)" />
+      <Ionicons name={name} size={18} color="rgba(255,255,255,0.92)" />
     </View>
   );
 }
 
 const authFieldIconStyles = StyleSheet.create({
   wrap: {
-    width: 28,
+    width: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: 6,
+  },
+});
+
+function ForgotPasswordFieldIcon({ name, focused }) {
+  return (
+    <View style={[forgotFieldIconStyles.bubble, focused && forgotFieldIconStyles.bubbleFocused]}>
+      <Ionicons name={name} size={19} color={focused ? ACCENT : 'rgba(238, 255, 102, 0.78)'} />
+    </View>
+  );
+}
+
+const forgotFieldIconStyles = StyleSheet.create({
+  bubble: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: 'rgba(225, 255, 0, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(238, 255, 102, 0.18)',
+  },
+  bubbleFocused: {
+    backgroundColor: 'rgba(225, 255, 0, 0.14)',
+    borderColor: 'rgba(238, 255, 102, 0.42)',
   },
 });
 
@@ -452,7 +491,7 @@ function AuthLemonWaveTextLoader({ running, language }) {
     };
 
     const deferMs = Platform.OS === 'android' ? 40 : 16;
-    const interactionTask = InteractionManager.runAfterInteractions(() => {
+    const interactionTask = runAfterInteractions(() => {
       if (!cancelled) startLoops();
     });
     const timeoutId = setTimeout(() => {
@@ -984,6 +1023,11 @@ const DEFAULT_LOGIN = {
   forgotTitle: 'Recover password',
   forgotSendCode: 'Send code to email',
   forgotSendingEmail: 'Sending…',
+  forgotSendingEmailTitle: 'Sending your code',
+  forgotSendingEmailSubtitle: 'Please wait — we are delivering a 6-digit code to your inbox.',
+  forgotSendingCodeLabel: 'Your code',
+  forgotEmailLetterIntro: 'Hello! Here is your verification code to reset your password.',
+  forgotEmailLetterHint: 'Open the letter in your inbox and enter the code below.',
   forgotYourCodeTitle: 'Your recovery code',
   forgotYourCodeHint:
     'The code is shown below — it stays on this device (no email/SMS server in the app). Enter it to continue.',
@@ -1487,6 +1531,11 @@ const LOGIN_TEXTS = {
     forgotTitle: 'Відновлення пароля',
     forgotSendCode: 'Надіслати код на пошту',
     forgotSendingEmail: 'Надсилаємо…',
+    forgotSendingEmailTitle: 'Надсилаємо код на пошту',
+    forgotSendingEmailSubtitle: 'Зачекайте — 6-значний код уже в дорозі до вашої скриньки.',
+    forgotSendingCodeLabel: 'Ваш код',
+    forgotEmailLetterIntro: 'Вітаємо! Ось код для відновлення пароля у додатку.',
+    forgotEmailLetterHint: 'Відкрийте лист у скринькі та введіть код нижче.',
     forgotYourCodeTitle: 'Ваш код відновлення',
     forgotYourCodeHint:
       'Код показано нижче — він зберігається лише на цьому пристрої (у додатку немає сервера для SMS/листів). Введіть його, щоб продовжити.',
@@ -1794,8 +1843,9 @@ function ThirdPageContent({
 
   const [forgotSending, setForgotSending] = useState(false);
 
-  const [, setForgotDisplayCode] = useState('');
+  const [forgotDisplayCode, setForgotDisplayCode] = useState('');
   const [forgotCodeVerifying, setForgotCodeVerifying] = useState(false);
+  const [forgotPasswordSubmitting, setForgotPasswordSubmitting] = useState(false);
   const [rememberLoaded, setRememberLoaded] = useState(false);
   const nameInputRef = useRef(null);
   const emailInputRef = useRef(null);
@@ -1813,6 +1863,8 @@ function ThirdPageContent({
     outputRange: [-8, 0],
   });
   const [authSlideSubmitting, setAuthSlideSubmitting] = useState(false);
+  const authFooterHeroLayoutHeightRef = useRef(0);
+  const [authFooterHeroLayoutHeight, setAuthFooterHeroLayoutHeight] = useState(0);
 
   const registerWithPassword = useAuthStore((s) => s.registerWithPassword);
   const loginWithPasswordBackend = useAuthStore((s) => s.loginWithPassword);
@@ -2005,7 +2057,7 @@ function ThirdPageContent({
 
   const showAlertAfterPinModalDismiss = useCallback((title, body, buttons) => {
     closeAdminPinModal();
-    InteractionManager.runAfterInteractions(() => {
+    runAfterInteractions(() => {
       requestAnimationFrame(() => {
         setTimeout(() => {
           Alert.alert(title, body, buttons);
@@ -2288,7 +2340,10 @@ function ThirdPageContent({
       await navigateAfterAuth(uBackend, false);
       return true;
     } catch (err) {
-      const code = err?.message || '';
+      const code =
+        err instanceof ApiError
+          ? err.payload?.error || err.message || ''
+          : err?.message || '';
       const mapped = authOverlayFromErrorCode(language, code);
       if (mapped) {
         setLoginError(mapped.body);
@@ -2456,13 +2511,17 @@ function ThirdPageContent({
     const trimmedName = (name || '').trim();
     try {
       let registered = false;
-      for (let attempt = 0; attempt < 4 && !registered; attempt++) {
+      for (let attempt = 0; attempt < 4 && !registered; attempt += 1) {
         const username = deriveBackendUsername(trimmedName, trimmedEmail);
         try {
-          await registerWithPassword(trimmedEmail, trimmedPassword, username);
+          await registerWithPassword(trimmedEmail, trimmedPassword, trimmedName, username);
           registered = true;
         } catch (regErr) {
-          if (regErr instanceof ApiError && regErr.payload?.error === 'username_taken' && attempt < 3) {
+          if (
+            regErr instanceof ApiError &&
+            regErr.payload?.error === 'username_taken' &&
+            attempt < 3
+          ) {
             continue;
           }
           throw regErr;
@@ -2473,10 +2532,15 @@ function ThirdPageContent({
       await navigateAfterAuth(uBackend, true);
       return true;
     } catch (err) {
-      const code = err?.message || '';
+      const code =
+        err instanceof ApiError
+          ? err.payload?.error || err.message || ''
+          : err?.message || '';
       const mapped = authOverlayFromErrorCode(language, code);
       if (mapped) {
-        setLoginError(code === 'EMAIL_EXISTS' ? texts.errorEmailExists ?? mapped.body : mapped.body);
+        const isEmailTaken =
+          code === 'EMAIL_EXISTS' || code === 'email_taken' || code === 'email_exists';
+        setLoginError(isEmailTaken ? texts.errorEmailExists ?? mapped.body : mapped.body);
         lastAuthOverlayOutcomeRef.current = mapped;
         return false;
       }
@@ -2561,9 +2625,10 @@ function ThirdPageContent({
     setForgotSending(false);
     setForgotDisplayCode('');
     setForgotCodeVerifying(false);
+    setForgotPasswordSubmitting(false);
   };
 
-  const closeForgotModal = () => {
+  const closeForgotModal = useCallback(() => {
     setFocusedForgotField(null);
     setShowForgotModal(false);
     setForgotFieldError(null);
@@ -2572,12 +2637,23 @@ function ThirdPageContent({
     setForgotDisplayCode('');
     setForgotCodeVerifying(false);
     setForgotPasswordVisible(false);
-  };
+    setForgotPasswordSubmitting(false);
+  }, []);
 
-  const handleForgotBack = () => {
+  const dismissForgotKeyboard = useCallback(() => {
+    Keyboard.dismiss();
+    forgotEmailInputRef.current?.blur();
+    forgotCodeInputRef.current?.blur();
+    forgotNewPassInputRef.current?.blur();
+    forgotConfirmPassInputRef.current?.blur();
+    setFocusedForgotField(null);
+  }, []);
+
+  const handleForgotBack = useCallback(() => {
     if (forgotStep === 'newpassword') {
       setForgotStep('code');
       setForgotFieldError(null);
+      setForgotPasswordSubmitting(false);
       return;
     }
     if (forgotStep === 'code') {
@@ -2601,7 +2677,73 @@ function ThirdPageContent({
       return;
     }
     closeForgotModal();
-  };
+  }, [forgotStep, closeForgotModal]);
+
+  const handleForgotBackRef = useRef(handleForgotBack);
+  useEffect(() => {
+    handleForgotBackRef.current = handleForgotBack;
+  }, [handleForgotBack]);
+
+  const forgotModalPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: (evt) => evt.nativeEvent.pageX <= 40,
+        onStartShouldSetPanResponderCapture: (evt) => evt.nativeEvent.pageX <= 40,
+        onMoveShouldSetPanResponder: (_, g) =>
+          g.dx > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
+        onMoveShouldSetPanResponderCapture: (_, g) =>
+          g.dx > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
+        onPanResponderTerminationRequest: () => true,
+        onPanResponderRelease: (_, g) => {
+          if (g.dx > 44 || (g.dx > 28 && g.vx > 0.28)) {
+            handleForgotBackRef.current();
+          }
+        },
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!showForgotModal) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleForgotBackRef.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, [showForgotModal]);
+
+  useEffect(() => {
+    if (!showForgotModal || forgotStep !== 'code') return undefined;
+    const timer = setTimeout(() => {
+      forgotCodeInputRef.current?.focus();
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [showForgotModal, forgotStep]);
+
+  const handleForgotStepPillPress = useCallback(
+    (index) => {
+      const currentIndex =
+        forgotStep === 'input' || forgotStep === 'no_profile' ? 0 : forgotStep === 'code' ? 1 : 2;
+      if (index >= currentIndex) return;
+      setForgotFieldError(null);
+      if (index === 0) {
+        setForgotStep('input');
+        setForgotSuggestRegister(false);
+        setForgotDelivery(null);
+        setForgotSending(false);
+        setForgotDisplayCode('');
+        setForgotCodeInput('');
+        setForgotCodeVerifying(false);
+        setForgotPasswordSubmitting(false);
+        return;
+      }
+      if (index === 1) {
+        setForgotStep('code');
+        setForgotPasswordSubmitting(false);
+      }
+    },
+    [forgotStep],
+  );
 
   const sendForgotCode = async () => {
     if (forgotSending) return;
@@ -2619,6 +2761,7 @@ function ThirdPageContent({
     }
     const value = raw.toLowerCase();
     setForgotInput(value);
+    const sendStartedAt = Date.now();
     setForgotSending(true);
     try {
       const langBase = String(language || 'en').split('-')[0];
@@ -2711,6 +2854,7 @@ function ThirdPageContent({
   };
 
   const submitNewPassword = async () => {
+    if (forgotPasswordSubmitting) return;
     const pass = forgotNewPass.trim();
     const pass2 = forgotNewPassConfirm.trim();
     if (!pass || !pass2) {
@@ -2726,31 +2870,40 @@ function ThirdPageContent({
       return;
     }
     const emailTrim = forgotInput.trim();
-    const ok = await updateUserPassword({ email: emailTrim, newPassword: pass });
-    if (!ok) {
-      Alert.alert('', texts.forgotUserNotFound ?? 'User not found');
-      return;
-    }
-    await clearPasswordResetOtp(emailTrim.toLowerCase());
+    setForgotPasswordSubmitting(true);
     try {
-      const user = await loginUser({ email: emailTrim, password: pass });
-      await saveSession(user);
-      await syncBackendSessionAfterThirdPageEmailAuth({
+      const ok = await updateUserPassword({
         email: emailTrim,
-        password: pass,
-        displayName: user?.name,
-        mode: 'login',
-        localUser: user,
+        newPassword: pass,
+        resetCode: forgotCodeInput,
       });
-      const sFp = await getSession();
-      const uFp = sFp?.user || user;
-      closeForgotModal();
-      setActiveTab('login');
-      await navigateAfterAuth(uFp, false);
-    } catch {
-      Alert.alert('', thirdPageUi(language, 'passwordUpdated'));
-      closeForgotModal();
-      setActiveTab('login');
+      if (!ok) {
+        Alert.alert('', texts.forgotUserNotFound ?? 'User not found');
+        return;
+      }
+      await clearPasswordResetOtp(emailTrim.toLowerCase());
+      try {
+        const user = await loginUser({ email: emailTrim, password: pass });
+        await saveSession(user);
+        await syncBackendSessionAfterThirdPageEmailAuth({
+          email: emailTrim,
+          password: pass,
+          displayName: user?.name,
+          mode: 'login',
+          localUser: user,
+        });
+        const sFp = await getSession();
+        const uFp = sFp?.user || user;
+        closeForgotModal();
+        setActiveTab('login');
+        await navigateAfterAuth(uFp, false);
+      } catch {
+        Alert.alert('', thirdPageUi(language, 'passwordUpdated'));
+        closeForgotModal();
+        setActiveTab('login');
+      }
+    } finally {
+      setForgotPasswordSubmitting(false);
     }
   };
 
@@ -2758,39 +2911,84 @@ function ThirdPageContent({
   const { height: bgH } = Dimensions.get('window');
   const formLayoutHeight = bgH;
   const authHeroHeightRatio =
-    activeTab === 'register'
-      ? r.isVeryShortScreen
-        ? 0.12
-        : r.isShortScreen
-          ? 0.15
-          : 0.18
+    Platform.OS === 'ios' && !r.isShortScreen
+      ? 0.32
       : r.isVeryShortScreen
         ? 0.26
         : r.isShortScreen
           ? 0.3
           : AUTH_HERO_HEIGHT_RATIO;
   const authHeroHeight = Math.round(formLayoutHeight * authHeroHeightRatio);
-  const registerFormOverlapPx =
-    activeTab === 'register'
-      ? Math.round(Math.min(72, Math.max(40, formLayoutHeight * 0.052)))
-      : 0;
-  const authHeroSpacerHeight = Math.max(0, authHeroHeight - registerFormOverlapPx);
   const authHeroTopInset = Math.max(
     Math.round(r.insets?.top ?? 0),
     Platform.OS === 'android' ? Math.round(RNStatusBar.currentHeight ?? 28) : 0,
   ) + (Platform.OS === 'android' ? 6 : 0);
+  const authFormPullUpPx =
+    activeTab === 'login' || activeTab === 'register'
+      ? Math.round(Math.min(36, Math.max(20, formLayoutHeight * 0.028)))
+      : 0;
+  const authHeroVisualBottom = authHeroHeight + AUTH_HERO_WAVE_PAD - authHeroTopInset;
+  /** Android: верхнє фото й лаймова лінія трохи нижче. */
+  const authHeroExtraLiftPx =
+    Platform.OS === 'android'
+      ? androidHeroBannerExtraDownPx(formLayoutHeight)
+      : 0;
+  const authHeroBannerBottomScreenY = authHeroBannerBottomY({
+    heroHeight: authHeroHeight,
+    topInset: authHeroTopInset,
+    heroLiftPx: authHeroExtraLiftPx,
+  });
+  const authHeroSpacerHeight = Math.max(
+    Math.round(authHeroHeight * (r.isVeryShortScreen ? 0.62 : r.isShortScreen ? 0.66 : 0.7)),
+    Platform.OS === 'android'
+      ? authHeroBannerBottomScreenY - authFormPullUpPx
+      : authHeroVisualBottom - authFormPullUpPx,
+  );
+  /** Нижнє фото під соцкнопками — у потоці після Google/Facebook/Apple, до низу екрана. */
+  const authFooterBottomBleedPx = Math.max(r.insets?.bottom ?? 0, 0);
+  const authFooterHeroMinHeight = Math.round(
+    formLayoutHeight * (r.isShortScreen ? 0.22 : 0.26),
+  );
+  const authFooterHeroMarginTopPx = Math.round(
+    Math.max(18, formLayoutHeight * 0.024),
+  );
+  const authScrollViewportMinHeight = Math.max(
+    0,
+    formLayoutHeight -
+      authHeroSpacerHeight -
+      (Platform.OS === 'android' ? r.bottomPadding : 0),
+  );
+  /** Невеликий зазор між хвилястою межею фото і текстом форми (логін / реєстрація). */
+  const authPhotoFormGapPx =
+    Platform.OS === 'android'
+      ? androidHeroTextGapPx(formLayoutHeight)
+      : Math.round(Math.min(28, Math.max(18, formLayoutHeight * 0.022)));
   const formGap = r.isVeryShortScreen ? 10 : r.isShortScreen ? 12 : AUTH_FORM_GAP;
-  const scrollBottomPadding = formGap * 2 + (r.insets?.bottom ?? 0) + (r.isShortScreen ? 28 : 36);
-  const formTitleMarginTop = r.isShortScreen ? 8 : 20;
   const registerFormGap = r.isVeryShortScreen ? 6 : 8;
   const activeFormGap = activeTab === 'register' ? registerFormGap : formGap;
-  const activeTitleMarginTop =
-    activeTab === 'register' ? (r.isShortScreen ? 2 : 6) : formTitleMarginTop;
-  const activeScrollPaddingTop = activeTab === 'register' ? 0 : r.isShortScreen ? 6 : 12;
-  const activeScrollBottomPadding =
-    activeTab === 'register'
-      ? Math.max(12, (r.insets?.bottom ?? 0) + (r.isShortScreen ? 8 : 12))
-      : scrollBottomPadding;
+  const activeTitleMarginTop = r.isShortScreen ? 2 : 4;
+  const authAndroidTitleExtraMarginTop =
+    Platform.OS === 'android' && activeTab === 'login' ? AUTH_FORM_GAP : 0;
+  const activeScrollPaddingTop =
+    Platform.OS === 'android'
+      ? Math.max(
+          0,
+          Math.round(
+            authHeroBannerBottomScreenY -
+              authHeroSpacerHeight +
+              authPhotoFormGapPx -
+              authAndroidTitleExtraMarginTop -
+              activeTitleMarginTop,
+          ),
+        )
+      : Math.round(Math.max(16, formLayoutHeight * 0.02)) + authPhotoFormGapPx;
+  const authScrollMinHeight = authScrollViewportMinHeight;
+  const authFooterHeroBodyHeight = Math.max(
+    80,
+    authFooterHeroLayoutHeight -
+      AUTH_HERO_WAVE_PAD -
+      authFooterBottomBleedPx,
+  );
   const forgotModalMaxWidth = Math.min(r.width - 32, 400);
   const backgroundImageSource =
     activeTab === 'register'
@@ -2915,7 +3113,11 @@ function ThirdPageContent({
   const renderForgotPrimaryCta = (label, onPress, { busy: ctaBusy = false, disabled = false } = {}) => (
     <Pressable
       disabled={disabled || ctaBusy}
-      onPress={onPress}
+      onPress={() => {
+        if (typeof onPress === 'function') {
+          void onPress();
+        }
+      }}
       style={({ pressed }) => [
         styles.authOnboardCtaOuter,
         styles.forgotCtaOuter,
@@ -2942,7 +3144,7 @@ function ThirdPageContent({
 
   return (
     <View style={styles.screen}>
-      <StatusBar style="light" translucent />
+      {Platform.OS === 'android' ? <StatusBar style="light" translucent /> : null}
       {Platform.OS === 'android' ? (
         <RNStatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       ) : null}
@@ -2953,6 +3155,9 @@ function ThirdPageContent({
         style={[
           styles.authHeroBackdrop,
           authHeroTopInset > 0 ? { top: -authHeroTopInset } : null,
+          authHeroExtraLiftPx !== 0 && {
+            transform: [{ translateY: authHeroExtraLiftPx }],
+          },
         ]}
       />
       <View style={{ height: authHeroSpacerHeight }} pointerEvents="none" />
@@ -2962,8 +3167,7 @@ function ThirdPageContent({
           styles.contentOverlay,
           {
             paddingTop: 0,
-            paddingBottom: r.bottomPadding,
-            marginTop: registerFormOverlapPx > 0 ? -registerFormOverlapPx : 0,
+            paddingBottom: 0,
           },
         ]}
       >
@@ -2979,14 +3183,19 @@ function ThirdPageContent({
               {
                 paddingHorizontal: contentHorizontalPadding,
                 paddingTop: activeScrollPaddingTop,
-                paddingBottom: activeScrollBottomPadding,
+                paddingBottom: 0,
                 flexGrow: 1,
+                minHeight: authScrollMinHeight,
+                justifyContent: 'flex-start',
               },
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            bounces
-            nestedScrollEnabled
+            scrollEnabled={false}
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+            nestedScrollEnabled={false}
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           >
             <View style={[styles.content, { width: contentWidth, maxWidth: DESIGN_CONTENT_WIDTH, marginTop: formOffsetTop }]}>
@@ -2995,8 +3204,13 @@ function ThirdPageContent({
                   styles.title,
                   styles.loginFormTitleCompact,
                   activeTab === 'register' && styles.registerFormTitleCompact,
+                  Platform.OS === 'android' && styles.loginFormTitleAndroid,
+                  Platform.OS === 'ios' && styles.loginFormTitleIos,
                   { marginTop: activeTitleMarginTop },
                 ]}
+                numberOfLines={2}
+                adjustsFontSizeToFit={Platform.OS === 'ios'}
+                minimumFontScale={Platform.OS === 'ios' ? 0.82 : 1}
               >
                 {activeTab === 'register' ? texts.registerTitle : texts.title}
               </Text>
@@ -3033,7 +3247,7 @@ function ThirdPageContent({
                   <TextInput
                     ref={nameInputRef}
                     editable={activeTab === 'register'}
-                    style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                    style={[styles.authTextInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                     value={name}
                     onChangeText={(text) => {
                       authHydrationGuardRef.current.name = true;
@@ -3071,7 +3285,7 @@ function ThirdPageContent({
                   <AuthFieldLeadingIcon name="mail-outline" />
                   <TextInput
                     ref={emailInputRef}
-                    style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                    style={[styles.authTextInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                     value={email}
                     onChangeText={(text) => {
                       authHydrationGuardRef.current.email = true;
@@ -3110,7 +3324,7 @@ function ThirdPageContent({
                   <AuthFieldLeadingIcon name="lock-closed-outline" />
                   <TextInput
                     ref={passwordInputRef}
-                    style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                    style={[styles.authTextInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                     value={password}
                     onChangeText={(text) => {
                       authHydrationGuardRef.current.password = true;
@@ -3167,7 +3381,7 @@ function ThirdPageContent({
                   <TextInput
                     ref={confirmPasswordInputRef}
                     editable={activeTab === 'register'}
-                    style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                    style={[styles.authTextInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                     value={confirmPassword}
                     onChangeText={(text) => {
                       authHydrationGuardRef.current.confirmPassword = true;
@@ -3388,30 +3602,54 @@ function ThirdPageContent({
                 ) : null}
               </View>
             </View>
+
+            <View
+              style={[
+                styles.authFooterHeroFlow,
+                {
+                  marginTop: authFooterHeroMarginTopPx,
+                  marginHorizontal: -contentHorizontalPadding,
+                  flexGrow: 1,
+                  minHeight: authFooterHeroMinHeight,
+                },
+              ]}
+              onLayout={(e) => {
+                const h = Math.round(e.nativeEvent.layout.height);
+                if (h > 0 && authFooterHeroLayoutHeightRef.current !== h) {
+                  authFooterHeroLayoutHeightRef.current = h;
+                  setAuthFooterHeroLayoutHeight(h);
+                }
+              }}
+              pointerEvents="none"
+            >
+              {authFooterHeroLayoutHeight > 0 ? (
+                <AuthHeroHeader
+                  source={backgroundImageSource}
+                  height={authFooterHeroBodyHeight}
+                  waveEdge="top"
+                  bottomBleedPx={authFooterBottomBleedPx}
+                  style={{ width: r.width }}
+                />
+              ) : null}
+            </View>
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
 
-      <Modal visible={showForgotModal} transparent animationType="fade" statusBarTranslucent>
+      <Modal visible={showForgotModal} animationType="slide" statusBarTranslucent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.forgotModalKeyboardRoot}
           keyboardVerticalOffset={Platform.OS === 'ios' ? r.insets.top : 0}
+          {...forgotModalPanResponder.panHandlers}
         >
-          <View style={styles.forgotModalOverlay}>
-            <Pressable
-              style={styles.forgotModalBackdrop}
-              android_ripple={null}
-              onPress={closeForgotModal}
-              accessibilityRole="button"
-              accessibilityLabel={thirdPageUi(language, 'close')}
-            />
+          <Pressable style={styles.forgotModalOverlay} onPress={dismissForgotKeyboard}>
             <View
               style={[
                 styles.forgotModalBox,
                 {
-                  paddingTop: r.insets.top + (r.isShortScreen ? 8 : 14),
-                  paddingBottom: Math.max(r.insets.bottom + 16, 22),
+                  paddingTop: r.insets.top + (r.isShortScreen ? 6 : 10),
+                  paddingBottom: Math.max(r.insets.bottom + 12, 18),
                   maxWidth: forgotModalMaxWidth,
                 },
               ]}
@@ -3420,7 +3658,7 @@ function ThirdPageContent({
                 onPress={handleForgotBack}
                 hitSlop={12}
                 android_ripple={rippleOnDarkSurface}
-                style={styles.forgotModalBackBtn}
+                style={[styles.forgotModalBackBtn, { top: r.insets.top + 8 }]}
                 accessibilityRole="button"
                 accessibilityLabel={thirdPageUi(language, 'back')}
               >
@@ -3429,91 +3667,65 @@ function ThirdPageContent({
 
               <ScrollView
                 style={styles.forgotModalScroll}
-                keyboardShouldPersistTaps="always"
+                keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
-                bounces
-                nestedScrollEnabled
+                bounces={false}
+                scrollEnabled={false}
+                nestedScrollEnabled={false}
                 automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
                 contentContainerStyle={[
                   styles.forgotModalScrollContent,
-                  { paddingBottom: r.insets.bottom + 12 },
+                  {
+                    minHeight: Math.max(0, r.height - r.insets.top - r.insets.bottom - 16),
+                    paddingTop: r.insets.top + 32,
+                    paddingBottom: Math.max(r.insets.bottom + 32, 28),
+                  },
                 ]}
               >
-                <View style={styles.forgotHero}>
-                  <View style={styles.forgotHeroIconWrap}>
-                    <Ionicons name="lock-closed-outline" size={30} color={ACCENT} />
-                  </View>
-                  <Text style={styles.forgotModalTitle}>{texts.forgotTitle}</Text>
-                  <Text style={[styles.forgotModalSubtitle, { maxWidth: forgotModalMaxWidth - 48 }]}>
-                    {forgotSubtitle}
-                  </Text>
-                </View>
-
-                <View style={styles.forgotStepPills}>
-                  {forgotStepItems.map((step, index) => {
-                    const active = index <= forgotStepIndex;
-                    const current = index === forgotStepIndex;
-                    return (
-                      <React.Fragment key={step.id}>
-                        {index > 0 ? <View style={[styles.forgotStepConnector, active && styles.forgotStepConnectorActive]} /> : null}
-                        <View style={[styles.forgotStepPill, current && styles.forgotStepPillCurrent, active && styles.forgotStepPillActive]}>
-                          <Text style={[styles.forgotStepPillText, (active || current) && styles.forgotStepPillTextActive]}>
-                            {index + 1}
-                          </Text>
-                          <Text
-                            style={[styles.forgotStepPillLabel, (active || current) && styles.forgotStepPillLabelActive]}
-                            numberOfLines={1}
-                          >
-                            {step.label}
-                          </Text>
-                        </View>
-                      </React.Fragment>
-                    );
-                  })}
-                </View>
-
-                {forgotStep === 'code' || forgotStep === 'no_profile' ? (
-                  <View style={styles.forgotModalHeader}>
-                    <Text style={styles.forgotSectionTitle}>
-                      {forgotStep === 'code'
-                        ? forgotDelivery === 'email'
-                          ? texts.forgotEmailCodeTitle
-                          : texts.forgotYourCodeTitle
-                        : texts.forgotNoProfile}
-                    </Text>
-                    <View style={styles.forgotSectionDivider} />
-                  </View>
-                ) : null}
-
-                <View
-                  style={[
-                    styles.forgotModalBody,
-                    (forgotStep === 'input' || forgotStep === 'newpassword') && styles.forgotModalBodyNoSection,
-                  ]}
+                <Pressable
+                  style={styles.forgotModalScrollPressDismiss}
+                  onPress={dismissForgotKeyboard}
+                  accessible={false}
                 >
+                <View style={[styles.forgotModalInner, { maxWidth: forgotModalMaxWidth - 44 }]}>
+                  <View style={styles.forgotHero}>
+                    <ForgotPasswordLockAnimation />
+                  </View>
+                  <Text style={styles.forgotStepCounter}>
+                    {forgotStepIndex + 1}/{forgotStepItems.length} · {forgotStepItems[forgotStepIndex]?.label}
+                  </Text>
+                  <Text style={styles.forgotModalTitle}>{texts.forgotTitle}</Text>
+                  {forgotSubtitle ? <Text style={styles.forgotModalSubtitle}>{forgotSubtitle}</Text> : null}
+
+                  <View style={styles.forgotModalBody}>
               {forgotStep === 'input' && (
                 <>
                   <View style={styles.forgotModalFieldsWrap}>
                     <View
                       collapsable={false}
                       style={[
-                        styles.authFieldRow,
-                        focusedForgotField === 'forgotEmail' && styles.authFieldRowFocused,
+                        styles.forgotFieldRow,
+                        focusedForgotField === 'forgotEmail' && styles.forgotFieldRowFocused,
+                        forgotSending && styles.forgotFieldRowDisabled,
                       ]}
                     >
-                      <AuthFieldLeadingIcon name="mail-outline" />
+                      <ForgotPasswordFieldIcon
+                        name="mail-outline"
+                        focused={focusedForgotField === 'forgotEmail'}
+                      />
                       <TextInput
                         ref={forgotEmailInputRef}
-                        style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                        style={[styles.forgotFieldInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                         value={forgotInput}
+                        editable={!forgotSending}
                         onChangeText={(t) => {
                           setForgotFieldError(null);
                           setForgotSuggestRegister(false);
                           setForgotInput(t);
                         }}
                         placeholder={texts.emailPlaceholder}
-                        placeholderTextColor={AUTH_PLACEHOLDER}
+                        placeholderTextColor="rgba(255,255,255,0.34)"
                         keyboardType="email-address"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -3576,47 +3788,32 @@ function ThirdPageContent({
 
               {forgotStep === 'code' && (
                 <>
-                  <Text style={[styles.forgotNoProfileSubtext, { marginBottom: 12 }]}>
-                    {forgotDelivery === 'email'
-                      ? texts.forgotCheckEmailForCode
-                      : texts.forgotYourCodeHint}
-                  </Text>
-                  <Text style={[styles.forgotModalLabel, { marginTop: 8, marginBottom: 8 }]}>
-                    {texts.forgotEnterCodeBelow}
-                  </Text>
-                  <View style={styles.forgotModalFieldsWrap}>
-                    <View
-                      collapsable={false}
-                      style={[
-                        styles.authFieldRow,
-                        focusedForgotField === 'forgotCode' && styles.authFieldRowFocused,
-                      ]}
-                    >
-                      <AuthFieldLeadingIcon name="keypad-outline" />
-                      <TextInput
-                        ref={forgotCodeInputRef}
-                        style={[styles.authTextInput, styles.forgotCodeInput, { fontSize: r.optionFontSize }]}
-                        value={forgotCodeInput}
-                        onChangeText={(t) => {
-                          setForgotFieldError(null);
-                          setForgotCodeInput(t.replace(/[^\d]/g, '').slice(0, 6));
-                        }}
-                        placeholder={texts.forgotEnterCode}
-                        placeholderTextColor={AUTH_PLACEHOLDER}
-                        keyboardType="number-pad"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        maxLength={6}
-                        keyboardAppearance="dark"
-                        selectionColor={ACCENT}
-                        returnKeyType="done"
-                        blurOnSubmit={false}
-                        enablesReturnKeyAutomatically
-                        onSubmitEditing={confirmForgotCode}
-                        onFocus={() => setFocusedForgotField('forgotCode')}
-                        onBlur={() => setFocusedForgotField((k) => (k === 'forgotCode' ? null : k))}
-                      />
+                  {forgotDelivery !== 'email' && forgotDisplayCode ? (
+                    <View style={styles.forgotInAppCodeBox}>
+                      <Text style={[styles.forgotInAppCodeTitle, { fontSize: r.hintFontSize + 1 }]}>
+                        {texts.forgotYourCodeTitle}
+                      </Text>
+                      <Text style={styles.forgotInAppCodeValue}>{forgotDisplayCode}</Text>
+                      <Text style={[styles.forgotInAppCodeHint, { fontSize: r.hintFontSize }]}>
+                        {texts.forgotYourCodeHint}
+                      </Text>
                     </View>
+                  ) : null}
+                  <View style={styles.forgotOtpWrap}>
+                    <ForgotPasswordOtpInput
+                      inputRef={forgotCodeInputRef}
+                      value={forgotCodeInput}
+                      focused={focusedForgotField === 'forgotCode'}
+                      digitFontSize={r.isShortScreen ? 22 : 24}
+                      boxHeight={r.isShortScreen ? 52 : 56}
+                      onChangeText={(t) => {
+                        setForgotFieldError(null);
+                        setForgotCodeInput(t);
+                      }}
+                      onSubmitEditing={confirmForgotCode}
+                      onFocus={() => setFocusedForgotField('forgotCode')}
+                      onBlur={() => setFocusedForgotField((k) => (k === 'forgotCode' ? null : k))}
+                    />
                   </View>
                   {forgotFieldError ? (
                     <Text
@@ -3632,7 +3829,7 @@ function ThirdPageContent({
                     { busy: forgotCodeVerifying, disabled: forgotCodeVerifying },
                   )}
                   <Pressable
-                    onPress={sendForgotCode}
+                    onPress={() => void sendForgotCode()}
                     style={[styles.forgotGhostBtn, forgotSending && styles.forgotGhostBtnDisabled]}
                     android_ripple={rippleOnDarkSurface}
                     disabled={forgotSending}
@@ -3664,34 +3861,25 @@ function ThirdPageContent({
 
               {forgotStep === 'newpassword' && (
                 <>
-                  {forgotDelivery === 'in_app' ||
-                  forgotDelivery === 'in_app_code' ||
-                  forgotDelivery === 'email' ? (
-                    <View style={styles.forgotInfoBanner}>
-                      <Ionicons name="information-circle-outline" size={18} color={LEMON_BRIGHT} />
-                      <Text style={[styles.forgotInAppBanner, { fontSize: r.hintFontSize }]}>
-                        {forgotDelivery === 'in_app'
-                          ? texts.forgotInAppResetHint
-                          : texts.forgotNewPasswordAfterCode}
-                      </Text>
-                    </View>
-                  ) : null}
                   <View style={styles.forgotModalFieldsWrap}>
                     <View
                       collapsable={false}
                       style={[
-                        styles.authFieldRow,
-                        focusedForgotField === 'forgotNew' && styles.authFieldRowFocused,
+                        styles.forgotFieldRow,
+                        focusedForgotField === 'forgotNew' && styles.forgotFieldRowFocused,
                       ]}
                     >
-                      <AuthFieldLeadingIcon name="lock-closed-outline" />
+                      <ForgotPasswordFieldIcon
+                        name="lock-closed-outline"
+                        focused={focusedForgotField === 'forgotNew'}
+                      />
                       <TextInput
                         ref={forgotNewPassInputRef}
-                        style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                        style={[styles.forgotFieldInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                         value={forgotNewPass}
                         onChangeText={setForgotNewPass}
                         placeholder={texts.forgotNewPassword}
-                        placeholderTextColor={AUTH_PLACEHOLDER}
+                        placeholderTextColor="rgba(255,255,255,0.34)"
                         secureTextEntry={!forgotPasswordVisible}
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -3710,7 +3898,7 @@ function ThirdPageContent({
                       />
                       <Pressable
                         onPress={() => setForgotPasswordVisible((v) => !v)}
-                        style={styles.eyeButton}
+                        style={styles.forgotFieldEyeButton}
                         android_ripple={rippleOnDarkSurface}
                         accessibilityLabel={forgotPasswordVisible ? texts.hidePassword : texts.showPassword}
                       >
@@ -3728,18 +3916,21 @@ function ThirdPageContent({
                     <View
                       collapsable={false}
                       style={[
-                        styles.authFieldRow,
-                        focusedForgotField === 'forgotConfirm' && styles.authFieldRowFocused,
+                        styles.forgotFieldRow,
+                        focusedForgotField === 'forgotConfirm' && styles.forgotFieldRowFocused,
                       ]}
                     >
-                      <AuthFieldLeadingIcon name="lock-closed-outline" />
+                      <ForgotPasswordFieldIcon
+                        name="lock-closed-outline"
+                        focused={focusedForgotField === 'forgotConfirm'}
+                      />
                       <TextInput
                         ref={forgotConfirmPassInputRef}
-                        style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                        style={[styles.forgotFieldInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                         value={forgotNewPassConfirm}
                         onChangeText={setForgotNewPassConfirm}
                         placeholder={texts.forgotConfirmPassword}
-                        placeholderTextColor={AUTH_PLACEHOLDER}
+                        placeholderTextColor="rgba(255,255,255,0.34)"
                         secureTextEntry={!forgotPasswordVisible}
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -3758,13 +3949,18 @@ function ThirdPageContent({
                       />
                     </View>
                   </View>
-                  {renderForgotPrimaryCta(texts.forgotChangePassword, submitNewPassword)}
+                  {renderForgotPrimaryCta(texts.forgotChangePassword, submitNewPassword, {
+                    busy: forgotPasswordSubmitting,
+                    disabled: forgotPasswordSubmitting,
+                  })}
                 </>
               )}
                 </View>
+                </View>
+                </Pressable>
               </ScrollView>
             </View>
-          </View>
+          </Pressable>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -3851,7 +4047,7 @@ function ThirdPageContent({
                   textContentType="password"
                   placeholder="PIN"
                   placeholderTextColor={AUTH_PLACEHOLDER}
-                  style={[styles.authTextInput, { fontSize: r.optionFontSize }]}
+                  style={[styles.authTextInput, { fontSize: AUTH_INPUT_FONT_SIZE }]}
                   editable={!adminPinBusy}
                   onSubmitEditing={confirmAdminPinLogin}
                   keyboardAppearance="dark"
@@ -3900,12 +4096,17 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 0,
+    zIndex: 2,
+  },
+  authFooterHeroFlow: {
+    width: '100%',
+    alignItems: 'center',
+    overflow: 'visible',
   },
   contentOverlay: {
     flex: 1,
     zIndex: 1,
-    backgroundColor: BG_DARK,
+    backgroundColor: 'transparent',
     justifyContent: 'flex-start',
   },
   keyboardWrap: {
@@ -3947,9 +4148,9 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 6,
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 44,
-    padding: 4,
-    borderRadius: 10,
+    minHeight: 38,
+    padding: 3,
+    borderRadius: 9,
     borderWidth: 0.5,
     borderColor: BORDER,
     backgroundColor: BG_DARK,
@@ -3975,46 +4176,57 @@ const styles = StyleSheet.create({
   },
 
   loginFormTitleCompact: {
-    marginTop: AUTH_FORM_GAP,
-    marginBottom: AUTH_FORM_GAP,
+    marginTop: Platform.OS === 'ios' ? 0 : AUTH_FORM_GAP,
+    marginBottom: Platform.OS === 'ios' ? 10 : AUTH_FORM_GAP,
   },
   registerFormTitleCompact: {
-    marginBottom: 8,
+    marginTop: 0,
+    marginBottom: Platform.OS === 'ios' ? 5 : 7,
+  },
+  loginFormTitleAndroid: {
+    marginBottom: 6,
+  },
+  loginFormTitleIos: {
+    fontSize: AUTH_IOS_TITLE_FONT_SIZE,
+    lineHeight: AUTH_IOS_TITLE_LINE_HEIGHT,
+    height: undefined,
+    minHeight: AUTH_IOS_TITLE_LINE_HEIGHT,
+    marginBottom: 6,
   },
   registerFormInputWrap: {
     marginTop: 0,
   },
   authFieldRowCompact: {
-    minHeight: 42,
+    minHeight: 38,
     paddingVertical: 2,
   },
   registerTermsRow: {
-    minHeight: 40,
-    marginBottom: 8,
+    minHeight: 36,
+    marginBottom: 6,
   },
   registerPrimarySubmitWrap: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   registerAuthOnboardCtaOuter: {
-    minHeight: 44,
-    height: 46,
+    minHeight: 40,
+    height: 42,
   },
   registerDividerWrap: {
-    minHeight: 28,
-    marginBottom: 8,
+    minHeight: 24,
+    marginBottom: 6,
   },
   registerSocialRow: {
-    marginBottom: 4,
+    marginBottom: 3,
   },
   loginFormTabsCompact: {
     marginTop: 0,
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 44,
-    padding: 4,
+    minHeight: 38,
+    padding: 3,
   },
   loginFormTabPillCompact: {
-    minHeight: 36,
-    paddingVertical: 8,
+    minHeight: 32,
+    paddingVertical: 6,
   },
   loginFormInputWrapCompact: {
     marginTop: 0,
@@ -4023,12 +4235,12 @@ const styles = StyleSheet.create({
   },
   tabPill: {
     width: '100%',
-    minHeight: 36,
+    minHeight: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 2,
-    borderRadius: 8,
+    borderRadius: 7,
     backgroundColor: 'transparent',
     overflow: 'hidden',
   },
@@ -4046,7 +4258,7 @@ const styles = StyleSheet.create({
     }),
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     letterSpacing: -0.5,
     color: 'rgba(255, 255, 255, 0.58)',
     backgroundColor: 'transparent',
@@ -4074,10 +4286,10 @@ const styles = StyleSheet.create({
   },
   /** Як кнопка «Пропустити» / «Продовжити» на онбордингу (OnboardingIntroPage). */
   authOnboardCtaOuter: {
-    minHeight: 48,
-    height: 52,
+    minHeight: 44,
+    height: 46,
     borderRadius: 999,
-    borderWidth: 5,
+    borderWidth: 4,
     borderColor: 'rgba(225, 255, 0, 0.45)',
     position: 'relative',
     overflow: 'visible',
@@ -4113,8 +4325,8 @@ const styles = StyleSheet.create({
   },
   authOnboardCtaText: {
     fontWeight: '600',
-    fontSize: 15,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 17,
     color: '#000000',
     textAlign: 'center',
     ...Platform.select({
@@ -4145,13 +4357,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    minHeight: 48,
+    minHeight: 42,
     backgroundColor: '#1C1C1E',
-    borderRadius: 10,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: BORDER,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
   },
   authFieldRowFocused: {
     borderColor: LEMON_BRIGHT,
@@ -4176,31 +4388,31 @@ const styles = StyleSheet.create({
     ...BRAND_TEXT_FONT,
     fontWeight: '400',
     color: TEXT_LIGHT,
-    paddingVertical: Platform.OS === 'android' ? 8 : 10,
+    paddingVertical: Platform.OS === 'android' ? 6 : 8,
     paddingHorizontal: 4,
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : {}),
   },
   eyeButton: {
-    padding: 8,
-    marginLeft: 4,
+    padding: 6,
+    marginLeft: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 34,
+    minWidth: 30,
   },
   eyeButtonIcon: {
-    width: 17,
-    height: 17,
+    width: 15,
+    height: 15,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 48,
+    minHeight: 42,
   },
   termsRow: {
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 48,
+    minHeight: 42,
     justifyContent: 'center',
   },
   termsCheckboxWrap: {
@@ -4211,20 +4423,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    minHeight: 36,
-    paddingVertical: 6,
-    paddingRight: 12,
+    minHeight: 32,
+    paddingVertical: 4,
+    paddingRight: 10,
   },
   checkboxWrapPressed: {
     opacity: 0.85,
   },
   checkboxBox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
-    borderRadius: 6,
+    marginRight: 8,
+    borderRadius: 5,
     overflow: 'hidden',
   },
   checkboxBoxChecked: {
@@ -4233,9 +4445,9 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
   },
   checkboxSquare: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 5,
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.28)',
     backgroundColor: 'rgba(255,255,255,0.02)',
@@ -4247,8 +4459,8 @@ const styles = StyleSheet.create({
   checkboxCheckIcon: {
     position: 'absolute',
     color: ACCENT,
-    fontSize: 16,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 16,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -4266,7 +4478,7 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     ...BRAND_TEXT_FONT,
     fontWeight: '400',
-    fontSize: 14,
+    fontSize: 13,
     color: TEXT_LIGHT,
     backgroundColor: 'transparent',
     opacity: 1,
@@ -4315,14 +4527,14 @@ const styles = StyleSheet.create({
   forgotText: {
     ...BRAND_TEXT_FONT,
     fontWeight: '400',
-    fontSize: 14,
+    fontSize: 13,
     color: ACCENT,
     backgroundColor: 'transparent',
     opacity: 1,
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : {}),
   },
   primaryButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     letterSpacing: 0,
     backgroundColor: 'transparent',
     opacity: 1,
@@ -4374,8 +4586,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: DESIGN_CONTENT_WIDTH,
-    minHeight: 40,
-    gap: 12,
+    minHeight: 34,
+    gap: 10,
     padding: 0,
     marginBottom: AUTH_FORM_GAP,
   },
@@ -4392,8 +4604,8 @@ const styles = StyleSheet.create({
   dividerText: {
     ...BRAND_TEXT_FONT,
     fontWeight: '300',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     letterSpacing: 0,
     color: TEXT_LIGHT,
     marginHorizontal: 12,
@@ -4423,14 +4635,14 @@ const styles = StyleSheet.create({
   socialButton: {
     flex: 1,
     minWidth: 0,
-    maxWidth: Platform.OS === 'android' ? 172 : 105,
-    height: 48,
-    borderRadius: 10,
+    maxWidth: Platform.OS === 'android' ? 160 : 98,
+    height: 42,
+    borderRadius: 9,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#EFF0F6',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -4438,29 +4650,29 @@ const styles = StyleSheet.create({
   socialButtonIos: {
     flexGrow: 0,
     flexShrink: 0,
-    flexBasis: 96,
-    width: 96,
-    maxWidth: 96,
-    minWidth: 96,
+    flexBasis: 88,
+    width: 88,
+    maxWidth: 88,
+    minWidth: 88,
   },
   socialButtonDisabled: {
     opacity: 0.45,
   },
   socialIcon: {
-    fontSize: 22,
+    fontSize: 20,
   },
   socialIconImage: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
   },
 
   socialIconFacebook: Platform.select({
-    ios: { width: 26, height: 26 },
+    ios: { width: 24, height: 24 },
     default: {},
   }),
   socialIconImageApple: {
-    width: 14.67,
-    height: 18,
+    width: 13,
+    height: 16,
   },
   forgotModalKeyboardRoot: {
     flex: 1,
@@ -4469,38 +4681,66 @@ const styles = StyleSheet.create({
   forgotModalOverlay: {
     flex: 1,
     backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 0,
   },
-  forgotModalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
-    backgroundColor: '#000',
+  forgotModalScrollPressDismiss: {
+    flexGrow: 1,
+    width: '100%',
   },
   forgotModalBox: {
-    zIndex: 2,
+    flex: 1,
     width: '100%',
     maxWidth: '100%',
-    flex: 1,
     alignSelf: 'center',
     backgroundColor: '#000',
-    borderRadius: 0,
-    borderWidth: 0,
-    borderColor: 'transparent',
     paddingHorizontal: 22,
-    ...Platform.select({
-      ios: {
-        shadowColor: 'transparent',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0,
-        shadowRadius: 0,
-      },
-      android: {
-        elevation: 0,
-      },
-      default: {},
-    }),
+  },
+  forgotStepCounter: {
+    ...BRAND_TEXT_FONT,
+    fontSize: 12,
+    fontWeight: '500',
+    color: ACCENT,
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: 0.3,
+    ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif-medium', includeFontPadding: false } : {}),
+  },
+  forgotHero: {
+    alignItems: 'center',
+    marginTop: 22,
+    marginBottom: 10,
+  },
+  forgotInAppCodeBox: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(238, 255, 102, 0.28)',
+    backgroundColor: 'rgba(225, 255, 0, 0.06)',
+  },
+  forgotInAppCodeTitle: {
+    ...BRAND_TEXT_FONT,
+    color: ACCENT,
+    fontWeight: '600',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  forgotInAppCodeValue: {
+    ...BRAND_TEXT_FONT,
+    color: LEMON_BRIGHT,
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: 6,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  forgotInAppCodeHint: {
+    color: 'rgba(255,255,255,0.58)',
+    textAlign: 'center',
+    lineHeight: 18,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   forgotModalScroll: {
     flex: 1,
@@ -4509,11 +4749,23 @@ const styles = StyleSheet.create({
   forgotModalScrollContent: {
     flexGrow: 1,
     width: '100%',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  forgotModalInner: {
+    width: '100%',
+    alignSelf: 'center',
+  },
+  forgotModalFieldsWrap: {
+    width: '100%',
+    gap: 12,
+    marginTop: 0,
+    marginBottom: 8,
   },
   forgotCtaOuter: {
-    marginTop: 18,
-    marginBottom: 8,
+    marginTop: 14,
+    marginBottom: 4,
   },
   termsModalBackBtn: {
     position: 'absolute',
@@ -4623,73 +4875,31 @@ const styles = StyleSheet.create({
   },
   forgotModalBackBtn: {
     position: 'absolute',
-    top: 14,
     left: 14,
-    zIndex: 2,
-    minWidth: 42,
-    height: 36,
-    borderRadius: 18,
+    zIndex: 3,
+    minWidth: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
-    backgroundColor: 'rgba(238, 255, 102, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(238, 255, 102, 0.4)',
+    paddingHorizontal: 8,
+    backgroundColor: 'transparent',
     overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: LEMON_BRIGHT,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.35,
-        shadowRadius: 8,
-      },
-      android: { elevation: 4 },
-      default: {},
-    }),
-  },
-  forgotHero: {
-    alignItems: 'center',
-    paddingTop: 8,
-    marginBottom: 16,
-  },
-  forgotHeroIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 1.5,
-    borderColor: 'rgba(238, 255, 102, 0.5)',
-    backgroundColor: 'rgba(238, 255, 102, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-    ...Platform.select({
-      ios: {
-        shadowColor: LEMON_BRIGHT,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.45,
-        shadowRadius: 14,
-      },
-      android: { elevation: 8 },
-      default: {},
-    }),
   },
   forgotStepPills: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-    paddingHorizontal: 2,
-    flexWrap: 'wrap',
-    gap: 4,
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 20,
+    flexWrap: 'nowrap',
   },
   forgotStepPill: {
-    minWidth: 72,
-    maxWidth: 96,
-    flexGrow: 1,
-    flexShrink: 1,
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
@@ -4713,6 +4923,9 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  forgotStepPillPressed: {
+    opacity: 0.82,
+  },
   forgotStepPillText: {
     fontSize: 11,
     lineHeight: 14,
@@ -4725,8 +4938,8 @@ const styles = StyleSheet.create({
     color: ACCENT,
   },
   forgotStepPillLabel: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
     color: '#8A8A8A',
     textAlign: 'center',
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : { ...BRAND_TEXT_FONT }),
@@ -4735,10 +4948,12 @@ const styles = StyleSheet.create({
     color: LEMON_BRIGHT,
   },
   forgotStepConnector: {
-    width: 10,
-    height: 1,
+    width: 14,
+    height: 2,
+    borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.14)',
     flexShrink: 0,
+    marginHorizontal: 4,
   },
   forgotStepConnectorActive: {
     backgroundColor: 'rgba(238, 255, 102, 0.45)',
@@ -4781,40 +4996,24 @@ const styles = StyleSheet.create({
     ...BRAND_TEXT_FONT,
     fontSize: 22,
     fontWeight: '500',
-    color: TEXT_LIGHT,
+    color: ACCENT,
     textAlign: 'center',
     marginBottom: 8,
-    ...Platform.select({
-      ios: {
-        textShadowColor: 'rgba(238, 255, 102, 0.35)',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 12,
-      },
-      default: {},
-    }),
   },
   forgotModalSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#B5B5B5',
+    fontSize: 14,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.58)',
     textAlign: 'center',
-    maxWidth: 260,
+    maxWidth: 320,
+    paddingHorizontal: 8,
+    marginBottom: 24,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   forgotModalBody: {
-    paddingTop: 2,
-    paddingBottom: 6,
-  },
-
-  forgotModalBodyNoSection: {
-    paddingTop: 14,
-    paddingBottom: 10,
-  },
-  forgotModalFieldsWrap: {
     width: '100%',
-    gap: 20,
-    marginTop: 6,
-    marginBottom: 6,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   forgotModalFieldError: {
     width: '100%',
@@ -5034,41 +5233,59 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  forgotCodeBoxWrap: {
-    position: 'relative',
+  forgotOtpWrap: {
+    width: '100%',
+    alignItems: 'center',
     marginBottom: 8,
-    borderRadius: 14,
-    overflow: 'hidden',
+    paddingHorizontal: 2,
   },
-  forgotCodeBoxRow: {
+  forgotFieldRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  forgotCodeBox: {
-    flex: 1,
-    height: 58,
+    alignItems: 'center',
+    width: '100%',
+    minHeight: 54,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.1)',
     backgroundColor: 'rgba(255,255,255,0.04)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  forgotFieldRowFocused: {
+    borderColor: LEMON_BRIGHT,
+    backgroundColor: 'rgba(225, 255, 0, 0.07)',
+    ...Platform.select({
+      ios: {
+        shadowColor: LEMON_BRIGHT,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  forgotFieldRowDisabled: {
+    opacity: 0.72,
+  },
+  forgotFieldInput: {
+    flex: 1,
+    minWidth: 0,
+    ...BRAND_TEXT_FONT,
+    fontWeight: '500',
+    color: TEXT_LIGHT,
+    paddingVertical: Platform.OS === 'android' ? 8 : 10,
+    paddingHorizontal: 2,
+    ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif-medium', includeFontPadding: false } : {}),
+  },
+  forgotFieldEyeButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  forgotCodeBoxDigit: {
-    ...BRAND_TEXT_FONT,
-    fontSize: 24,
-    fontWeight: '600',
-    color: TEXT_LIGHT,
-  },
-  forgotCodeInputHidden: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0,
-    fontSize: 1,
+    marginLeft: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
 });
 

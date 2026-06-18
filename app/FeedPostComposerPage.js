@@ -32,6 +32,7 @@ import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { useAuthStore } from './auth/authStore';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
 import { errorToUserText } from './errorText';
+import { RenderProfiler } from './performanceMetrics';
 
 export default function FeedPostComposerPage({ navigation, route }) {
   const uris = route.params?.uris || [];
@@ -204,6 +205,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
   }
 
   return (
+    <RenderProfiler id="FeedPostComposerPage">
     <View style={[styles.screen, isLight && styles.screenLight]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable style={[styles.iconBtn, isLight && styles.iconBtnLight]} onPress={() => navigation.goBack()} hitSlop={12}>
@@ -230,6 +232,10 @@ export default function FeedPostComposerPage({ navigation, route }) {
             const i = Math.round(x / width);
             setSlideIndex(Math.max(0, Math.min(i, uris.length - 1)));
           }}
+          maxToRenderPerBatch={3}
+          windowSize={3}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={3}
           renderItem={({ item, index }) => {
             const isVid = /\.(mp4|mov)(\?|$)/i.test(String(item));
             const showOrder = uris.length > 1;
@@ -245,6 +251,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
                       isLooping
                       isMuted
                       useNativeControls={false}
+                      showPoster
                     />
                   ) : (
                     <Image source={{ uri: item }} style={styles.heroFill} resizeMode="cover" />
@@ -398,6 +405,10 @@ export default function FeedPostComposerPage({ navigation, route }) {
                 data={savedRoutes}
                 keyExtractor={(it) => String(it.id)}
                 style={{ maxHeight: 360 }}
+                removeClippedSubviews={Platform.OS === 'android'}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                initialNumToRender={8}
                 renderItem={({ item }) => {
                   const plan = item.routePlan;
                   const title =
@@ -430,6 +441,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
       </Modal>
 
     </View>
+    </RenderProfiler>
   );
 }
 

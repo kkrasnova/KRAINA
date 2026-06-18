@@ -38,13 +38,22 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxFeedMediaBytes },
   fileFilter(_req, file, cb) {
+    const name = String(file.originalname || '').toLowerCase();
+    const audioExt = /\.(m4a|aac|mp3|wav|caf)$/i.test(name);
     const ok = [
       'image/jpeg',
       'image/png',
       'image/webp',
       'video/mp4',
       'video/quicktime',
-    ].includes(file.mimetype);
+      'audio/mp4',
+      'audio/m4a',
+      'audio/x-m4a',
+      'audio/aac',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/x-wav',
+    ].includes(file.mimetype) || (file.mimetype === 'application/octet-stream' && audioExt);
     cb(null, ok);
   },
 });
@@ -66,7 +75,11 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     if (!req.file) {
       throw new HttpError(400, 'invalid_format');
     }
-    const saved = await saveFeedMediaFile({ buffer: req.file.buffer, mimetype: req.file.mimetype });
+    const saved = await saveFeedMediaFile({
+      buffer: req.file.buffer,
+      mimetype: req.file.mimetype,
+      originalname: req.file.originalname,
+    });
     res.status(200).json(saved);
   } catch (e) {
     next(e);

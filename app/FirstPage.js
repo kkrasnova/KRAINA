@@ -1,20 +1,28 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Image, Platform, Animated, Easing } from 'react-native';
-import { Video, ResizeMode } from './expoAvCompat';
+import SplashTitleVideo from './SplashTitleVideo';
 import { useResponsive } from './useResponsive';
+import { notifySplashLogoPainted, subscribeSplashHidden } from './splashLogoGate';
 
-const SPLASH_TITLE_VIDEO = require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4');
+const SPLASH_TITLE_VIDEO_IOS = require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4');
+const SPLASH_TITLE_VIDEO_ANDROID = require('./assets/kraina-splash-android.mp4');
+const SPLASH_TITLE_VIDEO =
+  Platform.OS === 'android' ? SPLASH_TITLE_VIDEO_ANDROID : SPLASH_TITLE_VIDEO_IOS;
+const SPLASH_TITLE_POSTER = require('./assets/kraina-title-splash-frame0.png');
 const GLOBE_IMAGE = require('./assets/globe.png');
+const PERSON_IMAGE = require('./assets/person-12.png');
 
-/** Перший запуск після встановлення: логотип + глобус мають бути видимі перед вибором мови. */
+/** Android потребує більше часу для рендера FirstPage (assets, відео, глобус). */
 const FIRST_LAUNCH_SPLASH_MIN_MS = 2600;
-const RETURNING_USER_SPLASH_MS = 80;
+const RETURNING_USER_SPLASH_MS = Platform.OS === 'android' ? 700 : 200;
 
 function resolveSplashDelayMs(nextRoute, nextParams) {
   const isFirstLaunchOnboarding =
     nextRoute === 'SecondPage' || nextParams?.firstLaunchOnboarding === true;
   if (isFirstLaunchOnboarding) return FIRST_LAUNCH_SPLASH_MIN_MS;
-  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth') return RETURNING_USER_SPLASH_MS;
+  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth') {
+    return RETURNING_USER_SPLASH_MS;
+  }
   if (nextRoute === 'ChoosePlan') return 100;
   return 150;
 }
@@ -43,22 +51,26 @@ export default function FirstPage({ navigation, route }) {
   const personBottom = Math.round(-screenHeight * 0.17);
 
   const globeSize = useMemo(() => {
-    // Очень большой глобус. На Android делаем ещё крупнее.
-    // Разрешаем выходить за края экрана — будет как большой фон под персонажем.
     const k = Platform.OS === 'android' ? 1.85 : 1.72;
     const min = Platform.OS === 'android' ? 720 : 620;
     const max = Platform.OS === 'android' ? 1150 : 980;
     return Math.round(Math.min(max, Math.max(min, screenWidth * k)));
   }, [screenWidth]);
-  // Сдвигаем вправо; на Android — сильнее.
   const globeLeft = Math.round(
     (screenWidth - globeSize) / 2 + screenWidth * (Platform.OS === 'android' ? 0.38 : 0.32),
   );
-  // Ниже: на Android опускаем чуть сильнее.
   const globeBottom = Math.round(-screenHeight * (Platform.OS === 'android' ? 0.07 : 0.05));
 
   const mountTimeRef = useRef(Date.now());
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const [imagesLoaded, setImagesLoaded] = useState({
+    poster: false,
+    globe: false,
+    person: false,
+  });
+  const [splashHidden, setSplashHidden] = useState(false);
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     const loop = Animated.loop(
       Animated.timing(rotateAnim, {
@@ -77,6 +89,37 @@ export default function FirstPage({ navigation, route }) {
     outputRange: ['0deg', '360deg'],
   });
 
+  /** Чекаємо, поки всі зображення завантажаться, і тільки тоді сигналимо про готовність. */
+  const allImagesLoaded =
+    imagesLoaded.poster && imagesLoaded.globe && imagesLoaded.person;
+  useEffect(() => {
+    if (allImagesLoaded) {
+      notifySplashLogoPainted();
+    }
+  }, [allImagesLoaded]);
+
+  /** Після того як нативний сплеш сховався, плавно прибираємо чорний оверлей. */
+  useEffect(() => {
+    const unsub = subscribeSplashHidden(() => {
+      // Даємо один кадр після hideAsync, щоб системний transition завершився
+      requestAnimationFrame(() => {
+        Animated.timing(overlayOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => setSplashHidden(true));
+      });
+    });
+    return unsub;
+  }, [overlayOpacity]);
+
+  const imageOnLoad = useCallback(
+    (key) => () => {
+      setImagesLoaded((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+    },
+    [],
+  );
+
   useEffect(() => {
     const ready = route?.params?.bootstrapReady === true;
     const nextRoute = route?.params?.nextRoute;
@@ -84,7 +127,6 @@ export default function FirstPage({ navigation, route }) {
     if (!ready || nextRoute == null || typeof nextRoute !== 'string' || nextRoute.trim() === '') {
       return undefined;
     }
-    /** Повернення з сесією / після виходу — коротка заставка; перший запуск — довша пауза на логотипі. */
     const minSplashMs = resolveSplashDelayMs(nextRoute, nextParams);
     const elapsedMs = Date.now() - mountTimeRef.current;
     const delayMs = Math.max(0, minSplashMs - elapsedMs);
@@ -106,6 +148,7 @@ export default function FirstPage({ navigation, route }) {
   return (
     <View style={[styles.container, { paddingBottom: safeBottom, backgroundColor: '#000000' }]}>
       <View
+        collapsable={false}
         style={[
           styles.logoTextWrap,
           {
@@ -118,21 +161,24 @@ export default function FirstPage({ navigation, route }) {
           },
         ]}
       >
-        <Video
+        <Image
+          source={SPLASH_TITLE_POSTER}
+          style={styles.logoPoster}
+          resizeMode="contain"
+          fadeDuration={0}
+          onLoad={imageOnLoad('poster')}
+          onError={imageOnLoad('poster')}
+          accessibilityIgnoresInvertColors
+        />
+        <SplashTitleVideo
           source={SPLASH_TITLE_VIDEO}
           style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay
-          isLooping
-          isMuted
-          useNativeControls={false}
-          accessibilityLabel="KRAЇNA"
-          accessibilityIgnoresInvertColors
         />
       </View>
 
       <View
         pointerEvents="none"
+        collapsable={false}
         style={[
           styles.globeWrap,
           {
@@ -159,11 +205,13 @@ export default function FirstPage({ navigation, route }) {
           ]}
           accessibilityIgnoresInvertColors
           fadeDuration={0}
+          onLoad={imageOnLoad('globe')}
+          onError={imageOnLoad('globe')}
         />
       </View>
 
       <Image
-        source={require('./assets/person-12.png')}
+        source={PERSON_IMAGE}
         style={[
           styles.person,
           {
@@ -175,7 +223,24 @@ export default function FirstPage({ navigation, route }) {
             elevation: 30,
           },
         ]}
+        fadeDuration={0}
+        onLoad={imageOnLoad('person')}
+        onError={imageOnLoad('person')}
         accessibilityLabel="Traveler"
+      />
+
+      {/* Чорний оверлей — маскує системний splash transition. Ховається після notifySplashHidden(). */}
+      <Animated.View
+        pointerEvents={splashHidden ? 'none' : 'auto'}
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: '#000000',
+            opacity: overlayOpacity,
+            zIndex: 100,
+            elevation: 100,
+          },
+        ]}
       />
     </View>
   );
@@ -191,6 +256,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+  },
+  logoPoster: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   globeWrap: {
     position: 'absolute',

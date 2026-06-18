@@ -57,7 +57,7 @@ export function startNetworkPolling({ intervalMs = 5000 } = {}) {
   if (pollingTimer) return;
   pollingTimer = setInterval(() => {
     void refreshNetworkStatus();
-  }, Math.max(2000, Number(intervalMs) || 5000));
+  }, Math.max(5000, Number(intervalMs) || 15000));
   void refreshNetworkStatus();
 }
 

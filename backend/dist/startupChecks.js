@@ -8,6 +8,7 @@
  */
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { isFirebaseConfigured } from './services/firebaseAdmin.js';
 const isProd = config.nodeEnv === 'production';
 function warn(variable, issue, hint) {
     logger.warn('startup.config.warn', { variable, issue, hint });
@@ -57,14 +58,13 @@ export function runStartupChecks() {
         });
     }
     // -------------------------------------------------------------------------
-    // FIREBASE_SERVICE_ACCOUNT_JSON / FIREBASE_SERVICE_ACCOUNT_PATH
+    // Firebase Admin SDK — shared via services/firebaseAdmin.ts
     // -------------------------------------------------------------------------
-    // If neither is set, Firebase custom tokens are silently disabled and
-    // Firestore follow-request validation always falls through. Acceptable in
-    // development; should be set in production.
-    const hasFirebaseJson = (process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? '').trim().length > 0;
-    const hasFirebasePath = (process.env.FIREBASE_SERVICE_ACCOUNT_PATH ?? '').trim().length > 0;
-    if (!hasFirebaseJson && !hasFirebasePath) {
+    // When neither FIREBASE_SERVICE_ACCOUNT_JSON nor FIREBASE_SERVICE_ACCOUNT_PATH
+    // is configured, Firebase custom tokens will not be issued and Firestore
+    // follow-request validation always falls through. Acceptable in development;
+    // should be set in production.
+    if (!isFirebaseConfigured()) {
         const msg = 'Firebase custom tokens will not be issued and Firestore follow validation is disabled. ' +
             'Set FIREBASE_SERVICE_ACCOUNT_JSON (inline JSON) or FIREBASE_SERVICE_ACCOUNT_PATH (file) ' +
             'in production.';

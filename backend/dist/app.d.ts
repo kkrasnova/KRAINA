@@ -1,3 +1,4 @@
+import './instrument.js';
 import express from 'express';
 import './models/sequelize/index.js';
 export declare function createApp(): express.Application;

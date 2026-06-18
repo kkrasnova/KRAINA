@@ -1,9 +1,10 @@
 export declare function saveFeedMediaFile(file: {
     buffer: Buffer;
     mimetype: string;
+    originalname?: string;
 }): Promise<{
     url: string;
-    media_kind: 'image' | 'video';
+    media_kind: 'image' | 'video' | 'audio';
 }>;
 export declare function createPost(userId: string, body: {
     media_urls: string[];
@@ -149,7 +150,7 @@ export declare function addPostComment(postId: string, viewerId: string, content
     deleted: boolean;
     created_at: string;
 }>;
-export declare function createStory(userId: string, media_url: string, media_kind: 'image' | 'video', caption: string): Promise<any>;
+export declare function createStory(userId: string, media_url: string, media_kind: 'image' | 'video' | 'audio', caption: string): Promise<any>;
 export declare function listActiveStoriesTray(viewerId: string): Promise<{
     id: string;
     user_id: string;

@@ -15,24 +15,6 @@ if command -v ccache >/dev/null 2>&1; then
   echo "✅ ccache enabled (CCACHE_DIR=$CCACHE_DIR)"
 fi
 
-if command -v lsof >/dev/null 2>&1; then
-  for pid in $(lsof -t -iTCP:8081 -sTCP:LISTEN 2>/dev/null || true); do
-    kill "$pid" 2>/dev/null || true
-  done
-fi
-
-echo "Starting Metro on :8081 with reset cache (background)..."
-bash ./scripts/with-node20.sh npx react-native start --host 0.0.0.0 --reset-cache >/tmp/kraina-metro.log 2>&1 &
-for _ in $(seq 1 90); do
-  if lsof -i :8081 -sTCP:LISTEN -P >/dev/null 2>&1; then
-    echo "Metro ready."
-    break
-  fi
-  sleep 1
-done
-if ! lsof -i :8081 -sTCP:LISTEN -P >/dev/null 2>&1; then
-  echo "Metro did not start on :8081. See /tmp/kraina-metro.log" >&2
-  exit 1
-fi
+bash ./scripts/ensure-metro.sh
 
 exec bash ./scripts/with-node20.sh npx react-native run-ios "$@"

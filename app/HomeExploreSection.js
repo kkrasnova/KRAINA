@@ -7,8 +7,8 @@ import {
   Image,
   Platform,
   DeviceEventEmitter,
-  InteractionManager,
 } from 'react-native';
+import { runAfterInteractions } from './runAfterInteractions';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { getHomeRegionsForCountry } from './homeExploreData';
@@ -27,6 +27,7 @@ import {
   landmarkSaveKey,
   KRAINA_SAVED_LANDMARKS_CHANGED,
 } from './savedLandmarksStorage';
+import { countryFlagSource } from './WavingCountryFlag';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 
 const CARD_DARK = '#1A1A1A';
@@ -54,6 +55,7 @@ const HomeLandmarkCard = memo(function HomeLandmarkCard({
   onToggleSave,
 }) {
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
+  const flagImgSrc = useMemo(() => countryFlagSource(countryId), [countryId]);
   const line = mtHomePlaceLine(language, regionLabel, dist);
   const desc = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
   const thumbSource =
@@ -75,9 +77,16 @@ const HomeLandmarkCard = memo(function HomeLandmarkCard({
       <View style={styles.locBody}>
         <View style={styles.locBodyTop}>
           <View style={styles.locTopRow}>
-            <Text style={[styles.locMeta, { color: textMain }]} numberOfLines={1}>
-              {region.flag} {line}
-            </Text>
+            <View style={styles.locTopRowLeft}>
+              {flagImgSrc ? (
+                <Image source={flagImgSrc} style={styles.locFlagImg} />
+              ) : (
+                <Text style={styles.locFlagFallback}>{region.flag}</Text>
+              )}
+              <Text style={[styles.locMeta, { color: textMain }]} numberOfLines={1}>
+                {line}
+              </Text>
+            </View>
             <Pressable
               style={[
                 styles.saveCircle,
@@ -99,13 +108,13 @@ const HomeLandmarkCard = memo(function HomeLandmarkCard({
                 isSaved ? mt(language, 'homeRemoveSavedLandmarkA11y') : mt(language, 'homeSaveLandmarkA11y')
               }
             >
-              <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={18} color={accent} />
+              <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={15} color={accent} />
             </Pressable>
           </View>
           <Text style={[styles.locTitle, { color: textMain }]} numberOfLines={2} ellipsizeMode="tail">
             {landmarkTitle(lm, langUk)}
           </Text>
-          <Text style={[styles.locDesc, { color: textMuted }]} numberOfLines={3} ellipsizeMode="tail">
+          <Text style={[styles.locDesc, { color: textMuted }]} numberOfLines={2} ellipsizeMode="tail">
             {desc}
           </Text>
         </View>
@@ -163,7 +172,7 @@ function HomeExploreSection({
 
   useEffect(() => {
     let cancelled = false;
-    const task = InteractionManager.runAfterInteractions(async () => {
+    const task = runAfterInteractions(async () => {
       try {
         const Location = require('expo-location');
         const existing = await Location.getForegroundPermissionsAsync();
@@ -283,6 +292,7 @@ function HomeExploreSection({
     return activeRegion.landmarks?.[0]?.thumb ?? null;
   }, [activeRegion]);
   const cityHeroIsKyiv = activeRegion?.id === 'kyiv';
+  const flagSource = useMemo(() => (countryId ? countryFlagSource(countryId) : null), [countryId]);
 
   if (!countryId || !regions.length || !activeRegion) return null;
 
@@ -312,14 +322,24 @@ function HomeExploreSection({
               resizeMode="cover"
             />
           </View>
+        ) : flagSource ? (
+          <Image source={flagSource} style={styles.cityListBtnFlagImg} resizeMode="contain" />
         ) : (
           <Text style={styles.cityListBtnFlag}>{activeRegion.flag}</Text>
         )}
         <View style={styles.cityListBtnTextCol}>
-          <Text style={[styles.cityListBtnTitle, { color: textMain }]} numberOfLines={1}>
-            {cityHeroSource ? `${activeRegion.flag} ` : ''}
-            {regionLabel}
-          </Text>
+          <View style={styles.cityListBtnTitleRow}>
+            {cityHeroSource ? (
+              flagSource ? (
+                <Image source={flagSource} style={styles.inlineFlagImg} />
+              ) : (
+                <Text style={{ fontSize: 14, lineHeight: 16 }}>{activeRegion.flag}</Text>
+              )
+            ) : null}
+            <Text style={[styles.cityListBtnTitle, { color: textMain }]} numberOfLines={1}>
+              {regionLabel}
+            </Text>
+          </View>
           <Text style={[styles.cityListBtnHint, { color: textMuted }]} numberOfLines={1}>
             {mt(language, 'homePickCityOpenList')}
           </Text>
@@ -416,6 +436,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cityListBtnFlag: { fontSize: 26 },
+  cityListBtnFlagImg: { width: 40, height: 28, borderRadius: 3 },
+  cityListBtnTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  inlineFlagImg: { width: 20, height: 14, borderRadius: 2 },
   cityListBtnThumbWrap: {
     width: 48,
     height: 48,
@@ -435,20 +462,20 @@ const styles = StyleSheet.create({
   locCard: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 12,
-    minHeight: 156,
+    marginBottom: 10,
+    minHeight: 110,
     overflow: 'hidden',
   },
   pressedThumb: { opacity: 0.88 },
   /** Фіксована ширина + stretch по висоті рядка — cover без сплющування (як у збережених місцях). */
   locThumbWrap: {
-    width: 120,
+    width: 86,
     flexShrink: 0,
     alignSelf: 'stretch',
-    borderTopLeftRadius: 18,
-    borderBottomLeftRadius: 18,
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
     overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
@@ -459,31 +486,41 @@ const styles = StyleSheet.create({
   locBody: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     justifyContent: 'space-between',
   },
   locBodyTop: { flexShrink: 1 },
   locTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  locMeta: { fontSize: 12, flex: 1, marginRight: 8 },
+  locTopRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flex: 1,
+    marginRight: 6,
+    minWidth: 0,
+  },
+  locFlagImg: { width: 16, height: 12, borderRadius: 2 },
+  locFlagFallback: { fontSize: 11, lineHeight: 14 },
+  locMeta: { fontSize: 11, flex: 1, marginRight: 0 },
   saveCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  locTitle: { fontSize: 17, fontWeight: '700', marginTop: 6 },
-  locDesc: { fontSize: 13, lineHeight: 18, marginTop: 6 },
+  locTitle: { fontSize: 15, fontWeight: '700', marginTop: 4 },
+  locDesc: { fontSize: 12, lineHeight: 16, marginTop: 4 },
   detailsBtn: {
     alignSelf: 'flex-end',
-    marginTop: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
   },
-  detailsBtnText: { fontWeight: '700', fontSize: 13 },
+  detailsBtnText: { fontWeight: '700', fontSize: 12 },
   moreRoutes: { paddingVertical: 10, alignItems: 'center' },
   moreRoutesPressed: { opacity: 0.72 },
   moreRoutesText: { fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },

@@ -54,11 +54,11 @@ const ERROR_COLOR = '#FF6B6B';
 const MAX_WIDTH = 335;
 const AUTH_PLACEHOLDER = '#8E8E8E';
 const LEMON_BRIGHT = '#EEFF66';
-const AUTH_FORM_GAP = 16;
-const DESIGN_TITLE_FONT_SIZE = 24;
-const DESIGN_TITLE_HEIGHT = 29;
+const AUTH_FORM_GAP = 13;
+const DESIGN_TITLE_FONT_SIZE = 21;
+const DESIGN_TITLE_HEIGHT = 26;
 const BRAND_TEXT_FONT = brandFontText;
-const OPTION_FONT_SIZE = 15;
+const OPTION_FONT_SIZE = 14;
 
 const ANDROID_ACCENT_TEXT = {
   fontFamily: 'sans-serif-medium',
@@ -305,21 +305,11 @@ export default function AuthMainScreen({ navigation, route }: Props) {
       return;
     }
 
-    const username = deriveBackendUsername(trimmedName, em);
-    const tryRegister = async (uname: string, retries = 0): Promise<void> => {
-      try {
-        await registerWithPassword(em, pwd, trimmedName, uname);
-      } catch (e) {
-        if (e instanceof ApiError && e.payload.error === 'username_taken' && retries < 3) {
-          const rnd = Math.random().toString(36).slice(2, 8);
-          const fallback = `${uname.slice(0, 26)}_${rnd}`;
-          return tryRegister(fallback, retries + 1);
-        }
-        throw e;
-      }
+    const tryRegister = async (): Promise<void> => {
+      await registerWithPassword(em, pwd, trimmedName);
     };
     try {
-      await tryRegister(username);
+      await tryRegister();
       await upsertSavedAccount(em, pwd);
       await clearFormDraft();
       setSavedAccounts(await readAccountIndex());
@@ -437,8 +427,12 @@ export default function AuthMainScreen({ navigation, route }: Props) {
               },
             ]}
             keyboardShouldPersistTaps="always"
-            nestedScrollEnabled
             showsVerticalScrollIndicator={false}
+            scrollEnabled={false}
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
+            nestedScrollEnabled={false}
           >
             <View style={{ width: contentWidth, alignSelf: 'center' }}>
               <Text style={s.formTitle}>
@@ -939,7 +933,7 @@ const s = StyleSheet.create({
   screen: { flex: 1, width: '100%', overflow: 'hidden', backgroundColor: BG },
   scrollView: { flex: 1 },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1,
     backgroundColor: 'transparent',
   },
@@ -968,9 +962,9 @@ const s = StyleSheet.create({
     width: '100%',
     marginTop: 6,
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 44,
-    padding: 4,
-    borderRadius: 10,
+    minHeight: 38,
+    padding: 3,
+    borderRadius: 9,
     borderWidth: 0.5,
     borderColor: BORDER,
     backgroundColor: BG_DARK,
@@ -979,8 +973,8 @@ const s = StyleSheet.create({
   loginFormTabsCompact: {
     marginTop: 0,
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 44,
-    padding: 4,
+    minHeight: 38,
+    padding: 3,
   },
   savedAccountsBlock: {
     width: '100%',
@@ -1016,8 +1010,8 @@ const s = StyleSheet.create({
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : {}),
   },
   loginFormTabPillCompact: {
-    minHeight: 36,
-    paddingVertical: 8,
+    minHeight: 32,
+    paddingVertical: 6,
   },
   loginFormInputWrapCompact: {
     marginTop: 0,
@@ -1044,12 +1038,12 @@ const s = StyleSheet.create({
   },
   tabPill: {
     width: '100%',
-    minHeight: 36,
+    minHeight: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 2,
-    borderRadius: 8,
+    borderRadius: 7,
     backgroundColor: 'transparent',
     overflow: 'hidden',
   },
@@ -1067,7 +1061,7 @@ const s = StyleSheet.create({
     }),
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     letterSpacing: -0.5,
     color: 'rgba(255, 255, 255, 0.58)',
     backgroundColor: 'transparent',
@@ -1106,13 +1100,13 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    minHeight: 48,
+    minHeight: 42,
     backgroundColor: INPUT_BG_ROW,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: BORDER,
-    paddingHorizontal: 14,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 3,
   },
   authFieldRowFocused: {
     borderColor: LEMON_BRIGHT,
@@ -1136,7 +1130,7 @@ const s = StyleSheet.create({
     ...BRAND_TEXT_FONT,
     fontWeight: '400',
     color: TEXT_LIGHT,
-    paddingVertical: Platform.OS === 'android' ? 8 : 10,
+    paddingVertical: Platform.OS === 'android' ? 6 : 8,
     paddingHorizontal: 4,
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : {}),
   },
@@ -1156,11 +1150,11 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 48,
+    minHeight: 42,
   },
   termsRow: {
     marginBottom: AUTH_FORM_GAP,
-    minHeight: 48,
+    minHeight: 42,
     justifyContent: 'center',
   },
   termsCheckboxWrap: {
@@ -1215,7 +1209,7 @@ const s = StyleSheet.create({
   checkboxLabel: {
     ...BRAND_TEXT_FONT,
     fontWeight: '400',
-    fontSize: 14,
+    fontSize: 13,
     color: TEXT_LIGHT,
     backgroundColor: 'transparent',
     opacity: 1,
@@ -1245,7 +1239,7 @@ const s = StyleSheet.create({
   forgotText: {
     ...BRAND_TEXT_FONT,
     fontWeight: '400',
-    fontSize: 14,
+    fontSize: 13,
     color: ACCENT,
     backgroundColor: 'transparent',
     opacity: 1,
@@ -1260,10 +1254,10 @@ const s = StyleSheet.create({
     alignSelf: 'center',
   },
   authOnboardCtaOuter: {
-    minHeight: 48,
-    height: 52,
+    minHeight: 44,
+    height: 46,
     borderRadius: 999,
-    borderWidth: 5,
+    borderWidth: 4,
     borderColor: 'rgba(225, 255, 0, 0.45)',
     position: 'relative',
     overflow: 'visible',
@@ -1299,8 +1293,8 @@ const s = StyleSheet.create({
   },
   authOnboardCtaText: {
     fontWeight: '600',
-    fontSize: 15,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 17,
     color: '#000000',
     textAlign: 'center',
     ...Platform.select({

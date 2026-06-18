@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   Pressable,
   Image,
   Platform,
@@ -22,9 +22,15 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
 import { ft } from './feedI18n';
 import { getChoosePlanTexts } from './choosePlanI18n';
-import { feedListMyArchivedPosts, feedPatchPostArchive } from './feedApi';
+import { feedListMyArchivedPosts, feedPatchPostArchive, hasFeedApiToken } from './feedApi';
 import { useAuthStore } from './auth/authStore';
+import {
+  archiveCacheKey,
+  readArchiveCache,
+  writeArchiveCache,
+} from './archivePostsCache';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { RenderProfiler } from './performanceMetrics';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { hydrateRoutePlan } from './profileStorage';
 import { routeRegionTitle } from './routePlanTitles';
@@ -277,38 +283,56 @@ export default function SettingsArchivePage({ navigation, route }) {
   const { width: winW } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const routeTheme = route?.params?.appTheme === 'light' ? 'light' : 'dark';
+  const initialCacheKey = archiveCacheKey();
+  const initialCache = readArchiveCache(initialCacheKey);
+  const [appTheme, setAppTheme] = useState(routeTheme);
+  const [posts, setPosts] = useState(initialCache?.posts ?? []);
+  const [loading, setLoading] = useState(() => hasFeedApiToken() && !initialCache);
   const [busyId, setBusyId] = useState(null);
   const [listContentW, setListContentW] = useState(0);
+
+  const feedOk = hasFeedApiToken();
+  const hasShellUser = !!(
+    route?.params?.user?.id || useAuthStore.getState().user?.id
+  );
 
   const viewportW = listContentW > 0 ? listContentW : winW;
   const cardWidth = Math.max(280, viewportW - 32);
   const planTexts = getChoosePlanTexts(language);
 
-  const reload = useCallback(async () => {
-    const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
+  const reload = useCallback(async ({ silent = false } = {}) => {
+    const routeAppTheme = route?.params?.appTheme;
+    if (routeAppTheme === 'light' || routeAppTheme === 'dark') {
+      setAppTheme(routeAppTheme);
+    } else {
+      const t = await getAppTheme();
+      setAppTheme(t === 'light' ? 'light' : 'dark');
+    }
     if (!hasFeedApiToken()) {
       setPosts([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const key = archiveCacheKey();
+    const cached = readArchiveCache(key);
+    if (!silent && !cached) setLoading(true);
     try {
       const list = await feedListMyArchivedPosts(80);
-      setPosts(Array.isArray(list) ? list : []);
+      const next = Array.isArray(list) ? list : [];
+      setPosts(next);
+      writeArchiveCache(key, next);
     } catch {
-      setPosts([]);
+      if (!cached) setPosts([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [route?.params?.appTheme]);
 
   useFocusEffect(
     useCallback(() => {
-      reload();
+      const cached = readArchiveCache(archiveCacheKey());
+      void reload({ silent: !!cached });
     }, [reload]),
   );
 
@@ -342,7 +366,12 @@ export default function SettingsArchivePage({ navigation, route }) {
           try {
             await feedPatchPostArchive(id, false);
             Alert.alert('', pf(language, 'postRestored'));
-            await reload();
+            setPosts((prev) => {
+              const next = prev.filter((p) => String(p.id) !== String(id));
+              writeArchiveCache(archiveCacheKey(), next);
+              return next;
+            });
+            await reload({ silent: true });
           } catch (e) {
             Alert.alert('', errorToUserText(e, language));
           } finally {
@@ -452,10 +481,12 @@ export default function SettingsArchivePage({ navigation, route }) {
             if (w > 0 && Math.abs(w - listContentW) > 0.5) setListContentW(w);
           }}
         >
-          <FlatList
+          <RenderProfiler id="SettingsArchivePage">
+          <FlashList
             style={styles.listFlexTransparent}
             data={posts}
             keyExtractor={(p) => String(p.id)}
+            estimatedItemSize={500}
             ListHeaderComponent={listHeader}
             ListFooterComponent={listFooter}
             contentContainerStyle={{
@@ -482,6 +513,7 @@ export default function SettingsArchivePage({ navigation, route }) {
             )}
             ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
           />
+          </RenderProfiler>
         </View>
       )}
     </View>

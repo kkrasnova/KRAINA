@@ -13,9 +13,9 @@ export declare const patchProfileSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     is_public?: boolean | undefined;
     username?: string | undefined;
+    display_name?: string | null | undefined;
     bio?: string | null | undefined;
     language?: string | undefined;
-    display_name?: string | null | undefined;
     birth_date?: string | null | undefined;
     birth_date_public?: boolean | undefined;
     location_label?: string | null | undefined;
@@ -24,9 +24,9 @@ export declare const patchProfileSchema: z.ZodObject<{
 }, {
     is_public?: boolean | undefined;
     username?: string | undefined;
+    display_name?: unknown;
     bio?: unknown;
     language?: string | undefined;
-    display_name?: unknown;
     birth_date?: unknown;
     birth_date_public?: boolean | undefined;
     location_label?: unknown;

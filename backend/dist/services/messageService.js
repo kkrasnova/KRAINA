@@ -58,15 +58,19 @@ export async function getThreadMetaForUser(threadId, meId) {
     if (trow.low !== meId && trow.high !== meId)
         throw new HttpError(403, 'forbidden');
     const peer = trow.low === meId ? trow.high : trow.low;
-    const pr = await pool.query(`SELECT username, avatar_url FROM profiles WHERE user_id = $1::uuid`, [peer]);
+    const pr = await pool.query(`SELECT username, display_name, avatar_url FROM profiles WHERE user_id = $1::uuid`, [peer]);
     if (!pr.rowCount)
         throw new HttpError(404, 'profile_not_found');
     const p = pr.rows[0];
     const pendingFor = trow.pending_for;
+    const displayName = p.display_name == null || String(p.display_name).trim() === ''
+        ? null
+        : String(p.display_name).trim();
     return {
         id: threadId,
         peer_user_id: peer,
         peer_username: p.username,
+        peer_display_name: displayName,
         peer_avatar_url: p.avatar_url,
         pending_for_me: pendingFor === meId,
         pending_for_peer: pendingFor === peer,
@@ -98,6 +102,7 @@ export async function listThreads(meId, folder, limit = 50) {
      SELECT b.id::text AS id,
             (CASE WHEN b.user_low = $1::uuid THEN b.user_high ELSE b.user_low END)::text AS peer_id,
             p.username AS peer_username,
+            p.display_name AS peer_display_name,
             p.avatar_url AS peer_avatar_url,
             b.pending_for_user_id::text AS pending_for,
             lm.content AS last_content,
@@ -116,6 +121,9 @@ export async function listThreads(meId, folder, limit = 50) {
             id: row.id,
             peer_user_id: row.peer_id,
             peer_username: row.peer_username,
+            peer_display_name: row.peer_display_name == null || String(row.peer_display_name).trim() === ''
+                ? null
+                : String(row.peer_display_name).trim(),
             peer_avatar_url: row.peer_avatar_url,
             pending_for_me: pendingForMe,
             pending_for_peer: row.pending_for === row.peer_id,
@@ -210,5 +218,14 @@ export async function acceptThread(threadId, meId) {
         throw new HttpError(400, 'not_pending_for_you');
     await pool.query(`UPDATE dm_threads SET pending_for_user_id = NULL, updated_at = now() WHERE id = $1::uuid`, [threadId]);
     return getThreadMetaForUser(threadId, meId);
+}
+export async function clearThreadMessages(threadId, meId) {
+    await assertParticipant(threadId, meId);
+    await pool.query(`DELETE FROM messages WHERE thread_id = $1::uuid`, [threadId]);
+}
+export async function removeThread(threadId, meId) {
+    await assertParticipant(threadId, meId);
+    await pool.query(`DELETE FROM messages WHERE thread_id = $1::uuid`, [threadId]);
+    await pool.query(`DELETE FROM dm_threads WHERE id = $1::uuid`, [threadId]);
 }
 //# sourceMappingURL=messageService.js.map

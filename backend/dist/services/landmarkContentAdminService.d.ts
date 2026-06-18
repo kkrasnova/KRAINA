@@ -14,5 +14,5 @@ export type MediaListItem = {
     mtimeMs: number;
 };
 export declare function listLandmarkMedia(): Promise<MediaListItem[]>;
-export declare function removeLandmarkMedia(fileName: string): Promise<void>;
+export declare function removeLandmarkMedia(url: string): Promise<void>;
 //# sourceMappingURL=landmarkContentAdminService.d.ts.map

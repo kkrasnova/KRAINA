@@ -1,10 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Pressable, Platform, Alert, Image } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { View, Text, StyleSheet, TextInput, Pressable, Alert, Image, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
@@ -17,6 +17,10 @@ import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { getAppTheme } from './themeStorage';
 import { accentForTheme } from './themeAccent';
 import { errorToUserText } from './errorText';
+import {
+  peerDisplayNameFromMeta,
+  peerUsernameFromMeta,
+} from './chatPeerDisplay';
 
 export default function ProfileFriendsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -27,6 +31,7 @@ export default function ProfileFriendsPage({ navigation, route }) {
   const [list, setList] = useState([]);
   const [mutuals, setMutuals] = useState(null);
   const [incoming, setIncoming] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
 
   const isLight = appTheme === 'light';
@@ -42,8 +47,10 @@ export default function ProfileFriendsPage({ navigation, route }) {
     appTheme,
   };
 
-  const reload = useCallback(async () => {
-    const [t, friends] = await Promise.all([getAppTheme(), getFriends()]);
+  const reload = useCallback(async (withSpinner = false) => {
+    if (withSpinner) setRefreshing(true);
+    try {
+      const [t, friends] = await Promise.all([getAppTheme(), getFriends()]);
     setAppTheme(t === 'light' ? 'light' : 'dark');
     setList(friends);
     if (hasMessageApiToken()) {
@@ -62,15 +69,14 @@ export default function ProfileFriendsPage({ navigation, route }) {
       setMutuals(null);
       setIncoming([]);
     }
+  } finally {
+    if (withSpinner) setRefreshing(false);
+  }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-      const timer = setInterval(() => {
-        void reload();
-      }, 7000);
-      return () => clearInterval(timer);
     }, [reload]),
   );
 
@@ -121,14 +127,13 @@ export default function ProfileFriendsPage({ navigation, route }) {
     if (item.backendUserId && hasMessageApiToken()) {
       try {
         const meta = await messagesOpenThread({ peerUserId: item.backendUserId });
-        const peerLabel = meta.peer_username?.startsWith('@')
-          ? meta.peer_username
-          : `@${meta.peer_username}`;
         navigation.navigate('ChatThread', {
           ...shell,
           threadId: meta.id,
-          peerName: peerLabel,
-          peerAvatarUrl: item.avatarUrl || '',
+          peerName: peerUsernameFromMeta(meta),
+          peerDisplayName: peerDisplayNameFromMeta(meta) || item.name,
+          peerUsername: peerUsernameFromMeta(meta),
+          peerAvatarUrl: item.avatarUrl || meta.peer_avatar_url || '',
           useMessageApi: true,
           pendingForMe: !!meta.pending_for_me,
         });
@@ -147,6 +152,8 @@ export default function ProfileFriendsPage({ navigation, route }) {
       ...shell,
       threadId: th.id,
       peerName: item.name,
+      peerDisplayName: item.name,
+      peerUsername: item.username ? `@${String(item.username).replace(/^@/, '')}` : item.name,
       peerAvatarUrl: item.avatarUrl || '',
     });
   };
@@ -192,75 +199,87 @@ export default function ProfileFriendsPage({ navigation, route }) {
         />
         <Ionicons name="search-outline" size={22} color={accent} />
       </View>
-      {incoming.length > 0 ? (
-        <View style={{ paddingHorizontal: 20, marginBottom: 8 }}>
-          <Text style={[styles.sectionTitle, { color: accent }]}>
-            {langUk ? 'Запити в друзі' : 'Friend requests'} ({incoming.length})
-          </Text>
-          {incoming.map((r) => (
-            <View
-              key={r.user_id}
-              style={[
-                styles.row,
-                { borderBottomColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' },
-              ]}
-            >
-              <View style={styles.rowMain}>
-                {r.avatar_url ? (
-                  <Image source={{ uri: r.avatar_url }} style={styles.avatar} />
-                ) : (
-                  <View
-                    style={[
-                      styles.avatar,
-                      { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' },
-                    ]}
-                  />
-                )}
-                <View style={{ flex: 1 }}>
-                  <Pressable onPress={() => openFriendProfile(r)} style={{ alignSelf: 'flex-start' }}>
-                    <Text style={[styles.name, { color: textMain }]}>
-                      {r.display_name || r.username}
-                    </Text>
-                  </Pressable>
-                  <Text style={{ color: isLight ? '#888' : '#777', fontSize: 13 }}>
-                    @{r.username}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.actions}>
-                <Pressable
-                  style={({ pressed }) => [styles.iconBtn, { backgroundColor: '#34A853' }, pressed && { opacity: 0.85 }]}
-                  android_ripple={ripple}
-                  onPress={() => onAcceptRequest(r.user_id)}
-                >
-                  <Ionicons name="checkmark" size={20} color="#FFF" />
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.iconBtn, styles.delBtn, pressed && { opacity: 0.85 }]}
-                  android_ripple={ripple}
-                  onPress={() => onDeclineRequest(r.user_id)}
-                >
-                  <Ionicons name="close" size={18} color="#FFF" />
-                </Pressable>
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-      {incoming.length > 0 && filtered.length > 0 ? (
-        <View style={{ paddingHorizontal: 20, marginBottom: 4 }}>
-          <Text style={[styles.sectionTitle, { color: accent }]}>
-            {langUk ? 'Друзі' : 'Friends'} ({filtered.length})
-          </Text>
-        </View>
-      ) : null}
-      <FlatList
+      <FlashList
         data={filtered}
         keyExtractor={(item) => item.id}
+        estimatedItemSize={72}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 20,
         }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void reload(true)}
+            tintColor={accent}
+          />
+        }
+        ListHeaderComponent={
+          <>
+            {incoming.length > 0 ? (
+              <View style={{ marginBottom: 8 }}>
+                <Text style={[styles.sectionTitle, { color: accent }]}>
+                  {langUk ? 'Запити в друзі' : 'Friend requests'} ({incoming.length})
+                </Text>
+                {incoming.map((r) => (
+                  <View
+                    key={r.user_id}
+                    style={[
+                      styles.row,
+                      { borderBottomColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' },
+                    ]}
+                  >
+                    <View style={styles.rowMain}>
+                      {r.avatar_url ? (
+                        <Image source={{ uri: r.avatar_url }} style={styles.avatar} />
+                      ) : (
+                        <View
+                          style={[
+                            styles.avatar,
+                            { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' },
+                          ]}
+                        />
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Pressable onPress={() => openFriendProfile(r)} style={{ alignSelf: 'flex-start' }}>
+                          <Text style={[styles.name, { color: textMain }]}>
+                            {r.display_name || r.username}
+                          </Text>
+                        </Pressable>
+                        <Text style={{ color: isLight ? '#888' : '#777', fontSize: 13 }}>
+                          @{r.username}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.actions}>
+                      <Pressable
+                        style={({ pressed }) => [styles.iconBtn, { backgroundColor: '#34A853' }, pressed && { opacity: 0.85 }]}
+                        android_ripple={ripple}
+                        onPress={() => onAcceptRequest(r.user_id)}
+                      >
+                        <Ionicons name="checkmark" size={20} color="#FFF" />
+                      </Pressable>
+                      <Pressable
+                        style={({ pressed }) => [styles.iconBtn, styles.delBtn, pressed && { opacity: 0.85 }]}
+                        android_ripple={ripple}
+                        onPress={() => onDeclineRequest(r.user_id)}
+                      >
+                        <Ionicons name="close" size={18} color="#FFF" />
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {incoming.length > 0 && filtered.length > 0 ? (
+              <View style={{ marginBottom: 4 }}>
+                <Text style={[styles.sectionTitle, { color: accent }]}>
+                  {langUk ? 'Друзі' : 'Friends'} ({filtered.length})
+                </Text>
+              </View>
+            ) : null}
+          </>
+        }
         renderItem={({ item }) => (
           <View
             style={[

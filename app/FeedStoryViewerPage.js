@@ -589,7 +589,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   if (loading) {
     return (
       <View style={styles.center}>
-        <StatusBar barStyle="light-content" />
+        {Platform.OS === 'android' ? <StatusBar barStyle="light-content" /> : null}
         <ActivityIndicator color={progressAccent} size="large" />
       </View>
     );
@@ -598,7 +598,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   if (!stories.length) {
     return (
       <View style={styles.center}>
-        <StatusBar barStyle="light-content" />
+        {Platform.OS === 'android' ? <StatusBar barStyle="light-content" /> : null}
         <Text style={styles.empty}>{ft(language, 'storyEmpty')}</Text>
         <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.backTxt}>OK</Text>
@@ -653,11 +653,13 @@ export default function FeedStoryViewerPage({ navigation, route }) {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       keyboardShouldPersistTaps="handled"
     >
-      <StatusBar
-        barStyle={storyChromeLight ? 'dark-content' : 'light-content'}
-        translucent
-        backgroundColor="transparent"
-      />
+      {Platform.OS === 'android' ? (
+        <StatusBar
+          barStyle={storyChromeLight ? 'dark-content' : 'light-content'}
+          translucent
+          backgroundColor="transparent"
+        />
+      ) : null}
       <View style={styles.screen}>
         <FlatList
           ref={listRef}
@@ -678,6 +680,10 @@ export default function FeedStoryViewerPage({ navigation, route }) {
               }
             }, 120);
           }}
+          maxToRenderPerBatch={3}
+          windowSize={3}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={3}
           renderItem={({ item }) => {
             const resolvedUri = resolveFeedMediaUrl(item.media_url);
             const forceImage = forceImageIds.has(String(item.id));
@@ -700,6 +706,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                         isLooping
                         isMuted
                         useNativeControls={false}
+                        showPoster
                         onError={() => {
                           setForceImageIds((prev) => new Set(prev).add(String(item.id)));
                           setFailedMediaIds((prev) => {

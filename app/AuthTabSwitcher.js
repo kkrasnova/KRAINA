@@ -69,12 +69,12 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    minHeight: 46,
-    borderRadius: 12,
+    minHeight: 40,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   buttonInactive: {
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
@@ -100,8 +100,8 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   buttonText: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: Platform.OS === 'ios' ? 11 : 13,
+    lineHeight: Platform.OS === 'ios' ? 14 : 16,
     textAlign: 'center',
   },
   buttonTextInactive: {

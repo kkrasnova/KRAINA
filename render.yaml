@@ -1,14 +1,24 @@
-# Render Blueprint: API + PostgreSQL
+# Render Blueprint: kraina-api + PostgreSQL
 # https://render.com/docs/blueprint-spec
-# 1) Push repo to GitHub
-# 2) Render Dashboard → New → Blueprint → connect repo
-# 3) After deploy: set PUBLIC_BASE_URL, CORS, OAuth IDs in kraina-api → Environment
+#
+# Деплой:
+#   1) Закомітити в GitHub
+#   2) Render Dashboard → New → Blueprint → підключити репозиторій
+#   3) Після першого деплою налаштувати env vars з sync:false (див. нижче)
+#   4) Увімкнути Manual → Auto deploy на гілку main
+#
+# Storage: S3-сумісне об'єктне сховище (AWS S3, Supabase Storage, DO Spaces тощо).
+#   STORAGE_PROVIDER=local  — локальний диск (тільки dev, не для Render).
+#   STORAGE_PROVIDER=s3     — S3-сумісний провайдер.
+#   S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY — обов'язкові.
+#   S3_PUBLIC_BASE_URL — CDN або публічний ендпоінт.
+#   S3_ENDPOINT — опціонально (для Supabase / DO Spaces / MinIO).
 
 databases:
   - name: kraina-db
     databaseName: kraina
     user: kraina
-    plan: basic-256mb
+    plan: basic-256mb  # $7/mo — достатньо для MVP; при зростанні → starter-1gb
 
 services:
   - type: web
@@ -16,7 +26,7 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
-    plan: starter
+    plan: starter  # $7/mo — 512 MB RAM, 0.25 CPU
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -29,19 +39,58 @@ services:
           property: connectionString
       - key: DATABASE_SSL
         value: "true"
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "false"
       - key: TRUST_PROXY
         value: "1"
+      - key: UPLOAD_DIR
+        value: /app/backend/uploads
       - key: JWT_SECRET
         generateValue: true
       - key: REFRESH_SECRET
         generateValue: true
       - key: PUBLIC_BASE_URL
-        sync: false
+        sync: false     # Напр. https://kraina-api.onrender.com
       - key: CORS_ORIGINS
-        sync: false
+        sync: false     # Напр. https://kraina.app,https://admin.kraina.app
       - key: GOOGLE_CLIENT_ID
-        sync: false
+        sync: false     # OAuth для входу через Google
       - key: APPLE_CLIENT_ID
+        sync: false     # OAuth для входу через Apple
+      - key: OPENAI_API_KEY
+        sync: false     # ШІ-маршрути (опційно)
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false     # Firebase Admin SDK — JSON ключ одним рядком (опційно)
+      - key: STORAGE_PROVIDER
+        value: s3
+      - key: S3_BUCKET
         sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PUBLIC_BASE_URL
+        sync: false     # CDN або bucket public URL
+      - key: S3_ENDPOINT
+        sync: false     # Опціонально: для Supabase / DO Spaces
+      - key: LIVEKIT_URL
+        sync: false     # wss://<project>.livekit.cloud
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false     # https://<key>@o<org>.ingest.sentry.io/<project>
+      - key: SENTRY_ENV
+        value: production
       - key: LANDMARK_BUNDLE_PUBLIC_GET
         value: "1"
+      # --- Необов'язкові, але рекомендовані ---
+      - key: MIN_SUPPORTED_APP_VERSION
+        sync: false
+      - key: IOS_APP_STORE_URL
+        sync: false
+      - key: ANDROID_PLAY_STORE_URL
+        sync: false

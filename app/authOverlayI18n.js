@@ -1,8 +1,22 @@
 import { pick } from './thirdPageUiStrings';
 
+function normalizeAuthErrorCode(code) {
+  const c = String(code || '').trim();
+  const aliases = {
+    email_taken: 'EMAIL_EXISTS',
+    email_exists: 'EMAIL_EXISTS',
+    invalid_credentials: 'WRONG_CREDENTIALS',
+    invalid_email: 'INVALID_EMAIL',
+    weak_password: 'WEAK_PASSWORD',
+    rate_limited: 'TOO_MANY_REQUESTS',
+    API_UNAVAILABLE: 'NETWORK_ERROR',
+  };
+  return aliases[c] || c;
+}
+
 /** Firebase/auth overlay copy — non-English falls back to `en` in `pick`. */
 export function authOverlayFromErrorCode(language, code) {
-  switch (code) {
+  switch (normalizeAuthErrorCode(code)) {
     case 'USER_NOT_FOUND':
       return {
         title: pick(
@@ -262,6 +276,72 @@ export function authOverlayFromErrorCode(language, code) {
             en: 'The auth service rejected the request. Check Firebase settings or try again later.',
             de: 'Der Authentifizierungsdienst hat die Anfrage abgelehnt. Firebase-Einstellungen prüfen oder später erneut versuchen.',
             ro: 'Serviciul de autentificare a respins cererea. Verifică setările Firebase sau încearcă mai târziu.',
+          },
+          language,
+        ),
+        suggestRegister: false,
+      };
+    case 'username_taken':
+      return {
+        title: pick(
+          {
+            uk: 'Нікнейм зайнятий',
+            en: 'Username taken',
+            de: 'Benutzername vergeben',
+            ro: 'Nume de utilizator indisponibil',
+          },
+          language,
+        ),
+        body: pick(
+          {
+            uk: 'Цей нікнейм уже використовується. Спробуйте ще раз — ми підберемо інший.',
+            en: 'This username is already taken. Try again and we will pick another one.',
+            de: 'Dieser Benutzername ist vergeben. Erneut versuchen — wir wählen einen anderen.',
+            ro: 'Acest nume de utilizator este deja folosit. Încearcă din nou.',
+          },
+          language,
+        ),
+        suggestRegister: false,
+      };
+    case 'invalid_username':
+      return {
+        title: pick(
+          {
+            uk: 'Некоректний нікнейм',
+            en: 'Invalid username',
+            de: 'Ungültiger Benutzername',
+            ro: 'Nume de utilizator invalid',
+          },
+          language,
+        ),
+        body: pick(
+          {
+            uk: 'Нікнейм має містити 3–32 латинські літери, цифри або _. Спробуйте ще раз.',
+            en: 'Username must be 3–32 characters: Latin letters, digits, or underscore. Try again.',
+            de: 'Benutzername: 3–32 Zeichen, lateinische Buchstaben, Ziffern oder _. Erneut versuchen.',
+            ro: 'Numele de utilizator: 3–32 caractere, litere latine, cifre sau _. Încearcă din nou.',
+          },
+          language,
+        ),
+        suggestRegister: false,
+      };
+    case 'username_generation_failed':
+      return {
+        title: pick(
+          {
+            uk: 'Не вдалося створити нікнейм',
+            en: 'Could not create username',
+            de: 'Benutzername konnte nicht erstellt werden',
+            ro: 'Nu s-a putut crea numele de utilizator',
+          },
+          language,
+        ),
+        body: pick(
+          {
+            uk: 'Сервер не зміг згенерувати нікнейм. Спробуйте ще раз через хвилину.',
+            en: 'The server could not generate a username. Try again in a minute.',
+            de: 'Der Server konnte keinen Benutzernamen erzeugen. In einer Minute erneut versuchen.',
+            ro: 'Serverul nu a putut genera un nume de utilizator. Încearcă din nou peste un minut.',
           },
           language,
         ),

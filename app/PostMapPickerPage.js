@@ -24,6 +24,7 @@ import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { geocodeAddress, reverseGeocodeLabel } from './googleGeocode';
 import { getGoogleMapsApiKey } from './googleMapsRoute';
+import { RenderProfiler } from './performanceMetrics';
 
 export default function PostMapPickerPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -149,6 +150,7 @@ export default function PostMapPickerPage({ navigation, route }) {
   const mapReadyCoord = pin || initialCoord;
 
   return (
+    <RenderProfiler id="PostMapPickerPage">
     <View style={styles.screen}>
       <MapView
         ref={mapRef}
@@ -215,6 +217,10 @@ export default function PostMapPickerPage({ navigation, route }) {
               data={results}
               keyExtractor={(it) => it.id}
               keyboardShouldPersistTaps="handled"
+              removeClippedSubviews={Platform.OS === 'android'}
+              maxToRenderPerBatch={10}
+              windowSize={3}
+              initialNumToRender={5}
               renderItem={({ item }) => (
                 <Pressable
                   style={({ pressed }) => [
@@ -301,6 +307,7 @@ export default function PostMapPickerPage({ navigation, route }) {
         </Pressable>
       ) : null}
     </View>
+    </RenderProfiler>
   );
 }
 

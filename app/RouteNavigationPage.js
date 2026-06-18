@@ -33,6 +33,7 @@ import {
   openGoogleMapsDirections,
   buildGoogleMapsDirectionsUrl,
 } from './googleMapsRoute';
+import { RenderProfiler } from './performanceMetrics';
 
 const LIGHT_BG = '#F2F2EA';
 const HISTORY_RADIUS_M = 100;
@@ -309,6 +310,7 @@ export default function RouteNavigationPage({ navigation, route }) {
   }
 
   return (
+    <RenderProfiler id="RouteNavigationPage">
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8, backgroundColor: topBarBg }]}>
         <Pressable
@@ -512,6 +514,7 @@ export default function RouteNavigationPage({ navigation, route }) {
         )}
       </View>
     </View>
+    </RenderProfiler>
   );
 }
 

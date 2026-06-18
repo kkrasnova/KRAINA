@@ -185,7 +185,7 @@ config.resolver = {
 config.maxWorkers = Math.max(2, os.cpus().length - 1);
 
 // cacheVersion: форсувати скидання кешу при зміні конфігурації трансформера
-config.cacheVersion = '1.6';
+config.cacheVersion = '1.7';
 
 // Ensure the patch wins even if a dependency re-required Metro during config setup.
 patchExpoSourceMapSerializer();

@@ -16,6 +16,7 @@ import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { gm } from './geoMapI18n';
 import { rippleOnLightSurface } from './androidFeedback';
 import GeoMapExplorer from './GeoMapExplorer';
+import { markEnd } from './performanceMetrics';
 import RouteFinderPage from './RouteFinderPage';
 
 /**
@@ -31,6 +32,7 @@ export default function MapTabPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
   const [mode, setMode] = useState('map');
+  const mapReadyRef = useRef(false);
   const [segmentLayout, setSegmentLayout] = useState({ width: 0 });
   const [tabChromeHeight, setTabChromeHeight] = useState(52);
   const segmentPad = 3;
@@ -63,7 +65,13 @@ export default function MapTabPage({ navigation, route }) {
     let c = false;
     (async () => {
       const t = await getAppTheme();
-      if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
+      if (!c) {
+        setAppTheme(t === 'light' ? 'light' : 'dark');
+        if (!mapReadyRef.current) {
+          mapReadyRef.current = true;
+          markEnd('map_interactive');
+        }
+      }
     })();
     const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
       setAppTheme(v === 'light' ? 'light' : 'dark');

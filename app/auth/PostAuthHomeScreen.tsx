@@ -11,7 +11,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'PostAuthHome'>;
 
 export default function PostAuthHomeScreen({ navigation }: Props) {
   const user = useAuthStore((s) => s.user);
-  const loadProfileMe = useAuthStore((s) => s.loadProfileMe);
+  const loadProfileMeIfStale = useAuthStore((s) => s.loadProfileMeIfStale);
   const didNavigate = useRef(false);
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export default function PostAuthHomeScreen({ navigation }: Props) {
 
     (async () => {
       // Load profile to get language — non-critical, proceed even on failure
-      try { await loadProfileMe(); } catch { /* ignore */ }
+      try { await loadProfileMeIfStale(); } catch { /* ignore */ }
 
       if (didNavigate.current) return;
 
@@ -123,7 +123,7 @@ export default function PostAuthHomeScreen({ navigation }: Props) {
         });
       }
     })();
-  }, [user, loadProfileMe, navigation]);
+  }, [user, loadProfileMeIfStale, navigation]);
 
   return (
     <View style={{ flex: 1, backgroundColor: authColors.bg, justifyContent: 'center', alignItems: 'center' }}>

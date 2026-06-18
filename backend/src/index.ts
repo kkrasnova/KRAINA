@@ -1,16 +1,14 @@
-import { mkdirSync } from 'node:fs';
 import type { Server } from 'node:http';
-import path from 'node:path';
 import { config } from './config.js';
 import { createApp } from './app.js';
 import { logger } from './logger.js';
 import { pool } from './db/pool.js';
 import { runStartupChecks } from './startupChecks.js';
+import { initStorageProvider, destroyStorageProvider } from './storage/index.js';
 import { startCleanupJobs, stopCleanupJobs } from './workers/cleanupJobs.js';
 
-// Ensure upload directories exist before the app starts serving requests.
-mkdirSync(path.join(config.uploadDir, 'avatars'), { recursive: true });
-mkdirSync(path.join(config.uploadDir, 'landmark-content', 'media'), { recursive: true });
+// Initialise the storage provider (local disk or S3) before anything else.
+initStorageProvider();
 
 // Emit startup warnings for missing or misconfigured env vars.
 // This is advisory-only — warnings are logged but startup is not aborted.
@@ -62,6 +60,9 @@ function shutdown(signal: string): void {
 
   // Step 2: stop cleanup job intervals
   stopCleanupJobs();
+
+  // Step 2.5: close the storage provider (S3 client connections)
+  destroyStorageProvider();
 
   // Step 3: drain the PostgreSQL pool
   pool

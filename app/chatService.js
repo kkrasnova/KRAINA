@@ -31,102 +31,6 @@ function uid() {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Початкові демо-чати (як у макеті) — лише якщо сховище порожнє. */
-function seedThreads(langUk) {
-  const snippet = langUk
-    ? 'Дуже круте місці і ця історія створена так що...'
-    : 'Such a cool place and this story is built so that...';
-  const t = now() - 86400000 * 2;
-  return [
-    {
-      id: 'th_demo_angelina',
-      peerKey: 'peer_angelina',
-      peerName: langUk ? 'Ангеліна Романова' : 'Angelina Romanova',
-      peerAvatarUri: null,
-      lastMessagePreview: snippet,
-      lastAt: now() - 5 * 60 * 1000,
-      unreadCount: 1,
-      messages: [
-        {
-          id: uid(),
-          createdAt: t,
-          fromMe: false,
-          type: 'text',
-          text: langUk ? 'Привіт' : 'Hi',
-        },
-        {
-          id: uid(),
-          createdAt: t + 60000,
-          fromMe: true,
-          type: 'text',
-          text: langUk ? 'Привіт, як справи?' : 'Hi, how are you?',
-        },
-        {
-          id: uid(),
-          createdAt: t + 120000,
-          fromMe: false,
-          type: 'text',
-          text: langUk ? 'Все гаразд' : 'All good',
-        },
-        {
-          id: uid(),
-          createdAt: now() - 5 * 60 * 1000,
-          fromMe: false,
-          type: 'text',
-          text: langUk ? 'Які плани?' : 'Any plans?',
-        },
-      ],
-    },
-    {
-      id: 'th_demo_mar',
-      peerKey: 'peer_mar',
-      peerName: langUk ? 'мар Роа' : 'Mar Roa',
-      peerAvatarUri: null,
-      lastMessagePreview: snippet,
-      lastAt: now() - 5 * 60 * 60 * 1000,
-      unreadCount: 1,
-      messages: [
-        {
-          id: uid(),
-          createdAt: now() - 5 * 60 * 60 * 1000,
-          fromMe: false,
-          type: 'text',
-          text: langUk ? 'Пропоную в подорож' : 'I suggest a trip',
-        },
-      ],
-    },
-    {
-      id: 'th_demo_route',
-      peerKey: 'peer_maria',
-      peerName: langUk ? 'Марія' : 'Maria',
-      peerAvatarUri: null,
-      lastMessagePreview: langUk ? 'Рим — Колізей · Маршрут' : 'Rome — Colosseum · Route',
-      lastAt: now() - 86400000 * 2,
-      unreadCount: 0,
-      messages: [
-        {
-          id: uid(),
-          createdAt: now() - 86400000 * 2,
-          fromMe: true,
-          type: 'text',
-          text: langUk ? 'Зараз надішлю локацію' : 'Sending the location now',
-        },
-        {
-          id: uid(),
-          createdAt: now() - 86400000 * 2 + 5000,
-          fromMe: false,
-          type: 'route',
-          routeCard: {
-            title: langUk ? 'Рим — Колізей' : 'Rome — Colosseum',
-            subtitle: langUk ? 'Марія' : 'Maria',
-            regionId: 'kyiv',
-          },
-        },
-      ],
-    },
-  ];
-}
-
 async function readRaw(userKey) {
   const raw = await AsyncStorage.getItem(storageKey(userKey));
   if (!raw) return null;
@@ -177,9 +81,8 @@ async function cloudPush(uid, state) {
 
 /**
  * @param {object|null} user
- * @param {boolean} langUk
  */
-export async function loadMessengerState(user, langUk) {
+export async function loadMessengerState(user) {
   const key = chatUserKey(user);
   let local = await readRaw(key);
   const rawMissing = local == null;
@@ -200,13 +103,6 @@ export async function loadMessengerState(user, langUk) {
   }
   if (!Array.isArray(local.threads)) local.threads = [];
 
-  if (local.threads.length === 0 && rawMissing && !hasBackendSession()) {
-    local.threads = seedThreads(langUk);
-    local.updatedAt = now();
-    await writeRaw(key, local);
-    if (uidCloud) void cloudPush(uidCloud, local);
-  }
-
   return local;
 }
 
@@ -219,7 +115,7 @@ async function persist(user, state) {
 }
 
 export async function getThreads(user, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   return s.threads || [];
 }
 
@@ -229,7 +125,7 @@ export async function getThreadById(user, threadId, langUk) {
 }
 
 export async function markThreadRead(user, threadId, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   const th = s.threads.find((t) => t.id === threadId);
   if (!th) return;
   th.unreadCount = 0;
@@ -237,7 +133,7 @@ export async function markThreadRead(user, threadId, langUk) {
 }
 
 export async function sendTextMessage(user, threadId, text, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   const th = s.threads.find((t) => t.id === threadId);
   if (!th) return null;
   const msg = {
@@ -256,7 +152,7 @@ export async function sendTextMessage(user, threadId, text, langUk) {
 }
 
 export async function sendRouteCardMessage(user, threadId, routeCard, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   const th = s.threads.find((t) => t.id === threadId);
   if (!th) return null;
   const msg = {
@@ -278,7 +174,7 @@ export async function sendRouteCardMessage(user, threadId, routeCard, langUk) {
 }
 
 export async function sendImageMessage(user, threadId, imageUri, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   const th = s.threads.find((t) => t.id === threadId);
   if (!th) return null;
   const msg = {
@@ -296,14 +192,35 @@ export async function sendImageMessage(user, threadId, imageUri, langUk) {
   return th;
 }
 
+export async function sendVoiceMessage(user, threadId, voiceUri, durationMs, langUk) {
+  const s = await loadMessengerState(user);
+  const th = s.threads.find((t) => t.id === threadId);
+  if (!th) return null;
+  const uri = String(voiceUri || '').trim();
+  if (!uri) return th;
+  const msg = {
+    id: uid(),
+    createdAt: now(),
+    fromMe: true,
+    type: 'voice',
+    voiceUri: uri,
+    durationMs: Math.max(0, Number(durationMs) || 0),
+  };
+  th.messages = [...(th.messages || []), msg];
+  th.lastMessagePreview = langUk ? 'Голосове' : 'Voice';
+  th.lastAt = msg.createdAt;
+  await persist(user, s);
+  return th;
+}
+
 export async function deleteThread(user, threadId, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   s.threads = (s.threads || []).filter((t) => t.id !== threadId);
   await persist(user, s);
 }
 
 export async function deleteChatHistory(user, threadId, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   const th = s.threads.find((t) => t.id === threadId);
   if (!th) return;
   th.messages = [];
@@ -317,7 +234,7 @@ export async function deleteChatHistory(user, threadId, langUk) {
  * @returns {Promise<{ id: string }>}
  */
 export async function ensureThreadForPeer(user, peerKey, peerName, langUk) {
-  const s = await loadMessengerState(user, langUk);
+  const s = await loadMessengerState(user);
   const existing = s.threads.find((t) => t.peerKey === peerKey);
   if (existing) return existing;
   const th = {

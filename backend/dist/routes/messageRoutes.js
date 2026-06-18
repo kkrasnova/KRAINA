@@ -4,7 +4,7 @@ import { messageSendRateLimiter } from '../middleware/rateLimits.js';
 import { withIdempotency } from '../middleware/idempotency.js';
 import { HttpError } from '../errors/HttpError.js';
 import { openThreadSchema, sendMessageSchema } from '../schemas/messages.schemas.js';
-import { acceptThread, listMessages, listThreads, markThreadRead, openThreadByUserId, openThreadByUsername, sendTextMessage, } from '../services/messageService.js';
+import { acceptThread, clearThreadMessages, listMessages, listThreads, markThreadRead, openThreadByUserId, openThreadByUsername, removeThread, sendTextMessage, } from '../services/messageService.js';
 const router = Router();
 router.get('/threads', authenticateToken, async (req, res, next) => {
     try {
@@ -85,6 +85,30 @@ router.post('/threads/:threadId/accept', authenticateToken, withIdempotency, asy
             throw new HttpError(401, 'token_invalid');
         const meta = await acceptThread(req.params.threadId, me);
         res.status(200).json(meta);
+    }
+    catch (e) {
+        next(e);
+    }
+});
+router.delete('/threads/:threadId/messages', authenticateToken, async (req, res, next) => {
+    try {
+        const me = req.authUser?.id;
+        if (!me)
+            throw new HttpError(401, 'token_invalid');
+        await clearThreadMessages(req.params.threadId, me);
+        res.status(200).json({ ok: true });
+    }
+    catch (e) {
+        next(e);
+    }
+});
+router.delete('/threads/:threadId', authenticateToken, async (req, res, next) => {
+    try {
+        const me = req.authUser?.id;
+        if (!me)
+            throw new HttpError(401, 'token_invalid');
+        await removeThread(req.params.threadId, me);
+        res.status(200).json({ ok: true });
     }
     catch (e) {
         next(e);

@@ -38,9 +38,9 @@ export declare const aiSuggestRouteBodySchema: z.ZodObject<{
         lng: number;
     }>>>;
 }, "strip", z.ZodTypeAny, {
+    transport: "walk" | "car" | "bus" | "train";
     hours: number;
     place: string;
-    transport: "walk" | "car" | "bus" | "train";
     language?: string | undefined;
     interests?: {
         landmark?: boolean | undefined;
@@ -57,9 +57,9 @@ export declare const aiSuggestRouteBodySchema: z.ZodObject<{
     } | null | undefined;
 }, {
     place: string;
+    transport?: "walk" | "car" | "bus" | "train" | undefined;
     hours?: number | undefined;
     language?: string | undefined;
-    transport?: "walk" | "car" | "bus" | "train" | undefined;
     interests?: {
         landmark?: boolean | undefined;
         park?: boolean | undefined;

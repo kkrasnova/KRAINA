@@ -52,6 +52,19 @@ const S = {
     uk: 'Написати',
     en: 'Write',
   },
+  messagePlaceholder: {
+    uk: 'Повідомлення...',
+    en: 'Message...',
+    pl: 'Wiadomość...',
+    de: 'Nachricht...',
+    es: 'Mensaje...',
+    it: 'Messaggio...',
+    ro: 'Mesaj...',
+    nl: 'Bericht...',
+    lt: 'Žinutė...',
+    lv: 'Ziņa...',
+    hy: 'Հաղորդագրություն...',
+  },
   send: {
     uk: 'Надіслати',
     en: 'Send',
@@ -112,6 +125,30 @@ const S = {
     uk: 'Увімкніть геолокацію',
     en: 'Enable location to share',
   },
+  openGallery: {
+    uk: 'Галерея',
+    en: 'Gallery',
+  },
+  takePhoto: {
+    uk: 'Камера',
+    en: 'Camera',
+  },
+  voiceMessage: {
+    uk: 'Голосове',
+    en: 'Voice',
+  },
+  holdToRecord: {
+    uk: 'Утримуйте для запису',
+    en: 'Hold to record',
+  },
+  needMicPermission: {
+    uk: 'Увімкніть доступ до мікрофона',
+    en: 'Enable microphone access',
+  },
+  recordingVoice: {
+    uk: 'Запис…',
+    en: 'Recording…',
+  },
   profileSoon: {
     uk: 'Профіль контакту незабаром',
     en: 'Contact profile coming soon',
@@ -123,6 +160,10 @@ const S = {
   clearMessages: {
     uk: 'Очистити повідомлення',
     en: 'Clear messages',
+  },
+  clearMessagesConfirm: {
+    uk: 'Очистити всі повідомлення в цьому чаті?',
+    en: 'Clear all messages in this chat?',
   },
   cloudSyncNote: {
     uk: 'Чати збережені на пристрої та в акаунті (якщо увійшли через Firebase).',
@@ -178,7 +219,92 @@ const S = {
     uk: 'Відхилити',
     en: 'Decline',
   },
+
+  // --- Audio calls ---
+  callBtn: {
+    uk: 'Аудіодзвінок',
+    en: 'Audio call',
+  },
+  callIncoming: {
+    uk: 'Вхідний дзвінок…',
+    en: 'Incoming call…',
+  },
+  callOutgoing: {
+    uk: 'Дзвінок…',
+    en: 'Calling…',
+  },
+  callConnected: {
+    uk: 'З&#x27;єднано',
+    en: 'Connected',
+  },
+  callEnd: {
+    uk: 'Завершити',
+    en: 'End',
+  },
+  callMute: {
+    uk: 'Вимкнути мікрофон',
+    en: 'Mute',
+  },
+  callUnmute: {
+    uk: 'Увімкнути мікрофон',
+    en: 'Unmute',
+  },
+  callSpeakerOn: {
+    uk: 'Гучномовець',
+    en: 'Speaker',
+  },
+  callSpeakerOff: {
+    uk: 'Динамік',
+    en: 'Earpiece',
+  },
+  callAccept: {
+    uk: 'Прийняти',
+    en: 'Accept',
+  },
+  callDecline: {
+    uk: 'Відхилити',
+    en: 'Decline',
+  },
+  callNoNative: {
+    uk: 'LiveKit не налаштовано. Встановіть @livekit/react-native та перезіберіть додаток.',
+    en: 'LiveKit is not configured. Install @livekit/react-native and rebuild the app.',
+  },
+  callEnded: {
+    uk: 'Дзвінок завершено',
+    en: 'Call ended',
+  },
+
+  // --- Video calls ---
+  callVideoBtn: {
+    uk: 'Відеодзвінок',
+    en: 'Video call',
+  },
+  callSwitchToVideo: {
+    uk: 'Увімкнути відео',
+    en: 'Switch to video',
+  },
+  callSwitchToAudio: {
+    uk: 'Вимкнути відео',
+    en: 'Switch to audio',
+  },
+  callCameraOn: {
+    uk: 'Камера увімкнена',
+    en: 'Camera on',
+  },
+  callCameraOff: {
+    uk: 'Камера вимкнена',
+    en: 'Camera off',
+  },
+  callSwitchCamera: {
+    uk: 'Повернути камеру',
+    en: 'Flip camera',
+  },
+  callWaitingVideo: {
+    uk: 'Очікування відео…',
+    en: 'Waiting for video…',
+  },
 };
+
 
 fillBundleMissingLangs(S);
 

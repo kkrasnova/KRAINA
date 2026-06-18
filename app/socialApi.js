@@ -220,7 +220,37 @@ export async function socialSearchProfiles(q, limit = 24) {
 }
 
 export async function socialGetPublicProfile(username) {
-  const profile = await findProfileByUsername(username);
+  const u = String(username || '').replace(/^@/, '').trim();
+  if (!u) throw new Error('profile_not_found');
+
+  // Try backend API first: GET /api/profile/:username
+  const base = getKrainaRestApiBase();
+  if (base) {
+    try {
+      const body = await apiAuthCall('GET', `/api/profile/${encodeURIComponent(u)}`);
+      if (body && body.profile) {
+        const p = body.profile;
+        if (__DEV__) console.log(`[socialApi] profile API HIT @${u}`);
+        return {
+          user_id: String(p.user_id || ''),
+          username: String(p.username || 'user'),
+          display_name: p.display_name != null && String(p.display_name).trim() !== ''
+            ? String(p.display_name).trim()
+            : null,
+          avatar_url: p.avatar_url != null ? String(p.avatar_url) : null,
+          bio: p.bio != null ? String(p.bio) : null,
+          is_private: p.is_public === false,
+          followers_count: Number(p.followers_count || 0),
+          following_count: Number(p.following_count || 0),
+          is_following: p.is_following === true,
+        };
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[socialApi] profile API fallback', e?.message);
+    }
+  }
+
+  const profile = await findProfileByUsername(u);
   if (!profile) throw new Error('profile_not_found');
   const me = currentUid();
   let isFollowing = false;
@@ -238,9 +268,57 @@ export async function socialGetPublicProfileFull(username, limit = 80) {
   const cached = fullProfileCache.get(cacheKey);
   if (cached && now - cached.at < FULL_PROFILE_CACHE_TTL_MS) return cached.value;
 
-  const profile = await findProfileByUsername(username);
-  if (!profile) throw new Error('profile_not_found');
+  const u = String(username || '').replace(/^@/, '').trim();
+  if (!u) throw new Error('profile_not_found');
   const lim = Math.min(120, Math.max(1, Number(limit) || 80));
+
+  // Try backend API first: GET /api/profile/:username/full (один SQL-запит замість N Firestore-читань)
+  const base = getKrainaRestApiBase();
+  if (base) {
+    try {
+      const body = await apiAuthCall('GET', `/api/profile/${encodeURIComponent(u)}/full?limit=${lim}`);
+      if (body && body.profile) {
+        const p = body.profile;
+        const mapPerson = (row) => ({
+          user_id: String(row.user_id),
+          username: String(row.username || 'user'),
+          display_name: row.display_name != null && String(row.display_name).trim() !== ''
+            ? String(row.display_name).trim()
+            : null,
+          avatar_url: row.avatar_url != null ? String(row.avatar_url) : null,
+          bio: row.bio != null ? String(row.bio) : null,
+          is_private: false,
+          followers_count: 0,
+          following_count: 0,
+        });
+        const result = {
+          profile: {
+            user_id: String(p.user_id || ''),
+            username: String(p.username || 'user'),
+            display_name: p.display_name != null && String(p.display_name).trim() !== ''
+              ? String(p.display_name).trim()
+              : null,
+            avatar_url: p.avatar_url != null ? String(p.avatar_url) : null,
+            bio: p.bio != null ? String(p.bio) : null,
+            is_private: p.is_public === false,
+            followers_count: Number(p.followers_count || 0),
+            following_count: Number(p.following_count || 0),
+            is_following: p.is_following === true,
+          },
+          followers: Array.isArray(body.followers) ? body.followers.map(mapPerson) : [],
+          following: Array.isArray(body.following) ? body.following.map(mapPerson) : [],
+          friends: Array.isArray(body.friends) ? body.friends.map(mapPerson) : [],
+        };
+        fullProfileCache.set(cacheKey, { at: now, value: result });
+        return result;
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[socialApi] profileFull API fallback', e?.message);
+    }
+  }
+
+  const profile = await findProfileByUsername(u);
+  if (!profile) throw new Error('profile_not_found');
   const { collection, doc, getDoc, getDocs, limit: qLimit, query, where } = require('firebase/firestore');
   const me = currentUid();
   const followersSnap = await getDocs(
@@ -251,20 +329,46 @@ export async function socialGetPublicProfileFull(username, limit = 80) {
   );
   const allProfiles = await loadProfiles(1000);
   const byId = new Map(allProfiles.map((x) => [x.id, x]));
-  const followers = followersSnap.docs.map((d) => toPublicRow(byId.get(d.data().followerId) || { id: d.data().followerId }));
-  const following = followingSnap.docs.map((d) => toPublicRow(byId.get(d.data().followingId) || { id: d.data().followingId }));
+  let followers = followersSnap.docs.map((d) => toPublicRow(byId.get(d.data().followerId) || { id: d.data().followerId }));
+  let following = followingSnap.docs.map((d) => toPublicRow(byId.get(d.data().followingId) || { id: d.data().followingId }));
   const followersSet = new Set(followersSnap.docs.map((d) => d.data().followerId));
   const followingSet = new Set(followingSnap.docs.map((d) => d.data().followingId));
-  const friends = [...followersSet].filter((id) => followingSet.has(id)).map((id) => toPublicRow(byId.get(id) || { id }));
+  let friends = [...followersSet].filter((id) => followingSet.has(id)).map((id) => toPublicRow(byId.get(id) || { id }));
   let isFollowing = false;
   if (me && profile.id && me !== profile.id) {
     const edge = await getDoc(doc(db, 'socialFollows', `${me}__${profile.id}`)).catch(() => null);
     isFollowing = firestoreDocExists(edge);
   }
-  const base = toPublicRow(profile);
+  // Додаємо is_following для кожного рядка followers/following/friends
+  if (me) {
+    const { doc, getDoc } = require('firebase/firestore');
+    const allIds = [...new Set([
+      ...followers.map((r) => String(r.user_id)),
+      ...following.map((r) => String(r.user_id)),
+      ...friends.map((r) => String(r.user_id)),
+    ])];
+    const followingMe = new Set();
+    for (let i = 0; i < allIds.length; i += 10) {
+      const batch = allIds.slice(i, i + 10);
+      const snapshots = await Promise.allSettled(
+        batch.map((id) => getDoc(doc(db, 'socialFollows', `${me}__${id}`))),
+      );
+      snapshots.forEach((res, idx) => {
+        if (res.status === 'fulfilled' && firestoreDocExists(res.value)) {
+          followingMe.add(batch[idx]);
+        }
+      });
+    }
+    const enh = (r) => ({ ...r, is_following: followingMe.has(String(r.user_id)) });
+    followers = followers.map(enh);
+    following = following.map(enh);
+    friends = friends.map(enh);
+  }
+
+  const profilePublic = toPublicRow(profile);
   const result = {
     profile: {
-      ...base,
+      ...profilePublic,
       is_following: isFollowing,
       followers_count: followersSnap.size,
       following_count: followingSnap.size,
@@ -275,6 +379,39 @@ export async function socialGetPublicProfileFull(username, limit = 80) {
   };
   fullProfileCache.set(cacheKey, { at: now, value: result });
   return result;
+}
+
+/**
+ * Отримати список connections (followers/following/friends) з `is_following` для кожного юзера.
+ * Спершу пробує backend API (швидше, один SQL-запит), при помилці — Firestore fallback.
+ */
+export async function socialGetConnections(username, kind = 'friends', limit = 120) {
+  const u = String(username || '').replace(/^@/, '').trim();
+  if (!u) return [];
+  const lim = Math.min(200, Math.max(1, Number(limit) || 120));
+
+  // Try backend API first
+  const base = getKrainaRestApiBase();
+  if (base) {
+    try {
+      const data = await apiAuthCall(
+        'GET',
+        `/api/social/connections?username=${encodeURIComponent(u)}&kind=${kind}&limit=${lim}`,
+      );
+      if (data && Array.isArray(data.users)) {
+        return data.users;
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[socialApi] connections API fallback', e?.message);
+    }
+  }
+
+  // Fallback to Firestore via socialGetPublicProfileFull
+  const payload = await socialGetPublicProfileFull(u, lim);
+  if (!payload) return [];
+  if (kind === 'followers') return Array.isArray(payload.followers) ? payload.followers : [];
+  if (kind === 'following') return Array.isArray(payload.following) ? payload.following : [];
+  return Array.isArray(payload.friends) ? payload.friends : [];
 }
 
 export async function socialPrefetchPublicProfileFull(username, limit = 80) {

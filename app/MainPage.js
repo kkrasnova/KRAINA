@@ -32,6 +32,8 @@ import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { accentForTheme } from './themeAccent';
 import { setMainPageContentReady } from './mainPageTabGate';
 import { shellNavigate, shellPush } from './shellNavigate';
+import { prefetchChatsBundle } from './screenLoaders';
+import { warmChatsInboxCache } from './chatsDataPrefetch';
 const BG = APP_SCREEN_BG;
 /**
  * Пошук у скролі: трохи нижче від шапки, блок категорій трохи вище (менший зазор під пошуком).
@@ -269,15 +271,27 @@ export default function MainPage({ navigation, route }) {
     };
   }, [route?.params?.countryId, user?.id, user?.firebaseUid, user?.email]);
 
-  const [gateReady, setGateReady] = useState(false);
-  const [sub, setSub] = useState(null);
+  useEffect(() => {
+    prefetchChatsBundle();
+    const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
+    void warmChatsInboxCache(user, langUk);
+  }, [user?.id, user?.firebaseUid, user?.email, language]);
+
+  const [gateReady, setGateReady] = useState(() => userHasIdentity(route?.params?.user));
+
+  /** Показуємо головну одразу після ідентифікації користувача — не чекаємо AsyncStorage/бекенд. */
+  useEffect(() => {
+    if (userHasIdentity(user)) {
+      setGateReady(true);
+    }
+  }, [user?.id, user?.firebaseUid]);
 
   /** Нижня таб-панель одразу після готовності gate — без подвійного rAF. */
   useEffect(() => {
-    const ok = gateReady && !!sub;
+    const ok = gateReady && userHasIdentity(user);
     setMainPageContentReady(ok);
     return () => setMainPageContentReady(false);
-  }, [gateReady, sub]);
+  }, [gateReady, user?.id, user?.firebaseUid]);
 
   useEffect(() => {
     if (!userHasIdentity(user)) return;
@@ -294,33 +308,17 @@ export default function MainPage({ navigation, route }) {
         });
         return;
       }
-      setSub(cachedSub);
-      setGateReady(true);
 
       try {
         await syncSubscriptionFromBackend(user);
         const nextSub = await getSubscriptionState(user);
-        if (!cancelled) {
-          if (nextSub.needsPlanChoice) {
-            navigation.replace('ChoosePlan', {
-              user,
-              language,
-              appTheme,
-              ...(countryId ? { countryId } : {}),
-            });
-          } else {
-            setSub((prev) => {
-              if (
-                prev &&
-                prev.needsPlanChoice === nextSub.needsPlanChoice &&
-                prev.tier === nextSub.tier &&
-                prev.isPaidActive === nextSub.isPaidActive
-              ) {
-                return prev;
-              }
-              return nextSub;
-            });
-          }
+        if (!cancelled && nextSub.needsPlanChoice) {
+          navigation.replace('ChoosePlan', {
+            user,
+            language,
+            appTheme,
+            ...(countryId ? { countryId } : {}),
+          });
         }
       } catch {
         /* ignore background sync errors */
@@ -449,7 +447,7 @@ export default function MainPage({ navigation, route }) {
     language === 'uk'
       ? 'Пошук місць: країни, міста, локації'
       : 'Search places: countries, cities, locations';
-  const contentReady = gateReady && !!sub;
+  const contentReady = gateReady && userHasIdentity(user);
 
   if (!contentReady) {
     return (

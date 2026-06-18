@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,10 @@ import { useAuthStore } from './auth/authStore';
 import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { errorToUserText } from './errorText';
+import {
+  peerDisplayNameFromMeta,
+  peerUsernameFromMeta,
+} from './chatPeerDisplay';
 
 const GRID_GAP = 1;
 const COLS = 3;
@@ -77,6 +81,9 @@ export default function SocialUserProfilePage({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [feedSyncHint, setFeedSyncHint] = useState('');
+  const profilePageCache = useRef({});
+  const PROFILE_PAGE_CACHE_TTL = 120000;
+
   const [postModal, setPostModal] = useState(null);
   const [likeMap, setLikeMap] = useState({});
   const [likeCountMap, setLikeCountMap] = useState({});
@@ -106,15 +113,50 @@ export default function SocialUserProfilePage({ navigation, route }) {
   };
 
   const reload = useCallback(
-    async (silent = false) => {
+    async (silent = false, force = false) => {
       const t = await getAppTheme();
       setAppTheme(t === 'light' ? 'light' : 'dark');
       if (!targetUsername) {
         setLoading(false);
         return;
       }
-      if (silent) setRefreshing(true);
-      else setLoading(true);
+      const cacheKey = `profile__${targetUsername}`;
+      const cached = profilePageCache.current[cacheKey];
+      const cacheFresh = cached && Date.now() - cached.at < PROFILE_PAGE_CACHE_TTL;
+
+      // Fresh cache — use it, skip revalidation
+      if (!force && cacheFresh) {
+        if (__DEV__) console.log(`[Cache] SocialUserProfile HIT fresh @${targetUsername} age=${Date.now() - cached.at}ms`);
+        setProfile(cached.profile);
+        setPosts(cached.posts);
+        setPeerStories(cached.peerStories);
+        setFriends(cached.friends);
+        setFeedSyncHint(cached.feedSyncHint);
+        setLoading(false);
+        return;
+      }
+
+      // Stale cache — show immediately, revalidate in background (no spinner)
+      if (!force && cached) {
+        if (__DEV__) console.log(`[Cache] SocialUserProfile STALE hit @${targetUsername} age=${Date.now() - cached.at}ms — background revalidation`);
+        setProfile(cached.profile);
+        setPosts(cached.posts);
+        setPeerStories(cached.peerStories);
+        setFriends(cached.friends);
+        setFeedSyncHint(cached.feedSyncHint);
+        setLoading(false);
+      } else if (__DEV__ && !cached) {
+        console.log(`[Cache] SocialUserProfile MISS @${targetUsername}`);
+      }
+      if (__DEV__ && force && cached) {
+        console.log(`[Cache] SocialUserProfile FORCE refresh @${targetUsername} age=${Date.now() - cached.at}ms`);
+      }
+
+      const needsSpinner = force || !cached;
+      if (needsSpinner) {
+        if (silent) setRefreshing(true);
+        else setLoading(true);
+      }
       try {
         const full = await socialGetPublicProfileFull(targetUsername, 80).catch(() => null);
         const p = full?.profile || (await socialGetPublicProfile(targetUsername));
@@ -139,20 +181,33 @@ export default function SocialUserProfilePage({ navigation, route }) {
           }
         }
         setPeerStories(stories);
+        let hint = '';
         if (!hasFeedApiToken()) {
-          setFeedSyncHint(language === 'uk' ? 'Увійдіть у бекенд-акаунт, щоб бачити публікації й сторіс' : 'Sign in to backend account to see posts and stories');
-        } else {
-          setFeedSyncHint('');
+          hint = language === 'uk' ? 'Увійдіть у бекенд-акаунт, щоб бачити публікації й сторіс' : 'Sign in to backend account to see posts and stories';
         }
+        setFeedSyncHint(hint);
+
+        profilePageCache.current[cacheKey] = {
+          at: Date.now(),
+          profile: p,
+          posts: grid,
+          peerStories: stories,
+          friends: full?.friends || [],
+          feedSyncHint: hint,
+        };
       } catch (e) {
-        setProfile(null);
-        setPosts([]);
-        setPeerStories([]);
-        setFriends([]);
-        Alert.alert('', errorToUserText(e, language));
+        if (!cached) {
+          setProfile(null);
+          setPosts([]);
+          setPeerStories([]);
+          setFriends([]);
+        }
+        if (__DEV__) console.warn('[SocialUserProfile]', e?.message);
       } finally {
-        if (silent) setRefreshing(false);
-        else setLoading(false);
+        if (needsSpinner) {
+          if (silent) setRefreshing(false);
+          else setLoading(false);
+        }
       }
     },
     [targetUsername, language],
@@ -161,28 +216,31 @@ export default function SocialUserProfilePage({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       void reload();
-      const timer = setInterval(() => {
-        void reload(true);
-      }, 4000);
-      return () => clearInterval(timer);
     }, [reload]),
   );
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, () => {
-      void reload(true);
+      profilePageCache.current = {};
+      void reload(true, true);
     });
     return () => sub.remove();
   }, [reload]);
 
   const onToggleFollow = async () => {
     if (!profile || followBusy) return;
+    const prevFollowing = !!profile.is_following;
     setFollowBusy(true);
+    // Оптимістичне оновлення — кнопка реагує миттєво
+    setProfile((p) => (p ? { ...p, is_following: !prevFollowing } : p));
     try {
-      if (profile.is_following) await socialUnfollowUsername(profile.username);
+      if (prevFollowing) await socialUnfollowUsername(profile.username);
       else await socialFollowUsername(profile.username);
-      await reload(true);
+      profilePageCache.current = {};
+      await reload(true, true);
     } catch (e) {
+      // Відкочуємо оптимістичне оновлення
+      setProfile((p) => (p ? { ...p, is_following: prevFollowing } : p));
       Alert.alert('', errorToUserText(e, language));
     } finally {
       setFollowBusy(false);
@@ -225,14 +283,13 @@ export default function SocialUserProfilePage({ navigation, route }) {
     }
     try {
       const meta = await messagesOpenThread({ peerUserId: profile.user_id });
-      const peerLabel = meta.peer_username?.startsWith('@')
-        ? meta.peer_username
-        : `@${meta.peer_username}`;
       navigation.navigate('ChatThread', {
         ...shell,
         threadId: meta.id,
-        peerName: peerLabel,
-        peerAvatarUrl: resolveFeedMediaUrl(profile.avatar_url || '') || '',
+        peerName: peerUsernameFromMeta(meta),
+        peerDisplayName: peerDisplayNameFromMeta(meta) || profile.display_name || profile.username,
+        peerUsername: peerUsernameFromMeta(meta),
+        peerAvatarUrl: resolveFeedMediaUrl(profile.avatar_url || meta.peer_avatar_url || '') || '',
         useMessageApi: true,
         pendingForMe: !!meta.pending_for_me,
       });
@@ -292,14 +349,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
     }
   }, [refreshModalPost]);
 
-  useEffect(() => {
-    const id = String(postModal?.id || '');
-    if (!id) return;
-    const timer = setInterval(() => {
-      void refreshModalPost(id, false);
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [postModal?.id, refreshModalPost]);
+  // Post modal refreshes on open — no background polling
 
   const toggleLike = useCallback(async (post) => {
     const id = String(post?.id || '');
@@ -383,8 +433,25 @@ export default function SocialUserProfilePage({ navigation, route }) {
           <ActivityIndicator color={accent} />
         </View>
       ) : !profile ? (
-        <View style={styles.center}>
-          <Text style={{ color: muted }}>-</Text>
+        <View style={[styles.center, { paddingHorizontal: 28 }]}>
+          <Ionicons name="person-remove-outline" size={40} color={muted} />
+          <Text style={{ color: muted, fontSize: 16, fontWeight: '600', marginTop: 12, textAlign: 'center' }}>
+            {language === 'uk' ? 'Користувача не знайдено' : 'User not found'}
+          </Text>
+          <Text style={{ color: muted, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+            {language === 'uk' ? 'Можливо, профіль видалено або юзернейм неправильний' : 'Profile may have been deleted or the username is incorrect'}
+          </Text>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [
+              styles.btn,
+              { backgroundColor: accent, marginTop: 20, paddingHorizontal: 32, opacity: pressed ? 0.88 : 1 },
+            ]}
+          >
+            <Text style={{ color: onAccentButtonText(isLight), fontWeight: '700', fontSize: 15 }}>
+              {language === 'uk' ? 'Назад' : 'Go Back'}
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView
@@ -393,7 +460,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
           }}
           keyboardShouldPersistTaps="handled"
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => void reload(true)} tintColor={accent} />
+            <RefreshControl refreshing={refreshing} onRefresh={() => void reload(true, true)} tintColor={accent} />
           }
           {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
         >
@@ -572,6 +639,10 @@ export default function SocialUserProfilePage({ navigation, route }) {
                       pagingEnabled
                       keyExtractor={(it, i) => `${i}_${it}`}
                       showsHorizontalScrollIndicator={false}
+                      maxToRenderPerBatch={3}
+                      windowSize={3}
+                      removeClippedSubviews={Platform.OS === 'android'}
+                      initialNumToRender={3}
                       onMomentumScrollEnd={(e) => {
                         const w = e?.nativeEvent?.layoutMeasurement?.width || 1;
                         const x = e?.nativeEvent?.contentOffset?.x || 0;

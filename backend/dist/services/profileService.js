@@ -1,9 +1,7 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { config } from '../config.js';
 import { HttpError } from '../errors/HttpError.js';
 import { pool } from '../db/pool.js';
+import { getStorageProvider } from '../storage/index.js';
 import { computeExplorerLevel } from '../utils/level.js';
 import { currentPeriodMonth } from '../utils/period.js';
 function sanitizeLikeFragment(s) {
@@ -313,11 +311,6 @@ export async function patchProfileMe(userId, patch) {
         client.release();
     }
 }
-// TODO(object-storage): replace local-disk write with S3-compatible upload.
-// Same migration path as saveFeedMediaFile in feedService — extract a shared
-// StorageProvider interface so both functions switch providers together.
-// Existing avatar_url values in the DB stay valid after migration (local URLs
-// continue to be served from the static route; new uploads go to S3/CDN).
 export async function saveAvatar(userId, file) {
     const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
     if (!allowed.has(file.mimetype)) {
@@ -325,11 +318,8 @@ export async function saveAvatar(userId, file) {
     }
     const ext = file.mimetype === 'image/jpeg' ? 'jpg' : file.mimetype === 'image/png' ? 'png' : 'webp';
     const name = `${randomUUID()}.${ext}`;
-    const dir = path.join(config.uploadDir, 'avatars');
-    await fs.mkdir(dir, { recursive: true });
-    const dest = path.join(dir, name);
-    await fs.writeFile(dest, file.buffer);
-    const url = `${config.publicBaseUrl}/static/avatars/${name}`;
+    const key = `avatars/${name}`;
+    const url = await getStorageProvider().upload(key, file.buffer, file.mimetype);
     await pool.query(`UPDATE profiles SET avatar_url = $1, updated_at = now() WHERE user_id = $2`, [url, userId]);
     return url;
 }
@@ -341,14 +331,7 @@ export async function clearAvatar(userId) {
     ]);
     if (prev == null || typeof prev !== 'string')
         return;
-    const base = `${String(config.publicBaseUrl).replace(/\/$/, '')}/static/avatars/`;
-    if (!prev.startsWith(base))
-        return;
-    const fileName = path.basename(prev);
-    if (!fileName || fileName.includes('..') || fileName.includes('/') || fileName.includes('\\'))
-        return;
-    const full = path.join(config.uploadDir, 'avatars', fileName);
-    await fs.unlink(full).catch(() => { });
+    await getStorageProvider().delete(prev).catch(() => { });
 }
 export async function getPublicProfileByUsername(username, viewerUserId) {
     const normalizedUsername = String(username || '')

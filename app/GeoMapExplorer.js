@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
   Pressable,
-  FlatList,
   ActivityIndicator,
   Platform,
   Keyboard,
@@ -20,6 +20,7 @@ import { brandFontSansMedium } from './brandFont';
 
 import { getAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
+import { RenderProfiler } from './performanceMetrics';
 import { gm } from './geoMapI18n';
 import { fetchPublishedLocations, searchLocationsPublished } from './locationsApi';
 import { fetchGoogleDirectionsPolyline, getGoogleMapsApiKey, openGoogleMapsDirections } from './googleMapsRoute';
@@ -521,10 +522,12 @@ export default function GeoMapExplorer({ navigation, route, bottomInset = 0, top
               {searching ? (
                 <ActivityIndicator style={{ padding: 20 }} color={accent} />
               ) : (
-                <FlatList
+                <RenderProfiler id="GeoMapExplorer:search">
+              <FlashList
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="on-drag"
                   data={listData}
+                  estimatedItemSize={56}
                   keyExtractor={(it) => it.id}
                   renderItem={({ item }) => {
                     const inR = routeSeq.some((x) => x.id === item.id);
@@ -567,7 +570,8 @@ export default function GeoMapExplorer({ navigation, route, bottomInset = 0, top
                       </View>
                     );
                   }}
-                />
+              />
+              </RenderProfiler>
               )}
             </View>
           ) : debouncedQ.length >= 2 && !searching && !searchNetworkError ? (
@@ -622,9 +626,11 @@ export default function GeoMapExplorer({ navigation, route, bottomInset = 0, top
                 {gm(language, 'noSaved')}
               </Text>
             ) : (
-              <FlatList
+              <RenderProfiler id="GeoMapExplorer:saved">
+              <FlashList
                 keyboardShouldPersistTaps="handled"
                 data={savedList}
+                estimatedItemSize={56}
                 keyExtractor={(it) => it.id}
                 renderItem={({ item }) => {
                   const inR = routeSeq.some((x) => x.id === item.id);
@@ -655,6 +661,7 @@ export default function GeoMapExplorer({ navigation, route, bottomInset = 0, top
                   );
                 }}
               />
+              </RenderProfiler>
             )}
           </View>
         ) : null}
