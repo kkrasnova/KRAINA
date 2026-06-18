@@ -25,7 +25,7 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
-package-lock.json
+# package-lock.json is committed to ensure reproducible EAS builds
 
 # macOS
 .DS_Store
