@@ -469,6 +469,16 @@ h1, h2, h3, h4 {
   height: 100%;
   object-fit: cover;
 }
+.phone__screen img.img--missing,
+.guide-shot img.img--missing,
+.city-strip img.img--missing {
+  opacity: 0;
+}
+.phone__screen:not(:has(img:not(.img--missing))) {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(200, 241, 53, 0.18), transparent 55%),
+    linear-gradient(160deg, #12131f 0%, #0a0b1f 100%);
+}
 .phone__overlay {
   position: absolute;
   left: 16px; right: 16px; bottom: 18px;
@@ -2556,6 +2566,12 @@ h1, h2, h3, h4 {
 .reveal.in-view {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Hero завжди видимий — навіть якщо JS не завантажився */
+.hero > .reveal {
+  opacity: 1;
+  transform: none;
 }
 
 

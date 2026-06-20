@@ -284,7 +284,7 @@ firebase functions:log
 
 - 🐛 Bug Reports: [GitHub Issues](https://github.com/your-repo)
 - 💬 Питання: [Discord Community](https://discord.gg/your-server)
-- 📧 Email: dev@kraina.app
+- 📧 Email: support@kraina.world
 
 
 

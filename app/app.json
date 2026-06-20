@@ -30,7 +30,14 @@
       "react-native-iap",
       "expo-font",
       "@react-native-community/datetimepicker",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/app-icon.png",
+          "color": "#E1FF00",
+          "defaultChannel": "kraina-walk-reminder"
+        }
+      ],
       [
         "expo-audio",
         {
@@ -43,8 +50,9 @@
     "extra": {
       "googleVisionApiKey": "",
       "googleMapsApiKey": "",
-      "helpFaqUrl": "https://play.google.com/store/apps/details?id=com.kraina.app",
-      "helpDocsUrl": "https://play.google.com/store/apps/details?id=com.kraina.app",
+      "krainaSiteUrl": "https://kraina-207c5.web.app",
+      "helpFaqUrl": "https://kraina-207c5.web.app/#faq",
+      "helpDocsUrl": "https://kraina-207c5.web.app/#guide",
       "eas": {
         "projectId": "9643216e-eb27-4acd-9b1c-ac4c5a42883c"
       }
@@ -72,7 +80,7 @@
         "buildFromSource": []
       }
     },
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "backgroundColor": "#000000",
       "resizeMode": "contain",
@@ -81,8 +89,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kraina.app",
-      "buildNumber": "1",
-      "usesAppleSignIn": true
+      "buildNumber": "2",
+      "usesAppleSignIn": true,
+      "deploymentTarget": "16.4"
     },
     "android": {
       "adaptiveIcon": {
@@ -96,7 +105,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kraina.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.RECORD_AUDIO",

@@ -249,7 +249,9 @@ export default memo(function AppTopBar({
                 brandFontHeadMedium,
                 { color: isLight ? '#181818' : 'rgba(255, 255, 255, 0.92)' },
               ]}
-              numberOfLines={1}
+              numberOfLines={2}
+              adjustsFontSizeToFit={Platform.OS === 'ios'}
+              minimumFontScale={0.82}
             >
               {titleOnly}
             </Text>
@@ -397,9 +399,12 @@ const styles = StyleSheet.create({
     height: 16,
   },
   replaceTitle: {
-    fontSize: 17,
+    fontSize: 16,
+    lineHeight: 20,
     textAlign: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   centerSpacer: {
     minHeight: 22,

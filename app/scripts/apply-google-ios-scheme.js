@@ -54,6 +54,22 @@ if (fs.existsSync(plistPath)) {
   );
   fs.writeFileSync(plistPath, plist);
   console.log('[apply-google-ios-scheme] Info.plist →', scheme);
+  if (iosClientId) {
+    let updated = fs.readFileSync(plistPath, 'utf8');
+    if (updated.includes('<key>GIDClientID</key>')) {
+      updated = updated.replace(
+        /<key>GIDClientID<\/key>\s*<string>[^<]*<\/string>/,
+        `<key>GIDClientID</key>\n\t<string>${iosClientId}</string>`,
+      );
+    } else {
+      updated = updated.replace(
+        /<key>CFBundleVersion<\/key>\s*<string>[^<]*<\/string>/,
+        `<key>CFBundleVersion</key>\n\t<string>1</string>\n\t<key>GIDClientID</key>\n\t<string>${iosClientId}</string>`,
+      );
+    }
+    fs.writeFileSync(plistPath, updated);
+    console.log('[apply-google-ios-scheme] GIDClientID →', iosClientId.slice(0, 28) + '…');
+  }
 } else {
   console.warn('[apply-google-ios-scheme] Пропущено Info.plist (немає шляху)', plistPath);
 }

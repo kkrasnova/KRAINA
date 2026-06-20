@@ -129,7 +129,7 @@ cd app && npm run start:dev
 
 
 
-- 📧 Email: dev@kraina.app
+- 📧 Email: support@kraina.world
 - 🐛 Bugs: GitHub Issues
 - 💬 Questions: Developer Discord
 

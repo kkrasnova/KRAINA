@@ -940,13 +940,34 @@ async function fetchFacebookProfileFromGraph(accessToken) {
 
 export async function canRequestPasswordReset(normalizedEmail) {
   const e = (normalizedEmail || '').trim().toLowerCase();
-  if (!e) return false;
-  if (await userExistsByEmail(e)) return true;
+  if (!e) return { eligible: false, reason: 'EMPTY' };
+  if (await userExistsByEmail(e)) return { eligible: true };
+
+  if (firebaseAuthEnabled && auth) {
+    try {
+      const { fetchSignInMethodsForEmail } = require('firebase/auth');
+      const methods = await Promise.race([
+        fetchSignInMethodsForEmail(auth, e),
+        new Promise((resolve) => setTimeout(() => resolve(null), FIREBASE_FETCH_SIGNIN_METHODS_MS)),
+      ]);
+      if (Array.isArray(methods) && methods.length > 0) {
+        return { eligible: true };
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[db] canRequestPasswordReset firebase', err?.message);
+    }
+  }
+
   try {
     const { backendEmailExists } = require('./backendAuthApi');
-    if (await backendEmailExists(e)) return true;
-  } catch (_) {}
-  return false;
+    const { API_BASE_URL } = require('./auth/config');
+    if (!API_BASE_URL) return { eligible: false, reason: 'NOT_FOUND' };
+    if (await backendEmailExists(e)) return { eligible: true };
+    return { eligible: false, reason: 'NOT_FOUND' };
+  } catch (err) {
+    if (__DEV__) console.warn('[db] canRequestPasswordReset backend', err?.message);
+    return { eligible: false, reason: 'NETWORK_ERROR' };
+  }
 }
 
 async function syncBackendPasswordResetOtp(emailLower, code, expiresAt) {
@@ -1198,8 +1219,10 @@ export async function requestPasswordResetCode(email, options) {
   const normalizedEmail = (email || '').trim().toLowerCase();
   if (!normalizedEmail) return { ok: false, reason: 'EMPTY' };
 
-  const eligible = await canRequestPasswordReset(normalizedEmail);
-  if (!eligible) return { ok: false, reason: 'NOT_FOUND' };
+  const eligibility = await canRequestPasswordReset(normalizedEmail);
+  if (eligibility.reason === 'EMPTY') return { ok: false, reason: 'EMPTY' };
+  if (eligibility.reason === 'NETWORK_ERROR') return { ok: false, reason: 'NETWORK_ERROR' };
+  if (!eligibility.eligible) return { ok: false, reason: 'NOT_FOUND' };
 
   const code = await randomSixDigitCode();
   const h = otpHashForCode(normalizedEmail, code);
@@ -1379,7 +1402,8 @@ export async function updateUserPassword({ email, newPassword, resetCode }) {
   let user = users.find((u) => (u.email || '').toLowerCase() === emailLower);
 
   if (!user) {
-    if (!(await canRequestPasswordReset(emailLower))) return false;
+    const eligibility = await canRequestPasswordReset(emailLower);
+    if (!eligibility.eligible) return false;
 
     user = {
       id: makeId(),
@@ -1402,11 +1426,14 @@ export async function updateUserPassword({ email, newPassword, resetCode }) {
     try {
       const { backendEmailExists, backendResetPasswordWithAppOtp } = require('./backendAuthApi');
       if (await backendEmailExists(emailLower)) {
-        await backendResetPasswordWithAppOtp(
+        const backendReset = await backendResetPasswordWithAppOtp(
           emailLower,
           String(resetCode).replace(/\s/g, ''),
           newPassword,
         );
+        if (backendReset?.reason === 'BACKEND_OUTDATED') {
+          return 'BACKEND_OUTDATED';
+        }
       }
     } catch (e) {
       if (__DEV__) console.warn('[db] updateUserPassword backend', e?.message);
@@ -1521,6 +1548,12 @@ export async function clearSession() {
   } catch (_) {}
   await secureStoreDeleteIfPresent(REMEMBER_EMAIL_SECURE_KEY);
   await secureStoreDeleteIfPresent(REMEMBER_PASSWORD_SECURE_KEY);
+  // Первинні (без `@`) ключі, які реально пише ThirdPage — теж чистимо при виході.
+  await secureStoreDeleteIfPresent('kraina_remember_email_secure');
+  await secureStoreDeleteIfPresent('kraina_remember_password_secure');
+  // Дані для тихого відновлення чат-сесії — обовʼязково видалити при явному виході.
+  await secureStoreDeleteIfPresent('kraina_session_recovery_email_secure');
+  await secureStoreDeleteIfPresent('kraina_session_recovery_password_secure');
   await secureStoreDeleteIfPresent(AUTH_DRAFT_PASSWORD_SECURE_KEY);
 }
 

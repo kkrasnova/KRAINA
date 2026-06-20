@@ -10,17 +10,20 @@ import {
   Animated,
   PanResponder,
   useWindowDimensions,
-  ActivityIndicator,
   Alert,
   Modal,
   Share,
   Linking,
   DeviceEventEmitter,
+  BackHandler,
 } from 'react-native';
 import { Audio } from './expoAvCompat';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurView } from 'expo-blur';
 import { getCachedOrRemoteAudioUri } from './audioGuideCache';
+import {
+  startLandmarkNarration,
+} from './landmarkTts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { appLangBase } from './appLang';
@@ -51,6 +54,9 @@ import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import OfflineStatusBanner from './OfflineStatusBanner';
 import { RenderProfiler } from './performanceMetrics';
+import { createLandmarkPagerPanResponder } from './landmarkPagerSwipe';
+import { shellPush } from './shellNavigate';
+import { useAuthStore } from './auth/authStore';
 
 /** Ті самі кольори, що кнопка «Вхід» / «Реєстрація» у ThirdPage (`authOnboardCta*`). */
 const AUTH_CTA_ACCENT = '#E1FF00';
@@ -62,6 +68,7 @@ const BODY_LINK_DARK = '#8EC5FF';
 const BODY_LINK_LIGHT = '#1558C0';
 
 const PREVIEW_BODY_LINES = 3;
+const PARAM_MENU_DISMISS_DRAG_PX = 56;
 const Speech = (() => {
   try {
     return require('expo-speech');
@@ -79,9 +86,9 @@ const PARAM_MENU_SHEET_DARK = '#141414';
 const PARAM_MENU_SHEET_LIGHT = '#FFFFFF';
 const PARAM_MENU_REPORT = '#EB4335';
 
-function TextWithOptionalUrls({ children, style, linkColor }) {
+function TextWithOptionalUrls({ children, style, linkColor, emphasisColor }) {
   const text = String(children ?? '');
-  if (!/(https?:\/\/)/i.test(text)) {
+  if (!/(https?:\/\/)/i.test(text) && !/\*\*/.test(text)) {
     return <Text style={style}>{text}</Text>;
   }
   const parts = text.split(/(https?:\/\/[^\s]+)/gi);
@@ -97,10 +104,192 @@ function TextWithOptionalUrls({ children, style, linkColor }) {
             {part}
           </Text>
         ) : (
-          part
+          <TextWithEmphasis key={`t-${i}`} text={part} emphasisColor={emphasisColor} />
         ),
       )}
     </Text>
+  );
+}
+
+function TextWithEmphasis({ text, emphasisColor }) {
+  const segments = useMemo(() => {
+    const src = String(text || '');
+    if (!/\*\*/.test(src)) return [{ type: 'plain', text: src }];
+    const out = [];
+    const re = /\*\*([^*]+)\*\*/g;
+    let last = 0;
+    let match;
+    while ((match = re.exec(src)) !== null) {
+      if (match.index > last) out.push({ type: 'plain', text: src.slice(last, match.index) });
+      out.push({ type: 'emphasis', text: match[1] });
+      last = match.index + match[0].length;
+    }
+    if (last < src.length) out.push({ type: 'plain', text: src.slice(last) });
+    return out.length ? out : [{ type: 'plain', text: src }];
+  }, [text]);
+
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'emphasis' ? (
+          <Text key={`e-${i}`} style={{ color: emphasisColor, fontWeight: '600' }}>
+            {seg.text}
+          </Text>
+        ) : (
+          seg.text
+        ),
+      )}
+    </>
+  );
+}
+
+function isIntroSectionHeading(block) {
+  const t = String(block || '').trim();
+  if (!t || t.length > 96) return false;
+  const sentences = t.split(/(?<=[.!?…])\s+/).filter(Boolean);
+  if (sentences.length !== 1) return false;
+  if (t.length > 72 && /[,;:—–-]/.test(t)) return false;
+  return true;
+}
+
+function parseIntroBodyBlocks(text) {
+  return String(text || '')
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => ({
+      type: isIntroSectionHeading(block) ? 'heading' : 'paragraph',
+      text: block,
+    }));
+}
+
+function LandmarkIntroFormattedBody({
+  text,
+  isLight,
+  accent,
+  titleColor,
+  bodyColor,
+  bodyLinkColor,
+  emphasisColor,
+  brandFontSans,
+  brandFontHeadMedium,
+  leadOnly = false,
+  uniformParagraphs = false,
+}) {
+  const blocks = useMemo(() => parseIntroBodyBlocks(text), [text]);
+  const mutedBody = isLight ? '#4A4A4A' : 'rgba(242,242,234,0.88)';
+
+  return (
+    <View style={styles.introFormattedBody}>
+      {blocks.map((block, idx) => {
+        if (block.type === 'heading') {
+          return (
+            <View key={`h-${idx}`} style={styles.introSectionHeadingWrap}>
+              <View style={[styles.introSectionHeadingRule, { backgroundColor: accent }]} />
+              <Text
+                style={[
+                  styles.introSectionHeading,
+                  brandFontHeadMedium,
+                  { color: titleColor },
+                ]}
+              >
+                {block.text}
+              </Text>
+            </View>
+          );
+        }
+        const isLead = !uniformParagraphs && idx === 0;
+        const isEmphasisLead = leadOnly && idx === 0 && !uniformParagraphs;
+        return (
+          <TextWithOptionalUrls
+            key={`p-${idx}`}
+            style={[
+              styles.introParagraph,
+              isLead && styles.introLeadParagraph,
+              isEmphasisLead && styles.introEmphasisParagraph,
+              brandFontSans,
+              { color: uniformParagraphs || isLead ? bodyColor : mutedBody },
+            ]}
+            linkColor={bodyLinkColor}
+            emphasisColor={emphasisColor}
+          >
+            {block.text}
+          </TextWithOptionalUrls>
+        );
+      })}
+    </View>
+  );
+}
+
+function LandmarkIllustrationLightbox({ visible, source, caption, onClose }) {
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const zoomScaleRef = useRef(1);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!visible) {
+      zoomScaleRef.current = 1;
+    }
+  }, [visible]);
+
+  const handleClose = useCallback(() => {
+    zoomScaleRef.current = 1;
+    onClose();
+  }, [onClose]);
+
+  const tryCloseOnTap = useCallback(() => {
+    if (zoomScaleRef.current <= 1.02) handleClose();
+  }, [handleClose]);
+
+  if (!visible || !source) return null;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={handleClose}>
+      <View style={styles.illustrationLightboxRoot}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={tryCloseOnTap} accessibilityRole="button" />
+        <ScrollView
+          ref={scrollRef}
+          style={styles.illustrationLightboxScroll}
+          contentContainerStyle={styles.illustrationLightboxScrollContent}
+          maximumZoomScale={Platform.OS === 'ios' ? 4 : 1}
+          minimumZoomScale={1}
+          centerContent
+          bouncesZoom
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          onScroll={(e) => {
+            zoomScaleRef.current = Number(e.nativeEvent?.zoomScale) || 1;
+          }}
+          scrollEventThrottle={16}
+        >
+          <Pressable onPress={tryCloseOnTap} accessibilityRole="imagebutton">
+            <Image
+              source={source}
+              style={{ width, height: Math.round(height * 0.72) }}
+              resizeMode="contain"
+            />
+          </Pressable>
+        </ScrollView>
+        {caption ? (
+          <Text
+            style={[styles.illustrationLightboxCaption, { bottom: Math.max(insets.bottom, 20) + 12 }]}
+            pointerEvents="none"
+          >
+            {caption}
+          </Text>
+        ) : null}
+        <Pressable
+          style={[styles.illustrationLightboxClose, { top: insets.top + 8 }]}
+          onPress={handleClose}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={28} color="#FFFFFF" />
+        </Pressable>
+      </View>
+    </Modal>
   );
 }
 
@@ -152,9 +341,45 @@ export default function LandmarkResultPage({ navigation, route }) {
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
 
   const photoUri = resolveOfflineUriSync(route?.params?.photoUri);
+  const defaultHeroPhotoSource = useMemo(() => {
+    const asset = route?.params?.photoAsset;
+    if (typeof asset === 'number') return asset;
+    if (photoUri) return { uri: photoUri };
+    return null;
+  }, [route?.params?.photoAsset, photoUri]);
   const title = route?.params?.title || '';
   const subtitle = route?.params?.subtitle;
   const extract = route?.params?.extract || '';
+  const introContinuation = useMemo(() => {
+    const raw = route?.params?.introContinuation;
+    return typeof raw === 'string' ? raw.trim() : '';
+  }, [route?.params?.introContinuation]);
+  const introPages = useMemo(() => {
+    const raw = route?.params?.introPages;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((page) => {
+        const body = typeof page?.body === 'string' ? page.body.trim() : '';
+        if (!body) return null;
+        const photoAsset = typeof page?.photoAsset === 'number' ? page.photoAsset : undefined;
+        const illustrationAsset =
+          typeof page?.illustrationAsset === 'number' ? page.illustrationAsset : undefined;
+        const illustrationLink =
+          typeof page?.illustrationLink === 'string' ? page.illustrationLink.trim() : '';
+        const illustrationCaption =
+          typeof page?.illustrationCaption === 'string' ? page.illustrationCaption.trim() : '';
+        const pageUri = typeof page?.photoUri === 'string' ? page.photoUri.trim() : '';
+        return {
+          body,
+          ...(photoAsset ? { photoAsset } : {}),
+          ...(pageUri ? { photoUri: pageUri } : {}),
+          ...(illustrationAsset ? { illustrationAsset } : {}),
+          ...(illustrationLink ? { illustrationLink } : {}),
+          ...(illustrationCaption ? { illustrationCaption } : {}),
+        };
+      })
+      .filter(Boolean);
+  }, [route?.params?.introPages]);
   const headerTitle = useMemo(() => {
     const h = typeof route?.params?.headerTitle === 'string' ? route.params.headerTitle.trim() : '';
     return h || title;
@@ -163,6 +388,10 @@ export default function LandmarkResultPage({ navigation, route }) {
     const t = typeof route?.params?.panelTagline === 'string' ? route.params.panelTagline.trim() : '';
     return t;
   }, [route?.params?.panelTagline]);
+  const previewBodyLines = useMemo(() => {
+    const n = Number(route?.params?.previewBodyLines);
+    return Number.isFinite(n) && n > 0 ? n : PREVIEW_BODY_LINES;
+  }, [route?.params?.previewBodyLines]);
   const wikipediaUrl = route?.params?.wikipediaUrl;
   const source = route?.params?.source;
   const startPhaseParam = route?.params?.startPhase;
@@ -199,7 +428,21 @@ export default function LandmarkResultPage({ navigation, route }) {
     return 'full';
   });
 
-  const miniSheetMaxH = useMemo(() => Math.min(winH * 0.48, 420), [winH]);
+  const miniSheetMaxH = useMemo(() => {
+    const hasExplicitMini =
+      typeof route?.params?.miniExtract === 'string' && route.params.miniExtract.trim();
+    const previewLines = Number(route?.params?.previewBodyLines);
+    const isHomeLandmark = startPhaseParam === 'home';
+    if (hasExplicitMini) {
+      return isHomeLandmark
+        ? Math.min(winH * 0.34, 292)
+        : Math.min(winH * 0.52, 440);
+    }
+    if (Number.isFinite(previewLines) && previewLines > PREVIEW_BODY_LINES) {
+      return Math.min(winH * 0.46, 400);
+    }
+    return Math.min(winH * 0.36, 320);
+  }, [winH, route?.params?.previewBodyLines, route?.params?.miniExtract, startPhaseParam]);
   /** Вхід нижньої панелі: з’являється знизу. */
   const miniPanelEnterY = useRef(new Animated.Value(280)).current;
   /** Вхід верхньої «скляної» панелі: з’являється зверху. */
@@ -215,6 +458,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   const [speaking, setSpeaking] = useState(false);
   const [paramsMenuOpen, setParamsMenuOpen] = useState(false);
   const [landmarkSaved, setLandmarkSaved] = useState(false);
+  const [illustrationLightboxOpen, setIllustrationLightboxOpen] = useState(false);
 
   useEffect(() => {
     let c = false;
@@ -228,7 +472,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, interruptionMode: 'mixWithOthers' }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -261,6 +505,7 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const visitLandmarkSave = route?.params?.visitLandmarkSave;
   const routeUser = route?.params?.user;
+  const authStoreUser = useAuthStore((s) => s.user);
   const countryIdParam = route?.params?.countryId;
   const visitLat =
     typeof route?.params?.visitLat === 'number' && Number.isFinite(route.params.visitLat)
@@ -420,6 +665,24 @@ export default function LandmarkResultPage({ navigation, route }) {
     }
   }, []);
 
+  const playLocalAudioUri = useCallback(
+    async (localUri) => {
+      Speech.stop();
+      const { sound } = await Audio.Sound.createAsync({ uri: localUri }, { shouldPlay: false });
+      soundRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((st) => {
+        if (st.isLoaded && st.didJustFinish) {
+          setSpeaking(false);
+          soundRef.current?.unloadAsync().catch(() => {});
+          soundRef.current = null;
+        }
+      });
+      setSpeaking(true);
+      await sound.playAsync();
+    },
+    [],
+  );
+
   useEffect(() => {
     return () => {
       Speech.stop();
@@ -434,6 +697,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   const subColor = isLight ? '#727272' : '#A8A8A8';
   const bodyColor = isLight ? '#333' : 'rgba(242,242,234,0.92)';
   const bodyLinkColor = isLight ? BODY_LINK_LIGHT : BODY_LINK_DARK;
+  const emphasisColor = isLight ? '#0C2FA8' : AUTH_CTA_ACCENT;
 
   const fromScanner = route?.params?.fromScanner === true;
   const sourceLine = useMemo(() => {
@@ -653,7 +917,6 @@ export default function LandmarkResultPage({ navigation, route }) {
     });
     return out;
   }, [postQuizSlides]);
-  const hasQuizPager = false;
   const fullReadTopClearance = 0;
   const isIntroTextShort = useMemo(() => String(fullBodyText || '').trim().length < 220, [fullBodyText]);
   const introAutoShift = useMemo(() => {
@@ -666,8 +929,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   const smallHeroHeight = useMemo(
     () =>
       isIntroTextShort
-        ? Math.min(620, Math.max(360, Math.round(winH * 0.56)))
-        : Math.min(500, Math.max(260, Math.round(winH * 0.42))),
+        ? Math.min(680, Math.max(400, Math.round(winH * 0.62)))
+        : Math.min(560, Math.max(300, Math.round(winH * 0.48))),
     [isIntroTextShort, winH],
   );
   const [fullReadViewportH, setFullReadViewportH] = useState(0);
@@ -679,7 +942,24 @@ export default function LandmarkResultPage({ navigation, route }) {
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const activeSectionIndexRef = useRef(0);
   const pageSections = useMemo(() => {
-    const pages = [{ id: 'intro', type: 'intro' }];
+    const pages = [{ id: 'intro', type: 'intro', introPart: 1 }];
+    if (introPages.length > 0) {
+      introPages.forEach((page, i) => {
+        pages.push({
+          id: `intro-${i + 2}`,
+          type: 'intro',
+          introPart: i + 2,
+          body: page.body,
+          photoAsset: page.photoAsset,
+          photoUri: page.photoUri,
+          illustrationAsset: page.illustrationAsset,
+          illustrationLink: page.illustrationLink,
+          illustrationCaption: page.illustrationCaption,
+        });
+      });
+    } else if (introContinuation) {
+      pages.push({ id: 'intro-2', type: 'intro', introPart: 2, body: introContinuation });
+    }
     if (hasStoryQuiz) pages.push({ id: 'quiz', type: 'quiz' });
     postQuizSections.forEach((slide) => {
       pages.push({
@@ -689,7 +969,31 @@ export default function LandmarkResultPage({ navigation, route }) {
       });
     });
     return pages;
-  }, [hasStoryQuiz, postQuizSections]);
+  }, [hasStoryQuiz, postQuizSections, introContinuation, introPages]);
+  const currentPage = pageSections[activeSectionIndex] || pageSections[0];
+  const heroPhotoSource = useMemo(() => {
+    if (currentPage?.type === 'intro' && currentPage.introPart > 1) {
+      if (typeof currentPage.photoAsset === 'number') return currentPage.photoAsset;
+      const subUri = typeof currentPage.photoUri === 'string' ? currentPage.photoUri.trim() : '';
+      if (subUri) return { uri: subUri };
+    }
+    return defaultHeroPhotoSource;
+  }, [currentPage, defaultHeroPhotoSource]);
+  const currentIllustration = useMemo(() => {
+    if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
+    if (typeof currentPage.illustrationAsset !== 'number') return null;
+    return {
+      asset: currentPage.illustrationAsset,
+      link: String(currentPage.illustrationLink || '').trim(),
+      caption: String(currentPage.illustrationCaption || '').trim(),
+    };
+  }, [currentPage]);
+  const currentIntroBody = useMemo(() => {
+    if (currentPage?.type !== 'intro') return '';
+    if (currentPage.introPart > 1) return String(currentPage.body || '').trim();
+    return fullBodyText;
+  }, [currentPage, fullBodyText]);
+  const isIntroSubPage = currentPage?.type === 'intro' && currentPage?.introPart > 1;
   const sectionDotCount = pageSections.length;
   const headerDotsContent =
     phase === 'full' && sectionDotCount > 1 ? (
@@ -711,6 +1015,7 @@ export default function LandmarkResultPage({ navigation, route }) {
     ) : null;
   const fullReadScrollRef = useRef(null);
   const fullReadScrollYRef = useRef(0);
+  const introScrollYRef = useRef(0);
   const [fullReadScrollY, setFullReadScrollY] = useState(0);
   const introSectionYRef = useRef(0);
   const introSectionHRef = useRef(0);
@@ -720,8 +1025,15 @@ export default function LandmarkResultPage({ navigation, route }) {
   const fullReadViewportHRef = useRef(0);
   const fullReadContentHRef = useRef(0);
 
-  const ttsLang = language === 'uk' ? 'uk-UA' : 'en-US';
-  const textForTts = phase === 'mini' ? (miniExtract || extract) : fullBodyText;
+  const audioScriptText = useMemo(() => {
+    const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+    const raw = langUk ? route?.params?.audioScriptUk : route?.params?.audioScriptEn;
+    return typeof raw === 'string' ? raw.trim() : '';
+  }, [language, route?.params?.audioScriptUk, route?.params?.audioScriptEn]);
+  const textForTts = useMemo(() => {
+    if (audioScriptText) return audioScriptText;
+    return phase === 'mini' ? (miniExtract || extract) : fullBodyText;
+  }, [audioScriptText, phase, miniExtract, extract, fullBodyText]);
 
   const toggleSpeech = useCallback(async () => {
     if (audioGuideUrl) {
@@ -733,17 +1045,7 @@ export default function LandmarkResultPage({ navigation, route }) {
       Speech.stop();
       try {
         const localUri = await getCachedOrRemoteAudioUri(audioGuideUrl);
-        const { sound } = await Audio.Sound.createAsync({ uri: localUri }, { shouldPlay: false });
-        soundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate((st) => {
-          if (st.isLoaded && st.didJustFinish) {
-            setSpeaking(false);
-            soundRef.current?.unloadAsync().catch(() => {});
-            soundRef.current = null;
-          }
-        });
-        setSpeaking(true);
-        await sound.playAsync();
+        await playLocalAudioUri(localUri);
       } catch (e) {
         setSpeaking(false);
         await stopFileAudio();
@@ -756,27 +1058,62 @@ export default function LandmarkResultPage({ navigation, route }) {
     const t = (textForTts || '').trim();
     if (!t) return;
     const on = await Speech.isSpeakingAsync();
-    if (on) {
+    if (on || soundRef.current) {
       Speech.stop();
+      await stopFileAudio();
       setSpeaking(false);
-    } else {
-      setSpeaking(true);
-      Speech.speak(t, {
-        language: ttsLang,
-        onDone: () => setSpeaking(false),
-        onStopped: () => setSpeaking(false),
-        onError: () => setSpeaking(false),
-      });
+      return;
     }
-  }, [audioGuideUrl, language, stopFileAudio, textForTts, ttsLang]);
+
+    setSpeaking(true);
+    try {
+      const mode = await startLandmarkNarration({
+        Speech,
+        text: t,
+        appLanguage: language,
+        playFileAudio: playLocalAudioUri,
+        callbacks: {
+          onDone: () => setSpeaking(false),
+          onStopped: () => setSpeaking(false),
+          onError: () => setSpeaking(false),
+        },
+      });
+      if (!mode) setSpeaking(false);
+    } catch (e) {
+      setSpeaking(false);
+      await stopFileAudio();
+      if (__DEV__) console.warn('[audioGuide]', e?.message);
+    }
+  }, [audioGuideUrl, language, playLocalAudioUri, stopFileAudio, textForTts]);
 
   const openFull = useCallback(() => {
     if (phase !== 'mini') return;
+    setPhase('full');
+  }, [phase]);
+
+  const onBack = useCallback(() => {
+    if (phase === 'full' && returnToMiniOnBack) {
+      setPhase('mini');
+      return;
+    }
     Speech.stop();
     stopFileAudio();
     setSpeaking(false);
-    setPhase('full');
-  }, [phase, stopFileAudio]);
+    navigation.goBack();
+  }, [phase, returnToMiniOnBack, navigation, stopFileAudio]);
+  const onBackRef = useRef(onBack);
+  useEffect(() => {
+    onBackRef.current = onBack;
+  }, [onBack]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'ios') return undefined;
+    navigation.setOptions({
+      gestureEnabled: phase !== 'full',
+      fullScreenGestureEnabled: phase !== 'full',
+    });
+    return undefined;
+  }, [navigation, phase]);
 
   const onIntroSectionLayout = useCallback((e) => {
     const nextY = Number(e?.nativeEvent?.layout?.y);
@@ -903,6 +1240,37 @@ export default function LandmarkResultPage({ navigation, route }) {
     [activeSectionIndex, goToSectionIndex, pageSections.length],
   );
 
+  /** На повному екрані: попередня секція пейджера або mini / goBack — не одразу на головну. */
+  const handleFullPhaseStepBack = useCallback(() => {
+    const current = Number.isFinite(activeSectionIndexRef.current)
+      ? activeSectionIndexRef.current
+      : activeSectionIndex;
+    if (current > 0) {
+      goToAdjacentSection(-1);
+      return;
+    }
+    onBackRef.current();
+  }, [activeSectionIndex, goToAdjacentSection]);
+  const handleFullPhaseStepBackRef = useRef(handleFullPhaseStepBack);
+  useEffect(() => {
+    handleFullPhaseStepBackRef.current = handleFullPhaseStepBack;
+  }, [handleFullPhaseStepBack]);
+
+  const handleLandmarkPagerSwipe = useCallback(
+    (dx) => {
+      const current = Number.isFinite(activeSectionIndexRef.current)
+        ? activeSectionIndexRef.current
+        : activeSectionIndex;
+      const maxIdx = Math.max(0, pageSections.length - 1);
+      if (dx < 0) {
+        if (current < maxIdx) goToAdjacentSection(1);
+        return;
+      }
+      handleFullPhaseStepBackRef.current();
+    },
+    [activeSectionIndex, goToAdjacentSection, pageSections.length],
+  );
+
   const onFullReadLayout = useCallback((e) => {
     const h = Number(e?.nativeEvent?.layout?.height);
     const next = Number.isFinite(h) ? Math.max(0, h) : 0;
@@ -916,12 +1284,17 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    setIllustrationLightboxOpen(false);
+  }, [activeSectionIndex]);
+
+  useEffect(() => {
     factSectionsRef.current = {};
     introSectionYRef.current = 0;
     introSectionHRef.current = 0;
     quizSectionYRef.current = 0;
     quizSectionHRef.current = 0;
     activeSectionIndexRef.current = 0;
+    introScrollYRef.current = 0;
     setActiveSectionIndex(0);
   }, [postQuizSections, hasStoryQuiz, phase]);
 
@@ -971,52 +1344,129 @@ export default function LandmarkResultPage({ navigation, route }) {
     [snapToClosestReadSection, computeActiveSectionIndex],
   );
 
-  const miniOpenPanResponder = useMemo(() => {
-    if (phase !== 'mini') return null;
-    return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 12 || Math.abs(g.dy) > 12,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 18 || Math.abs(g.dy) > 18,
-      onPanResponderRelease: (_, g) => {
-        const { dx, dy } = g;
-        const shouldOpen = dx < -30 || dy < -28;
-        const shouldGoBack = dx > 24;
-        if (shouldGoBack) {
-          onBack();
-          return;
-        }
-        if (shouldOpen) openFull();
-      },
+  const miniOpenPanResponder = useMemo(
+    () =>
+      createLandmarkPagerPanResponder({
+        enabled: phase === 'mini' && !paramsMenuOpen,
+        onSwipeUp: openFull,
+        onSwipeLeft: openFull,
+        onSwipeRight: onBack,
+      }),
+    [phase, paramsMenuOpen, openFull, onBack],
+  );
+
+  const fullBackPanResponder = useMemo(
+    () =>
+      createLandmarkPagerPanResponder({
+        enabled: phase === 'full' && !paramsMenuOpen,
+        canSwipeDown: () =>
+          currentPage?.type !== 'intro' || introScrollYRef.current <= 32,
+        onSwipeDown: () => handleFullPhaseStepBackRef.current(),
+        onSwipeLeft: () => handleLandmarkPagerSwipe(-1),
+        onSwipeRight: () => handleLandmarkPagerSwipe(1),
+      }),
+    [phase, paramsMenuOpen, handleLandmarkPagerSwipe, currentPage?.type],
+  );
+
+  const introScrollBackPanResponder = useMemo(
+    () =>
+      createLandmarkPagerPanResponder({
+        enabled: phase === 'full' && !paramsMenuOpen && currentPage?.type === 'intro',
+        canSwipeDown: () => introScrollYRef.current <= 32,
+        onSwipeDown: () => handleFullPhaseStepBackRef.current(),
+        onSwipeRight: () => handleFullPhaseStepBackRef.current(),
+      }),
+    [phase, paramsMenuOpen, currentPage?.type],
+  );
+
+  const fullBackSwipeHandlers =
+    paramsMenuOpen ? {} : fullBackPanResponder?.panHandlers || {};
+  const introScrollBackSwipeHandlers =
+    paramsMenuOpen ? {} : introScrollBackPanResponder?.panHandlers || {};
+  const landmarkSwipeHandlers = fullBackSwipeHandlers;
+  const miniSwipeHandlers = paramsMenuOpen ? {} : miniOpenPanResponder?.panHandlers || {};
+
+  const paramMenuSheetHRef = useRef(360);
+  const paramMenuDragY = useRef(new Animated.Value(0)).current;
+
+  const dismissParamsMenu = useCallback(() => {
+    paramMenuDragY.stopAnimation();
+    paramMenuDragY.setValue(0);
+    setParamsMenuOpen(false);
+  }, [paramMenuDragY]);
+  const dismissParamsMenuRef = useRef(dismissParamsMenu);
+  useEffect(() => {
+    dismissParamsMenuRef.current = dismissParamsMenu;
+  }, [dismissParamsMenu]);
+
+  const finishDismissParamsMenu = useCallback(() => {
+    const travel = Math.max(paramMenuSheetHRef.current, 280);
+    paramMenuDragY.stopAnimation();
+    Animated.timing(paramMenuDragY, {
+      toValue: travel,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => {
+      dismissParamsMenuRef.current();
     });
-  }, [phase, openFull, onBack]);
+  }, [paramMenuDragY]);
+  const finishDismissParamsMenuRef = useRef(finishDismissParamsMenu);
+  useEffect(() => {
+    finishDismissParamsMenuRef.current = finishDismissParamsMenu;
+  }, [finishDismissParamsMenu]);
 
-  const fullBackPanResponder = useMemo(() => {
-    if (phase !== 'full') return null;
-    return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, g) => {
-        if (currentPage?.type === 'compare') return false;
-        const ax = Math.abs(g.dx);
-        const ay = Math.abs(g.dy);
-        return ax > 14 && ax >= ay;
-      },
-      onMoveShouldSetPanResponder: (_, g) => {
-        if (currentPage?.type === 'compare') return false;
-        const ax = Math.abs(g.dx);
-        const ay = Math.abs(g.dy);
-        return ax > 18 && ax >= ay;
-      },
-      onPanResponderRelease: (_, g) => {
-        if (currentPage?.type === 'compare') return;
-        const ax = Math.abs(g.dx);
-        if (ax < 24) return;
-        if (g.dx < 0) goToAdjacentSection(1);
-        else goToAdjacentSection(-1);
-      },
+  useEffect(() => {
+    if (!paramsMenuOpen) return undefined;
+    const travel = Math.min(winH * 0.55, 460);
+    paramMenuDragY.setValue(travel);
+    Animated.spring(paramMenuDragY, {
+      toValue: 0,
+      useNativeDriver: true,
+      damping: 26,
+      stiffness: 240,
+      mass: 0.9,
+    }).start();
+    return undefined;
+  }, [paramsMenuOpen, paramMenuDragY, winH]);
+
+  useEffect(() => {
+    if (!paramsMenuOpen) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      dismissParamsMenuRef.current();
+      return true;
     });
-  }, [phase, goToAdjacentSection, currentPage?.type]);
+    return () => sub.remove();
+  }, [paramsMenuOpen]);
 
-  const closeParamsMenu = useCallback(() => setParamsMenuOpen(false), []);
+  const paramMenuSheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && g.dy > Math.abs(g.dx) * 1.05,
+        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 8 && g.dy > Math.abs(g.dx) * 1.08,
+        onPanResponderTerminationRequest: (_, g) => !(g.dy > 4 && g.dy > Math.abs(g.dx)),
+        onPanResponderMove: (_, g) => {
+          paramMenuDragY.setValue(Math.max(0, g.dy));
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dy > PARAM_MENU_DISMISS_DRAG_PX || g.vy > 0.24) {
+            finishDismissParamsMenuRef.current();
+            return;
+          }
+          Animated.spring(paramMenuDragY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 22,
+            stiffness: 280,
+          }).start();
+        },
+      }),
+    [paramMenuDragY],
+  );
 
-  const onMoreMenu = useCallback(() => setParamsMenuOpen(true), []);
+  const onMoreMenu = useCallback(() => {
+    setParamsMenuOpen(true);
+  }, []);
 
   const openMapsRoute = useCallback(() => {
     const url =
@@ -1027,8 +1477,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, [visitLat, visitLng, headerTitle]);
 
   const onParamPostStory = useCallback(async () => {
-    closeParamsMenu();
-    let u = routeUser;
+    dismissParamsMenu();
+    let u = routeUser || authStoreUser;
     if (!(u?.id || u?.firebaseUid)) {
       try {
         const s = await getSession();
@@ -1041,25 +1491,24 @@ export default function LandmarkResultPage({ navigation, route }) {
       Alert.alert('', ls(language, 'paramMenuNeedLogin'));
       return;
     }
-    try {
-      navigation.navigate('FeedPostComposer', {
+    shellPush(
+      'FeedCamera',
+      {
         user: u,
-        language,
-        appTheme,
+        publishVisibility: 'public',
+        cameraInitialMode: 'post',
         ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
-        uris: [],
         ...(visitLat != null && visitLng != null
           ? { pickedLat: visitLat, pickedLng: visitLng, pickedLabel: headerTitle }
           : {}),
-      });
-    } catch (e) {
-      if (__DEV__) console.warn('[LandmarkResult] FeedPostComposer', e?.message);
-      Alert.alert('', ls(language, 'paramMenuNeedLogin'));
-    }
+      },
+      appTheme,
+    );
+    void useAuthStore.getState().hydrate();
   }, [
-    closeParamsMenu,
-    navigation,
+    dismissParamsMenu,
     routeUser,
+    authStoreUser,
     language,
     appTheme,
     countryIdParam,
@@ -1069,7 +1518,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   ]);
 
   const onParamSave = useCallback(async () => {
-    closeParamsMenu();
+    dismissParamsMenu();
     const s = visitLandmarkSave;
     if (!s?.countryId || !s?.regionId || !s?.landmarkId) {
       Alert.alert('', ls(language, 'paramMenuSaveUnavailable'));
@@ -1082,20 +1531,20 @@ export default function LandmarkResultPage({ navigation, route }) {
     } catch {
       Alert.alert('', ls(language, 'paramMenuSaveUnavailable'));
     }
-  }, [closeParamsMenu, visitLandmarkSave, language]);
+  }, [dismissParamsMenu, visitLandmarkSave, language]);
 
   const onParamSharePublication = useCallback(() => {
-    closeParamsMenu();
+    dismissParamsMenu();
     const msg = `${headerTitle}\n\n${shareBody.slice(0, 2000)}`.trim();
     const payload =
       Platform.OS === 'ios'
         ? { message: msg, title: headerTitle }
         : { message: msg, title: headerTitle, subject: headerTitle };
     Share.share(payload).catch(() => {});
-  }, [closeParamsMenu, headerTitle, shareBody]);
+  }, [dismissParamsMenu, headerTitle, shareBody]);
 
   const onParamShareLocation = useCallback(() => {
-    closeParamsMenu();
+    dismissParamsMenu();
     const url =
       visitLat != null && visitLng != null
         ? `https://www.google.com/maps/search/?api=1&query=${visitLat},${visitLng}`
@@ -1104,41 +1553,35 @@ export default function LandmarkResultPage({ navigation, route }) {
     const payload =
       Platform.OS === 'ios' ? { message, title: headerTitle } : { message, title: headerTitle, subject: headerTitle };
     Share.share(payload).catch(() => {});
-  }, [closeParamsMenu, visitLat, visitLng, headerTitle]);
+  }, [dismissParamsMenu, visitLat, visitLng, headerTitle]);
 
   const onParamReport = useCallback(() => {
-    closeParamsMenu();
+    dismissParamsMenu();
     Alert.alert(ls(language, 'paramMenuReport'), ls(language, 'paramMenuReportHint'));
-  }, [closeParamsMenu, language]);
+  }, [dismissParamsMenu, language]);
 
   const onParamRoute = useCallback(() => {
-    closeParamsMenu();
+    dismissParamsMenu();
     openMapsRoute();
-  }, [closeParamsMenu, openMapsRoute]);
+  }, [dismissParamsMenu, openMapsRoute]);
 
   const onParamWiki = useCallback(() => {
-    closeParamsMenu();
+    dismissParamsMenu();
     if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
-  }, [closeParamsMenu, wikipediaUrl]);
-
-  const onBack = useCallback(() => {
-    if (phase === 'full' && returnToMiniOnBack) {
-      Speech.stop();
-      stopFileAudio();
-      setSpeaking(false);
-      setPhase('mini');
-      return;
-    }
-    Speech.stop();
-    stopFileAudio();
-    navigation.goBack();
-  }, [phase, returnToMiniOnBack, navigation, stopFileAudio]);
+  }, [dismissParamsMenu, wikipediaUrl]);
 
   const openWiki = useCallback(() => {
     if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
   }, [wikipediaUrl]);
 
   const sheetTagline = panelTagline || (subtitle ? String(subtitle) : '');
+  const isHomeMiniPanel = startPhaseParam === 'home';
+  const explicitMiniExtract =
+    typeof route?.params?.miniExtract === 'string' ? route.params.miniExtract.trim() : '';
+  const miniSheetTitle = isHomeMiniPanel ? String(title || headerTitle).trim() : headerTitle;
+  const miniSheetTagline = isHomeMiniPanel && panelTagline ? panelTagline : sheetTagline;
+  const miniSheetBody = explicitMiniExtract || miniExtract || extract;
+  const miniBodyUnlimited = !!explicitMiniExtract;
 
   const paramMenuRipple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const paramRowLabelColor = isLight ? '#1E1E1E' : FIGMA_CREAM;
@@ -1149,23 +1592,46 @@ export default function LandmarkResultPage({ navigation, route }) {
       visible={paramsMenuOpen}
       transparent
       animationType="fade"
-      onRequestClose={closeParamsMenu}
+      onRequestClose={dismissParamsMenu}
+      statusBarTranslucent
+      {...(Platform.OS === 'ios' ? { presentationStyle: 'overFullScreen' } : {})}
     >
-      <View style={styles.paramMenuRoot}>
-        <Pressable style={styles.paramMenuBackdrop} onPress={closeParamsMenu} accessibilityRole="button" />
-        <View
+      <View style={styles.paramMenuModalRoot}>
+        <Pressable
+          style={styles.paramMenuBackdropPress}
+          onPress={dismissParamsMenu}
+          accessibilityRole="button"
+          accessibilityLabel={ls(language, 'goBack')}
+        />
+        <Animated.View
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            if (h > 0) paramMenuSheetHRef.current = h;
+          }}
           style={[
             styles.paramMenuSheet,
             {
               backgroundColor: paramMenuSheetBg,
               paddingBottom: Math.max(insets.bottom, 16),
+              transform: [{ translateY: paramMenuDragY }],
             },
           ]}
+          {...paramMenuSheetPanResponder.panHandlers}
         >
-          <Text style={[styles.paramMenuTitle, brandFontHeadMedium, { color: paramRowLabelColor }]}>
-            {ls(language, 'paramMenuTitle')}
-          </Text>
-          <ScrollView keyboardShouldPersistTaps="handled" bounces={false} showsVerticalScrollIndicator={false}>
+          <View style={styles.paramMenuDragZone} pointerEvents="box-none">
+            <View style={styles.paramMenuHandleWrap}>
+              <View
+                style={[
+                  styles.paramMenuHandle,
+                  isLight ? styles.paramMenuHandleLight : styles.paramMenuHandleDark,
+                ]}
+              />
+            </View>
+            <Text style={[styles.paramMenuTitle, brandFontHeadMedium, { color: paramRowLabelColor }]}>
+              {ls(language, 'paramMenuTitle')}
+            </Text>
+          </View>
+          <View style={styles.paramMenuRows}>
             <Pressable
               style={styles.paramMenuRow}
               onPress={onParamPostStory}
@@ -1249,23 +1715,26 @@ export default function LandmarkResultPage({ navigation, route }) {
                 {ls(language, 'paramMenuReport')}
               </Text>
             </Pressable>
-          </ScrollView>
-        </View>
+          </View>
+        </Animated.View>
       </View>
     </Modal>
   );
-
-  const currentPage = pageSections[activeSectionIndex] || pageSections[0];
 
   if (phase === 'mini') {
     return (
       <RenderProfiler id="LandmarkResultPage">
       <View
-        style={[styles.screen, isLight && styles.screenLight]}
-        {...(miniOpenPanResponder?.panHandlers || {})}
+        style={styles.screen}
+        {...miniSwipeHandlers}
       >
-        {photoUri ? (
-          <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        {heroPhotoSource ? (
+          <Image
+            source={heroPhotoSource}
+            style={styles.miniHeroImage}
+            resizeMode="cover"
+            pointerEvents="none"
+          />
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
         )}
@@ -1289,6 +1758,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         <Animated.View
           style={[
             styles.miniBottomStack,
+            isLight && styles.miniBottomStackLight,
             {
               transform: [{ translateY: miniPanelEnterY }],
             },
@@ -1308,49 +1778,59 @@ export default function LandmarkResultPage({ navigation, route }) {
           <Animated.View
             style={[
               styles.miniSheet,
-              isLight ? styles.miniSheetShadowLight : styles.miniSheetShadowDark,
+              isLight ? styles.miniSheetLight : styles.miniSheetShadowDark,
               {
-                paddingBottom: Math.max(insets.bottom, 20),
+                maxHeight: miniSheetMaxH,
+                paddingBottom: isLight ? 16 : Math.max(insets.bottom, 16),
+                marginBottom: isLight ? Math.max(insets.bottom, 12) : Math.max(insets.bottom, 8),
               },
             ]}
+            {...miniSwipeHandlers}
+            accessibilityRole="button"
+            accessibilityLabel={ls(language, 'miniSwipeHint')}
           >
             {Platform.OS === 'ios' && !isLight ? (
               <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
-            ) : Platform.OS === 'ios' && isLight ? (
-              <BlurView intensity={48} tint="light" style={StyleSheet.absoluteFill} />
             ) : null}
             <View
               style={[
                 styles.miniSheetTint,
                 isLight
-                  ? { backgroundColor: 'rgba(255,255,255,0.93)' }
+                  ? styles.miniSheetTintLight
                   : { backgroundColor: 'rgba(30,30,30,0.82)' },
               ]}
             />
             <View style={styles.miniSheetInner}>
-              <Text style={[styles.chevronHint, { color: isLight ? 'rgba(0,0,0,0.26)' : 'rgba(255,255,255,0.38)' }]}>︿</Text>
+              <View style={styles.miniSheetHandleRow} pointerEvents="none">
+                <Ionicons
+                  name="chevron-up"
+                  size={24}
+                  color={isLight ? 'rgba(2, 18, 235, 0.42)' : 'rgba(255,255,255,0.55)'}
+                />
+              </View>
               <View style={styles.miniSheetBottomContent}>
                 <Text
                   style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
                   {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
                 >
-                  {headerTitle}
+                  {miniSheetTitle}
                 </Text>
-                {sheetTagline ? (
+                {miniSheetTagline ? (
                   <Text
                     style={[styles.subtitle, brandFontSans, { color: subColor }]}
-                    numberOfLines={2}
+                    numberOfLines={isHomeMiniPanel ? undefined : 2}
                     ellipsizeMode="tail"
                   >
-                    {sheetTagline}
+                    {miniSheetTagline}
                   </Text>
                 ) : null}
                 <Text
                   style={[styles.miniBody, styles.miniBodyClamp, brandFontSans, { color: bodyColor }]}
-                  numberOfLines={PREVIEW_BODY_LINES}
-                  ellipsizeMode="tail"
+                  {...(miniBodyUnlimited
+                    ? {}
+                    : { numberOfLines: previewBodyLines, ellipsizeMode: 'tail' })}
                 >
-                  {miniExtract || extract}
+                  {miniSheetBody}
                 </Text>
                 <AuthStylePrimaryCta
                   onPress={openFull}
@@ -1361,20 +1841,6 @@ export default function LandmarkResultPage({ navigation, route }) {
               </View>
             </View>
           </Animated.View>
-          {speaking ? (
-            <View
-              style={[
-                styles.ttsBanner,
-                isLight && styles.ttsBannerLight,
-                { bottom: miniSheetMaxH + 12 },
-              ]}
-            >
-              <ActivityIndicator size="small" color={accent} style={{ marginRight: 8 }} />
-              <Text style={[styles.ttsBannerText, isLight && styles.ttsBannerTextLight]}>
-                {ls(language, 'audioPlayingHint')}
-              </Text>
-            </View>
-          ) : null}
         </Animated.View>
       </View>
       {landmarkParamsMenu}
@@ -1393,9 +1859,9 @@ export default function LandmarkResultPage({ navigation, route }) {
               isLight && styles.fullReadHeroCardLight,
             ]}
           >
-            {photoUri ? (
+            {heroPhotoSource ? (
               <Image
-                source={{ uri: photoUri }}
+                source={heroPhotoSource}
                 style={[
                   styles.fullReadHeroImg,
                   isIntroTextShort ? { transform: [{ translateY: 22 + introAutoShift }] } : { transform: [{ translateY: 0 }] },
@@ -1406,31 +1872,84 @@ export default function LandmarkResultPage({ navigation, route }) {
               <View style={[styles.fullReadHeroImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
             )}
           </View>
+          <View style={styles.fullReadIntroScrollWrap} {...introScrollBackSwipeHandlers}>
           <ScrollView
-            style={styles.fullReadIntroScroll}
+            style={styles.fullReadScroll}
             contentContainerStyle={{
               paddingHorizontal: 20,
               paddingTop: 12 + introAutoShift,
               paddingBottom: Math.max(insets.bottom, 96),
             }}
             showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              const y = Number(e?.nativeEvent?.contentOffset?.y);
+              introScrollYRef.current = Number.isFinite(y) ? Math.max(0, y) : 0;
+            }}
           >
-            <Text
-              style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
-              {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
-            >
-              {headerTitle}
-            </Text>
-            {sheetTagline ? (
-              <Text style={[styles.subtitle, styles.fullReadSubtitle, brandFontSans, { color: subColor }]}>{sheetTagline}</Text>
+            {!isIntroSubPage ? (
+              <>
+                <Text
+                  style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
+                  {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
+                >
+                  {headerTitle}
+                </Text>
+                {sheetTagline ? (
+                  <View
+                    style={[
+                      styles.introTaglineBlock,
+                      { borderBottomColor: isLight ? 'rgba(2, 18, 235, 0.1)' : 'rgba(255,255,255,0.12)' },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.subtitle,
+                        styles.fullReadSubtitle,
+                        brandFontSans,
+                        { color: isLight ? 'rgba(2, 18, 235, 0.72)' : subColor },
+                      ]}
+                    >
+                      {sheetTagline}
+                    </Text>
+                  </View>
+                ) : null}
+                {showSourceTag ? (
+                  <Text style={[styles.sourceTag, brandFontSansMedium, { color: accent }]}>{sourceLine}</Text>
+                ) : null}
+              </>
             ) : null}
-            {showSourceTag ? (
-              <Text style={[styles.sourceTag, brandFontSansMedium, { color: accent }]}>{sourceLine}</Text>
+            <LandmarkIntroFormattedBody
+              text={currentIntroBody}
+              isLight={isLight}
+              accent={accent}
+              titleColor={titleColor}
+              bodyColor={bodyColor}
+              bodyLinkColor={bodyLinkColor}
+              emphasisColor={emphasisColor}
+              brandFontSans={brandFontSans}
+              brandFontHeadMedium={brandFontHeadMedium}
+              leadOnly={isIntroSubPage}
+              uniformParagraphs={isIntroSubPage}
+            />
+            {currentIllustration ? (
+              <Pressable
+                onPress={() => setIllustrationLightboxOpen(true)}
+                style={styles.introIllustrationLinkWrap}
+                android_ripple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
+              >
+                <Text style={[styles.introIllustrationLinkText, brandFontSansMedium, { color: accent }]}>
+                  {currentIllustration.link ||
+                    (language === 'uk' ? 'Подивитися, як це могло виглядати' : 'See how it might have looked')}
+                </Text>
+                {currentIllustration.caption ? (
+                  <Text style={[styles.introIllustrationCaption, brandFontSans, { color: bodyColor }]}>
+                    {currentIllustration.caption}
+                  </Text>
+                ) : null}
+              </Pressable>
             ) : null}
-            <TextWithOptionalUrls style={[styles.body, styles.fullReadBody, brandFontSans, { color: bodyColor }]} linkColor={bodyLinkColor}>
-              {fullBodyText}
-            </TextWithOptionalUrls>
-            {wikipediaUrl ? (
+            {!isIntroSubPage && wikipediaUrl ? (
               <AuthStylePrimaryCta
                 onPress={openWiki}
                 label={ls(language, 'more')}
@@ -1439,6 +1958,7 @@ export default function LandmarkResultPage({ navigation, route }) {
               />
             ) : null}
           </ScrollView>
+          </View>
         </View>
       ) : null}
 
@@ -1528,9 +2048,12 @@ export default function LandmarkResultPage({ navigation, route }) {
     <RenderProfiler id="LandmarkResultPage">
       <View
         style={[styles.screen, isLight && styles.screenLight]}
-        {...(currentPage?.type === 'compare' ? {} : fullBackPanResponder?.panHandlers || {})}
+        {...fullBackSwipeHandlers}
       >
-        <View style={[styles.miniTopDock, { paddingTop: insets.top + 2, paddingHorizontal: 6 }]} pointerEvents="box-none">
+        <View
+          style={[styles.miniTopDock, { paddingTop: insets.top + 2, paddingHorizontal: 6 }]}
+          pointerEvents="box-none"
+        >
           <LandmarkGlassHeaderBar
             isLight={isLight}
             accent={accent}
@@ -1541,49 +2064,15 @@ export default function LandmarkResultPage({ navigation, route }) {
           />
         </View>
         <OfflineStatusBanner isLight={isLight} top={insets.top + 70} />
-        {speaking ? (
-          <Pressable
-            onPress={toggleSpeech}
-            style={[
-              styles.audioBar,
-              styles.fullAudioBarOverlay,
-              {
-                top: insets.top + 10 + 56 + (hasQuizPager ? 22 : 8),
-                borderTopColor: accent,
-                backgroundColor: isLight ? 'rgba(255,255,255,0.97)' : 'rgba(30,30,30,0.92)',
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={ls(language, 'audioGuide')}
-          >
-            <Ionicons name="pause" size={22} color={accent} />
-            <Text style={[styles.audioBarText, { color: titleColor }]}>{ls(language, 'audioGuide')}</Text>
-            <View style={styles.audioBarTrack}>
-              <View style={[styles.audioBarFill, { backgroundColor: accent }]} />
-            </View>
-          </Pressable>
-        ) : null}
 
-        <View style={styles.readQuizPager}>{readArticleColumn}</View>
+        <View style={styles.readQuizPager} {...landmarkSwipeHandlers}>
+          {readArticleColumn}
+        </View>
 
         <View
           pointerEvents="box-none"
           style={[styles.bottomActionRow, { bottom: Math.max(insets.bottom, 16) + 18 }]}
         >
-          {phase === 'full' && activeSectionIndex < sectionDotCount - 1 ? (
-            <Pressable
-              style={[
-                styles.pageNextBtn,
-                isLight && styles.pageNextBtnLight,
-              ]}
-              onPress={() => goToAdjacentSection(1)}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Next section"
-            >
-              <Ionicons name="arrow-forward" size={24} color={isLight ? ACCENT_BLUE : '#1E1E1E'} />
-            </Pressable>
-          ) : null}
           <Pressable
             style={[
               styles.audioFabFull,
@@ -1598,6 +2087,12 @@ export default function LandmarkResultPage({ navigation, route }) {
           </Pressable>
         </View>
       </View>
+      <LandmarkIllustrationLightbox
+        visible={illustrationLightboxOpen}
+        source={currentIllustration?.asset}
+        caption={currentIllustration?.caption}
+        onClose={() => setIllustrationLightboxOpen(false)}
+      />
       {landmarkParamsMenu}
     </RenderProfiler>
   );
@@ -1610,6 +2105,9 @@ const styles = StyleSheet.create({
   },
   screenLight: {
     backgroundColor: '#E8E8E8',
+  },
+  miniHeroImage: {
+    ...StyleSheet.absoluteFillObject,
   },
   heroClip: {
     width: '100%',
@@ -1641,6 +2139,9 @@ const styles = StyleSheet.create({
     zIndex: 2,
     overflow: 'visible',
   },
+  miniBottomStackLight: {
+    backgroundColor: 'transparent',
+  },
   /** FAB сидить на «шві» картки: більша частина кола над верхом листа. */
   miniFabStraddle: {
     alignItems: 'flex-end',
@@ -1655,12 +2156,25 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   miniSheet: {
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    marginHorizontal: 10,
+    borderRadius: 28,
+    marginHorizontal: 14,
     overflow: 'hidden',
     paddingHorizontal: 0,
     paddingTop: 0,
+  },
+  miniSheetLight: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(2, 18, 235, 0.08)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+      },
+      android: { elevation: 8 },
+    }),
   },
   miniSheetShadowDark: {
     ...Platform.select({
@@ -1687,13 +2201,21 @@ const styles = StyleSheet.create({
   miniSheetTint: {
     ...StyleSheet.absoluteFillObject,
   },
+  miniSheetTintLight: {
+    backgroundColor: '#FFFFFF',
+  },
   miniSheetInner: {
     position: 'relative',
     zIndex: 1,
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 6,
+    paddingTop: 4,
+    paddingBottom: 4,
     justifyContent: 'flex-start',
+  },
+  miniSheetHandleRow: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   miniSheetBottomContent: {
     marginTop: 'auto',
@@ -1703,7 +2225,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   miniBodyClamp: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   miniTopDock: {
     position: 'absolute',
@@ -1743,6 +2265,56 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  introIllustrationLinkWrap: {
+    marginTop: 16,
+    marginRight: 56,
+  },
+  introIllustrationLinkText: {
+    fontSize: 16,
+    lineHeight: 22,
+    textDecorationLine: 'underline',
+  },
+  introIllustrationCaption: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    opacity: 0.82,
+  },
+  illustrationLightboxRoot: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+  },
+  illustrationLightboxScroll: {
+    flex: 1,
+  },
+  illustrationLightboxScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  illustrationLightboxCaption: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  illustrationLightboxClose: {
+    position: 'absolute',
+    right: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  fullReadIntroScrollWrap: {
+    flex: 1,
+  },
   fullReadScroll: {
     flex: 1,
     marginTop: 0,
@@ -1757,13 +2329,6 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginHorizontal: 4,
-  },
-  fullAudioBarOverlay: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    zIndex: 9,
-    borderRadius: 12,
   },
   readPagerHint: {
     fontSize: 13,
@@ -1921,55 +2486,6 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  ttsBanner: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  ttsBannerLight: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(2, 18, 235, 0.12)',
-  },
-  ttsBannerText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  ttsBannerTextLight: {
-    color: '#1E1E1E',
-  },
-  audioBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderTopWidth: 2,
-  },
-  audioBarText: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  audioBarTrack: {
-    height: 4,
-    width: 100,
-    borderRadius: 2,
-    backgroundColor: 'rgba(128,128,128,0.35)',
-    overflow: 'hidden',
-  },
-  audioBarFill: {
-    height: '100%',
-    width: '40%',
-    borderRadius: 2,
-  },
   audioFabFull: {
     width: 50,
     height: 50,
@@ -2004,36 +2520,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'flex-end',
     alignItems: 'flex-end',
-    rowGap: 12,
     zIndex: 10,
-  },
-  pageNextBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: FIGMA_CREAM,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 5,
-      },
-      android: { elevation: 5 },
-    }),
-  },
-  pageNextBtnLight: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(2, 18, 235, 0.2)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#0212EB',
-        shadowOpacity: 0.12,
-      },
-    }),
   },
   backGlyph: {
     color: '#FFF',
@@ -2075,9 +2562,47 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   fullReadSubtitle: {
-    fontSize: 12,
-    lineHeight: 14,
-    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: 0.2,
+  },
+  introTaglineBlock: {
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  introFormattedBody: {
+    paddingTop: 2,
+  },
+  introLeadParagraph: {
+    fontSize: 17,
+    lineHeight: 27,
+    marginBottom: 20,
+  },
+  introEmphasisParagraph: {
+    fontSize: 18,
+    lineHeight: 29,
+    letterSpacing: 0.1,
+  },
+  introParagraph: {
+    fontSize: 16,
+    lineHeight: 26,
+    marginBottom: 18,
+  },
+  introSectionHeadingWrap: {
+    marginTop: 4,
+    marginBottom: 22,
+  },
+  introSectionHeadingRule: {
+    width: 36,
+    height: 3,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  introSectionHeading: {
+    fontSize: 21,
+    lineHeight: 28,
+    letterSpacing: 0.15,
   },
   sourceTag: {
     fontSize: 12,
@@ -2133,19 +2658,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif-medium' } : {}),
   },
-  paramMenuRoot: {
+  paramMenuModalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
   },
-  paramMenuBackdrop: {
+  /** Тап по затемненому фону закриває панель. */
+  paramMenuBackdropPress: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   paramMenuSheet: {
+    width: '100%',
+    zIndex: 2,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '88%',
-    paddingTop: 16,
+    paddingTop: 4,
     paddingHorizontal: 8,
     ...Platform.select({
       ios: {
@@ -2162,6 +2691,29 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
     paddingHorizontal: 12,
+  },
+  paramMenuDragZone: {
+    paddingBottom: 2,
+    minHeight: 64,
+  },
+  paramMenuHandleWrap: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  paramMenuHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 999,
+  },
+  paramMenuHandleLight: {
+    backgroundColor: 'rgba(30,30,30,0.22)',
+  },
+  paramMenuHandleDark: {
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  paramMenuRows: {
+    paddingBottom: 4,
   },
   paramMenuRow: {
     flexDirection: 'row',

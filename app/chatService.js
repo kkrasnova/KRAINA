@@ -31,6 +31,23 @@ function uid() {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const DEMO_THREAD_ID_PREFIX = 'th_demo_';
+
+/** Локальні демо-чати з макету — не реальні користувачі. */
+export function isDemoThread(thread) {
+  if (!thread) return false;
+  const id = String(thread.id || '');
+  if (id.startsWith(DEMO_THREAD_ID_PREFIX)) return true;
+  const peerKey = String(thread.peerKey || '');
+  if (peerKey.startsWith('peer_')) return true;
+  if (peerKey.startsWith('friend_')) return true;
+  return false;
+}
+
+function stripDemoThreads(threads) {
+  return (threads || []).filter((t) => !isDemoThread(t));
+}
+
 async function readRaw(userKey) {
   const raw = await AsyncStorage.getItem(storageKey(userKey));
   if (!raw) return null;
@@ -85,7 +102,6 @@ async function cloudPush(uid, state) {
 export async function loadMessengerState(user) {
   const key = chatUserKey(user);
   let local = await readRaw(key);
-  const rawMissing = local == null;
   const uidCloud = auth?.currentUser?.uid;
 
   if (uidCloud) {
@@ -102,6 +118,14 @@ export async function loadMessengerState(user) {
     local = { version: 1, updatedAt: now(), threads: [] };
   }
   if (!Array.isArray(local.threads)) local.threads = [];
+
+  const cleaned = stripDemoThreads(local.threads);
+  if (cleaned.length !== local.threads.length) {
+    local.threads = cleaned;
+    local.updatedAt = now();
+    await writeRaw(key, local);
+    if (uidCloud) void cloudPush(uidCloud, local);
+  }
 
   return local;
 }

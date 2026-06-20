@@ -6,6 +6,7 @@ import {
   Pressable,
   Image,
   FlatList,
+  Platform,
   useWindowDimensions,
   ActivityIndicator,
   Alert,
@@ -36,6 +37,16 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
   const isLight = appTheme === 'light';
   const publishVisibility = route?.params?.publishVisibility === 'public' ? 'public' : 'followers';
   const initialUris = Array.isArray(route?.params?.initialUris) ? route.params.initialUris.filter(Boolean) : [];
+  const pickedLat =
+    typeof route?.params?.pickedLat === 'number' && Number.isFinite(route.params.pickedLat)
+      ? route.params.pickedLat
+      : null;
+  const pickedLng =
+    typeof route?.params?.pickedLng === 'number' && Number.isFinite(route.params.pickedLng)
+      ? route.params.pickedLng
+      : null;
+  const pickedLabel =
+    typeof route?.params?.pickedLabel === 'string' ? route.params.pickedLabel.trim() : '';
 
   const shell = useMemo(
     () => ({
@@ -44,8 +55,15 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
       appTheme,
       ...(countryId != null ? { countryId } : {}),
       publishVisibility,
+      ...(pickedLat != null && pickedLng != null
+        ? {
+            pickedLat,
+            pickedLng,
+            ...(pickedLabel ? { pickedLabel } : {}),
+          }
+        : {}),
     }),
-    [user, language, appTheme, countryId, publishVisibility],
+    [user, language, appTheme, countryId, publishVisibility, pickedLat, pickedLng, pickedLabel],
   );
 
   const [pinnedUris] = useState(() => [...initialUris]);

@@ -5,7 +5,7 @@ import { authenticateToken } from '../middleware/authMiddleware.js';
 import { HttpError } from '../errors/HttpError.js';
 import { config } from '../config.js';
 import { withIdempotency } from '../middleware/idempotency.js';
-import { saveFeedMediaFile, createPost, listMyPosts, listMyArchivedPosts, setPostArchived, listWorldPosts, listFriendsPosts, listUserPostsForViewer, createStory, listActiveStoriesTray, listActiveStoriesForUser, recordStoryView, getStoryViewers, getStoryLikers, toggleStoryLike, deleteStoryAsAuthor, togglePostLike, listPostComments, addPostComment, updatePostByAuthor, deletePostByAuthor, togglePostRepost, toggleCommentLike, deletePostCommentByAuthor, } from '../services/feedService.js';
+import { saveFeedMediaFile, createPost, listMyPosts, listMyArchivedPosts, setPostArchived, listWorldPosts, listFriendsPosts, listUserPostsForViewer, createStory, listActiveStoriesTray, listMyArchivedStories, listActiveStoriesForUser, recordStoryView, getStoryViewers, getStoryLikers, toggleStoryLike, deleteStoryAsAuthor, togglePostLike, listPostComments, addPostComment, updatePostByAuthor, deletePostByAuthor, togglePostRepost, toggleCommentLike, deletePostCommentByAuthor, } from '../services/feedService.js';
 const router = Router();
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -282,6 +282,19 @@ router.get('/stories', authenticateToken, async (req, res, next) => {
         if (!id)
             throw new HttpError(401, 'token_invalid');
         const stories = await listActiveStoriesTray(id);
+        res.status(200).json({ stories });
+    }
+    catch (e) {
+        next(e);
+    }
+});
+router.get('/stories/me/archived', authenticateToken, async (req, res, next) => {
+    try {
+        const id = req.authUser?.id;
+        if (!id)
+            throw new HttpError(401, 'token_invalid');
+        const limit = Math.min(80, Math.max(1, Number(req.query.limit) || 60));
+        const stories = await listMyArchivedStories(id, limit);
         res.status(200).json({ stories });
     }
     catch (e) {

@@ -9,6 +9,7 @@
  */
 import Constants from 'expo-constants';
 import { appLangBase } from './appLang';
+import { API_BASE_URL } from './auth/config';
 
 const UA = {
   'User-Agent': 'KRAÏNA/1.0 (landmark-scanner; https://example.com/contact)',
@@ -79,30 +80,53 @@ function getVisionKey() {
   return '';
 }
 
+async function visionLandmarkTitleViaBackend(base64Image) {
+  if (!base64Image || !API_BASE_URL) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/ai/vision-landmark`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ base64: base64Image }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const title = json?.title && String(json.title).trim();
+    return title || null;
+  } catch {
+    return null;
+  }
+}
+
 async function visionLandmarkTitle(base64Image) {
   const key = getVisionKey();
-  if (!key || !base64Image) return null;
-  const url = `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(key)}`;
-  const body = {
-    requests: [
-      {
-        image: { content: base64Image },
-        features: [{ type: 'LANDMARK_DETECTION', maxResults: 8 }],
-      },
-    ],
-  };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  if (json?.responses?.[0]?.error) return null;
-  const list = json?.responses?.[0]?.landmarkAnnotations;
-  if (!Array.isArray(list) || list.length === 0) return null;
-  const best = list.reduce((a, b) => ((b.score || 0) > (a.score || 0) ? b : a));
-  return best?.description || null;
+  if (key && base64Image) {
+    const url = `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(key)}`;
+    const body = {
+      requests: [
+        {
+          image: { content: base64Image },
+          features: [{ type: 'LANDMARK_DETECTION', maxResults: 8 }],
+        },
+      ],
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (!json?.responses?.[0]?.error) {
+        const list = json?.responses?.[0]?.landmarkAnnotations;
+        if (Array.isArray(list) && list.length > 0) {
+          const best = list.reduce((a, b) => ((b.score || 0) > (a.score || 0) ? b : a));
+          const title = best?.description?.trim();
+          if (title) return title;
+        }
+      }
+    }
+  }
+  return visionLandmarkTitleViaBackend(base64Image);
 }
 
 async function wikiSearchFirstTitle(query, wikiLang) {
@@ -273,7 +297,7 @@ export async function identifyLandmark(opts) {
 
   const base64 = opts.base64 && typeof opts.base64 === 'string' ? opts.base64.replace(/^data:image\/\w+;base64,/, '') : null;
 
-  if (base64 && getVisionKey()) {
+  if (base64) {
     const vTitle = await visionLandmarkTitle(base64);
     if (vTitle) {
       let wiki = await wikipediaFromQueryLoose(vTitle, wikiLang);

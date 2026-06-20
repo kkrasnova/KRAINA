@@ -6,12 +6,12 @@ import {
   Pressable,
   ScrollView,
   Platform,
-  Image,
   TextInput,
   Animated,
   Easing,
   Keyboard,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsive } from './useResponsive';
 import Lemon3DButton from './Lemon3DButton';
@@ -40,16 +40,16 @@ const CAROUSEL_FACE_RGB = [
 ];
 
 const CAROUSEL_FACE_SOURCES = [
-  require('./assets/premium_photo-1689371089286-6f75a9ecd4ca.avif'),
-  require('./assets/1234.avif'),
-  require('./assets/photo-1518684079-3c830dcef090.avif'),
-  require('./assets/photo-1580072624564-1fe6b660b7e2.avif'),
-  require('./assets/photo-1615119449152-d94284eafa45.avif'),
-  require('./assets/photo-1630227286297-f7cc7c97f415.avif'),
-  require('./assets/photo-1631603903804-9dab873f8522.avif'),
-  require('./assets/photo-1635317376825-59b7d18a9342.avif'),
-  require('./assets/premium_photo-1669399775776-16a90384a3e6.avif'),
-  require('./assets/premium_photo-1676319876974-3c9759cb8c4a.avif'),
+  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.jpg'),
+  require('./assets/carousel/1234.jpg'),
+  require('./assets/carousel/photo-1518684079-3c830dcef090.jpg'),
+  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.jpg'),
+  require('./assets/carousel/photo-1615119449152-d94284eafa45.jpg'),
+  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.jpg'),
+  require('./assets/carousel/photo-1631603903804-9dab873f8522.jpg'),
+  require('./assets/carousel/photo-1635317376825-59b7d18a9342.jpg'),
+  require('./assets/carousel/premium_photo-1669399775776-16a90384a3e6.jpg'),
+  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.jpg'),
 ];
 
 
@@ -886,10 +886,10 @@ export default function SecondPage({ navigation }) {
   const titleLineHeight = titleFontSize + 5;
 
   const carouselScale =
-    Math.min(r.scale, 1.08) * 0.88 * (r.isShortScreen ? 0.58 : 0.88) * 1.1;
+    Math.min(r.scale, 1.08) * 0.88 * (r.isShortScreen ? 0.58 : 0.88) * 0.96;
 
-  const carouselCardW = Math.round(108 * carouselScale);
-  const carouselCardH = Math.round(152 * carouselScale);
+  const carouselCardW = Math.round(116 * carouselScale);
+  const carouselCardH = Math.round(164 * carouselScale);
 
   const carouselRingR = carouselCardW + carouselCardH;
   const [ringRotationRad, setRingRotationRad] = useState(0);
@@ -902,24 +902,24 @@ export default function SecondPage({ navigation }) {
     };
   }, [carouselSpin]);
 
-  const carouselRingStageW = carouselRingR * 2 + carouselCardW + 24;
-  const carouselRingStageH = Math.max(carouselCardH + carouselRingR * 0.35, carouselRingR * 1.15) + 24;
+  const carouselRingStageW = Math.max(carouselRingR * 2 + carouselCardW + 16, sw);
+  const carouselRingStageH = Math.max(carouselCardH + carouselRingR * 0.28, carouselRingR * 1.05) + 8;
 
-  const carouselIdealH = Math.max(128, carouselRingStageH);
-  const carouselMaxH = Math.round(sh * (r.isShortScreen ? 0.155 : 0.19));
+  const carouselIdealH = Math.max(120, carouselRingStageH);
+  const carouselMaxH = Math.round(sh * (r.isShortScreen ? 0.14 : 0.17));
   const carouselWrapperMinH = Math.max(
-    r.isShortScreen ? 72 : 84,
+    r.isShortScreen ? 68 : 78,
     Math.min(carouselIdealH, carouselMaxH),
   );
 
   /** Ті самі зміщення, що на iPhone — однакова 3D-карусель на Android. */
-  const carouselRingNudgeDown = -34;
+  const carouselRingNudgeDown = -4;
   const carouselRingTranslateY = -88 + 68 + carouselRingNudgeDown;
 
   const listPanelMarginTop = r.isShortScreen ? 2 : 6;
   const listPanelMaxH = Math.round(sh * (r.isShortScreen ? 0.34 : 0.36));
 
-  const bottomClusterLift = r.isShortScreen ? -22 : -28;
+  const bottomClusterLift = r.isShortScreen ? -8 : -12;
 
   const continueBeforeRingGap = r.isShortScreen ? 12 : 16;
   const scrollbarThumbH = useMemo(() => {
@@ -1304,7 +1304,18 @@ export default function SecondPage({ navigation }) {
           />
         </Animated.View>
 
-        <View style={styles.bottomCarouselOnly}>
+        <Animated.View
+          style={[
+            styles.bottomCarouselOnly,
+            {
+              marginHorizontal: -r.horizontalPadding,
+              width: sw,
+              alignSelf: 'center',
+              opacity: footerBlockOpacity,
+              transform: [{ translateY: footerBlockTranslateY }],
+            },
+          ]}
+        >
           <View
             style={[styles.carouselWrapper, { minHeight: carouselWrapperMinH }]}
             pointerEvents="none"
@@ -1321,7 +1332,6 @@ export default function SecondPage({ navigation }) {
                     height: carouselRingStageH,
                     transform: [
                       { perspective: 900 },
-                      { rotateX: '-14deg' },
                       { translateY: carouselRingTranslateY },
                     ],
                   },
@@ -1336,7 +1346,7 @@ export default function SecondPage({ navigation }) {
               </View>
             </View>
           </View>
-        </View>
+        </Animated.View>
       </View>
       </Pressable>
     </View>
@@ -1758,13 +1768,13 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   bottomCarouselOnly: {
-    width: '100%',
     flexShrink: 0,
     zIndex: 0,
     elevation: 0,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingBottom: 0,
+    paddingBottom: 2,
+    overflow: 'visible',
   },
 
   carouselWrapper: {
@@ -1777,6 +1787,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 0,
     paddingTop: 0,
+    paddingVertical: 4,
   },
   carouselInnerAnchor: {
     alignItems: 'center',
@@ -1787,6 +1798,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'visible',
   },
   carouselRingFaceOuter: {
     position: 'absolute',
@@ -1794,21 +1806,16 @@ const styles = StyleSheet.create({
     top: '50%',
   },
   carouselCard: {
-    borderWidth: 2,
-    borderRadius: 12,
+    borderRadius: 10,
     overflow: 'hidden',
-    backgroundColor: '#1a1c22',
+    backgroundColor: '#000000',
   },
   carouselImg: {
-    width: '100%',
-    height: '100%',
-  },
-
-  carouselImgBrighten: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1,
-    borderRadius: 10,
-    backgroundColor: 'transparent',
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
   },
   optionText: {
     fontFamily: KFONT.regular,
@@ -1886,17 +1893,20 @@ function CarouselCylinderFaces({ carouselCardW, carouselCardH, ringRadius, rotat
     const θ = (2 * Math.PI * i) / CAROUSEL_QUANTITY + rotationRad;
     const depth = Math.cos(θ);
     const x = R * Math.sin(θ);
-    const scale = 0.38 + 0.62 * Math.max(0, depth);
-    const opacity = 1;
+    const scale = 0.82 + 0.18 * Math.max(0, depth);
+    const opacity = depth > -0.08 ? 1 : 0;
     const zIndex = Math.round(50 + 50 * depth);
     return { i, θ, depth, x, scale, opacity, zIndex };
   });
 
   faces.sort((a, b) => a.depth - b.depth);
 
-  return faces.map(({ i, x, scale, opacity, zIndex }) => {
+  return faces.map(({ i, x, scale, opacity, zIndex, depth }) => {
     const src = CAROUSEL_FACE_SOURCES[i];
     const [cr, cg, cb] = CAROUSEL_FACE_RGB[i] ?? [225, 255, 0];
+    const depthNorm = Math.max(0, depth);
+    const showBorder = depthNorm > 0.5;
+    if (opacity <= 0) return null;
     return (
       <View
         key={`carousel-${i}`}
@@ -1921,23 +1931,19 @@ function CarouselCylinderFaces({ carouselCardW, carouselCardH, ringRadius, rotat
             {
               width: carouselCardW,
               height: carouselCardH,
-              borderColor: `rgba(${cr}, ${cg}, ${cb}, 0.95)`,
+              borderWidth: showBorder ? 2 : 0,
+              borderColor: showBorder ? `rgba(${cr}, ${cg}, ${cb}, 0.92)` : 'transparent',
             },
           ]}
         >
-          <Image
+          <ExpoImage
             source={src}
             style={styles.carouselImg}
-            resizeMode="cover"
-            {...(Platform.OS === 'android' ? { resizeMethod: 'scale' } : {})}
+            contentFit="cover"
+            transition={0}
+            allowDownscaling={false}
+            cachePolicy="memory-disk"
             accessibilityIgnoresInvertColors
-          />
-          <View
-            style={[
-              styles.carouselImgBrighten,
-              { borderColor: `rgba(${cr}, ${cg}, ${cb}, 0.55)` },
-            ]}
-            pointerEvents="none"
           />
         </View>
       </View>

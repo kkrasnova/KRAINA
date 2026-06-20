@@ -106,12 +106,6 @@ export default function ProfileSavedRouteCard({
             pressed && { opacity: 0.92 },
           ]}
         >
-          <Ionicons
-            name="arrow-forward-circle-outline"
-            size={22}
-            color={onAccentButtonText(isLight)}
-            style={{ marginRight: 8 }}
-          />
           <Text style={[styles.ctaText, { color: onAccentButtonText(isLight) }, brandFontSansSemibold]}>
             {pf(language, 'savedRoutesOpenCta')}
           </Text>

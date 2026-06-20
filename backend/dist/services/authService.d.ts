@@ -17,7 +17,10 @@ export declare function registerUser(input: {
 }): Promise<AuthTokens>;
 export declare function loginWithPassword(emailRaw: string, password: string): Promise<AuthTokens>;
 export declare function loginOrRegisterGoogle(idToken: string): Promise<AuthTokens>;
+export declare function loginOrRegisterFacebook(accessToken: string): Promise<AuthTokens>;
 export declare function loginOrRegisterApple(identityToken: string, displayName?: string): Promise<AuthTokens>;
+/** Вхід/реєстрація за Firebase ID token (email/Google/Apple через Firebase Auth на клієнті). */
+export declare function loginOrRegisterFirebaseIdToken(idToken: string): Promise<AuthTokens>;
 export declare function rotateRefreshToken(rawRefresh: string): Promise<{
     access_token: string;
     refresh_token: string;

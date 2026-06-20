@@ -7,9 +7,11 @@ export const HERO_THUMB_MAP = {
   t2: require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png'),
   t3: require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png'),
   t4: require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png'),
+  maidan: require('./assets/maidan-nezalezhnosti-hero.jpg'),
+  maidanHome: require('./assets/maidan-home-thumb.jpg'),
 };
 
-export const HERO_THUMB_KEYS = ['t1', 't2', 't3', 't4'];
+export const HERO_THUMB_KEYS = ['t1', 't2', 't3', 't4', 'maidan', 'maidanHome'];
 
 export function isValidHeroThumbRef(ref) {
   return typeof ref === 'string' && HERO_THUMB_KEYS.includes(ref);

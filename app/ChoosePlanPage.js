@@ -7,33 +7,28 @@ import {
   Platform,
   Alert,
   Pressable,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
   ActivityIndicator,
-  Linking,
+  StatusBar as RNStatusBar,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import AppTopBar, { LIGHT_BAR_BG, mainContentTopBelowTopBar } from './AppTopBar';
-import { getAppTheme } from './themeStorage';
+import PagerView from 'react-native-pager-view';
+import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
+import AuthHeroHeader, { WAVE_STROKE_PAD as PLAN_HERO_WAVE_PAD } from './AuthHeroHeader';
+import { useAppTheme } from './useAppTheme';
 import { useResponsive } from './useResponsive';
 import Lemon3DButton from './Lemon3DButton';
 import {
   setPlanChoice,
   extendPaidSubscription,
   applyBackendSubscriptionToLocal,
-  getSubscriptionState,
   PRO_PRICE_USD,
   PRO_LIST_PRICE_USD,
   EXPLORER_PRICE_USD,
 } from './subscriptionStorage';
-import { postBillingVerify, postBillingCancelFeedback } from './auth/endpoints';
+import { postBillingVerify } from './auth/endpoints';
 import { useAuthStore } from './auth/authStore';
-import { ApiError } from './auth/types';
-import { isAppAdminUser } from './adminGate';
 import {
   getSubscriptionIdForPlatform,
   getSubscriptionIdsForFetch,
@@ -42,12 +37,10 @@ import {
 import { resolveProExpirationIso, findSubscriptionProduct, tierFromSubscriptionProductId } from './iapHelpers';
 import { safeInitIapConnection } from './iapConnection';
 import { getChoosePlanTexts } from './choosePlanI18n';
-import { brandFontText } from './brandFont';
+import { brandFontSansMedium, brandFontText } from './brandFont';
 import { useAppLanguage } from './useAppLanguage';
 import { getSavedCountryIdForUser } from './countryStorage';
 import { errorToUserText } from './errorText';
-
-const ANDROID_PACKAGE = 'com.kraina.app';
 
 const BG_TOP = '#0A0A0F';
 const BG_BOTTOM = '#12121a';
@@ -55,14 +48,7 @@ const ACCENT = '#E1FF00';
 const ACCENT_DIM = 'rgba(225, 255, 0, 0.14)';
 const BRAND_BLUE = '#6286E4';
 
-const CANCEL_REASON_DEFS = [
-  { id: 'too_expensive', labelKey: 'cancelReasonTooExpensive' },
-  { id: 'rarely_use', labelKey: 'cancelReasonRarelyUse' },
-  { id: 'missing_features', labelKey: 'cancelReasonMissingFeatures' },
-  { id: 'bugs_crash', labelKey: 'cancelReasonBugs' },
-  { id: 'switched_app', labelKey: 'cancelReasonOtherApp' },
-  { id: 'other', labelKey: 'cancelReasonOther' },
-];
+const PLAN_TABS = /** @type {const} */ (['free', 'explorer', 'pro']);
 
 export default function ChoosePlanPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -71,51 +57,13 @@ export default function ChoosePlanPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const fromSettings = !!route?.params?.fromSettings;
-  const routeTheme = route?.params?.appTheme;
-  const [appTheme, setAppTheme] = useState(() =>
-    routeTheme === 'light' || routeTheme === 'dark' ? routeTheme : 'dark',
-  );
+  const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme);
   const texts = getChoosePlanTexts(lang);
-  const authUser = useAuthStore((s) => s.user);
   const [busy, setBusy] = useState(null);
   const [planTab, setPlanTab] = useState('explorer');
-  const [paidSnapshot, setPaidSnapshot] = useState({ isPaid: false, tier: null });
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelReasons, setCancelReasons] = useState([]);
-  const [cancelComment, setCancelComment] = useState('');
-
   const userRef = useRef(user);
   userRef.current = user;
-
-  const accountDisplay = useMemo(() => {
-    const t = getChoosePlanTexts(lang);
-    const email =
-      (authUser?.email && String(authUser.email).trim()) || (user?.email && String(user.email).trim());
-    if (email) return email;
-    const un =
-      (authUser?.username && String(authUser.username).trim()) ||
-      (user?.username && String(user.username).trim());
-    if (un) return un;
-    const id = authUser?.id ?? user?.id;
-    if (id != null && String(id).trim() !== '') return String(id);
-    return t.cancelAccountPlaceholder;
-  }, [authUser, user, lang]);
-
-  const storeSubscriptionsUrl = useMemo(
-    () =>
-      Platform.OS === 'ios'
-        ? 'https://apps.apple.com/account/subscriptions'
-        : `https://play.google.com/store/account/subscriptions?package=${ANDROID_PACKAGE}`,
-    [],
-  );
-
-  const openStoreManageSubscriptions = useCallback(() => {
-    void Linking.openURL(storeSubscriptionsUrl).catch(() => {});
-  }, [storeSubscriptionsUrl]);
-
-  const storeManageCta =
-    Platform.OS === 'ios' ? texts.cancelOpenStoreCtaIos : texts.cancelOpenStoreCtaAndroid;
-  const storeTag = Platform.OS === 'ios' ? texts.cancelStoreTagIos : texts.cancelStoreTagAndroid;
+  const pagerRef = useRef(null);
 
   const goMain = useCallback(async () => {
     const u = userRef.current;
@@ -156,86 +104,6 @@ export default function ChoosePlanPage({ navigation, route }) {
   const iapModuleRef = useRef(null);
   const goMainRef = useRef(goMain);
   goMainRef.current = goMain;
-
-  useEffect(() => {
-    if (routeTheme === 'light' || routeTheme === 'dark') {
-      setAppTheme(routeTheme);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [routeTheme]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (routeTheme === 'light' || routeTheme === 'dark') {
-        return () => {};
-      }
-      let cancelled = false;
-      (async () => {
-        const t = await getAppTheme();
-        if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [routeTheme]),
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      (async () => {
-        const u = userRef.current;
-        if (isAppAdminUser(u)) {
-          if (!cancelled) setPaidSnapshot({ isPaid: false, tier: null });
-          return;
-        }
-        const s = await getSubscriptionState(u);
-        if (cancelled) return;
-        const tier =
-          s.isPaidActive && (s.tier === 'explorer' || s.tier === 'pro' || s.tier === 'family') ? s.tier : null;
-        setPaidSnapshot({ isPaid: !!tier, tier });
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [user?.id, user?.email, user?.firebaseUid]),
-  );
-
-  /** З Налаштувань / Архіву: одразу відкрити діалог скасування, якщо є платний тариф. */
-  useFocusEffect(
-    useCallback(() => {
-      if (route?.params?.openCancelSubscription !== true) return undefined;
-      let cancelled = false;
-      (async () => {
-        try {
-          const u = userRef.current;
-          if (isAppAdminUser(u)) return;
-          const s = await getSubscriptionState(u);
-          if (cancelled) return;
-          const tier =
-            s.isPaidActive && (s.tier === 'explorer' || s.tier === 'pro' || s.tier === 'family') ? s.tier : null;
-          if (tier) {
-            setShowCancelModal(true);
-          }
-        } finally {
-          if (!cancelled) {
-            navigation.setParams({ openCancelSubscription: false });
-          }
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [navigation, route?.params?.openCancelSubscription]),
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -405,62 +273,6 @@ export default function ChoosePlanPage({ navigation, route }) {
     }
   };
 
-  const toggleCancelReason = useCallback((id) => {
-    setCancelReasons((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }, []);
-
-  const openCancelModal = useCallback(() => {
-    setCancelReasons([]);
-    setCancelComment('');
-    setShowCancelModal(true);
-  }, []);
-
-  const onConfirmCancelSubscription = useCallback(async () => {
-    const t = getChoosePlanTexts(lang);
-    if (cancelReasons.length === 0) {
-      Alert.alert(t.cancelModalTitle, t.cancelNeedReason);
-      return;
-    }
-    const prev = paidSnapshot.tier;
-    if (prev !== 'explorer' && prev !== 'pro' && prev !== 'family') return;
-
-    setBusy('cancel');
-    try {
-      const token = useAuthStore.getState().accessToken;
-      if (token) {
-        await postBillingCancelFeedback(token, {
-          previous_plan: prev,
-          reason_codes: cancelReasons,
-          comment: cancelComment.trim() || null,
-          app_language: lang || null,
-        });
-      }
-      await setPlanChoice(userRef.current, 'free');
-      setShowCancelModal(false);
-      setCancelReasons([]);
-      setCancelComment('');
-      setPaidSnapshot({ isPaid: false, tier: null });
-      const successBody = token ? t.cancelSuccessBody : `${t.cancelSuccessBody}\n\n${t.cancelNoSessionBody}`;
-      const storeCta = Platform.OS === 'ios' ? t.cancelOpenStoreCtaIos : t.cancelOpenStoreCtaAndroid;
-      const storeUrl =
-        Platform.OS === 'ios'
-          ? 'https://apps.apple.com/account/subscriptions'
-          : `https://play.google.com/store/account/subscriptions?package=${ANDROID_PACKAGE}`;
-      Alert.alert(t.cancelSuccessTitle, successBody, [
-        { text: t.cancelSuccessDismiss, style: 'cancel' },
-        { text: storeCta, onPress: () => void Linking.openURL(storeUrl).catch(() => {}) },
-      ]);
-    } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? JSON.stringify(e.payload || {}) || e.message
-          : String(e?.message || '');
-      Alert.alert(t.cancelErrorTitle, msg ? `${t.cancelErrorBody}\n${msg}` : t.cancelErrorBody);
-    } finally {
-      setBusy(null);
-    }
-  }, [cancelReasons, cancelComment, lang, paidSnapshot.tier]);
-
   const onPro = async () => {
     setBusy('pro');
     const t = getChoosePlanTexts(lang);
@@ -491,10 +303,45 @@ export default function ChoosePlanPage({ navigation, route }) {
     }
   };
 
-  const cardPad = Math.max(14, Math.round(16 * r.scale));
-  const titleSize = r.titleFontSize || 22;
+  const compact = r.isShortScreen || r.isVeryShortScreen;
+  const titleSize = compact ? 20 : Math.min(r.titleFontSize || 22, 22);
+  const bulletSize = compact ? 11 : 12;
+  const bulletLineHeight = compact ? 16 : 17;
+  const priceMainSize = compact ? 19 : 21;
+  const cardHeadingSize = compact ? 13 : 14;
+  const bulletIconSize = compact ? 14 : 15;
+  const btnMinHeight = compact ? 40 : Math.max(44, Math.round(44 * r.scale));
+  const pageHeightsRef = useRef({ free: 0, explorer: 0, pro: 0 });
+  const planPagerDefaultHeight = compact ? 210 : 250;
+  const [pagerHeight, setPagerHeight] = useState(planPagerDefaultHeight);
 
-  const bullets = planTab === 'free' ? texts.freeBullets : planTab === 'explorer' ? texts.explorerBullets : texts.proBullets;
+  const syncPagerHeight = useCallback(() => {
+    const heights = Object.values(pageHeightsRef.current).filter((h) => h > 0);
+    const measuredMax = heights.length ? Math.max(...heights) : 0;
+    setPagerHeight(Math.max(planPagerDefaultHeight, measuredMax));
+  }, [planPagerDefaultHeight]);
+
+  const planIndex = Math.max(0, PLAN_TABS.indexOf(planTab));
+  const setPlanTabAndPage = useCallback(
+    (nextKey) => {
+      const k = nextKey === 'free' || nextKey === 'explorer' || nextKey === 'pro' ? nextKey : 'explorer';
+      setPlanTab(k);
+      const nextIndex = PLAN_TABS.indexOf(k);
+      if (nextIndex >= 0) {
+        try {
+          pagerRef.current?.setPage?.(nextIndex);
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    [],
+  );
+
+  const bulletsFor = useCallback(
+    (key) => (key === 'free' ? texts.freeBullets : key === 'explorer' ? texts.explorerBullets : texts.proBullets),
+    [texts.freeBullets, texts.explorerBullets, texts.proBullets],
+  );
 
   const onPrimary = () => {
     if (planTab === 'free') return onFree();
@@ -506,14 +353,61 @@ export default function ChoosePlanPage({ navigation, route }) {
   const primaryLabel =
     planTab === 'free' ? texts.chooseFree : planTab === 'explorer' ? texts.ctaExplorer : texts.ctaProUnlimited;
 
-  const light = appTheme === 'light';
+  const planTabLabels = {
+    free: texts.tabFree,
+    explorer: texts.tabExplorer,
+    pro: texts.tabPro,
+  };
+
   const showBack = navigation.canGoBack();
-  const showCancelCta = paidSnapshot.isPaid && paidSnapshot.tier && !isAppAdminUser(user);
+  const onboardingAuthLayout = !showBack;
+  const showAuthHeroLayout = true;
+  const heroWaveFill = light ? screenBg : BG_TOP;
+  const planHeroTopImage =
+    planTab === 'explorer'
+      ? require('./assets/choose-plan-explorer-hero-bottom.png')
+      : planTab === 'pro'
+        ? require('./assets/choose-plan-pro-hero-bottom.png')
+        : require('./assets/choose-plan-hero-bottom.png');
+  const planHeroBottomImage =
+    planTab === 'explorer'
+      ? require('./assets/choose-plan-explorer-hero-top.png')
+      : planTab === 'pro'
+        ? require('./assets/choose-plan-pro-hero-top.png')
+        : require('./assets/choose-plan-hero-top.png');
+  const planLayoutHeight = r.height;
+  const planHeroTopInset = Math.max(
+    r.insets.top,
+    Platform.OS === 'android' ? Math.round(RNStatusBar.currentHeight ?? 28) : 0,
+  );
+  const planHeroHeight = Math.round(
+    planLayoutHeight * (r.isVeryShortScreen ? 0.22 : r.isShortScreen ? 0.24 : 0.26),
+  );
+  const planHeroVisualBottom = planHeroHeight + PLAN_HERO_WAVE_PAD - planHeroTopInset;
+  const planPhotoContentGapPx = Math.round(
+    Math.min(28, Math.max(18, planLayoutHeight * 0.022)),
+  );
+  const planHeroSpacerHeight = Math.max(
+    Math.round(planHeroHeight * (r.isVeryShortScreen ? 0.58 : r.isShortScreen ? 0.62 : 0.66)),
+    planHeroVisualBottom + planPhotoContentGapPx,
+  );
+  const planFooterBottomBleedPx = Math.max(r.insets.bottom, 0);
+  const planFooterHeroHeight = planHeroHeight;
+  const planFooterHeroMinHeight = planFooterHeroHeight + PLAN_HERO_WAVE_PAD;
+  const planFooterHeroMarginTopPx = Math.round(
+    Math.max(10, planLayoutHeight * 0.018),
+  );
+  const planFooterHeroLiftPx = Math.round(
+    Math.min(18, Math.max(10, planLayoutHeight * 0.016)),
+  );
+  const planFooterHeroImageNudgeUpPx = Math.round(
+    Math.min(48, Math.max(24, planLayoutHeight * 0.032)),
+  );
   const pal = light
     ? {
         grad0: '#E8EDF7',
         grad1: LIGHT_BAR_BG,
-        rootSolid: 'transparent',
+        rootSolid: screenBg,
         title: BRAND_BLUE,
         subtitle: '#3A3A3A',
         segmentBg: 'rgba(0, 0, 0, 0.05)',
@@ -525,7 +419,7 @@ export default function ChoosePlanPage({ navigation, route }) {
         cardFill: 'rgba(98, 134, 228, 0.1)',
         cardHeading: BRAND_BLUE,
         textMain: '#1E1E1E',
-        priceWas: '#888888',
+        priceWas: '#B3261E',
         priceMuted: 'rgba(30,30,30,0.75)',
         hint: '#5C5C5C',
         divider: 'rgba(30,30,30,0.12)',
@@ -539,7 +433,7 @@ export default function ChoosePlanPage({ navigation, route }) {
     : {
         grad0: BG_TOP,
         grad1: BG_BOTTOM,
-        rootSolid: 'transparent',
+        rootSolid: APP_SCREEN_BG,
         title: ACCENT,
         subtitle: '#FFFFFF',
         segmentBg: 'rgba(42, 42, 42, 0.95)',
@@ -551,7 +445,7 @@ export default function ChoosePlanPage({ navigation, route }) {
         cardFill: ACCENT_DIM,
         cardHeading: ACCENT,
         textMain: '#FFFFFF',
-        priceWas: '#6B6B6B',
+        priceWas: '#FF6B6B',
         priceMuted: 'rgba(255,255,255,0.85)',
         hint: '#AAAAAA',
         divider: 'rgba(255,255,255,0.2)',
@@ -564,761 +458,716 @@ export default function ChoosePlanPage({ navigation, route }) {
       };
 
   return (
-    <View style={[styles.root, { backgroundColor: pal.rootSolid }]}>
-      <LinearGradient colors={[pal.grad0, pal.grad1]} style={StyleSheet.absoluteFillObject} />
-      {showBack ? (
-        <AppTopBar
-          appTheme={light ? 'light' : 'dark'}
-          leftMode="back"
-          onBackPress={() => navigation.goBack()}
-          replaceCenterTitle={texts.navTitle}
-          hideSendButton
-          transparentHeader
-        />
+    <View style={[styles.root, { backgroundColor: showAuthHeroLayout ? heroWaveFill : pal.rootSolid }]}>
+      {showAuthHeroLayout ? null : (
+        <LinearGradient colors={[pal.grad0, pal.grad1]} style={StyleSheet.absoluteFillObject} />
+      )}
+      {showAuthHeroLayout ? (
+        <>
+          {Platform.OS === 'android' ? (
+            <RNStatusBar
+              translucent
+              backgroundColor="transparent"
+              barStyle={light ? 'dark-content' : 'light-content'}
+            />
+          ) : null}
+          <AuthHeroHeader
+            source={planHeroTopImage}
+            height={planHeroHeight}
+            topInset={planHeroTopInset}
+            imageContentPosition="bottom"
+            waveFillColor={heroWaveFill}
+            style={[
+              styles.planHeroBackdrop,
+              planHeroTopInset > 0 ? { top: -planHeroTopInset } : null,
+            ]}
+          />
+        </>
+      ) : null}
+      {showAuthHeroLayout ? (
+        <View style={{ height: planHeroSpacerHeight }} pointerEvents="none" />
+      ) : null}
+      {showBack && showAuthHeroLayout ? (
+        <View style={styles.planTopBarOverHero} pointerEvents="box-none">
+          <AppTopBar
+            appTheme={light ? 'light' : 'dark'}
+            leftMode="back"
+            onBackPress={() => navigation.goBack()}
+            hideSendButton
+            transparentHeader
+          />
+        </View>
       ) : null}
       <View
         style={[
           styles.safe,
+          showAuthHeroLayout && styles.safeOverHero,
           {
-            paddingTop: showBack ? mainContentTopBelowTopBar(insets.top) : insets.top + 8,
-            paddingBottom: insets.bottom + 12,
+            paddingTop: showBack && !showAuthHeroLayout ? 6 : 0,
+            paddingBottom: showAuthHeroLayout ? 0 : insets.bottom + (compact ? 8 : 12),
           },
         ]}
       >
+        {showBack && !showAuthHeroLayout ? (
+          <AppTopBar
+            appTheme={light ? 'light' : 'dark'}
+            leftMode="back"
+            onBackPress={() => navigation.goBack()}
+            replaceCenterTitle={texts.navTitle}
+            hideSendButton
+            transparentHeader
+          />
+        ) : null}
         <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: r.horizontalPadding }]}
+          style={[styles.scroll, showAuthHeroLayout && styles.scrollOverHero]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            (onboardingAuthLayout || showAuthHeroLayout) && styles.scrollContentOnboarding,
+            compact && styles.scrollContentCompact,
+            showAuthHeroLayout && styles.scrollContentHeroFooter,
+            {
+              paddingHorizontal: r.horizontalPadding,
+              paddingTop: showAuthHeroLayout ? planPhotoContentGapPx : 0,
+              flexGrow: showAuthHeroLayout ? 1 : undefined,
+              alignItems: showAuthHeroLayout ? 'stretch' : undefined,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={!showAuthHeroLayout}
+          bounces={showAuthHeroLayout ? false : !onboardingAuthLayout}
+          alwaysBounceVertical={false}
+          overScrollMode={showAuthHeroLayout ? 'never' : 'auto'}
         >
-          <Text style={[styles.title, { fontSize: titleSize, lineHeight: titleSize + 6, color: pal.title }]}>
-            {texts.title}
+          <View
+            style={
+              onboardingAuthLayout
+                ? styles.planCenterWrap
+                : showAuthHeroLayout && showBack
+                  ? styles.planSettingsBody
+                  : null
+            }
+          >
+          <Text
+            style={[
+              styles.cardHeading,
+              styles.cardHeadingAbovePitch,
+              { fontSize: cardHeadingSize, color: pal.cardHeading },
+            ]}
+          >
+            {texts.cardHeading}
           </Text>
-          <Text style={[styles.subtitle, { fontSize: r.subtitleFontSize || 14, color: pal.subtitle }]}>
-            {texts.subtitle}
-          </Text>
-
-          <View style={styles.segmentRow}>
-            {['free', 'explorer', 'pro'].map((key) => (
-              <Pressable
-                key={key}
-                style={[
-                  styles.segmentBtn,
-                  { backgroundColor: pal.segmentBg, borderColor: 'transparent' },
-                  planTab === key && styles.segmentBtnActive,
-                  key === 'explorer' &&
-                    planTab !== key && {
-                      borderWidth: 1,
-                      borderColor: pal.explorerOutline,
-                    },
-                ]}
-                onPress={() => setPlanTab(key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: planTab === key }}
-              >
+          {!showBack ? (
+            <>
+              <Text style={[styles.title, { fontSize: titleSize, lineHeight: titleSize + 4, color: pal.title }]}>
+                {texts.title}
+              </Text>
+              <View style={[styles.headerPitch, compact && styles.headerPitchCompact]}>
                 <Text
                   style={[
-                    styles.segmentLabel,
-                    { color: pal.segmentLabel },
-                    planTab === key && [styles.segmentLabelActive, { color: pal.segmentLabelActive }],
+                    styles.headerPitchTitle,
+                    compact && styles.headerPitchTitleCompact,
+                    { color: pal.footerTitle },
                   ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
                 >
-                  {key === 'free' ? texts.freeTitle : key === 'explorer' ? texts.explorerTitle : texts.proTitle}
+                  {texts.footerPitchTitle}
                 </Text>
-              </Pressable>
-            ))}
-          </View>
+                <Text
+                  style={[
+                    styles.headerPitchBody,
+                    compact && styles.headerPitchBodyCompact,
+                    { color: pal.footerBody, opacity: light ? 1 : 0.92 },
+                  ]}
+                >
+                  {texts.footerPitchBody}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <View style={[styles.headerPitch, compact && styles.headerPitchCompact]}>
+              <Text
+                style={[
+                  styles.headerPitchTitle,
+                  compact && styles.headerPitchTitleCompact,
+                  { color: pal.footerTitle },
+                ]}
+              >
+                {texts.footerPitchTitle}
+              </Text>
+              <Text
+                style={[
+                  styles.headerPitchBody,
+                  compact && styles.headerPitchBodyCompact,
+                  { color: pal.footerBody, opacity: light ? 1 : 0.92 },
+                ]}
+              >
+                {texts.footerPitchBody}
+              </Text>
+            </View>
+          )}
 
-          {planTab === 'explorer' && texts.explorerBadge ? (
-            <Text style={[styles.badgeHint, { color: pal.badge }]}>{texts.explorerBadge}</Text>
-          ) : null}
+          <View style={[styles.segmentRow, texts.explorerBadge ? styles.segmentRowWithBadge : null]}>
+            {PLAN_TABS.map((key) => {
+              const isActive = planTab === key;
+              const showExplorerBadge = key === 'explorer' && !!texts.explorerBadge;
+              return (
+              <View key={key} style={styles.segmentSlot}>
+                {showExplorerBadge ? (
+                  <View style={styles.explorerBadgeWrap} pointerEvents="none">
+                    <View
+                      style={[
+                        styles.explorerBadgeChip,
+                        {
+                          backgroundColor: light ? BRAND_BLUE : ACCENT,
+                          borderColor: light ? 'rgba(255,255,255,0.35)' : 'rgba(16,16,16,0.12)',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.explorerBadgeText,
+                          { color: light ? '#FFFFFF' : '#101010' },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {texts.explorerBadge}
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+                <Pressable
+                  style={[
+                    styles.segmentBtn,
+                    showExplorerBadge && styles.segmentBtnWithBadge,
+                    {
+                      backgroundColor: isActive ? ACCENT : pal.segmentBg,
+                      borderColor: isActive
+                        ? light
+                          ? BRAND_BLUE
+                          : ACCENT
+                        : light
+                          ? 'rgba(98, 134, 228, 0.22)'
+                          : key === 'explorer'
+                            ? pal.explorerOutline
+                            : 'transparent',
+                      borderWidth: light ? (isActive ? 2 : 1) : isActive ? 2 : key === 'explorer' ? 1 : 0,
+                    },
+                  ]}
+                  onPress={() => setPlanTabAndPage(key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={planTabLabels[key]}
+                  accessibilityState={{ selected: isActive }}
+                >
+                  <Text
+                    style={[
+                      styles.segmentLabel,
+                      { color: isActive ? pal.segmentLabelActive : pal.segmentLabel },
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    allowFontScaling={false}
+                  >
+                    {planTabLabels[key]}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+            })}
+          </View>
 
           <View
             style={[
-              styles.card,
-              {
-                padding: cardPad,
-                borderColor: pal.cardBorder,
-                backgroundColor: pal.cardFill,
-              },
+              showAuthHeroLayout && styles.planMainCenter,
             ]}
           >
-            <Text style={[styles.cardHeading, { color: pal.cardHeading }]}>{texts.cardHeading}</Text>
+          <View style={styles.planBodyWrap}>
+            <PagerView
+              ref={pagerRef}
+              style={[
+                styles.planPager,
+                { height: pagerHeight },
+              ]}
+              initialPage={planIndex}
+              onPageSelected={(e) => {
+                const i = e?.nativeEvent?.position ?? 0;
+                const key = PLAN_TABS[i] || 'explorer';
+                setPlanTab(key);
+              }}
+            >
+              {PLAN_TABS.map((key) => {
+                const bullets = bulletsFor(key);
+                return (
+                  <View
+                    key={key}
+                    collapsable={false}
+                    onLayout={(ev) => {
+                      const h = Math.round(ev?.nativeEvent?.layout?.height || 0);
+                      if (h > 0 && pageHeightsRef.current[key] !== h) {
+                        pageHeightsRef.current[key] = h;
+                        syncPagerHeight();
+                      }
+                    }}
+                    style={[
+                      styles.planPagerPage,
+                      styles.planBody,
+                      compact && styles.planBodyCompact,
+                      key !== 'free' && styles.planBodyPaidTail,
+                    ]}
+                  >
+                    <View style={[styles.priceBlock, compact && styles.priceBlockCompact]}>
+                      {key === 'pro' ? (
+                        <>
+                          <View style={styles.priceMainRow}>
+                            <Text style={[styles.priceMain, { fontSize: priceMainSize, color: pal.textMain }]}>
+                              ${PRO_PRICE_USD.toFixed(2)}
+                            </Text>
+                            <Text style={[styles.priceSlash, { color: pal.priceMuted }]}> /</Text>
+                            <Text style={[styles.pricePeriod, { color: pal.priceMuted }]}> {texts.proPricePeriod}</Text>
+                            <Text style={[styles.priceWas, styles.priceWasInline, { color: pal.priceWas }]}>
+                              ${PRO_LIST_PRICE_USD.toFixed(2)}
+                            </Text>
+                          </View>
+                          {texts.proHint ? (
+                            <Text style={[styles.hint, { color: pal.hint }]}>{texts.proHint}</Text>
+                          ) : null}
+                        </>
+                      ) : key === 'explorer' ? (
+                        <>
+                          <View style={styles.priceMainRow}>
+                            <Text style={[styles.priceMain, { fontSize: priceMainSize, color: pal.textMain }]}>
+                              ${EXPLORER_PRICE_USD.toFixed(2)}
+                            </Text>
+                            <Text style={[styles.priceSlash, { color: pal.priceMuted }]}> /</Text>
+                            <Text style={[styles.pricePeriod, { color: pal.priceMuted }]}> {texts.explorerPricePeriod}</Text>
+                          </View>
+                          {texts.explorerHint ? (
+                            <Text style={[styles.hint, { color: pal.hint }]}>{texts.explorerHint}</Text>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <Text style={[styles.priceMain, { fontSize: priceMainSize, color: pal.textMain }]}>
+                            {texts.freePrice}
+                          </Text>
+                          <Text style={[styles.hint, { color: pal.hint }]}>{texts.freeHint}</Text>
+                        </>
+                      )}
+                    </View>
 
-            <View style={styles.priceBlock}>
-              {planTab === 'pro' ? (
-                <>
-                  <Text style={[styles.priceWas, { color: pal.priceWas }]}>${PRO_LIST_PRICE_USD.toFixed(2)}</Text>
-                  <View style={styles.priceMainRow}>
-                    <Text style={[styles.priceMain, { color: pal.textMain }]}>${PRO_PRICE_USD.toFixed(2)}</Text>
-                    <Text style={[styles.priceSlash, { color: pal.priceMuted }]}> /</Text>
-                    <Text style={[styles.pricePeriod, { color: pal.priceMuted }]}> {texts.proPricePeriod}</Text>
+                    <View style={[styles.divider, compact && styles.dividerCompact, { backgroundColor: pal.divider }]} />
+
+                    <View style={styles.bulletList}>
+                      {bullets.map((line, i) => (
+                        <View key={i} style={[styles.bulletItem, compact && styles.bulletItemCompact]}>
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={bulletIconSize}
+                            color={pal.bulletIcon}
+                            style={styles.bulletIcon}
+                          />
+                          <Text
+                            style={[
+                              styles.bullet,
+                              { fontSize: bulletSize, lineHeight: bulletLineHeight, color: pal.bullet },
+                            ]}
+                          >
+                            {line}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                </>
-              ) : planTab === 'explorer' ? (
-                <>
-                  <View style={styles.priceMainRow}>
-                    <Text style={[styles.priceMain, { color: pal.textMain }]}>${EXPLORER_PRICE_USD.toFixed(2)}</Text>
-                    <Text style={[styles.priceSlash, { color: pal.priceMuted }]}> /</Text>
-                    <Text style={[styles.pricePeriod, { color: pal.priceMuted }]}> {texts.explorerPricePeriod}</Text>
-                  </View>
-                  <Text style={[styles.hint, { color: pal.hint }]}>{texts.explorerHint}</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.priceMain, { color: pal.textMain }]}>{texts.freePrice}</Text>
-                  <Text style={[styles.hint, { color: pal.hint }]}>{texts.freeHint}</Text>
-                </>
-              )}
-            </View>
-
-            <View style={[styles.divider, { backgroundColor: pal.divider }]} />
-
-            {bullets.map((line, i) => (
-              <View key={i} style={styles.bulletRow}>
-                <Ionicons name="checkmark-circle" size={18} color={pal.bulletIcon} style={styles.bulletIcon} />
-                <Text style={[styles.bullet, { color: pal.bullet }]}>{line}</Text>
-              </View>
-            ))}
-
-            {planTab === 'free' ? (
-              <Text style={[styles.socialTag, { color: pal.socialTag }]}>{texts.socialTag}</Text>
-            ) : planTab === 'explorer' ? (
-              <Text style={[styles.proNote, { color: pal.proNote }]}>{texts.explorerNote}</Text>
-            ) : (
-              <Text style={[styles.proNote, { color: pal.proNote }]}>{texts.proNote}</Text>
-            )}
-
-            <Lemon3DButton
-              label={primaryLabel}
-              onPress={onPrimary}
-              disabled={!!busy}
-              loading={primaryBusy}
-              minHeight={Math.max(47, Math.round(47 * r.scale))}
-              textStyle={planTab === 'free' ? styles.btnSecondaryText : styles.btnPrimaryText}
-              style={planTab === 'free' ? styles.btnSecondaryWrap : styles.btnPrimaryWrap}
-            />
+                );
+              })}
+            </PagerView>
           </View>
 
-          <View style={styles.footerPitch}>
-            <Text style={[styles.footerPitchTitle, { color: pal.footerTitle }]}>{texts.footerPitchTitle}</Text>
-            <Text style={[styles.footerPitchBody, { color: pal.footerBody, opacity: light ? 1 : 0.92 }]}>
-              {texts.footerPitchBody}
-            </Text>
+          <Lemon3DButton
+            label={primaryLabel}
+            onPress={onPrimary}
+            disabled={!!busy}
+            loading={primaryBusy}
+            minHeight={btnMinHeight}
+            textStyle={[
+              planTab === 'free' ? styles.btnSecondaryText : styles.btnPrimaryText,
+              compact && styles.btnTextCompact,
+            ]}
+            style={[
+              styles.btnBelowCard,
+              planTab === 'free' ? styles.btnSecondaryWrap : styles.btnPrimaryWrap,
+            ]}
+          />
           </View>
 
-          {showCancelCta ? (
-            <View style={styles.cancelWrap}>
-              <Pressable
-                onPress={openCancelModal}
-                style={({ pressed }) => [styles.cancelCta, { opacity: pressed ? 0.82 : 1 }]}
-                android_ripple={{ color: light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' }}
-              >
-                <Text style={[styles.cancelCtaText, { color: light ? '#B3261E' : '#FF8A80' }]}>
-                  {texts.cancelSubscriptionCta}
-                </Text>
-              </Pressable>
+          </View>
+
+          {showAuthHeroLayout ? (
+            <View
+              style={[
+                styles.planFooterHeroFlow,
+                {
+                  marginTop: showAuthHeroLayout ? 'auto' : planFooterHeroMarginTopPx,
+                  marginHorizontal: -r.horizontalPadding,
+                  marginBottom: -(planFooterBottomBleedPx + planFooterHeroLiftPx),
+                  transform: [{ translateY: -planFooterHeroLiftPx }],
+                  width: r.width,
+                  alignSelf: 'center',
+                  minHeight: planFooterHeroMinHeight + planFooterBottomBleedPx,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              <AuthHeroHeader
+                source={planHeroBottomImage}
+                width={r.width}
+                height={planFooterHeroHeight}
+                waveEdge="top"
+                imageContentPosition="bottom"
+                imageNudgeY={-planFooterHeroImageNudgeUpPx}
+                bottomBleedPx={planFooterBottomBleedPx}
+                waveFillColor={heroWaveFill}
+                style={styles.planFooterHeroHeader}
+              />
             </View>
           ) : null}
         </ScrollView>
       </View>
-
-      <Modal
-        visible={showCancelModal}
-        animationType="fade"
-        transparent
-        onRequestClose={() => {
-          if (busy !== 'cancel') setShowCancelModal(false);
-        }}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalKb}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalRoot}>
-            <Pressable
-              style={styles.modalBackdrop}
-              onPress={() => {
-                if (busy !== 'cancel') setShowCancelModal(false);
-              }}
-            />
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalScrollContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-            <View style={[styles.modalCard, light ? styles.modalCardLight : styles.modalCardDark]}>
-            <Text style={[styles.modalTitle, { color: light ? BRAND_BLUE : ACCENT }]}>{texts.cancelModalTitle}</Text>
-            <Text style={[styles.modalSub, { color: light ? '#4A4A4A' : 'rgba(255,255,255,0.82)' }]}>
-              {texts.cancelModalSubtitle}
-            </Text>
-
-            <View
-              style={[
-                styles.modalAccountCard,
-                {
-                  borderColor: light ? 'rgba(98, 134, 228, 0.35)' : 'rgba(225, 255, 0, 0.28)',
-                  backgroundColor: light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(255,255,255,0.06)',
-                },
-              ]}
-            >
-              <View style={styles.modalAccountRow}>
-                <View
-                  style={[
-                    styles.modalAccountAvatar,
-                    { backgroundColor: light ? 'rgba(98, 134, 228, 0.2)' : 'rgba(225, 255, 0, 0.15)' },
-                  ]}
-                >
-                  <Ionicons name="person" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                </View>
-                <View style={styles.modalAccountTextCol}>
-                  <Text
-                    style={[styles.modalAccountHeading, { color: light ? '#5C5C5C' : 'rgba(255,255,255,0.65)' }]}
-                    numberOfLines={1}
-                  >
-                    {texts.cancelAccountHeading}
-                  </Text>
-                  <Text
-                    style={[styles.modalAccountEmail, { color: light ? '#1E1E1E' : '#FFFFFF' }]}
-                    numberOfLines={2}
-                  >
-                    {accountDisplay}
-                  </Text>
-                  <Text
-                    style={[styles.modalAccountStoreTag, { color: light ? BRAND_BLUE : ACCENT }]}
-                    numberOfLines={2}
-                  >
-                    {storeTag}
-                  </Text>
-                </View>
-              </View>
-              <Text style={[styles.modalBillingExplainer, { color: light ? '#4A4A4A' : 'rgba(255,255,255,0.78)' }]}>
-                {texts.cancelBillingExplainer}
-              </Text>
-              <Pressable
-                onPress={openStoreManageSubscriptions}
-                style={({ pressed }) => [
-                  styles.modalStoreBtn,
-                  {
-                    borderColor: light ? BRAND_BLUE : ACCENT,
-                    backgroundColor: light ? 'rgba(98, 134, 228, 0.12)' : 'rgba(225, 255, 0, 0.1)',
-                    opacity: pressed ? 0.88 : 1,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={Platform.OS === 'ios' ? 'logo-apple' : 'logo-google'}
-                  size={20}
-                  color={light ? BRAND_BLUE : ACCENT}
-                />
-                <Text style={[styles.modalStoreBtnTxt, { color: light ? BRAND_BLUE : ACCENT }]}>{storeManageCta}</Text>
-              </Pressable>
-            </View>
-
-            <Text style={[styles.modalSectionLabel, { color: light ? '#1E1E1E' : '#FFFFFF' }]}>
-              {texts.cancelReasonPrompt}
-            </Text>
-            <View style={styles.chipGrid}>
-              {CANCEL_REASON_DEFS.map(({ id, labelKey }) => {
-                const on = cancelReasons.includes(id);
-                return (
-                  <Pressable
-                    key={id}
-                    onPress={() => toggleCancelReason(id)}
-                    style={[
-                      styles.chip,
-                      {
-                        borderColor: on ? (light ? BRAND_BLUE : ACCENT) : light ? 'rgba(30,30,30,0.14)' : 'rgba(255,255,255,0.22)',
-                        backgroundColor: on
-                          ? light
-                            ? 'rgba(98, 134, 228, 0.16)'
-                            : 'rgba(225, 255, 0, 0.14)'
-                          : light
-                            ? 'rgba(255,255,255,0.7)'
-                            : 'rgba(255,255,255,0.05)',
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipLabel,
-                        { color: light ? '#1E1E1E' : '#FFFFFF', fontWeight: on ? '600' : '400' },
-                      ]}
-                      numberOfLines={2}
-                    >
-                      {texts[labelKey]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <TextInput
-              value={cancelComment}
-              onChangeText={setCancelComment}
-              placeholder={texts.cancelCommentPlaceholder}
-              placeholderTextColor={light ? '#888888' : '#777777'}
-              multiline
-              style={[
-                styles.commentInput,
-                {
-                  color: light ? '#1E1E1E' : '#FFFFFF',
-                  borderColor: light ? 'rgba(30,30,30,0.12)' : 'rgba(255,255,255,0.18)',
-                  backgroundColor: light ? '#F7F8FC' : 'rgba(0,0,0,0.2)',
-                },
-              ]}
-              maxLength={2000}
-            />
-
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setShowCancelModal(false)}
-                disabled={busy === 'cancel'}
-                style={({ pressed }) => [
-                  styles.modalBtnGhost,
-                  {
-                    borderColor: light ? 'rgba(30,30,30,0.2)' : 'rgba(255,255,255,0.25)',
-                    opacity: busy === 'cancel' ? 0.45 : pressed ? 0.88 : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.modalBtnGhostText, { color: light ? '#1E1E1E' : '#FFFFFF' }]}>
-                  {texts.cancelBack}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={onConfirmCancelSubscription}
-                disabled={busy === 'cancel'}
-                style={({ pressed }) => [
-                  styles.modalBtnDanger,
-                  {
-                    backgroundColor: light ? '#B3261E' : '#C62828',
-                    opacity: busy === 'cancel' ? 0.7 : pressed ? 0.9 : 1,
-                  },
-                ]}
-              >
-                {busy === 'cancel' ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.modalBtnDangerText}>{texts.cancelConfirm}</Text>
-                )}
-              </Pressable>
-            </View>
-            </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG_TOP },
+  root: { flex: 1, backgroundColor: BG_TOP, overflow: 'visible' },
+  planHeroBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 2,
+  },
+  planTopBarOverHero: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 3,
+  },
+  safeOverHero: {
+    overflow: 'visible',
+  },
+  planSettingsBody: {
+    width: '100%',
+    flexGrow: 1,
+  },
+  planMainCenter: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  planFooterHeroFlow: {
+    overflow: 'visible',
+  },
+  planFooterHeroHeader: {
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  planCenterWrap: {
+    flexGrow: 1,
+    justifyContent: 'flex-start',
+    width: '100%',
+  },
   safe: { flex: 1 },
   title: {
     ...brandFontText,
     fontWeight: '700',
     color: ACCENT,
     textAlign: 'center',
+    marginBottom: 4,
+  },
+  headerPitch: {
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  headerPitchCompact: {
     marginBottom: 8,
   },
-  subtitle: {
+  headerPitchTitle: {
+    ...brandFontText,
+    fontWeight: '700',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  headerPitchTitleCompact: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  headerPitchBody: {
     ...brandFontText,
     fontWeight: '300',
-    color: '#FFFFFF',
+    fontSize: 12,
     textAlign: 'center',
-    marginBottom: 16,
-    opacity: 0.9,
+    lineHeight: 18,
   },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 40, gap: 10 },
+  headerPitchBodyCompact: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  scroll: { flex: 1, backgroundColor: 'transparent' },
+  scrollOverHero: { overflow: 'visible' },
+  scrollContent: { paddingBottom: 16, gap: 8 },
+  scrollContentOnboarding: {
+    flexGrow: 1,
+    paddingBottom: 0,
+  },
+  scrollContentHeroFooter: {
+    paddingBottom: 0,
+  },
+  scrollContentCompact: { paddingBottom: 8, gap: 6 },
   segmentRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
+    marginBottom: 6,
+  },
+  segmentRowWithBadge: {
+    paddingTop: 11,
     marginBottom: 8,
   },
-  segmentBtn: {
+  segmentSlot: {
     flex: 1,
-    paddingVertical: 11,
-    paddingHorizontal: 4,
-    borderRadius: 14,
+    position: 'relative',
+  },
+  explorerBadgeWrap: {
+    position: 'absolute',
+    top: -11,
+    left: 0,
+    right: 0,
+    zIndex: 2,
+    alignItems: 'center',
+  },
+  explorerBadgeChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: '100%',
+  },
+  explorerBadgeText: {
+    ...brandFontText,
+    fontWeight: '700',
+    fontSize: 9,
+    letterSpacing: 0.35,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  segmentBtn: {
+    width: '100%',
+    minHeight: 42,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
     backgroundColor: 'rgba(42, 42, 42, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'transparent',
   },
-  segmentBtnExplorerOutline: {
-    borderColor: 'rgba(225, 255, 0, 0.35)',
-  },
-  segmentBtnActive: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
+  segmentBtnWithBadge: {
+    paddingTop: 14,
   },
   segmentLabel: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 12,
-    color: '#FFFFFF',
+    ...brandFontSansMedium,
+    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 16,
     textAlign: 'center',
   },
-  segmentLabelActive: {
-    color: '#101010',
+  planBodyWrap: {
+    width: '100%',
+    marginTop: 6,
+    paddingTop: 2,
+    paddingHorizontal: 0,
+    alignItems: 'stretch',
   },
-  badgeHint: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 12,
-    color: ACCENT,
-    textAlign: 'center',
-    marginBottom: 8,
-    opacity: 0.95,
+  planPager: {
+    width: '100%',
   },
-  card: {
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: 'rgba(225, 255, 0, 0.38)',
-    backgroundColor: ACCENT_DIM,
+  planPagerPage: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  planBody: {
+    width: '100%',
+    paddingTop: 0,
+    paddingHorizontal: 10,
+  },
+  planBodyPaidTail: {
+    paddingBottom: 0,
+  },
+  planBodyCompact: {
     marginTop: 4,
   },
   cardHeading: {
     ...brandFontText,
-    fontWeight: '700',
-    fontSize: 17,
+    fontWeight: '600',
+    fontSize: 11,
     color: ACCENT,
     textAlign: 'center',
-    marginBottom: 14,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    opacity: 0.88,
+  },
+  cardHeadingAbovePitch: {
+    marginBottom: 6,
   },
   priceBlock: {
-    marginBottom: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  priceBlockCompact: {
+    marginBottom: 10,
   },
   priceWas: {
     ...brandFontText,
     fontWeight: '400',
     fontSize: 14,
-    color: '#6B6B6B',
+    color: '#FF6B6B',
     textDecorationLine: 'line-through',
     marginBottom: 4,
+  },
+  priceWasInline: {
+    marginBottom: 0,
+    marginLeft: 8,
+    fontSize: 13,
   },
   priceMainRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'baseline',
+    justifyContent: 'center',
   },
   priceMain: {
     ...brandFontText,
     fontWeight: '700',
-    fontSize: 28,
+    fontSize: 21,
     color: '#FFFFFF',
+    textAlign: 'center',
   },
   priceSlash: {
     ...brandFontText,
     fontWeight: '500',
-    fontSize: 15,
+    fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
   },
   pricePeriod: {
     ...brandFontText,
     fontWeight: '400',
-    fontSize: 15,
+    fontSize: 13,
     color: 'rgba(255,255,255,0.85)',
   },
   hint: {
     ...brandFontText,
     fontWeight: '300',
-    fontSize: 13,
+    fontSize: 11,
     color: '#AAAAAA',
-    marginTop: 8,
+    marginTop: 4,
+    textAlign: 'center',
+    lineHeight: 15,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(255,255,255,0.2)',
-    marginBottom: 12,
+    marginTop: 2,
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+    width: '100%',
+    maxWidth: 280,
   },
-  bulletRow: {
+  dividerCompact: {
+    marginBottom: 8,
+  },
+  bulletList: {
+    alignSelf: 'flex-start',
+    width: '100%',
+    maxWidth: 280,
+    alignItems: 'flex-start',
+    paddingHorizontal: 0,
+    marginBottom: 0,
+  },
+  bulletItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 8,
-    paddingRight: 4,
+    width: '100%',
+    marginBottom: 7,
+  },
+  bulletItemCompact: {
+    marginBottom: 5,
   },
   bulletIcon: {
-    marginRight: 10,
+    marginRight: 7,
     marginTop: 1,
+    flexShrink: 0,
   },
   socialTag: {
     ...brandFontText,
     fontWeight: '500',
-    fontSize: 13,
+    fontSize: 11,
     color: '#C8E86C',
-    marginTop: 6,
-    marginBottom: 6,
+    marginTop: 10,
+    marginBottom: 20,
+    textAlign: 'center',
   },
   bullet: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     ...brandFontText,
     fontWeight: '300',
-    fontSize: 14,
+    fontSize: 12,
     color: '#FFFFFF',
-    lineHeight: 22,
+    lineHeight: 17,
+    textAlign: 'left',
   },
   proNote: {
     ...brandFontText,
     fontWeight: '300',
-    fontSize: 11,
+    fontSize: 10,
     color: '#AAAAAA',
-    lineHeight: 16,
-    marginTop: 10,
-    marginBottom: 12,
-  },
-  footerPitch: {
-    marginTop: 22,
-    paddingHorizontal: 4,
-  },
-  footerPitchTitle: {
-    ...brandFontText,
-    fontWeight: '700',
-    fontSize: 18,
-    color: ACCENT,
+    lineHeight: 14,
+    marginTop: 8,
+    marginBottom: 20,
     textAlign: 'center',
-    marginBottom: 10,
   },
-  footerPitchBody: {
-    ...brandFontText,
-    fontWeight: '300',
-    fontSize: 14,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    lineHeight: 22,
-    opacity: 0.92,
+  cardFootnote: {
+    marginBottom: 0,
+  },
+  btnBelowCard: {
+    marginTop: 2,
+    marginBottom: 8,
+    paddingTop: 0,
+    alignSelf: 'center',
+    width: '82%',
+    maxWidth: 300,
   },
   btnSecondaryWrap: {
-    marginTop: 14,
+    marginTop: 0,
   },
   btnSecondaryText: {
     ...brandFontText,
     fontWeight: '600',
-    fontSize: 16,
+    fontSize: 15,
     color: '#101010',
   },
   btnPrimaryWrap: {
-    marginTop: 4,
+    marginTop: 0,
   },
   btnPrimaryText: {
     ...brandFontText,
     fontWeight: '600',
-    fontSize: 16,
+    fontSize: 15,
     color: '#101010',
   },
-  cancelWrap: {
-    marginTop: 20,
-    marginBottom: 8,
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  cancelCta: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  cancelCtaText: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 15,
-    textAlign: 'center',
-    textDecorationLine: 'underline',
-  },
-  modalKb: { flex: 1 },
-  modalRoot: { flex: 1 },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.48)',
-  },
-  modalScroll: {
-    flex: 1,
-    zIndex: 1,
-  },
-  modalScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: 12,
-  },
-  modalCard: {
-    borderRadius: 22,
-    paddingVertical: 20,
-    paddingHorizontal: 18,
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  modalCardLight: {
-    backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(30,30,30,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  modalCardDark: {
-    backgroundColor: '#16161E',
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  modalTitle: {
-    ...brandFontText,
-    fontWeight: '700',
-    fontSize: 20,
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  modalSub: {
-    ...brandFontText,
-    fontWeight: '300',
+  btnTextCompact: {
     fontSize: 14,
-    lineHeight: 21,
-    textAlign: 'center',
-    marginBottom: 14,
-  },
-  modalAccountCard: {
-    borderRadius: 18,
-    borderWidth: 1.5,
-    padding: 14,
-    marginBottom: 18,
-  },
-  modalAccountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 10,
-  },
-  modalAccountAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalAccountTextCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  modalAccountHeading: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 11,
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  modalAccountEmail: {
-    ...brandFontText,
-    fontWeight: '700',
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  modalAccountStoreTag: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 12,
-    marginTop: 6,
-  },
-  modalBillingExplainer: {
-    ...brandFontText,
-    fontWeight: '300',
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 12,
-  },
-  modalStoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-  },
-  modalStoreBtnTxt: {
-    ...brandFontText,
-    fontWeight: '700',
-    fontSize: 15,
-    flexShrink: 1,
-    textAlign: 'center',
-  },
-  modalSectionLabel: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 14,
-    marginBottom: 10,
-  },
-  chipGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 14,
-  },
-  chip: {
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    minWidth: '47%',
-    flexGrow: 1,
-    maxWidth: '100%',
-  },
-  chipLabel: {
-    ...brandFontText,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  commentInput: {
-    ...brandFontText,
-    minHeight: 88,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    textAlignVertical: 'top',
-    marginBottom: 18,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-  },
-  modalBtnGhost: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalBtnGhostText: {
-    ...brandFontText,
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  modalBtnDanger: {
-    flex: 1.15,
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 48,
-  },
-  modalBtnDangerText: {
-    ...brandFontText,
-    fontWeight: '700',
-    fontSize: 15,
-    color: '#FFFFFF',
-    textAlign: 'center',
   },
 });

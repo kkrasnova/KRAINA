@@ -1,36 +1,20 @@
 <!DOCTYPE html>
-<html lang="uk" data-theme="dark">
+<html lang="uk" data-theme="dark" data-play-store="https://play.google.com/store/apps/details?id=com.kraina.app">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0A0A0F" />
+  <meta name="theme-color" content="#000000" />
   <meta name="description" content="KRAINA — історія міст, маршрути та спільнота в одному застосунку. Завантаж безкоштовно, оформи Explorer або Pro. Google Play та App Store." />
   <title>KRAINA — історія міст, маршрути, Pro</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="assets/kraina-header-logo.png" type="image/png" />
+  <link rel="stylesheet" href="styles.css?v=4" />
 </head>
 <body>
 
-  <!-- ============== SCROLL PROGRESS BAR ============== -->
-  <div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
-
-  <!-- ============== CURSOR SPOTLIGHT ============== -->
-  <div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
-
-  <!-- ============== ANIMATED BACKGROUND ============== -->
-  <div class="bg" aria-hidden="true">
-    <div class="bg__glow bg__glow--1"></div>
-    <div class="bg__glow bg__glow--2"></div>
-    <div class="bg__glow bg__glow--3"></div>
-    <div class="bg__grid"></div>
-    <div class="bg__particles" id="particles"></div>
-    <div class="bg__noise"></div>
-  </div>
-
-  <!-- ============== NAVBAR ============== -->
   <header class="nav">
     <div class="nav__inner">
-      <a href="#top" class="nav__logo" aria-label="KRAINA — на головну">
-        <span class="logo-wordmark">KRAINA</span>
+      <a href="#top" class="nav__logo" aria-label="KRAÏNA — на головну">
+        <span class="logo-wordmark">KRAÏNA</span>
       </a>
 
       <nav class="nav__links" aria-label="Основна навігація">
@@ -64,11 +48,11 @@
 
     <!-- ============== HERO ============== -->
     <section class="hero" id="cta">
-      <div class="hero__content reveal">
+      <div class="hero__content">
         <h1 class="hero__title">
-          Відкривай <span class="accent shimmer">історію</span>,<br />
-          прокладай <span class="accent shimmer">маршрути</span>,<br />
-          ділись <span class="accent shimmer">враженнями</span>.
+          Відкривай <span class="accent">історію</span>,<br />
+          прокладай <span class="accent">маршрути</span>,<br />
+          ділись <span class="accent">враженнями</span>.
         </h1>
         <p class="hero__sub">
           Один застосунок — щоб знайти локації, скласти маршрут і поділитися подорожжю з людьми
@@ -76,11 +60,11 @@
           оформлюються вже всередині — через Google Play або App&nbsp;Store.
         </p>
         <div class="hero__actions">
-          <a href="#cta" class="btn btn--primary magnetic">
+          <a href="#cta" class="btn btn--primary" data-store-link="google">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5V3.5C3 2.91 3.34 2.39 3.84 2.15L13.69 12L3.84 21.85C3.34 21.6 3 21.09 3 20.5M16.81 15.12L6.05 21.34L14.54 12.85L16.81 15.12M20.16 10.81C20.5 11.08 20.75 11.5 20.75 12C20.75 12.5 20.53 12.9 20.18 13.18L17.89 14.5L15.39 12L17.89 9.5L20.16 10.81M6.05 2.66L16.81 8.88L14.54 11.15L6.05 2.66Z"/></svg>
             Google Play
           </a>
-          <a href="#cta" class="btn btn--ghost">
+          <a href="#cta" class="btn btn--ghost" data-store-link="apple">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71,19.5C17.88,20.74 17,21.95 15.66,21.97C14.32,22 13.89,21.18 12.37,21.18C10.84,21.18 10.37,21.95 9.1,22C7.79,22.05 6.8,20.68 5.96,19.47C4.25,17 2.94,12.45 4.7,9.39C5.57,7.87 7.13,6.91 8.82,6.88C10.1,6.86 11.32,7.75 12.11,7.75C12.89,7.75 14.37,6.68 15.92,6.84C16.57,6.87 18.39,7.1 19.56,8.82C19.47,8.88 17.39,10.1 17.41,12.63C17.44,15.65 20.06,16.66 20.09,16.67C20.06,16.74 19.67,18.11 18.71,19.5M13,3.5C13.73,2.67 14.94,2.04 15.94,2C16.07,3.17 15.6,4.35 14.9,5.19C14.21,6.04 13.07,6.7 11.95,6.61C11.8,5.46 12.36,4.26 13,3.5Z"/></svg>
             App Store
           </a>
@@ -96,17 +80,9 @@
         </ul>
       </div>
 
-      <div class="hero__visual reveal">
+      <div class="hero__visual">
         <div class="phone-stack">
-          <!-- Back phone — auth screen -->
-          <div class="phone phone--back">
-            <div class="phone__screen">
-              <img src="assets/screens/auth-hero.png" alt="Екран авторизації застосунку KRAINA" loading="lazy" />
-            </div>
-          </div>
-          <!-- Front phone — Sofia / Kyiv hero -->
           <div class="phone phone--front">
-            <div class="phone__notch"></div>
             <div class="phone__screen">
               <img src="assets/screens/sophia.png" alt="Картка Софійського собору в Києві" loading="lazy" />
               <div class="phone__overlay">
@@ -116,44 +92,16 @@
               </div>
             </div>
           </div>
-          <div class="float float--1" aria-hidden="true">📷</div>
-          <div class="float float--2" aria-hidden="true">🛰️</div>
-          <div class="float float--3" aria-hidden="true">⛩️</div>
         </div>
-      </div>
-    </section>
-
-    <!-- ============== SCREENSHOT MARQUEE ============== -->
-    <section class="marquee" aria-label="Міста та памʼятки в KRAINA — перегляд локацій у застосунку">
-      <div class="marquee__track">
-        <figure><img src="assets/screens/kyiv.png" alt="Київ" loading="lazy" /><figcaption>Київ</figcaption></figure>
-        <figure><img src="assets/screens/lviv.png" alt="Львів" loading="lazy" /><figcaption>Львів</figcaption></figure>
-        <figure><img src="assets/screens/odesa.png" alt="Одеса" loading="lazy" /><figcaption>Одеса</figcaption></figure>
-        <figure><img src="assets/screens/amsterdam.png" alt="Амстердам" loading="lazy" /><figcaption>Амстердам</figcaption></figure>
-        <figure><img src="assets/screens/sophia.png" alt="Софійський собор" loading="lazy" /><figcaption>Софія Київська</figcaption></figure>
-        <figure><img src="assets/screens/andriivskyi.png" alt="Андріївський узвіз" loading="lazy" /><figcaption>Андріївський узвіз</figcaption></figure>
-        <!-- duplicate for seamless loop -->
-        <figure><img src="assets/screens/kyiv.png" alt="" loading="lazy" /><figcaption>Київ</figcaption></figure>
-        <figure><img src="assets/screens/lviv.png" alt="" loading="lazy" /><figcaption>Львів</figcaption></figure>
-        <figure><img src="assets/screens/odesa.png" alt="" loading="lazy" /><figcaption>Одеса</figcaption></figure>
-        <figure><img src="assets/screens/amsterdam.png" alt="" loading="lazy" /><figcaption>Амстердам</figcaption></figure>
-        <figure><img src="assets/screens/sophia.png" alt="" loading="lazy" /><figcaption>Софія Київська</figcaption></figure>
-        <figure><img src="assets/screens/andriivskyi.png" alt="" loading="lazy" /><figcaption>Андріївський узвіз</figcaption></figure>
       </div>
     </section>
 
     <!-- ============== ABOUT ============== -->
     <section id="about" class="section section--about" aria-labelledby="about-heading">
-      <div class="section--about__blobs" aria-hidden="true"></div>
-      <div class="about-hero reveal">
-        <div class="about-hero__tags" aria-hidden="true">
-          <span class="about-hero__tag">Локації</span>
-          <span class="about-hero__tag">Маршрути</span>
-          <span class="about-hero__tag">Спільнота</span>
-        </div>
+      <div class="about-hero">
+        <span class="eyebrow">Про застосунок</span>
         <h2 id="about-heading" class="about-hero__title">
-          <span class="about-hero__line">Місто — не просто точки на мапі.</span>
-          <span class="about-hero__line about-hero__line--accent shimmer">Це шари історії та твій темп.</span>
+          Місто — не просто точки на мапі. Це шари історії та твій темп.
         </h2>
         <p class="about-hero__lead">
           <strong class="about-hero__brand">KRAINA</strong> — твій гід, карта маршрутів і стрічка вражень у кишені: спочатку досліджуй
@@ -163,17 +111,17 @@
       </div>
 
       <div class="grid-4 grid-4--about">
-        <article class="card card--about reveal tilt spotlight">
+        <article class="card card--about">
           <div class="card__icon card__icon--float" data-float="1">🧭</div>
           <h3>Коротко</h3>
           <p>Мобільний застосунок для відкриття історичних місць, маршрутів і соціальних подорожей.</p>
         </article>
-        <article class="card card--about reveal tilt spotlight">
+        <article class="card card--about">
           <div class="card__icon card__icon--float" data-float="2">🎯</div>
           <h3>Аудиторія</h3>
           <p>Туристи, місцеві дослідники, студенти, історичні ентузіасти й мандрівники-блогери.</p>
         </article>
-        <article class="card card--about card--langs reveal tilt spotlight">
+        <article class="card card--about card--langs">
           <div class="card__icon card__icon--float" data-float="3">🌍</div>
           <h3>Мови інтерфейсу</h3>
           <p class="card__lang-intro"><strong>11 мов</strong> — оберіть зручну під час онбордингу або в налаштуваннях.</p>
@@ -191,7 +139,7 @@
             <li><span class="lang-chip">🇦🇲 Հայերեն</span></li>
           </ul>
         </article>
-        <article class="card card--about reveal tilt spotlight">
+        <article class="card card--about">
           <div class="card__icon card__icon--float" data-float="4">🔑</div>
           <h3>Ключові слова</h3>
           <p class="kw-cloud">
@@ -213,21 +161,16 @@
 
     <!-- ============== FEATURES ============== -->
     <section id="features" class="section section--features" aria-labelledby="features-heading">
-      <div class="features-hero reveal">
-        <div class="features-hero__tags" aria-hidden="true">
-          <span class="features-hero__tag">Безкоштовний старт</span>
-          <span class="features-hero__tag">Реальні екрани</span>
-          <span class="features-hero__tag">Pro в App / Play</span>
-        </div>
+      <div class="features-hero">
+        <span class="eyebrow">Можливості</span>
         <h2 id="features-heading" class="features-hero__title">
-          <span class="features-hero__row">П’ять опор, на яких тримається KRAINA</span>
-          <span class="features-hero__row features-hero__accent shimmer">Прямо з екранів твого телефона</span>
+          П’ять опор, на яких тримається KRAÏNA
         </h2>
       </div>
 
       <div class="features">
 
-        <article class="feature feature--app reveal tilt spotlight">
+        <article class="feature feature--app">
           <div class="feature__media">
             <figure class="feature__shot">
               <img
@@ -245,7 +188,7 @@
           <p>Email-реєстрація, аватар, опис, мова й налаштування приватності — усе в одному профілі.</p>
         </article>
 
-        <article class="feature feature--app reveal tilt spotlight">
+        <article class="feature feature--app">
           <div class="feature__media">
             <figure class="feature__shot">
               <img
@@ -263,7 +206,7 @@
           <p>Картки об’єктів з фото, історією, медіа та підказками «що поруч» — те, з чого починається місто.</p>
         </article>
 
-        <article class="feature feature--app reveal tilt spotlight">
+        <article class="feature feature--app">
           <div class="feature__media">
             <figure class="feature__shot">
               <img
@@ -281,7 +224,7 @@
           <p>Власні маршрути, точки на карті, збереження та шерінг — зібрати день у місті під себе.</p>
         </article>
 
-        <article class="feature feature--app reveal tilt spotlight">
+        <article class="feature feature--app">
           <div class="feature__media">
             <figure class="feature__shot">
               <img
@@ -299,7 +242,7 @@
           <p>Підписки, стрічка, лайки, коментарі та повідомлення — спільнота навколо місць і маршрутів.</p>
         </article>
 
-        <article class="feature feature--app reveal tilt spotlight">
+        <article class="feature feature--app">
           <div class="feature__media">
             <figure class="feature__shot">
               <img
@@ -323,7 +266,7 @@
 
     <!-- ============== PLANS ============== -->
     <section id="plans" class="section section--plans" aria-labelledby="plans-heading">
-      <div class="section__head section__head--plans reveal">
+      <div class="section__head section__head--plans">
         <span class="eyebrow">Підписка</span>
         <h2 id="plans-heading">Тарифи після встановлення</h2>
         <p class="lead lead--tight">
@@ -334,7 +277,7 @@
       </div>
 
       <div class="plans-grid">
-        <article class="plan-card plan-card--free reveal">
+        <article class="plan-card plan-card--free">
           <h3 class="plan-card__name">Free</h3>
           <p class="plan-card__price">0 <span class="plan-card__currency">USD</span></p>
           <p class="plan-card__note">Щоб спробувати сервіс і соціальні функції</p>
@@ -346,11 +289,11 @@
           <a href="#cta" class="btn btn--ghost plan-card__btn">Завантажити та почати</a>
         </article>
 
-        <article class="plan-card plan-card--explorer reveal">
+        <article class="plan-card plan-card--explorer">
           <span class="plan-card__badge">Для активних</span>
           <h3 class="plan-card__name">Explorer</h3>
           <p class="plan-card__price">
-            8.99 <span class="plan-card__currency">USD / міс.</span>
+            7.99 <span class="plan-card__currency">USD / міс.</span>
           </p>
           <p class="plan-card__note">Більше сканувань і маршрутів + необмежені перегляди історій</p>
           <ul class="plan-card__list">
@@ -361,7 +304,7 @@
           <a href="#cta" class="btn btn--ghost plan-card__btn">Завантажити й обрати Explorer</a>
         </article>
 
-        <article class="plan-card plan-card--pro reveal">
+        <article class="plan-card plan-card--pro">
           <span class="plan-card__badge plan-card__badge--pro">Популярний</span>
           <h3 class="plan-card__name">Pro</h3>
           <p class="plan-card__price">
@@ -377,14 +320,14 @@
         </article>
       </div>
 
-      <p class="plans-footnote reveal">
+      <p class="plans-footnote">
         Сімейний тариф і точні ліміти Free — на екрані вибору плану в застосунку. Скасування та керівництво підпискою — у тому ж магазині, де оформлювали покупку.
       </p>
     </section>
 
     <!-- ============== USER GUIDE ============== -->
     <section id="guide" class="section">
-      <div class="section__head reveal">
+      <div class="section__head">
         <span class="eyebrow">Швидкий старт</span>
         <h2>Як почати за 5 кроків</h2>
         <p class="lead lead--tight">
@@ -395,7 +338,7 @@
 
       <div class="steps-detailed">
 
-        <article class="step-d step-d--auth reveal">
+        <article class="step-d step-d--auth">
           <div class="step-d__head">
             <div class="step-d__num">1</div>
             <span class="step-d__kicker">Старт</span>
@@ -425,7 +368,7 @@
           </div>
         </article>
 
-        <article class="step-d reveal step-d--reverse step-d--profile">
+        <article class="step-d step-d--reverse step-d--profile">
           <div class="step-d__head">
             <div class="step-d__num">2</div>
             <span class="step-d__kicker">Профіль</span>
@@ -467,7 +410,7 @@
           </div>
         </article>
 
-        <article class="step-d reveal step-d--locations">
+        <article class="step-d step-d--locations">
           <div class="step-d__head">
             <div class="step-d__num">3</div>
             <span class="step-d__kicker">Локації</span>
@@ -589,7 +532,7 @@
           </div>
         </article>
 
-        <article class="step-d reveal step-d--routes">
+        <article class="step-d step-d--routes">
           <div class="step-d__head">
             <div class="step-d__num">4</div>
             <span class="step-d__kicker">Маршрути</span>
@@ -645,7 +588,7 @@
           </div>
         </article>
 
-        <article class="step-d reveal step-d--social">
+        <article class="step-d step-d--social">
           <div class="step-d__head">
             <div class="step-d__num">5</div>
             <span class="step-d__kicker">Соціал</span>
@@ -691,7 +634,7 @@
 
       </div>
 
-      <div class="callout reveal">
+      <div class="callout">
         <strong>📌 Перед підпискою:</strong>
         умови тарифів і оплата відображаються в App Store / Google Play на екрані покупки;
         повний текст умов (EULA) і документи щодо даних — у налаштуваннях KRAINA та на цій сторінці нижче.
@@ -700,7 +643,7 @@
 
     <!-- ============== EULA / Terms (same text as app registration = TERMS_UK) ============== -->
     <section id="eula" class="section section--eula">
-      <div class="section__head section__head--legal reveal">
+      <div class="section__head section__head--legal">
         <span class="eyebrow">Юридичне · ITty Company · KRAÏNA</span>
         <h2>Умови користування та ліцензія (EULA)</h2>
         <p class="lead lead--tight">
@@ -712,7 +655,7 @@
         </p>
       </div>
 
-      <div class="eula-shell reveal">
+      <div class="eula-shell">
         <article class="eula-prose" lang="uk">
           <section class="eula-prose__block" id="eula-1">
             <h3 class="eula-prose__h"><span class="eula-prose__num" aria-hidden="true">1</span> Загальні положення</h3>
@@ -785,7 +728,7 @@
           </section>
 
           <p class="eula-prose__contact">
-            Питання щодо цих умов: <a href="mailto:krasnovaanastasiia@knu.ua">krasnovaanastasiia@knu.ua</a>
+            Питання щодо цих умов: <a href="mailto:support@kraina.world">support@kraina.world</a>
           </p>
         </article>
       </div>
@@ -793,13 +736,13 @@
 
     <!-- ============== PRIVACY POLICY ============== -->
     <section id="privacy" class="section section--privacy">
-      <div class="section__head reveal">
+      <div class="section__head">
         <span class="eyebrow">Юридичне</span>
         <h2>Захист даних</h2>
       </div>
 
       <div class="privacy-grid">
-        <article class="privacy-card reveal tilt spotlight">
+        <article class="privacy-card">
           <div class="privacy-card__icon">📥</div>
           <h3>Що збираємо</h3>
           <ul>
@@ -810,7 +753,7 @@
           </ul>
         </article>
 
-        <article class="privacy-card reveal tilt spotlight">
+        <article class="privacy-card">
           <div class="privacy-card__icon">🔐</div>
           <h3>Як захищаємо</h3>
           <ul>
@@ -821,7 +764,7 @@
           </ul>
         </article>
 
-        <article class="privacy-card reveal tilt spotlight">
+        <article class="privacy-card">
           <div class="privacy-card__icon">⚖️</div>
           <h3>Ваші права</h3>
           <ul>
@@ -832,7 +775,7 @@
           </ul>
         </article>
 
-        <article class="privacy-card reveal tilt spotlight">
+        <article class="privacy-card">
           <div class="privacy-card__icon">🌐</div>
           <h3>Передача третім особам</h3>
           <ul>
@@ -847,7 +790,7 @@
 
     <!-- ============== FAQ ============== -->
     <section id="faq" class="section">
-      <div class="section__head reveal">
+      <div class="section__head">
         <span class="eyebrow">FAQ</span>
         <h2>Поширені запитання</h2>
         <p class="lead lead--tight">
@@ -856,50 +799,50 @@
       </div>
 
       <div class="faq">
-        <details class="faq__item reveal" open>
+        <details class="faq__item" open>
           <summary>Чи потрібен інтернет для роботи застосунку?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <p>Так, для більшості функцій потрібен інтернет — підвантаження карт, синхронізація профілю, перегляд стрічки. Однак <strong>збережені маршрути та обрані локації</strong> доступні офлайн після першого завантаження.</p>
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Чи зберігаються дані після перевстановлення?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <p>Так. Усі ваші маршрути, профіль, підписки та публікації прив'язані до акаунту й зберігаються в хмарі. Після перевстановлення увійдіть під своїм email — і всі дані повернуться автоматично.</p>
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Які мови інтерфейсу?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <p><strong>11 мов</strong> — зокрема українська, English, Deutsch, Polski, Nederlands, Español, литовська, латиська, румунська, італійська, вірменська. Мову можна обрати при першому запуску або в <em>Налаштування → Мова</em>.</p>
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Чи є безкоштовний тариф і скільки коштує Pro?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <p>Завантаження застосунку та тариф <strong>Free</strong> — без оплати; діють місячні ліміти на сканування пам’яток і маршрути (деталі на екрані плану).</p>
-            <p>Оплачувані рівні — <strong>Explorer</strong> (від ~8.99&nbsp;USD/міс) та <strong>Pro</strong> (від ~19.99&nbsp;USD/міс) з оформленням у App Store / Google Play. Актуальна ціна для твого регіону показується в магазині на момент покупки.</p>
+            <p>Оплачувані рівні — <strong>Explorer</strong> (від ~7.99&nbsp;USD/міс) та <strong>Pro</strong> (від ~19.99&nbsp;USD/міс) з оформленням у App Store / Google Play. Актуальна ціна для твого регіону показується в магазині на момент покупки.</p>
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Як видалити акаунт і всі дані?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <p>Перейдіть у <em>Налаштування → Акаунт → Видалити акаунт</em>. Підтвердіть рішення паролем. Усі ваші дані (профіль, маршрути, публікації, повідомлення) будуть видалені <strong>безповоротно протягом 30 днів</strong>.</p>
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Чи можна додати власну локацію?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <p>Так. На карті натисніть <strong>«+ Запропонувати локацію»</strong>, заповніть форму (назва, опис, фото, координати) — і модератори перевірять заявку протягом 1-3 днів. Після схвалення локація з'явиться в каталозі.</p>
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Які мінімальні вимоги до пристрою?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
             <ul>
@@ -911,10 +854,10 @@
           </div>
         </details>
 
-        <details class="faq__item reveal">
+        <details class="faq__item">
           <summary>Як зв'язатись з підтримкою?<span class="faq__plus">+</span></summary>
           <div class="faq__answer">
-            <p>Напишіть нам на <a href="mailto:krasnovaanastasiia@knu.ua" class="faq__link">krasnovaanastasiia@knu.ua</a> — відповідаємо протягом 1-2 робочих днів. Також можна повідомити про проблему через <em>Налаштування → Підтримка → Повідомити про помилку</em>.</p>
+            <p>Напишіть нам на <a href="mailto:support@kraina.world" class="faq__link">support@kraina.world</a> — відповідаємо протягом 1-2 робочих днів. Також можна повідомити про проблему через <em>Налаштування → Підтримка → Повідомити про помилку</em>.</p>
           </div>
         </details>
       </div>
@@ -933,11 +876,11 @@
           KRAINA — локації, маршрути й спільнота в одному застосунку. Завантаж безкоштовно, спробуй Free, підключи Explorer або Pro у магазині додатків.
         </p>
         <div class="footer__stores">
-          <a href="#cta" class="store-btn" aria-label="Завантажити з Google Play">
+          <a href="#cta" class="store-btn" data-store-link="google" aria-label="Завантажити з Google Play">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5V3.5C3 2.91 3.34 2.39 3.84 2.15L13.69 12L3.84 21.85C3.34 21.6 3 21.09 3 20.5M16.81 15.12L6.05 21.34L14.54 12.85L16.81 15.12M20.16 10.81C20.5 11.08 20.75 11.5 20.75 12C20.75 12.5 20.53 12.9 20.18 13.18L17.89 14.5L15.39 12L17.89 9.5L20.16 10.81M6.05 2.66L16.81 8.88L14.54 11.15L6.05 2.66Z"/></svg>
             <span><small>Завантажити з</small><strong>Google Play</strong></span>
           </a>
-          <a href="#cta" class="store-btn" aria-label="Завантажити з App Store">
+          <a href="#cta" class="store-btn" data-store-link="apple" aria-label="Завантажити з App Store">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71,19.5C17.88,20.74 17,21.95 15.66,21.97C14.32,22 13.89,21.18 12.37,21.18C10.84,21.18 10.37,21.95 9.1,22C7.79,22.05 6.8,20.68 5.96,19.47C4.25,17 2.94,12.45 4.7,9.39C5.57,7.87 7.13,6.91 8.82,6.88C10.1,6.86 11.32,7.75 12.11,7.75C12.89,7.75 14.37,6.68 15.92,6.84C16.57,6.87 18.39,7.1 19.56,8.82C19.47,8.88 17.39,10.1 17.41,12.63C17.44,15.65 20.06,16.66 20.09,16.67C20.06,16.74 19.67,18.11 18.71,19.5M13,3.5C13.73,2.67 14.94,2.04 15.94,2C16.07,3.17 15.6,4.35 14.9,5.19C14.21,6.04 13.07,6.7 11.95,6.61C11.8,5.46 12.36,4.26 13,3.5Z"/></svg>
             <span><small>Завантажити з</small><strong>App Store</strong></span>
           </a>
@@ -971,7 +914,7 @@
         <ul class="footer__list footer__list--contact">
           <li>
             <span class="footer__ico">✉️</span>
-            <a href="mailto:krasnovaanastasiia@knu.ua">krasnovaanastasiia@knu.ua</a>
+            <a href="mailto:support@kraina.world">support@kraina.world</a>
           </li>
           <li>
             <span class="footer__ico">👤</span>
@@ -990,11 +933,11 @@
     </div>
 
     <div class="footer__bottom">
-      <p class="footer__legal">© 2026 KRAINA. Усі права захищено. Зроблено з 💛💙 в Україні.</p>
+      <p class="footer__legal">© 2026 KRAÏNA. Усі права захищено.</p>
       <p class="footer__version">KRAINA v1.0 · Android &amp; iOS</p>
     </div>
   </footer>
 
-  <script src="script.js"></script>
+  <script src="script.js?v=4"></script>
 </body>
 </html>

@@ -7,6 +7,9 @@ import Constants from 'expo-constants';
 
 const ANDROID_PACKAGE = 'com.kraina.app';
 const DEFAULT_LISTING = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+/** Продакшен-лендинг (Firebase Hosting). kraina.world — коли підключите DNS у Firebase. */
+const DEFAULT_SITE_URL = 'https://kraina-207c5.web.app';
+const DEFAULT_SITE_FALLBACK = 'https://kraina.world';
 
 function readEnv(key) {
   try {
@@ -39,23 +42,32 @@ function firstValidHttp(...candidates) {
   return '';
 }
 
-export function getHelpFaqUrl() {
+export function getKrainaMarketingSiteUrl() {
   return firstValidHttp(
-    readEnv('EXPO_PUBLIC_HELP_FAQ_URL'),
-    readExtra('helpFaqUrl'),
-    readEnv('EXPO_PUBLIC_PLAY_STORE_URL'),
-    DEFAULT_LISTING,
+    readEnv('EXPO_PUBLIC_KRAINA_SITE_URL'),
+    readExtra('krainaSiteUrl'),
+    DEFAULT_SITE_URL,
+    DEFAULT_SITE_FALLBACK,
   );
 }
 
+function siteSectionUrl(hash) {
+  const base = getKrainaMarketingSiteUrl().replace(/\/$/, '').replace(/#.*$/, '');
+  if (!hash) return base;
+  const h = hash.startsWith('#') ? hash : `#${hash}`;
+  return `${base}${h}`;
+}
+
+export function getHelpFaqUrl() {
+  const explicit = firstValidHttp(readEnv('EXPO_PUBLIC_HELP_FAQ_URL'), readExtra('helpFaqUrl'));
+  if (explicit && !explicit.includes('play.google.com/store/apps')) return explicit;
+  return siteSectionUrl('#faq');
+}
+
 export function getHelpDocsUrl() {
-  return firstValidHttp(
-    readEnv('EXPO_PUBLIC_HELP_DOCS_URL'),
-    readExtra('helpDocsUrl'),
-    readEnv('EXPO_PUBLIC_IOS_APP_STORE_URL'),
-    readEnv('EXPO_PUBLIC_PLAY_STORE_URL'),
-    DEFAULT_LISTING,
-  );
+  const explicit = firstValidHttp(readEnv('EXPO_PUBLIC_HELP_DOCS_URL'), readExtra('helpDocsUrl'));
+  if (explicit && !explicit.includes('play.google.com/store/apps')) return explicit;
+  return siteSectionUrl('#guide');
 }
 
 /** Підтримка: спочатку SUPPORT, інакше PRIVACY email, інакше дефолт. */
@@ -64,5 +76,5 @@ export function getSupportEmail() {
   if (s && s.includes('@')) return s.trim();
   const p = readEnv('EXPO_PUBLIC_PRIVACY_EMAIL');
   if (p && p.includes('@')) return p.trim();
-  return 'support@kraina.app';
+  return 'support@kraina.world';
 }

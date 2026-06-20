@@ -99,12 +99,29 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   }, [refreshCameraGate]);
 
   const publishVisibility = route?.params?.publishVisibility === 'followers' ? 'followers' : 'public';
+  const pickedLat =
+    typeof route?.params?.pickedLat === 'number' && Number.isFinite(route.params.pickedLat)
+      ? route.params.pickedLat
+      : null;
+  const pickedLng =
+    typeof route?.params?.pickedLng === 'number' && Number.isFinite(route.params.pickedLng)
+      ? route.params.pickedLng
+      : null;
+  const pickedLabel =
+    typeof route?.params?.pickedLabel === 'string' ? route.params.pickedLabel.trim() : '';
   const shell = {
     user,
     language,
     appTheme,
     ...(countryId != null ? { countryId } : {}),
     publishVisibility,
+    ...(pickedLat != null && pickedLng != null
+      ? {
+          pickedLat,
+          pickedLng,
+          ...(pickedLabel ? { pickedLabel } : {}),
+        }
+      : {}),
   };
 
   useEffect(() => {

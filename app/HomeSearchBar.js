@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { View, TextInput, StyleSheet, Platform } from 'react-native';
+import { View, TextInput, StyleSheet, Platform, Pressable } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
 
@@ -33,8 +33,11 @@ function HomeSearchBar({
   wrapStyle,
   onFocus,
   onBlur,
+  onBarPress,
+  onInputPressIn,
   focused = false,
   textInputRef,
+  keyboardOnFocus = false,
 }) {
   const isDark = variant === 'dark';
 
@@ -61,7 +64,8 @@ function HomeSearchBar({
       };
 
   return (
-    <View
+    <Pressable
+      onPress={onBarPress}
       style={[
         styles.shell,
         shellShadow,
@@ -93,12 +97,14 @@ function HomeSearchBar({
         accessibilityLabel={placeholder}
         onFocus={onFocus}
         onBlur={onBlur}
+        onPressIn={onInputPressIn}
+        showSoftInputOnFocus={keyboardOnFocus}
         underlineColorAndroid="transparent"
         selectionColor={isDark ? ACCENT_LEMON : 'rgba(98, 134, 228, 0.55)'}
         cursorColor={isDark ? ACCENT_LEMON : ACCENT_BLUE}
         keyboardAppearance={isDark ? 'dark' : 'light'}
       />
-    </View>
+    </Pressable>
   );
 }
 

@@ -31,6 +31,6 @@ export function getPrivacyContactEmail() {
   return (
     readEnv('EXPO_PUBLIC_PRIVACY_EMAIL') ||
     readEnv('EXPO_PUBLIC_SUPPORT_EMAIL') ||
-    'privacy@kraina.app'
+    'support@kraina.world'
   );
 }

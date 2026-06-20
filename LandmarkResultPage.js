@@ -10,7 +10,6 @@ import {
   Animated,
   PanResponder,
   useWindowDimensions,
-  ActivityIndicator,
   Alert,
   Modal,
   Share,
@@ -198,7 +197,14 @@ export default function LandmarkResultPage({ navigation, route }) {
     return 'full';
   });
 
-  const miniSheetMaxH = useMemo(() => Math.min(winH * 0.48, 420), [winH]);
+  const miniSheetMaxH = useMemo(() => {
+    const hasExplicitMini =
+      typeof route?.params?.miniExtract === 'string' && route.params.miniExtract.trim();
+    if (hasExplicitMini) {
+      return Math.min(winH * 0.52, 440);
+    }
+    return Math.min(winH * 0.48, 420);
+  }, [winH, route?.params?.miniExtract]);
   /** Вхід нижньої панелі: з’являється знизу. */
   const miniPanelEnterY = useRef(new Animated.Value(280)).current;
   /** Вхід верхньої «скляної» панелі: з’являється зверху. */
@@ -771,11 +777,19 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const openFull = useCallback(() => {
     if (phase !== 'mini') return;
+    setPhase('full');
+  }, [phase]);
+
+  const onBack = useCallback(() => {
+    if (phase === 'full' && returnToMiniOnBack) {
+      setPhase('mini');
+      return;
+    }
     Speech.stop();
     stopFileAudio();
     setSpeaking(false);
-    setPhase('full');
-  }, [phase, stopFileAudio]);
+    navigation.goBack();
+  }, [phase, returnToMiniOnBack, navigation, stopFileAudio]);
 
   const onIntroSectionLayout = useCallback((e) => {
     const nextY = Number(e?.nativeEvent?.layout?.y);
@@ -1120,24 +1134,18 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
   }, [closeParamsMenu, wikipediaUrl]);
 
-  const onBack = useCallback(() => {
-    if (phase === 'full' && returnToMiniOnBack) {
-      Speech.stop();
-      stopFileAudio();
-      setSpeaking(false);
-      setPhase('mini');
-      return;
-    }
-    Speech.stop();
-    stopFileAudio();
-    navigation.goBack();
-  }, [phase, returnToMiniOnBack, navigation, stopFileAudio]);
-
   const openWiki = useCallback(() => {
     if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
   }, [wikipediaUrl]);
 
   const sheetTagline = panelTagline || (subtitle ? String(subtitle) : '');
+  const isHomeMiniPanel = startPhaseParam === 'home';
+  const explicitMiniExtract =
+    typeof route?.params?.miniExtract === 'string' ? route.params.miniExtract.trim() : '';
+  const miniSheetTitle = isHomeMiniPanel ? String(title || headerTitle).trim() : headerTitle;
+  const miniSheetTagline = isHomeMiniPanel && panelTagline ? panelTagline : sheetTagline;
+  const miniSheetBody = explicitMiniExtract || miniExtract || extract;
+  const miniBodyUnlimited = !!explicitMiniExtract;
 
   const paramMenuRipple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const paramRowLabelColor = isLight ? '#1E1E1E' : FIGMA_CREAM;
@@ -1327,29 +1335,29 @@ export default function LandmarkResultPage({ navigation, route }) {
               ]}
             />
             <View style={styles.miniSheetInner}>
-              <Text style={[styles.chevronHint, { color: isLight ? 'rgba(0,0,0,0.26)' : 'rgba(255,255,255,0.38)' }]}>︿</Text>
               <View style={styles.miniSheetBottomContent}>
                 <Text
                   style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
                   {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
                 >
-                  {headerTitle}
+                  {miniSheetTitle}
                 </Text>
-                {sheetTagline ? (
+                {miniSheetTagline ? (
                   <Text
                     style={[styles.subtitle, brandFontSans, { color: subColor }]}
-                    numberOfLines={2}
+                    numberOfLines={isHomeMiniPanel ? undefined : 2}
                     ellipsizeMode="tail"
                   >
-                    {sheetTagline}
+                    {miniSheetTagline}
                   </Text>
                 ) : null}
                 <Text
                   style={[styles.miniBody, styles.miniBodyClamp, brandFontSans, { color: bodyColor }]}
-                  numberOfLines={PREVIEW_BODY_LINES}
-                  ellipsizeMode="tail"
+                  {...(miniBodyUnlimited
+                    ? {}
+                    : { numberOfLines: PREVIEW_BODY_LINES, ellipsizeMode: 'tail' })}
                 >
-                  {miniExtract || extract}
+                  {miniSheetBody}
                 </Text>
                 <AuthStylePrimaryCta
                   onPress={openFull}
@@ -1360,20 +1368,6 @@ export default function LandmarkResultPage({ navigation, route }) {
               </View>
             </View>
           </Animated.View>
-          {speaking ? (
-            <View
-              style={[
-                styles.ttsBanner,
-                isLight && styles.ttsBannerLight,
-                { bottom: miniSheetMaxH + 12 },
-              ]}
-            >
-              <ActivityIndicator size="small" color={accent} style={{ marginRight: 8 }} />
-              <Text style={[styles.ttsBannerText, isLight && styles.ttsBannerTextLight]}>
-                {ls(language, 'audioPlayingHint')}
-              </Text>
-            </View>
-          ) : null}
         </Animated.View>
       </View>
       {landmarkParamsMenu}
@@ -1919,30 +1913,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.15,
       },
     }),
-  },
-  ttsBanner: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  ttsBannerLight: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(2, 18, 235, 0.12)',
-  },
-  ttsBannerText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  ttsBannerTextLight: {
-    color: '#1E1E1E',
   },
   audioBar: {
     flexDirection: 'row',

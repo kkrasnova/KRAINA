@@ -1,0 +1,21 @@
+diff --git a/node_modules/react-native/scripts/react-native-xcode.sh b/node_modules/react-native/scripts/react-native-xcode.sh
+index 1dcdf55..1d76d42 100755
+--- a/node_modules/react-native/scripts/react-native-xcode.sh
++++ b/node_modules/react-native/scripts/react-native-xcode.sh
+@@ -157,7 +157,6 @@ fi
+   --entry-file "$ENTRY_FILE" \
+   --platform "$BUNDLE_PLATFORM" \
+   --dev $DEV \
+-  --reset-cache \
+   --bundle-output "$BUNDLE_FILE" \
+   --assets-dest "$DEST" \
+   "${EXTRA_ARGS[@]}" \
+@@ -169,7 +168,7 @@ if [[ $USE_HERMES == false ]]; then
+ else
+   EXTRA_COMPILER_ARGS=
+   if [[ $DEV == true ]]; then
+-    EXTRA_COMPILER_ARGS=-Og
++    EXTRA_COMPILER_ARGS=-O
+   else
+     EXTRA_COMPILER_ARGS=-O
+   fi

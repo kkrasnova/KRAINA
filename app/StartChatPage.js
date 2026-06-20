@@ -10,7 +10,7 @@ import { st } from './chatsI18n';
 import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { accentForTheme } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { hasMessageApiToken, messagesOpenThread } from './messageApi';
+import { ensureMessageApiReady, hasMessageApiToken, messagesOpenThread } from './messageApi';
 import { errorToUserText } from './errorText';
 
 const APP_SCREEN_BG = '#000000';
@@ -54,8 +54,11 @@ export default function StartChatPage({ navigation, route }) {
 
   const openChat = useCallback(async () => {
     if (!hasMessageApiToken()) {
-      Alert.alert('', st(language, 'needBackendLogin'));
-      return;
+      const ok = await ensureMessageApiReady(user);
+      if (!ok) {
+        Alert.alert('', st(language, 'needBackendLogin'));
+        return;
+      }
     }
     const u = username.trim().replace(/^@/, '');
     if (!u) return;
@@ -69,6 +72,10 @@ export default function StartChatPage({ navigation, route }) {
         ...shell,
         threadId: meta.id,
         peerName: peerLabel,
+        peerDisplayName: meta.peer_display_name || peerLabel,
+        peerUsername: peerLabel,
+        peerAvatarUrl: meta.peer_avatar_url || '',
+        peerUserId: String(meta.peer_user_id || ''),
         useMessageApi: true,
         pendingForMe: !!meta.pending_for_me,
       });

@@ -321,9 +321,7 @@ export default function GeoMapExplorer({ navigation, route, bottomInset = 0, top
 
   const openCard = useCallback(
     (loc) => {
-      const countryPart = String(loc.country || '').trim();
-      const headerTitle =
-        countryPart && loc.title ? `${countryPart} — ${loc.title}` : String(loc.title || '').trim();
+      const headerTitle = String(loc.title || '').trim();
       const photoUri =
         loc.cover_image_url && /^https?:\/\//i.test(String(loc.cover_image_url))
           ? String(loc.cover_image_url).trim()

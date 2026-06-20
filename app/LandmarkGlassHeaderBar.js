@@ -40,26 +40,39 @@ export default function LandmarkGlassHeaderBar({
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const miniBarIosShadow =
     Platform.OS === 'ios'
-      ? {
-          shadowColor: accent,
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: isLight ? 0.2 : 0.28,
-          shadowRadius: isLight ? 10 : 12,
-        }
+      ? isLight
+        ? {
+            shadowColor: '#0212EB',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.1,
+            shadowRadius: 16,
+          }
+        : {
+            shadowColor: accent,
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.28,
+            shadowRadius: 12,
+          }
       : {};
 
   return (
-    <Shell style={[styles.miniTopBar, miniBarIosShadow, { borderColor: accent }, shellStyle]}>
+    <Shell
+      style={[
+        styles.miniTopBar,
+        isLight && styles.miniTopBarLight,
+        miniBarIosShadow,
+        !isLight && { borderColor: accent },
+        shellStyle,
+      ]}
+    >
       <View style={[styles.miniTopBarClip, hasBottomContent && styles.miniTopBarClipWithBottom]}>
         {Platform.OS === 'ios' && !isLight ? (
           <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-        ) : Platform.OS === 'ios' && isLight ? (
-          <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
         ) : null}
         <View
           style={[
             styles.miniTopBarTint,
-            isLight ? { backgroundColor: 'rgba(255,255,255,0.88)' } : { backgroundColor: 'rgba(22,22,22,0.84)' },
+            isLight ? styles.miniTopBarTintLight : { backgroundColor: 'rgba(22,22,22,0.84)' },
           ]}
         />
         <View style={styles.miniTopRow}>
@@ -126,6 +139,13 @@ const styles = StyleSheet.create({
       android: { elevation: 10 },
     }),
   },
+  miniTopBarLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(2, 18, 235, 0.08)',
+    ...Platform.select({
+      android: { elevation: 8 },
+    }),
+  },
   miniTopBarClip: {
     position: 'relative',
     minHeight: GLASS_HEADER_MIN_HEIGHT,
@@ -136,6 +156,9 @@ const styles = StyleSheet.create({
   },
   miniTopBarTint: {
     ...StyleSheet.absoluteFillObject,
+  },
+  miniTopBarTintLight: {
+    backgroundColor: '#FFFFFF',
   },
   miniTopRow: {
     flexDirection: 'row',

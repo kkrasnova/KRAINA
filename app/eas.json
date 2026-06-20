@@ -17,7 +17,8 @@
       },
       "node": "20.19.4",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "development"
+        "EXPO_PUBLIC_APP_ENV": "development",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyDvx5JcpyKpdv_YoAWv-3ddtbiMcp6lIlk"
       },
       "cache": {
         "key": "dev-{{ hash('package-lock.json', 'yarn.lock', 'patches/*') }}",
@@ -41,7 +42,17 @@
       "node": "20.19.4",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "staging",
-        "EXPO_PUBLIC_KRAINA_API_URL": "https://kraina-api.onrender.com"
+        "EXPO_PUBLIC_KRAINA_API_URL": "https://kraina-api.onrender.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyDvx5JcpyKpdv_YoAWv-3ddtbiMcp6lIlk",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "58561963441-pnnvj45vfinrjbo7ouifojmts1u19r49.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "58561963441-646snkkptpmes6aqhdcg1ki75pflvao7.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "58561963441-u0mcn29l92vufbfv3djdu1mtp8do8n83.apps.googleusercontent.com",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyC0bjzmSeFl-CrQS3425iNfDBBbH_xvAWc",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "kraina-207c5.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "kraina-207c5",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "kraina-207c5.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "58561963441",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:58561963441:android:d90c1ce3567b81fb174990"
       },
       "cache": {
         "key": "preview-{{ hash('package-lock.json', 'yarn.lock', 'patches/*') }}",
@@ -64,7 +75,17 @@
       "node": "20.19.4",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
-        "EXPO_PUBLIC_KRAINA_API_URL": "https://kraina-api.onrender.com"
+        "EXPO_PUBLIC_KRAINA_API_URL": "https://kraina-api.onrender.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyDvx5JcpyKpdv_YoAWv-3ddtbiMcp6lIlk",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "58561963441-pnnvj45vfinrjbo7ouifojmts1u19r49.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "58561963441-646snkkptpmes6aqhdcg1ki75pflvao7.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "58561963441-u0mcn29l92vufbfv3djdu1mtp8do8n83.apps.googleusercontent.com",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyC0bjzmSeFl-CrQS3425iNfDBBbH_xvAWc",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "kraina-207c5.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "kraina-207c5",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "kraina-207c5.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "58561963441",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:58561963441:android:d90c1ce3567b81fb174990"
       },
       "cache": {
         "key": "prod-{{ hash('package-lock.json', 'yarn.lock', 'patches/*') }}",

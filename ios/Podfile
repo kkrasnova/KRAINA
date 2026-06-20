@@ -1,5 +1,7 @@
-require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
-require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
+app_root = File.expand_path('../app', __dir__)
+
+require File.join(File.dirname(`node --print "require.resolve('expo/package.json', { paths: ['#{app_root}'] })"`), "scripts/autolinking")
+require File.join(File.dirname(`node --print "require.resolve('react-native/package.json', { paths: ['#{app_root}'] })"`), "scripts/react_native_pods")
 
 require 'json'
 podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
@@ -12,16 +14,19 @@ def ccache_enabled?(podfile_properties)
   podfile_properties['apple.ccacheEnabled'] == 'true'
 end
 
-ENV['RCT_NEW_ARCH_ENABLED'] ||= '0' if podfile_properties['newArchEnabled'] == 'false'
 ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] ||= podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
-ENV['RCT_USE_RN_DEP'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-ENV['RCT_USE_PREBUILT_RNCORE'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
+ENV['RCT_USE_RN_DEP'] ||= podfile_properties['ios.buildReactNativeFromSource'] == 'true' ? '0' : '1'
+ENV['RCT_USE_PREBUILT_RNCORE'] ||= podfile_properties['ios.buildReactNativeFromSource'] == 'true' ? '0' : '1'
+ENV['RCT_HERMES_V1_ENABLED'] ||= '1' if podfile_properties['expo.useHermesV1'] == 'true'
+ENV['EXPO_USE_PRECOMPILED_MODULES'] ||= '1' if podfile_properties['EXPO_USE_PRECOMPILED_MODULES'] != 'false'
+# Expo app (app.config.js, plugins, assets) lives in app/
+ENV['PROJECT_ROOT'] = app_root
 platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 
 prepare_react_native_project!
 
 target 'KRANA' do
-  use_expo_modules!
+  use_expo_modules!(projectRoot: app_root)
 
   # Google Sign-In / AppCheck (static pods need module maps for Swift deps)
   pod 'GoogleUtilities', :modular_headers => true
@@ -30,16 +35,34 @@ target 'KRANA' do
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else
+    ENV['KRAINA_APP_ROOT'] = app_root
+    ENV['KRAINA_IOS_ROOT'] = __dir__
     config_command = [
       'node',
       '--no-warnings',
       '--eval',
-      'require(\'expo/bin/autolinking\')',
-      'expo-modules-autolinking',
-      'react-native-config',
-      '--json',
-      '--platform',
-      'ios'
+      <<~'NODE',
+        const appRoot = process.env.KRAINA_APP_ROOT;
+        const iosRoot = process.env.KRAINA_IOS_ROOT;
+        const { spawnSync } = require('child_process');
+        const result = spawnSync(process.execPath, [
+          '--no-warnings',
+          '--eval',
+          "require('expo/bin/autolinking')",
+          'expo-modules-autolinking',
+          'react-native-config',
+          '--json',
+          '--platform',
+          'ios',
+        ], { encoding: 'utf8', cwd: appRoot });
+        if (result.status !== 0) {
+          process.stderr.write(result.stderr || result.stdout || '');
+          process.exit(result.status || 1);
+        }
+        const config = JSON.parse(result.stdout);
+        config.project.ios.sourceDir = iosRoot;
+        process.stdout.write(JSON.stringify(config));
+      NODE
     ]
   end
 
@@ -47,9 +70,8 @@ target 'KRANA' do
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :hermes_enabled => false,
-    # An absolute path to your application root.
-    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
+    :app_path => "#{Pod::Config.instance.installation_root}/../app",
     :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
   )
 
@@ -63,16 +85,9 @@ target 'KRANA' do
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_config|
+        build_config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
         build_config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-        header_paths = build_config.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
-        header_paths = [header_paths] if header_paths.is_a?(String)
-        header_paths += [
-          '$(PODS_ROOT)/Headers/Public',
-          '$(PODS_ROOT)/Headers/Public/glog',
-          '$(PODS_ROOT)/Headers/Public/RCT-Folly',
-          '$(PODS_ROOT)/glog/src',
-        ]
-        build_config.build_settings['HEADER_SEARCH_PATHS'] = header_paths.uniq
+        build_config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
 
         if target.name == 'RCT-Folly'
           defs = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']

@@ -15,14 +15,14 @@ import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { getRegion, getLandmarkInRegion } from './routeRegionsData';
-import { landmarkResultExtrasFromResolvedLandmark } from './homeLandmarkResultParams';
+import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
 import { haversineKm } from './routePlannerCore';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { rp } from './routePlannerI18n';
 import { pf } from './profileI18n';
-import { landmarkBlurb, routeRegionTitle, routeCountryTitle } from './routePlanTitles';
+import { routeRegionTitle, routeCountryTitle } from './routePlanTitles';
 import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { getAppTheme } from './themeStorage';
@@ -279,24 +279,18 @@ export default function RouteNavigationPage({ navigation, route }) {
     const lm = getLandmarkInRegion(plan.regionId, first.id);
     if (!lm) return;
     const region = getRegion(plan.regionId);
-    const extract = landmarkBlurb(language, lm);
-    navigation.navigate('LandmarkResult', {
-      ...shell,
-      ...landmarkResultExtrasFromResolvedLandmark({
+    navigation.navigate(
+      'LandmarkResult',
+      buildLandmarkResultParamsFromHomeLandmark({
         lm,
         region,
         countryId: route?.params?.countryId,
         language,
+        appTheme: shell.appTheme || route?.params?.appTheme || 'dark',
         user: shell.user,
       }),
-      startPhase: 'full',
-      title: first.title,
-      headerTitle,
-      subtitle: `${plan.flag} ${routeRegionTitle(language, plan)}`,
-      extract,
-      source: 'sourceDemo',
-    });
-  }, [plan, first, navigation, shell, distToHistoryM, language, headerTitle, route?.params?.countryId]);
+    );
+  }, [plan, first, navigation, shell, distToHistoryM, language, headerTitle, route?.params?.countryId, route?.params?.appTheme]);
 
   if (!plan?.stops?.length || !first || !mapRegion) {
     return (

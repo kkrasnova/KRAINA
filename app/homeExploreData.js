@@ -1,6 +1,7 @@
 import { ROUTE_REGIONS, regionTitle, collectAllCountriesWithRegions } from './routeRegionsData';
 import { countriesForSelectCountryScreen, COUNTRY_DISPLAY_LABELS, appLangBase } from './appLang';
 import { normalizeHeroImageSource } from './krainaHeroThumbs';
+import { resolveOfflineUriSync } from './offline/localCacheStore';
 
 /** Картка країни на головній: прев’ю t1–t4 або URL (керується з адмін-панелі). */
 export const HOME_COUNTRY_HERO_REFS = {
@@ -61,6 +62,11 @@ export function getHomeRegionsForCountry(countryId) {
   return ids.map((id) => ROUTE_REGIONS[id]).filter(Boolean);
 }
 
+/** Актуальна кількість локацій міста з runtime-каталогу. */
+export function countRegionLandmarks(region) {
+  return Array.isArray(region?.landmarks) ? region.landmarks.length : 0;
+}
+
 export function isValidHomeRegionForCountry(countryId, regionId) {
   return HOME_REGION_IDS_BY_COUNTRY_ID[countryId]?.includes(regionId) === true;
 }
@@ -107,7 +113,7 @@ export function getHomeCountriesForCarousel(language, locationsEpoch = 0) {
     const regions = getHomeRegionsForCountry(id);
     const first = regions[0];
     const heroThumb = resolveCarouselHeroForCountry(id, regions);
-    const total = regions.reduce((n, r) => n + (r.landmarks?.length || 0), 0);
+    const total = regions.reduce((n, r) => n + countRegionLandmarks(r), 0);
     return {
       id,
       countryLabel: byId[id]?.label || labelPack[id] || id,
@@ -121,4 +127,18 @@ export function getHomeCountriesForCarousel(language, locationsEpoch = 0) {
   carouselCacheKey = cacheKey;
   carouselCache = result;
   return result;
+}
+
+/** Фото міста для списків: hero URL → heroThumb → перша пам’ятка. */
+export function resolveRegionHeroSource(region) {
+  if (!region) return null;
+  const u = typeof region.heroUri === 'string' ? region.heroUri.trim() : '';
+  if (u && /^https?:\/\//i.test(u)) return { uri: resolveOfflineUriSync(u) };
+  if (region.heroThumb) return region.heroThumb;
+  const thumb = region.landmarks?.[0]?.thumb;
+  if (!thumb) return null;
+  if (typeof thumb === 'object' && typeof thumb.uri === 'string') {
+    return { uri: resolveOfflineUriSync(thumb.uri) };
+  }
+  return thumb;
 }

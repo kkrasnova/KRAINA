@@ -1,23 +1,104 @@
-import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, memo } from 'react';
 import { FlashList } from '@shopify/flash-list';
-import { View, Text, StyleSheet, Pressable, Platform, DeviceEventEmitter } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Platform,
+  DeviceEventEmitter,
+  Image,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { getSavedHomeCityRegionId, saveHomeCityRegionId } from './homeCityStorage';
-import { getHomeRegionsForCountry } from './homeExploreData';
+import { getHomeRegionsForCountry, resolveRegionHeroSource, countRegionLandmarks } from './homeExploreData';
 import { regionTitle } from './routeRegionsData';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme } from './themeAccent';
+import { countryFlagSource } from './WavingCountryFlag';
+import { useHomeLocationsEpoch } from './useHomeLocationsEpoch';
+
 const CARD_DARK = '#141414';
 const BORDER_DARK = '#2A2A2A';
 const MUTED = '#888888';
+const ROW_GAP = 12;
+const THUMB_SIZE = 72;
+
+const CityPickerRow = memo(function CityPickerRow({
+  region,
+  name,
+  locationCount,
+  selected,
+  heroSource,
+  heroIsKyiv,
+  flagSource,
+  isLight,
+  accent,
+  language,
+  onPick,
+  ripple,
+}) {
+  const thumbBg = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)';
+  return (
+    <Pressable
+      onPress={() => onPick(region.id)}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          backgroundColor: isLight ? '#FFFFFF' : CARD_DARK,
+          borderColor: selected
+            ? accent
+            : isLight
+              ? 'rgba(30,30,30,0.08)'
+              : BORDER_DARK,
+          opacity: pressed ? 0.92 : 1,
+        },
+      ]}
+      android_ripple={ripple}
+    >
+      <View style={[styles.rowThumbWrap, { backgroundColor: thumbBg }]}>
+        {heroSource ? (
+          <Image
+            key={region.id}
+            source={heroSource}
+            style={[styles.rowThumbImg, heroIsKyiv && styles.rowThumbImgKyiv]}
+            resizeMode="cover"
+          />
+        ) : flagSource ? (
+          <View style={styles.rowThumbFallback}>
+            <Image source={flagSource} style={styles.rowThumbFlagImg} resizeMode="contain" />
+          </View>
+        ) : (
+          <View style={styles.rowThumbFallback}>
+            <Text style={styles.rowFlag}>{region.flag}</Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.rowBody}>
+        <Text style={[styles.rowTitle, { color: isLight ? '#1E1E1E' : '#FFFFFF' }]} numberOfLines={2}>
+          {name}
+        </Text>
+        <Text style={[styles.rowMeta, { color: isLight ? '#5C5C5C' : MUTED }]}>
+          {mtHomeLocationsCount(language, locationCount)}
+        </Text>
+      </View>
+      <View style={styles.rowTrailing}>
+        {selected ? (
+          <Ionicons name="checkmark-circle" size={22} color={accent} />
+        ) : (
+          <Ionicons name="chevron-forward" size={20} color={accent} />
+        )}
+      </View>
+    </Pressable>
+  );
+});
 
 export default function HomeCityPickerPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -30,8 +111,14 @@ export default function HomeCityPickerPage({ navigation, route }) {
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
+  const flagSource = useMemo(() => (countryId ? countryFlagSource(countryId) : null), [countryId]);
+  const homeLocationsEpoch = useHomeLocationsEpoch();
+  const [focusEpoch, setFocusEpoch] = useState(0);
 
-  const regions = useMemo(() => (countryId ? getHomeRegionsForCountry(countryId) : []), [countryId]);
+  const regions = useMemo(
+    () => (countryId ? getHomeRegionsForCountry(countryId) : []),
+    [countryId, homeLocationsEpoch, focusEpoch],
+  );
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
@@ -42,20 +129,28 @@ export default function HomeCityPickerPage({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      setFocusEpoch((n) => n + 1);
+    }, []),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
       let cancelled = false;
       (async () => {
         const t = await getAppTheme();
         if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-        if (!countryId || !regions.length) return;
+        if (!countryId) return;
+        const currentRegions = getHomeRegionsForCountry(countryId);
+        if (!currentRegions.length) return;
         const saved = await getSavedHomeCityRegionId(user, countryId);
         if (cancelled) return;
-        const ok = saved && regions.some((r) => r.id === saved);
-        setSelectedId(ok ? saved : regions[0]?.id ?? null);
+        const ok = saved && currentRegions.some((r) => r.id === saved);
+        setSelectedId(ok ? saved : currentRegions[0]?.id ?? null);
       })();
       return () => {
         cancelled = true;
       };
-    }, [user, countryId, regions]),
+    }, [user, countryId]),
   );
 
   useEffect(() => {
@@ -75,45 +170,23 @@ export default function HomeCityPickerPage({ navigation, route }) {
   );
 
   const renderItem = useCallback(
-    ({ item: r }) => {
-      const name = regionTitle(r, langUk);
-      const n = r.landmarks?.length || 0;
-      const selected = r.id === selectedId;
-      return (
-        <Pressable
-          onPress={() => onPick(r.id)}
-          style={({ pressed }) => [
-            styles.row,
-            {
-              backgroundColor: isLight ? '#FFFFFF' : CARD_DARK,
-              borderColor: selected
-                ? accent
-                : isLight
-                  ? 'rgba(30,30,30,0.08)'
-                  : BORDER_DARK,
-              opacity: pressed ? 0.92 : 1,
-            },
-          ]}
-          android_ripple={ripple}
-        >
-          <Text style={styles.rowFlag}>{r.flag}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.rowTitle, { color: isLight ? '#1E1E1E' : '#FFFFFF' }]} numberOfLines={2}>
-              {name}
-            </Text>
-            <Text style={[styles.rowMeta, { color: isLight ? '#5C5C5C' : MUTED }]}>
-              {mtHomeLocationsCount(language, n)}
-            </Text>
-          </View>
-          {selected ? (
-            <Ionicons name="checkmark-circle" size={22} color={accent} />
-          ) : (
-            <Ionicons name="chevron-forward" size={20} color={accent} />
-          )}
-        </Pressable>
-      );
-    },
-    [accent, isLight, langUk, language, onPick, ripple, selectedId],
+    ({ item: r }) => (
+      <CityPickerRow
+        region={r}
+        name={regionTitle(r, langUk)}
+        locationCount={countRegionLandmarks(r)}
+        selected={r.id === selectedId}
+        heroSource={resolveRegionHeroSource(r)}
+        heroIsKyiv={r.id === 'kyiv'}
+        flagSource={flagSource}
+        isLight={isLight}
+        accent={accent}
+        language={language}
+        onPick={onPick}
+        ripple={ripple}
+      />
+    ),
+    [accent, flagSource, isLight, langUk, language, onPick, ripple, selectedId, homeLocationsEpoch, focusEpoch],
   );
 
   if (!countryId || !regions.length) {
@@ -133,13 +206,14 @@ export default function HomeCityPickerPage({ navigation, route }) {
         data={regions}
         keyExtractor={(r) => r.id}
         renderItem={renderItem}
-        estimatedItemSize={85}
+        estimatedItemSize={THUMB_SIZE + 24 + ROW_GAP}
+        extraData={`${selectedId}:${homeLocationsEpoch}:${focusEpoch}`}
+        style={styles.list}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: Math.max(24, insets.bottom + 24),
           paddingTop: 8,
         }}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
         {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
       />
     </View>
@@ -148,16 +222,51 @@ export default function HomeCityPickerPage({ navigation, route }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  list: { flex: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: 10,
+    padding: 12,
+    gap: 12,
+    marginBottom: ROW_GAP,
+  },
+  rowThumbWrap: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 12,
+    flexShrink: 0,
+    overflow: 'hidden',
+  },
+  rowThumbImg: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+  },
+  rowThumbImgKyiv: {
+    height: THUMB_SIZE + 12,
+    transform: [{ translateY: -6 }],
+  },
+  rowThumbFlagImg: {
+    width: 40,
+    height: 28,
+    borderRadius: 3,
+  },
+  rowThumbFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowFlag: { fontSize: 26 },
+  rowBody: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
   rowTitle: { fontSize: 16, fontWeight: '700' },
   rowMeta: { fontSize: 13, marginTop: 4, fontWeight: '600' },
+  rowTrailing: {
+    alignSelf: 'center',
+    paddingRight: 12,
+  },
 });

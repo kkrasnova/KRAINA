@@ -8,3 +8,6 @@ export const HOME_TAB = {
   MAP: 3,
   PROFILE: 4,
 };
+
+/** Натискання центральної кнопки камери на вкладці сканера — зробити знімок. */
+export const LANDMARK_SCANNER_CAPTURE_EVENT = 'kraina_landmark_scanner_capture_v1';

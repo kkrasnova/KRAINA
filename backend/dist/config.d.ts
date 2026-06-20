@@ -14,6 +14,9 @@ export declare const aiRouteConfig: {
     baseUrl: string;
     model: string;
 };
+export declare const visionConfig: {
+    apiKey: string;
+};
 export declare const config: {
     nodeEnv: string;
     sentryDsn: string;
@@ -59,5 +62,7 @@ export declare const config: {
     corsOrigins: string[];
     trustProxy: number | boolean;
     apnsConfigured: boolean;
+    googleVisionApiKey: string;
+    googleTtsApiKey: string;
 };
 //# sourceMappingURL=config.d.ts.map

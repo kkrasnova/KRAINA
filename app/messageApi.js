@@ -8,6 +8,17 @@ export function hasMessageApiToken() {
   return hasBackendSession();
 }
 
+/** Спроба відновити JWT перед серверними чатами (Firebase / Google / email). */
+export async function ensureMessageApiReady(localUser) {
+  if (hasBackendSession()) return true;
+  if (!useAuthStore.getState().hydrated) {
+    await useAuthStore.getState().hydrate();
+  }
+  if (hasBackendSession()) return true;
+  const { ensureBackendSession } = require('./syncBackendSessionBridge');
+  return ensureBackendSession(localUser);
+}
+
 function currentUid() {
   return String(useAuthStore.getState().user?.id || '');
 }

@@ -12,6 +12,8 @@ import {
 import { currentPeriodMonth } from '../utils/period.js';
 import { verifyGoogleIdToken } from '../oauth/googleVerify.js';
 import { verifyAppleIdentityToken } from '../oauth/appleVerify.js';
+import { verifyFacebookAccessToken } from '../oauth/facebookVerify.js';
+import { getAdminAuth } from './firebaseAdmin.js';
 
 export interface UserDTO {
   id: string;
@@ -257,6 +259,57 @@ export async function loginOrRegisterGoogle(idToken: string): Promise<AuthTokens
   }
 }
 
+export async function loginOrRegisterFacebook(accessToken: string): Promise<AuthTokens> {
+  const fb = await verifyFacebookAccessToken(accessToken);
+  const r = await pool.query(`SELECT id, email, role, status FROM users WHERE lower(email) = lower($1)`, [
+    fb.email,
+  ]);
+  if (r.rowCount) {
+    const row = r.rows[0] as UserDTO & { status: string };
+    if (row.status === 'banned') throw new HttpError(403, 'account_banned');
+    if (row.status === 'deleted') throw new HttpError(401, 'invalid_credentials');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const tokens = await issueSessionWithClient(client, row.id, row.email, row.role);
+      await client.query('COMMIT');
+      return { user: rowToUserDTO(row), ...tokens };
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const base = fb.name.replace(/\s+/g, '_').slice(0, 24) || 'user';
+    const username = await ensureUniqueUsername(client, base);
+    const ins = await client.query(
+      `INSERT INTO users (email, password_hash, auth_provider, role, status)
+       VALUES ($1, NULL, 'facebook', 'user', 'active')
+       RETURNING id, email, role, status`,
+      [fb.email],
+    );
+    const u = ins.rows[0] as UserDTO;
+    await client.query(
+      `INSERT INTO profiles (user_id, username, display_name, language, level)
+       VALUES ($1, $2, $3, 'uk', 1)`,
+      [u.id, username, fb.name],
+    );
+    await insertFreeSubscriptionAndUsage(client, u.id);
+    const tokens = await issueSessionWithClient(client, u.id, u.email, u.role);
+    await client.query('COMMIT');
+    return { user: rowToUserDTO(u), ...tokens };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 export async function loginOrRegisterApple(
   identityToken: string,
   displayName?: string,
@@ -299,6 +352,94 @@ export async function loginOrRegisterApple(
       `INSERT INTO profiles (user_id, username, display_name, language, level)
        VALUES ($1, $2, $3, 'uk', 1)`,
       [u.id, username, appleDisplayName],
+    );
+    await insertFreeSubscriptionAndUsage(client, u.id);
+    const tokens = await issueSessionWithClient(client, u.id, u.email, u.role);
+    await client.query('COMMIT');
+    return { user: rowToUserDTO(u), ...tokens };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Вхід/реєстрація за Firebase ID token (email/Google/Apple через Firebase Auth на клієнті). */
+export async function loginOrRegisterFirebaseIdToken(idToken: string): Promise<AuthTokens> {
+  const adminAuth = getAdminAuth();
+  if (!adminAuth) throw new HttpError(503, 'firebase_not_configured');
+
+  let firebaseUid = '';
+  let email = '';
+  try {
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    firebaseUid = String(decoded.uid || '').trim();
+    email = String(decoded.email || '').trim().toLowerCase();
+  } catch {
+    throw new HttpError(401, 'invalid_token');
+  }
+  if (!firebaseUid) throw new HttpError(401, 'invalid_token');
+  if (!email) throw new HttpError(400, 'email_required');
+
+  const byUid = await pool.query(
+    `SELECT u.id, u.email, u.role, u.status
+     FROM users u
+     JOIN profiles p ON p.user_id = u.id
+     WHERE p.firebase_uid = $1`,
+    [firebaseUid],
+  );
+  let row = byUid.rowCount ? (byUid.rows[0] as UserDTO & { status: string }) : null;
+
+  if (!row) {
+    const byEmail = await pool.query(
+      `SELECT id, email, role, status FROM users WHERE lower(email) = lower($1)`,
+      [email],
+    );
+    row = byEmail.rowCount ? (byEmail.rows[0] as UserDTO & { status: string }) : null;
+  }
+
+  if (row) {
+    if (row.status === 'banned') throw new HttpError(403, 'account_banned');
+    if (row.status === 'deleted') throw new HttpError(401, 'invalid_credentials');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE profiles
+         SET firebase_uid = $1, updated_at = now()
+         WHERE user_id = $2::uuid
+           AND (firebase_uid IS NULL OR btrim(firebase_uid) = '' OR firebase_uid = $1)`,
+        [firebaseUid, row.id],
+      );
+      const tokens = await issueSessionWithClient(client, row.id, row.email, row.role);
+      await client.query('COMMIT');
+      return { user: rowToUserDTO(row), ...tokens };
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const base = email.split('@')[0] ?? 'user';
+    const username = await ensureUniqueUsername(client, base);
+    const displayName = base.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim() || null;
+    const ins = await client.query(
+      `INSERT INTO users (email, password_hash, auth_provider, role, status)
+       VALUES ($1, NULL, 'firebase', 'user', 'active')
+       RETURNING id, email, role, status`,
+      [email],
+    );
+    const u = ins.rows[0] as UserDTO;
+    await client.query(
+      `INSERT INTO profiles (user_id, username, display_name, language, level, firebase_uid)
+       VALUES ($1, $2, $3, 'uk', 1, $4)`,
+      [u.id, username, displayName, firebaseUid],
     );
     await insertFreeSubscriptionAndUsage(client, u.id);
     const tokens = await issueSessionWithClient(client, u.id, u.email, u.role);
@@ -411,8 +552,9 @@ function appOtpHash(email: string, code: string): string {
 
 export async function userEmailExists(emailRaw: string): Promise<boolean> {
   const email = emailRaw.trim().toLowerCase();
+  // Same lookup as registerUser duplicate check — avoid "email taken" vs "no profile" mismatch.
   const r = await pool.query(
-    `SELECT 1 FROM users WHERE lower(email) = lower($1) AND status = 'active' LIMIT 1`,
+    `SELECT 1 FROM users WHERE lower(email) = lower($1) LIMIT 1`,
     [email],
   );
   return (r.rowCount ?? 0) > 0;
@@ -426,7 +568,7 @@ export async function storeAppPasswordResetOtp(
 ): Promise<void> {
   const email = emailRaw.trim().toLowerCase();
   const ur = await pool.query<{ id: string }>(
-    `SELECT id FROM users WHERE lower(email) = lower($1) AND status = 'active' LIMIT 1`,
+    `SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`,
     [email],
   );
   if (!ur.rowCount) return;

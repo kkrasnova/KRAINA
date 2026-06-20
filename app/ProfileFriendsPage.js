@@ -8,9 +8,9 @@ import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
+import { st } from './chatsI18n';
 import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { getFriends, setFriends } from './profileStorage';
-import { ensureThreadForPeer } from './chatService';
 import { hasMessageApiToken, messagesOpenThread, socialListMutuals } from './messageApi';
 import { socialListIncomingRequests, socialAcceptRequest, socialDeclineRequest } from './socialApi';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
@@ -124,7 +124,11 @@ export default function ProfileFriendsPage({ navigation, route }) {
   };
 
   const openChatWithFriend = async (item) => {
-    if (item.backendUserId && hasMessageApiToken()) {
+    if (!hasMessageApiToken()) {
+      Alert.alert('', st(language, 'needBackendLogin'));
+      return;
+    }
+    if (item.backendUserId) {
       try {
         const meta = await messagesOpenThread({ peerUserId: item.backendUserId });
         navigation.navigate('ChatThread', {
@@ -134,28 +138,14 @@ export default function ProfileFriendsPage({ navigation, route }) {
           peerDisplayName: peerDisplayNameFromMeta(meta) || item.name,
           peerUsername: peerUsernameFromMeta(meta),
           peerAvatarUrl: item.avatarUrl || meta.peer_avatar_url || '',
+          peerUserId: String(meta.peer_user_id || item.backendUserId),
           useMessageApi: true,
           pendingForMe: !!meta.pending_for_me,
         });
       } catch (e) {
         Alert.alert('', errorToUserText(e, language));
       }
-      return;
     }
-    const th = await ensureThreadForPeer(
-      route?.params?.user,
-      `friend_${item.id}`,
-      item.name,
-      langUk,
-    );
-    navigation.navigate('ChatThread', {
-      ...shell,
-      threadId: th.id,
-      peerName: item.name,
-      peerDisplayName: item.name,
-      peerUsername: item.username ? `@${String(item.username).replace(/^@/, '')}` : item.name,
-      peerAvatarUrl: item.avatarUrl || '',
-    });
   };
 
   const openFriendProfile = useCallback(

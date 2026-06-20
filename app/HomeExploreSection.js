@@ -8,17 +8,27 @@ import {
   Platform,
   DeviceEventEmitter,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { runAfterInteractions } from './runAfterInteractions';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getHomeRegionsForCountry } from './homeExploreData';
+import { getHomeRegionsForCountry, countRegionLandmarks } from './homeExploreData';
 import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
-import { getSavedHomeCityRegionId } from './homeCityStorage';
+import { getSavedHomeCityRegionId, KRAINA_HOME_CITY_CHANGED } from './homeCityStorage';
 import { landmarkTitle, regionTitle } from './routeRegionsData';
 import { landmarkMatchesHomeCategory } from './homeLandmarkCategories';
-import { mt, mtHomePlaceLine } from './mainPageI18n';
+import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
-import { haversineKm } from './geoDistance';
+import {
+  resolveHomeLandmarkDistKm,
+} from './homeLandmarkDisplay';
+import HomeLandmarkCard, {
+  HOME_LANDMARK_CARD_DARK,
+  HOME_LANDMARK_CARD_BORDER_DARK,
+  HOME_LANDMARK_CARD_BORDER_LIGHT,
+  HOME_LANDMARK_CARD_MUTED_DARK,
+  HOME_LANDMARK_CARD_MUTED_LIGHT,
+} from './HomeLandmarkCard';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { shellNavigate } from './shellNavigate';
 import {
@@ -30,111 +40,11 @@ import {
 import { countryFlagSource } from './WavingCountryFlag';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 
-const CARD_DARK = '#1A1A1A';
-const BORDER_DARK = '#2A2A2A';
-const BORDER_LIGHT = 'rgba(30,30,30,0.08)';
-const MUTED_DARK = '#9A9A9A';
-const MUTED_LIGHT = '#5C5C5C';
-
-const HomeLandmarkCard = memo(function HomeLandmarkCard({
-  lm,
-  region,
-  countryId,
-  language,
-  langUk,
-  isLight,
-  accent,
-  cardBg,
-  cardBorder,
-  textMain,
-  textMuted,
-  regionLabel,
-  dist,
-  isSaved,
-  onOpen,
-  onToggleSave,
-}) {
-  const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
-  const flagImgSrc = useMemo(() => countryFlagSource(countryId), [countryId]);
-  const line = mtHomePlaceLine(language, regionLabel, dist);
-  const desc = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
-  const thumbSource =
-    lm.thumb && typeof lm.thumb === 'object' && typeof lm.thumb.uri === 'string'
-      ? { uri: resolveOfflineUriSync(lm.thumb.uri) }
-      : lm.thumb;
-
-  return (
-    <View style={[styles.locCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-      <Pressable
-        style={({ pressed }) => [styles.locThumbWrap, pressed && styles.pressedThumb]}
-        onPress={onOpen}
-        android_ripple={ripple}
-        accessibilityRole="button"
-        accessibilityLabel={landmarkTitle(lm, langUk)}
-      >
-        <Image source={thumbSource} style={styles.locThumbImg} resizeMode="cover" />
-      </Pressable>
-      <View style={styles.locBody}>
-        <View style={styles.locBodyTop}>
-          <View style={styles.locTopRow}>
-            <View style={styles.locTopRowLeft}>
-              {flagImgSrc ? (
-                <Image source={flagImgSrc} style={styles.locFlagImg} />
-              ) : (
-                <Text style={styles.locFlagFallback}>{region.flag}</Text>
-              )}
-              <Text style={[styles.locMeta, { color: textMain }]} numberOfLines={1}>
-                {line}
-              </Text>
-            </View>
-            <Pressable
-              style={[
-                styles.saveCircle,
-                {
-                  borderColor: isLight ? 'rgba(2, 18, 235, 0.45)' : 'rgba(225,255,0,0.45)',
-                  backgroundColor: isSaved
-                    ? isLight
-                      ? 'rgba(2, 18, 235, 0.12)'
-                      : 'rgba(225, 255, 0, 0.14)'
-                    : 'transparent',
-                },
-              ]}
-              onPress={onToggleSave}
-              android_ripple={ripple}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSaved }}
-              accessibilityLabel={
-                isSaved ? mt(language, 'homeRemoveSavedLandmarkA11y') : mt(language, 'homeSaveLandmarkA11y')
-              }
-            >
-              <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={15} color={accent} />
-            </Pressable>
-          </View>
-          <Text style={[styles.locTitle, { color: textMain }]} numberOfLines={2} ellipsizeMode="tail">
-            {landmarkTitle(lm, langUk)}
-          </Text>
-          <Text style={[styles.locDesc, { color: textMuted }]} numberOfLines={2} ellipsizeMode="tail">
-            {desc}
-          </Text>
-        </View>
-        <Pressable
-          style={({ pressed }) => [
-            styles.detailsBtn,
-            { backgroundColor: accent, opacity: pressed ? 0.88 : 1 },
-          ]}
-          onPress={onOpen}
-          android_ripple={rippleOnDarkSurface}
-          hitSlop={6}
-        >
-          <Text style={[styles.detailsBtnText, { color: onAccentButtonText(isLight) }]}>
-            {mt(language, 'homeDetails')}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-});
+const CARD_DARK = HOME_LANDMARK_CARD_DARK;
+const BORDER_DARK = HOME_LANDMARK_CARD_BORDER_DARK;
+const BORDER_LIGHT = HOME_LANDMARK_CARD_BORDER_LIGHT;
+const MUTED_DARK = HOME_LANDMARK_CARD_MUTED_DARK;
+const MUTED_LIGHT = HOME_LANDMARK_CARD_MUTED_LIGHT;
 
 function HomeExploreSection({
   user,
@@ -147,7 +57,11 @@ function HomeExploreSection({
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
-  const regions = useMemo(() => getHomeRegionsForCountry(countryId), [countryId, homeLocationsEpoch]);
+  const [focusEpoch, setFocusEpoch] = useState(0);
+  const regions = useMemo(
+    () => getHomeRegionsForCountry(countryId),
+    [countryId, homeLocationsEpoch, focusEpoch],
+  );
   const regionKey = useMemo(() => regions.map((r) => r.id).join(','), [regions]);
   const [selectedRegionId, setSelectedRegionId] = useState(null);
   const [userCoords, setUserCoords] = useState(null);
@@ -193,31 +107,58 @@ function HomeExploreSection({
     };
   }, [countryId]);
 
+  const refreshSelectedCity = useCallback(async () => {
+    if (!countryId) {
+      setSelectedRegionId(null);
+      return;
+    }
+    const currentRegions = getHomeRegionsForCountry(countryId);
+    if (!currentRegions.length) {
+      setSelectedRegionId(null);
+      return;
+    }
+    const saved = await getSavedHomeCityRegionId(user, countryId);
+    const ok = saved && currentRegions.some((r) => r.id === saved);
+    setSelectedRegionId(ok ? saved : currentRegions[0].id);
+  }, [countryId, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setFocusEpoch((n) => n + 1);
+      void refreshSelectedCity();
+    }, [refreshSelectedCity]),
+  );
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!countryId || !regions.length) {
-        if (!cancelled) setSelectedRegionId(null);
-        return;
-      }
-      const saved = await getSavedHomeCityRegionId(user, countryId);
-      const ok = saved && regions.some((r) => r.id === saved);
-      const next = ok ? saved : regions[0].id;
-      if (!cancelled) setSelectedRegionId(next);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [countryId, user?.id, user?.firebaseUid, user?.email, regionKey, regions, user]);
+    const sub = DeviceEventEmitter.addListener(KRAINA_HOME_CITY_CHANGED, (payload) => {
+      if (payload?.countryId && payload.countryId !== countryId) return;
+      void refreshSelectedCity();
+      setFocusEpoch((n) => n + 1);
+    });
+    return () => sub.remove();
+  }, [countryId, refreshSelectedCity]);
+
+  useEffect(() => {
+    void refreshSelectedCity();
+  }, [countryId, user?.id, user?.firebaseUid, user?.email, regionKey, refreshSelectedCity]);
 
   const activeRegion = useMemo(() => {
-    if (!regions.length) return null;
-    return regions.find((r) => r.id === selectedRegionId) || regions[0];
-  }, [regions, selectedRegionId]);
+    if (!countryId || !selectedRegionId) {
+      return regions[0] || null;
+    }
+    const fresh = getHomeRegionsForCountry(countryId);
+    return fresh.find((r) => r.id === selectedRegionId) || fresh[0] || null;
+  }, [countryId, selectedRegionId, regions, homeLocationsEpoch, focusEpoch]);
 
   const filteredLandmarks = useMemo(() => {
     if (!activeRegion) return [];
-    return (activeRegion.landmarks || []).filter((lm) => landmarkMatchesHomeCategory(lm.id, categoryId));
+    return (activeRegion.landmarks || [])
+      .filter((lm) => landmarkMatchesHomeCategory(lm.id, categoryId))
+      .sort((a, b) => {
+        const da = typeof a.distKm === 'number' && Number.isFinite(a.distKm) ? a.distKm : 999;
+        const db = typeof b.distKm === 'number' && Number.isFinite(b.distKm) ? b.distKm : 999;
+        return da - db;
+      });
   }, [activeRegion, categoryId]);
 
   const landmarkNavById = useMemo(() => {
@@ -302,6 +243,8 @@ function HomeExploreSection({
   const cardBorder = isLight ? BORDER_LIGHT : BORDER_DARK;
   const regionLabel = regionTitle(activeRegion, langUk);
 
+  const activeLocationCount = countRegionLandmarks(activeRegion);
+
   return (
     <View style={styles.wrap}>
       <Text style={[styles.sectionTitle, { color: textMain }]}>{mt(language, 'homePickCity')}</Text>
@@ -341,6 +284,8 @@ function HomeExploreSection({
             </Text>
           </View>
           <Text style={[styles.cityListBtnHint, { color: textMuted }]} numberOfLines={1}>
+            {mtHomeLocationsCount(language, activeLocationCount)}
+            {' · '}
             {mt(language, 'homePickCityOpenList')}
           </Text>
         </View>
@@ -352,26 +297,16 @@ function HomeExploreSection({
           <Text style={[styles.popularPrefix, { color: textMain }]}>{mt(language, 'homePopularPrefix')}</Text>
           <Text style={[styles.popularCity, { color: accent }]}>{regionLabel}</Text>
         </View>
+        <Text style={[styles.popularCount, { color: textMuted }]}>
+          {mtHomeLocationsCount(language, filteredLandmarks.length)}
+        </Text>
       </View>
 
       {filteredLandmarks.length === 0 ? (
         <Text style={[styles.emptyCat, { color: textMuted }]}>{mt(language, 'homeNoCategoryResults')}</Text>
       ) : (
         filteredLandmarks.map((lm) => {
-          const live =
-            userCoords != null &&
-            lm.lat != null &&
-            lm.lng != null &&
-            Number.isFinite(Number(lm.lat)) &&
-            Number.isFinite(Number(lm.lng))
-              ? haversineKm(userCoords.lat, userCoords.lng, Number(lm.lat), Number(lm.lng))
-              : null;
-          const dist =
-            live != null && Number.isFinite(live)
-              ? Math.round(live * 10) / 10
-              : typeof lm.distKm === 'number' && Number.isFinite(lm.distKm)
-                ? lm.distKm
-                : 0.5;
+          const dist = resolveHomeLandmarkDistKm(userCoords, lm, activeRegion);
           const saveKey = landmarkSaveKey(countryId, activeRegion.id, lm.id);
           return (
             <HomeLandmarkCard
@@ -392,6 +327,7 @@ function HomeExploreSection({
               isSaved={savedKeySet.has(saveKey)}
               onOpen={() => openLandmark(lm)}
               onToggleSave={() => onToggleSaveLandmark(lm, activeRegion)}
+              homeLocationsEpoch={homeLocationsEpoch}
             />
           );
         })
@@ -412,7 +348,7 @@ function HomeExploreSection({
 export default memo(HomeExploreSection);
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 22, marginTop: 4 },
+  wrap: { marginBottom: 28, marginTop: 4, paddingBottom: 4 },
   emptyCat: {
     textAlign: 'center',
     fontSize: 14,
@@ -459,68 +395,7 @@ const styles = StyleSheet.create({
   popularLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline' },
   popularPrefix: { fontSize: 17, fontWeight: '700' },
   popularCity: { fontSize: 17, fontWeight: '700' },
-  locCard: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 10,
-    minHeight: 110,
-    overflow: 'hidden',
-  },
-  pressedThumb: { opacity: 0.88 },
-  /** Фіксована ширина + stretch по висоті рядка — cover без сплющування (як у збережених місцях). */
-  locThumbWrap: {
-    width: 86,
-    flexShrink: 0,
-    alignSelf: 'stretch',
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.25)',
-  },
-  locThumbImg: {
-    width: '100%',
-    height: '100%',
-  },
-  locBody: {
-    flex: 1,
-    minWidth: 0,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    justifyContent: 'space-between',
-  },
-  locBodyTop: { flexShrink: 1 },
-  locTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  locTopRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    flex: 1,
-    marginRight: 6,
-    minWidth: 0,
-  },
-  locFlagImg: { width: 16, height: 12, borderRadius: 2 },
-  locFlagFallback: { fontSize: 11, lineHeight: 14 },
-  locMeta: { fontSize: 11, flex: 1, marginRight: 0 },
-  saveCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  locTitle: { fontSize: 15, fontWeight: '700', marginTop: 4 },
-  locDesc: { fontSize: 12, lineHeight: 16, marginTop: 4 },
-  detailsBtn: {
-    alignSelf: 'flex-end',
-    marginTop: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-  },
-  detailsBtnText: { fontWeight: '700', fontSize: 12 },
+  popularCount: { fontSize: 13, fontWeight: '600', marginTop: 4 },
   moreRoutes: { paddingVertical: 10, alignItems: 'center' },
   moreRoutesPressed: { opacity: 0.72 },
   moreRoutesText: { fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },

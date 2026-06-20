@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FlashList } from '@shopify/flash-list';
 import {
   View,
@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -26,9 +27,11 @@ import { accentForTheme } from './themeAccent';
 import PddHeaderWordmark from './PddHeaderWordmark';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import ChatSwipeRow from './ChatSwipeRow';
-import { getThreads, deleteThread, chatUserKey } from './chatService';
+import { deleteThread, chatUserKey, getThreads } from './chatService';
+import { isBackendJwt } from './backendAuthApi';
+import { useAuthStore } from './auth/authStore';
 import {
-  hasMessageApiToken,
+  ensureMessageApiReady,
   messagesListThreads,
   messagesAcceptThread,
 } from './messageApi';
@@ -62,29 +65,48 @@ export default function ChatsPage({ navigation, route }) {
   const [threads, setThreads] = useState(() => initialCache?.threads ?? []);
   const [folder, setFolder] = useState('inbox');
   const [hiddenIds, setHiddenIds] = useState(() => new Set());
+  const hiddenIdsRef = useRef(hiddenIds);
+  hiddenIdsRef.current = hiddenIds;
+  const reloadSeqRef = useRef(0);
   const [loading, setLoading] = useState(() => !(initialCache?.threads?.length > 0));
   const [requestCount, setRequestCount] = useState(() => initialCache?.requestCount ?? 0);
   const [acceptBusyId, setAcceptBusyId] = useState(null);
+  const [sessionRecovering, setSessionRecovering] = useState(false);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const authUserId = useAuthStore((s) => s.user?.id);
+  const showServerTabs = useMemo(
+    () => isBackendJwt(accessToken) && !!authUserId,
+    [accessToken, authUserId],
+  );
 
   const hiddenKey = useMemo(() => {
     const who = chatUserKey(user);
-    const apiMode = hasMessageApiToken() ? 'api' : 'local';
+    const apiMode = showServerTabs ? 'api' : 'local';
     return `${HIDDEN_THREADS_PREFIX}${who}:${apiMode}:${folder}`;
-  }, [user, folder]);
+  }, [user, folder, showServerTabs]);
+
+  const applyHiddenIds = useCallback((nextSet) => {
+    setHiddenIds((prev) => {
+      if (prev.size === nextSet.size && [...prev].every((id) => nextSet.has(id))) {
+        return prev;
+      }
+      return nextSet;
+    });
+  }, []);
 
   const loadHidden = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(hiddenKey);
       if (!raw) {
-        setHiddenIds(new Set());
+        applyHiddenIds(new Set());
         return;
       }
       const arr = JSON.parse(raw);
-      setHiddenIds(new Set(Array.isArray(arr) ? arr.map(String) : []));
+      applyHiddenIds(new Set(Array.isArray(arr) ? arr.map(String) : []));
     } catch {
-      setHiddenIds(new Set());
+      applyHiddenIds(new Set());
     }
-  }, [hiddenKey]);
+  }, [hiddenKey, applyHiddenIds]);
 
   const saveHidden = useCallback(async (setObj) => {
     try {
@@ -105,63 +127,92 @@ export default function ChatsPage({ navigation, route }) {
   );
 
   const reload = useCallback(async ({ showBlockingLoader = false } = {}) => {
+    const seq = ++reloadSeqRef.current;
     const cacheKey = chatsCacheKey(user, folder, langUk);
     if (showBlockingLoader && !readChatsCache(cacheKey)?.threads?.length) {
       setLoading(true);
     }
-    const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
-    const api = hasMessageApiToken();
-    let nextThreads = [];
-    let nextRequestCount = 0;
-    if (api) {
-      try {
-        const f = folder === 'requests' ? 'requests' : 'inbox';
-        const [list, reqList] = await Promise.all([
-          messagesListThreads(f, langUk),
-          folder === 'inbox' ? messagesListThreads('requests', langUk).catch(() => []) : Promise.resolve([]),
-        ]);
-        if (folder === 'inbox') {
-          nextRequestCount = Array.isArray(reqList) ? reqList.length : 0;
-          setRequestCount(nextRequestCount);
+    try {
+      const t = await getAppTheme();
+      if (seq !== reloadSeqRef.current) return;
+      setAppTheme(t === 'light' ? 'light' : 'dark');
+      const api = showServerTabs;
+      let nextThreads = [];
+      let nextRequestCount = 0;
+      if (api) {
+        try {
+          const f = folder === 'requests' ? 'requests' : 'inbox';
+          const [list, reqList] = await Promise.all([
+            messagesListThreads(f, langUk),
+            folder === 'inbox' ? messagesListThreads('requests', langUk).catch(() => []) : Promise.resolve([]),
+          ]);
+          if (seq !== reloadSeqRef.current) return;
+          if (folder === 'inbox') {
+            nextRequestCount = Array.isArray(reqList) ? reqList.length : 0;
+            setRequestCount(nextRequestCount);
+          }
+          const mapped = list.map((row) => ({
+            id: row.id,
+            peerUserId: row.peer_user_id,
+            peerName: peerUsernameFromMeta(row),
+            peerDisplayName: peerDisplayNameFromMeta(row),
+            peerUsername: peerUsernameFromMeta(row),
+            peerAvatarUri: peerAvatarUriFromMeta(row),
+            lastMessagePreview: row.last_content || '',
+            lastAt: row.last_sent_at ? new Date(row.last_sent_at).getTime() : 0,
+            unreadCount: row.unread_count || 0,
+            useMessageApi: true,
+            pendingForMe: row.pending_for_me,
+          }));
+          mapped.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+          const hidden = hiddenIdsRef.current;
+          nextThreads = mapped.filter((th) => !hidden.has(String(th.id)));
+        } catch (e) {
+          if (__DEV__) console.warn('[ChatsPage] api threads', e?.message);
+          const list = await getThreads(user, langUk);
+          nextThreads = [...list]
+            .sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0))
+            .filter((th) => !hiddenIdsRef.current.has(String(th.id)));
         }
-        const mapped = list.map((row) => ({
-          id: row.id,
-          peerName: peerUsernameFromMeta(row),
-          peerDisplayName: peerDisplayNameFromMeta(row),
-          peerUsername: peerUsernameFromMeta(row),
-          peerAvatarUri: peerAvatarUriFromMeta(row),
-          lastMessagePreview: row.last_content || '',
-          lastAt: row.last_sent_at ? new Date(row.last_sent_at).getTime() : 0,
-          unreadCount: row.unread_count || 0,
-          useMessageApi: true,
-          pendingForMe: row.pending_for_me,
-        }));
-        mapped.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
-        nextThreads = mapped.filter((th) => !hiddenIds.has(String(th.id)));
-      } catch (e) {
-        if (__DEV__) console.warn('[ChatsPage] api threads', e?.message);
+      } else {
         const list = await getThreads(user, langUk);
         nextThreads = [...list]
           .sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0))
-          .filter((th) => !hiddenIds.has(String(th.id)));
+          .filter((th) => !hiddenIdsRef.current.has(String(th.id)));
+        nextRequestCount = 0;
+        setRequestCount(0);
       }
-    } else {
-      const list = await getThreads(user, langUk);
-      nextThreads = [...list]
-        .sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0))
-        .filter((th) => !hiddenIds.has(String(th.id)));
-      setRequestCount(0);
+      if (seq !== reloadSeqRef.current) return;
+      setThreads(nextThreads);
+      const inboxCache = readChatsCache(chatsCacheKey(user, 'inbox', langUk));
+      writeChatsCache(
+        cacheKey,
+        nextThreads,
+        folder === 'inbox' ? nextRequestCount : inboxCache?.requestCount ?? 0,
+      );
+    } finally {
+      if (seq === reloadSeqRef.current) {
+        setLoading(false);
+      }
     }
-    setThreads(nextThreads);
-    const inboxCache = readChatsCache(chatsCacheKey(user, 'inbox', langUk));
-    writeChatsCache(
-      cacheKey,
-      nextThreads,
-      folder === 'inbox' ? nextRequestCount : inboxCache?.requestCount ?? 0,
-    );
-    setLoading(false);
-  }, [user, langUk, folder, hiddenIds]);
+  }, [user, langUk, folder, showServerTabs]);
+
+  const recoverBackendSession = useCallback(async () => {
+    if (showServerTabs) return true;
+    setSessionRecovering(true);
+    try {
+      return await ensureMessageApiReady(user);
+    } finally {
+      setSessionRecovering(false);
+    }
+  }, [showServerTabs, user]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('kraina_backend_session_merged_v1', () => {
+      void reload();
+    });
+    return () => sub.remove();
+  }, [reload]);
 
   useFocusEffect(
     useCallback(() => {
@@ -169,6 +220,10 @@ export default function ChatsPage({ navigation, route }) {
       (async () => {
         await loadHidden();
         if (cancelled) return;
+        if (!showServerTabs) {
+          await recoverBackendSession();
+          if (cancelled) return;
+        }
         const cacheKey = chatsCacheKey(user, folder, langUk);
         const cached = readChatsCache(cacheKey);
         if (cached?.threads?.length) {
@@ -180,9 +235,29 @@ export default function ChatsPage({ navigation, route }) {
       })();
       return () => {
         cancelled = true;
+        reloadSeqRef.current += 1;
       };
-    }, [reload, loadHidden, user, folder, langUk]),
+    }, [reload, loadHidden, user, folder, langUk, showServerTabs, recoverBackendSession]),
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!showServerTabs) return undefined;
+      const timer = setInterval(() => {
+        void reload();
+      }, 4000);
+      return () => clearInterval(timer);
+    }, [reload, showServerTabs]),
+  );
+
+  useEffect(() => {
+    if (hiddenIds.size === 0) return;
+    void reload();
+  }, [hiddenIds, reload]);
+
+  useEffect(() => {
+    void reload();
+  }, [showServerTabs, reload]);
 
   useEffect(() => {
     const cacheKey = chatsCacheKey(user, folder, langUk);
@@ -204,7 +279,6 @@ export default function ChatsPage({ navigation, route }) {
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? '#5C5C5C' : '#8E8E93';
   const searchBg = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)';
-  const showServerTabs = hasMessageApiToken();
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -216,13 +290,38 @@ export default function ChatsPage({ navigation, route }) {
     );
   }, [threads, q]);
 
-  const onCompose = useCallback(() => {
-    if (hasMessageApiToken()) {
-      navigation.navigate('StartChat', shell);
-    } else {
-      navigation.navigate('ProfileFriends', { ...shell, forChatPick: true });
+  const onCompose = useCallback(async () => {
+    if (!showServerTabs) {
+      const ok = await recoverBackendSession();
+      if (!ok) {
+        Alert.alert('', st(language, 'needBackendLogin'));
+        navigation.navigate('ProfileFriends', { ...shell, forChatPick: true });
+        return;
+      }
     }
-  }, [navigation, shell]);
+    navigation.navigate('StartChat', shell);
+  }, [navigation, shell, language, showServerTabs, recoverBackendSession]);
+
+  const onRetryConnect = useCallback(async () => {
+    const ok = await recoverBackendSession();
+    if (ok) {
+      void reload({ showBlockingLoader: true });
+      return;
+    }
+    Alert.alert('', st(language, 'needBackendLogin'), [
+      { text: 'OK', style: 'cancel' },
+      {
+        text: st(language, 'reauthForChatsCta'),
+        onPress: () => {
+          navigation.navigate('ThirdPage', {
+            language,
+            reauthForChats: true,
+            reauthEmail: user?.email || '',
+          });
+        },
+      },
+    ]);
+  }, [recoverBackendSession, reload, language, navigation, user?.email]);
 
   const onOpenThread = useCallback(
     (item) => {
@@ -241,7 +340,11 @@ export default function ChatsPage({ navigation, route }) {
         peerUsername: item.peerUsername || '',
         peerAvatarUrl: item.peerAvatarUri || '',
         ...(item.useMessageApi
-          ? { useMessageApi: true, pendingForMe: !!item.pendingForMe }
+          ? {
+              useMessageApi: true,
+              pendingForMe: !!item.pendingForMe,
+              ...(item.peerUserId ? { peerUserId: String(item.peerUserId) } : {}),
+            }
           : {}),
       });
     },
@@ -386,11 +489,23 @@ export default function ChatsPage({ navigation, route }) {
     ],
   );
 
-  const emptyTitle = folder === 'requests' ? st(language, 'emptyRequestsTitle') : st(language, 'emptyInboxTitle');
-  const emptyBody = folder === 'requests' ? st(language, 'emptyRequestsBody') : st(language, 'emptyInboxBody');
+  const emptyTitle = sessionRecovering
+    ? st(language, 'connectingChats')
+    : !showServerTabs
+      ? st(language, 'needBackendLogin')
+      : folder === 'requests'
+        ? st(language, 'emptyRequestsTitle')
+        : st(language, 'emptyInboxTitle');
+  const emptyBody = sessionRecovering
+    ? ''
+    : !showServerTabs
+      ? st(language, 'connectChatsHint')
+      : folder === 'requests'
+        ? st(language, 'emptyRequestsBody')
+        : st(language, 'emptyInboxBody');
 
   const listEmpty =
-    loading && threads.length === 0 ? (
+    (loading || sessionRecovering) && threads.length === 0 ? (
     <View style={styles.emptyWrap}>
       <ActivityIndicator color={accent} size="large" />
     </View>
@@ -405,7 +520,20 @@ export default function ChatsPage({ navigation, route }) {
       </View>
       <Text style={[styles.emptyTitle, { color: textMain }]}>{emptyTitle}</Text>
       <Text style={[styles.emptyBody, { color: textMuted }]}>{emptyBody}</Text>
-      {folder === 'inbox' ? (
+      {!showServerTabs && !sessionRecovering ? (
+        <Pressable
+          onPress={onRetryConnect}
+          style={({ pressed }) => [
+            styles.emptyCta,
+            { backgroundColor: accent, opacity: pressed ? 0.9 : 1 },
+          ]}
+          android_ripple={ripple}
+        >
+          <Ionicons name="refresh-outline" size={18} color="#1E1E1E" style={{ marginRight: 8 }} />
+          <Text style={styles.emptyCtaText}>{st(language, 'connectChatsRetry')}</Text>
+        </Pressable>
+      ) : null}
+      {folder === 'inbox' && showServerTabs ? (
         <Pressable
           onPress={onCompose}
           style={({ pressed }) => [

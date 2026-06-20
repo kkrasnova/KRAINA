@@ -9,4 +9,6 @@ export declare const adminActionRateLimiter: import("express-rate-limit").RateLi
 export declare const billingVerifyRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
 export declare const messageSendRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
 export declare const aiRouteSuggestRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
+export declare const visionLandmarkRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
+export declare const landmarkTtsRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
 //# sourceMappingURL=rateLimits.d.ts.map

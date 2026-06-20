@@ -146,3 +146,26 @@ export const aiRouteSuggestRateLimiter = rateLimit({
     res.status(429).json({ error: 'rate_limited' });
   },
 });
+
+
+export const visionLandmarkRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: rateLimitValidate,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'rate_limited' });
+  },
+});
+
+export const landmarkTtsRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: rateLimitValidate,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'rate_limited' });
+  },
+});

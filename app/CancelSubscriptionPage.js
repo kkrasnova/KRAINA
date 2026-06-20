@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { LIGHT_BAR_BG } from './AppTopBar';
 import { useAppTheme } from './useAppTheme';
@@ -32,23 +31,31 @@ import { postBillingCancelFeedback } from './auth/endpoints';
 import { useAuthStore } from './auth/authStore';
 import { ApiError } from './auth/types';
 import { isAppAdminUser } from './adminGate';
+import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
+import {
+  settingsCleanPalette,
+  SettingsCleanHero,
+  SettingsCleanPressRow,
+  SettingsCleanFootnote,
+} from './settingsCleanUi';
 
 const ANDROID_PACKAGE = 'com.kraina.app';
-const BORDER_LIGHT = 'rgba(30, 30, 30, 0.12)';
+const DARK_CARD_FILL = '#1A1D26';
+const DARK_MUTED = 'rgba(255, 255, 255, 0.72)';
+const ACCENT_DIM = 'rgba(225, 255, 0, 0.14)';
 const BRAND_BLUE = '#6286E4';
 const ACCENT = '#E1FF00';
-const FIGMA_TEXT = '#1E1E1E';
-const FIGMA_ICON_MUTED = '#727272';
 const FIGMA_LSP = -0.14;
 
 const CANCEL_REASON_DEFS = [
-  { id: 'too_expensive', labelKey: 'cancelReasonTooExpensive' },
-  { id: 'rarely_use', labelKey: 'cancelReasonRarelyUse' },
-  { id: 'missing_features', labelKey: 'cancelReasonMissingFeatures' },
-  { id: 'bugs_crash', labelKey: 'cancelReasonBugs' },
-  { id: 'switched_app', labelKey: 'cancelReasonOtherApp' },
-  { id: 'other', labelKey: 'cancelReasonOther' },
+  { id: 'too_expensive', labelKey: 'cancelReasonTooExpensive', icon: 'wallet-outline' },
+  { id: 'rarely_use', labelKey: 'cancelReasonRarelyUse', icon: 'time-outline' },
+  { id: 'missing_features', labelKey: 'cancelReasonMissingFeatures', icon: 'sparkles-outline' },
+  { id: 'bugs_crash', labelKey: 'cancelReasonBugs', icon: 'bug-outline' },
+  { id: 'switched_app', labelKey: 'cancelReasonOtherApp', icon: 'swap-horizontal-outline' },
+  { id: 'other', labelKey: 'cancelReasonOther', icon: 'ellipsis-horizontal-outline' },
 ];
+
 
 function planLabel(texts, tier) {
   if (tier === 'explorer') return texts.tabExplorer;
@@ -57,13 +64,8 @@ function planLabel(texts, tier) {
   return texts.tabFree;
 }
 
-function retentionBody(texts, reasons, planName) {
-  const tpl = reasons.includes('too_expensive')
-    ? texts.cancelRetentionDiscountBody
-    : reasons.includes('rarely_use')
-      ? texts.cancelRetentionRarelyBody
-      : texts.cancelRetentionGenericBody;
-  return tpl.replace(/\{plan\}/g, planName);
+function retentionBody(texts, planName) {
+  return texts.cancelRetentionDiscountBody.replace(/\{plan\}/g, planName);
 }
 
 export default function CancelSubscriptionPage({ navigation, route }) {
@@ -72,7 +74,6 @@ export default function CancelSubscriptionPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme);
   const texts = getChoosePlanTexts(language);
-  const authUser = useAuthStore((s) => s.user);
 
   const [paidTier, setPaidTier] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -82,19 +83,6 @@ export default function CancelSubscriptionPage({ navigation, route }) {
   const [busy, setBusy] = useState(false);
   const [retentionUsed, setRetentionUsed] = useState(false);
 
-  const accountDisplay = useMemo(() => {
-    const email =
-      (authUser?.email && String(authUser.email).trim()) || (user?.email && String(user.email).trim());
-    if (email) return email;
-    const un =
-      (authUser?.username && String(authUser.username).trim()) ||
-      (user?.username && String(user.username).trim());
-    if (un) return un;
-    const id = authUser?.id ?? user?.id;
-    if (id != null && String(id).trim() !== '') return String(id);
-    return texts.cancelAccountPlaceholder;
-  }, [authUser, user, texts.cancelAccountPlaceholder]);
-
   const storeSubscriptionsUrl = useMemo(
     () =>
       Platform.OS === 'ios'
@@ -103,9 +91,7 @@ export default function CancelSubscriptionPage({ navigation, route }) {
     [],
   );
 
-  const storeManageCta =
-    Platform.OS === 'ios' ? texts.cancelOpenStoreCtaIos : texts.cancelOpenStoreCtaAndroid;
-  const storeTag = Platform.OS === 'ios' ? texts.cancelStoreTagIos : texts.cancelStoreTagAndroid;
+  const storeManageCta = texts.cancelOpenStoreCta;
 
   useFocusEffect(
     useCallback(() => {
@@ -160,7 +146,7 @@ export default function CancelSubscriptionPage({ navigation, route }) {
     if (!paidTier) return;
     setBusy(true);
     try {
-      const result = await applyRetentionOffer(user, 30);
+      const result = await applyRetentionOffer(user);
       if (!result.ok) {
         Alert.alert(texts.cancelErrorTitle, texts.cancelErrorBody);
         return;
@@ -227,260 +213,193 @@ export default function CancelSubscriptionPage({ navigation, route }) {
     user,
   ]);
 
-  const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
-  const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
-  const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
-  const cardFill = light ? '#FFFFFF' : '#1E2128';
+  const palette = settingsCleanPalette(light);
+  const labelColor = palette.textMain;
+  const mutedColor = palette.textMuted;
+  const borderColor = palette.hairline;
+  const cardFill = light ? '#FFFFFF' : DARK_CARD_FILL;
   const ripple = light ? rippleOnLightSurface : rippleOnDarkSurface;
-  const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.11)';
-  const hintRingColor = light ? 'rgba(98, 134, 228, 0.42)' : 'rgba(225, 255, 0, 0.42)';
-  const hintFill = light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(225, 255, 0, 0.14)';
-  const heroStroke = light ? 'rgba(98, 134, 228, 0.28)' : 'rgba(225, 255, 0, 0.38)';
-  const heroGradColors = light
-    ? ['#C9D7FA', '#E8EEFF', '#F6F8FF']
-    : ['#343A28', '#1E2218', '#12150E'];
-  const heroGradEnd = light ? { x: 1, y: 1 } : { x: 1, y: 0.85 };
-  const heroShadowStyle = light
-    ? {
-        shadowColor: BRAND_BLUE,
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 22,
-        elevation: 6,
-      }
-    : {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.65,
-        shadowRadius: 28,
-        elevation: 14,
-      };
-  const heroSubtitleColor = light ? 'rgba(30, 30, 30, 0.62)' : 'rgba(255, 255, 255, 0.82)';
-  const geoIconWrap = [styles.notifIconWrap, light ? styles.notifIconWrapLight : styles.geoNotifIconWrapDark];
+  const iconTint = palette.accent;
 
   const planName = planLabel(texts, paidTier);
   const stepLabels = [texts.cancelStepReasons, texts.cancelStepOffer, texts.cancelStepConfirm];
   const stepIndex = step === 'reason' ? 0 : step === 'offer' ? 1 : 2;
 
-  const heroIcon =
-    step === 'offer' ? 'gift-outline' : step === 'confirm' ? 'alert-circle-outline' : 'card-outline';
-  const heroTitle =
-    step === 'offer'
-      ? texts.cancelRetentionTitle
-      : step === 'confirm'
-        ? texts.cancelFinalTitle
-        : texts.cancelPageTitle;
-  const heroSubtitle =
-    step === 'offer'
-      ? retentionBody(texts, cancelReasons, planName)
-      : step === 'confirm'
-        ? texts.cancelFinalBody
-        : texts.cancelModalSubtitle;
+  const stepHero = useMemo(() => {
+    if (step === 'offer') {
+      return {
+        icon: 'gift-outline',
+        title: texts.cancelRetentionTitle,
+        subtitle: texts.cancelRetentionDiscountTitle,
+      };
+    }
+    if (step === 'confirm') {
+      return {
+        icon: null,
+        title: texts.cancelFinalTitle,
+        subtitle: texts.cancelFinalBody,
+      };
+    }
+    return {
+      icon: null,
+      title: texts.cancelReasonPrompt,
+      subtitle: null,
+    };
+  }, [step, texts]);
 
-  const renderStepIndicator = () => (
-    <View style={styles.stepRow}>
-      {stepLabels.map((label, i) => {
-        const active = i === stepIndex;
-        const done = i < stepIndex;
-        return (
-          <View key={label} style={styles.stepItem}>
-            <View
-              style={[
-                styles.stepDot,
-                {
-                  backgroundColor: active || done ? (light ? BRAND_BLUE : ACCENT) : borderColor,
-                },
-              ]}
-            />
-            <Text
-              style={[
-                styles.stepLabel,
-                { color: active ? labelColor : mutedColor, fontWeight: active ? '700' : '500' },
-              ]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-          </View>
-        );
-      })}
+  const renderStepMeta = () => (
+    <Text style={[styles.stepMeta, brandFontSans, { color: palette.textMuted }]}>
+      {`${stepIndex + 1} / ${stepLabels.length} · ${stepLabels[stepIndex]}`}
+    </Text>
+  );
+
+  const renderCurrentPlanNote = () => (
+    <View style={[styles.planNote, { borderColor: palette.hairline, backgroundColor: cardFill }]}>
+      <Text style={[styles.planNoteLabel, brandFontSans, { color: palette.textMuted }]}>
+        {texts.cancelCurrentPlan}
+      </Text>
+      <Text style={[styles.planNoteValue, brandFontHeadMedium, { color: palette.textMain }]}>{planName}</Text>
     </View>
   );
 
   const renderReasonStep = () => (
     <>
-      <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{texts.cancelCurrentPlan}</Text>
-      <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-        <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-          <View style={[styles.notifRow, styles.notifRowSingle]}>
-            <View style={geoIconWrap}>
-              <Ionicons name="person" size={22} color={light ? BRAND_BLUE : ACCENT} />
-            </View>
-            <View style={styles.notifRowTexts}>
-              <Text style={[styles.notifRowTitle, { color: labelColor }]}>{texts.cancelAccountHeading}</Text>
-              <Text style={[styles.notifRowSubtitle, { color: mutedColor }]} numberOfLines={2}>
-                {accountDisplay}
+      <View style={[styles.reasonGroup, { backgroundColor: cardFill, borderColor: palette.hairline }]}>
+        {CANCEL_REASON_DEFS.map(({ id, labelKey, icon }, i) => {
+          const on = cancelReasons.includes(id);
+          return (
+            <Pressable
+              key={id}
+              onPress={() => toggleCancelReason(id)}
+              android_ripple={ripple}
+              style={({ pressed }) => [
+                styles.reasonRow,
+                i < CANCEL_REASON_DEFS.length - 1 && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: palette.hairline,
+                },
+                pressed && { opacity: 0.88 },
+              ]}
+            >
+              <View style={styles.reasonIconSlot}>
+                <Ionicons name={icon} size={22} color={palette.accent} />
+              </View>
+              <Text
+                style={[
+                  styles.reasonLabel,
+                  brandFontSans,
+                  { color: palette.textMain, fontWeight: on ? '600' : '400' },
+                ]}
+                numberOfLines={2}
+              >
+                {texts[labelKey]}
               </Text>
-              <Text style={[styles.storeTag, { color: light ? BRAND_BLUE : ACCENT }]} numberOfLines={2}>
-                {storeTag}
-              </Text>
-            </View>
-          </View>
-        </View>
+              <Ionicons
+                name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                size={22}
+                color={on ? palette.accent : palette.textMuted}
+              />
+            </Pressable>
+          );
+        })}
       </View>
-
-      <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{texts.cancelReasonPrompt}</Text>
-      <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-        <View
-          style={[styles.geoRingInnerCard, { backgroundColor: cardFill, paddingHorizontal: 14, paddingVertical: 14 }]}
-          collapsable={false}
-        >
-          <View style={styles.chipGrid}>
-            {CANCEL_REASON_DEFS.map(({ id, labelKey }) => {
-              const on = cancelReasons.includes(id);
-              return (
-                <Pressable
-                  key={id}
-                  onPress={() => toggleCancelReason(id)}
-                  style={[
-                    styles.chip,
-                    {
-                      borderColor: on ? (light ? BRAND_BLUE : ACCENT) : borderColor,
-                      backgroundColor: on
-                        ? light
-                          ? 'rgba(98, 134, 228, 0.14)'
-                          : 'rgba(225, 255, 0, 0.12)'
-                        : light
-                          ? '#FAFAFA'
-                          : 'rgba(255,255,255,0.05)',
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.chipLabel,
-                      { color: labelColor, fontWeight: on ? '600' : '400' },
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {texts[labelKey]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <TextInput
-            value={cancelComment}
-            onChangeText={setCancelComment}
-            placeholder={texts.cancelCommentPlaceholder}
-            placeholderTextColor={light ? '#888888' : '#777777'}
-            multiline
-            style={[
-              styles.commentInput,
-              {
-                color: labelColor,
-                borderColor,
-                backgroundColor: light ? '#F7F8FC' : 'rgba(0,0,0,0.2)',
-              },
-            ]}
-            maxLength={2000}
-          />
-        </View>
-      </View>
+      <TextInput
+        value={cancelComment}
+        onChangeText={setCancelComment}
+        placeholder={texts.cancelCommentPlaceholder}
+        placeholderTextColor={light ? '#888888' : '#777777'}
+        multiline
+        style={[
+          styles.commentInput,
+          {
+            color: palette.textMain,
+            borderColor: palette.hairline,
+            backgroundColor: cardFill,
+          },
+        ]}
+        maxLength={2000}
+      />
     </>
   );
 
   const renderOfferStep = () => (
-    <>
-      <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{texts.cancelRetentionDiscountTitle}</Text>
-      <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-        <View
-          style={[styles.geoRingInnerCard, { backgroundColor: cardFill, paddingHorizontal: 16, paddingVertical: 16 }]}
-          collapsable={false}
-        >
-          <Text style={[styles.privacyRingSectionTitle, { color: labelColor }]}>{texts.cancelRetentionTitle}</Text>
-          <Text style={[styles.geoHintText, { color: mutedColor }]}>{retentionBody(texts, cancelReasons, planName)}</Text>
-        </View>
-      </View>
-    </>
+    <View style={[styles.bonusBlock, { borderLeftColor: palette.accent, backgroundColor: light ? 'rgba(98,134,228,0.07)' : ACCENT_DIM }]}>
+      <Text style={[styles.bonusKicker, brandFontSansSemibold, { color: palette.accent }]}>−50%</Text>
+      <Text style={[styles.bonusBody, brandFontSans, { color: palette.textMain }]}>
+        {retentionBody(texts, planName)}
+      </Text>
+    </View>
   );
 
   const renderConfirmStep = () => (
     <>
-      <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{texts.cancelFinalTitle}</Text>
-      <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-        <View
-          style={[styles.geoRingInnerCard, { backgroundColor: cardFill, paddingHorizontal: 16, paddingVertical: 16 }]}
-          collapsable={false}
-        >
-          <Text style={[styles.privacyRingSectionTitle, { color: labelColor }]}>{planName}</Text>
-          <Text style={[styles.geoHintText, { color: mutedColor, marginBottom: 12 }]}>{texts.cancelFinalBody}</Text>
-          <View style={[styles.privacyProseDivider, { backgroundColor: borderColor }]} />
-          <Text style={[styles.geoHintText, { color: mutedColor, marginBottom: 12 }]}>{texts.cancelBillingExplainer}</Text>
-          <Pressable
-            onPress={() => void Linking.openURL(storeSubscriptionsUrl).catch(() => {})}
-            style={({ pressed }) => [
-              styles.storeBtn,
-              {
-                borderColor: light ? BRAND_BLUE : ACCENT,
-                backgroundColor: light ? 'rgba(98, 134, 228, 0.1)' : 'rgba(225, 255, 0, 0.1)',
-                opacity: pressed ? 0.88 : 1,
-              },
-            ]}
-            android_ripple={ripple}
-          >
-            <Ionicons
-              name={Platform.OS === 'ios' ? 'logo-apple' : 'logo-google'}
-              size={20}
-              color={light ? BRAND_BLUE : ACCENT}
-            />
-            <Text style={[styles.storeBtnTxt, { color: light ? BRAND_BLUE : ACCENT }]}>{storeManageCta}</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={[styles.geoHintRingOuter, { backgroundColor: hintRingColor, marginTop: 4 }]}>
-        <View style={[styles.geoHintRingInner, { backgroundColor: hintFill }]} collapsable={false}>
-          <Ionicons
-            name="information-circle-outline"
-            size={22}
-            color={light ? BRAND_BLUE : ACCENT}
-            style={{ marginRight: 10, marginTop: 1 }}
-          />
-          <Text style={[styles.geoHintText, { color: labelColor, flex: 1 }]}>{texts.cancelFinalHint}</Text>
-        </View>
-      </View>
+      <SettingsCleanPressRow
+        palette={palette}
+        icon="card-outline"
+        title={storeManageCta}
+        titleStyle={brandFontSansSemibold}
+        onPress={() => void Linking.openURL(storeSubscriptionsUrl).catch(() => {})}
+        ripple={ripple}
+        isLast
+      />
+      <SettingsCleanFootnote palette={palette} style={brandFontSans}>
+        {texts.cancelBillingExplainer}
+      </SettingsCleanFootnote>
     </>
   );
 
-  const renderEmptyState = () => (
-    <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor, marginTop: 8 }]}>
-      <View
-        style={[styles.geoRingInnerCard, { backgroundColor: cardFill, paddingHorizontal: 16, paddingVertical: 20 }]}
-        collapsable={false}
-      >
-        <Text style={[styles.privacyRingSectionTitle, { color: labelColor, textAlign: 'center' }]}>
-          {texts.cancelNoActiveTitle}
-        </Text>
-        <Text style={[styles.geoHintText, { color: mutedColor, textAlign: 'center', marginTop: 8 }]}>
-          {texts.cancelNoActiveBody}
-        </Text>
-        <Pressable
-          onPress={() => navigation.replace('ChoosePlan', { ...route?.params, fromSettings: true })}
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            {
-              backgroundColor: light ? BRAND_BLUE : ACCENT,
-              opacity: pressed ? 0.9 : 1,
-              marginTop: 18,
-            },
-          ]}
-        >
-          <Text style={[styles.primaryBtnText, { color: light ? '#FFFFFF' : '#101010' }]}>{texts.cancelGoPlans}</Text>
-        </Pressable>
+  const renderEmptyState = () => {
+    const perks = (texts.freeBullets || []).slice(0, 3);
+    const goPlans = () =>
+      navigation.replace('ChoosePlan', { ...route?.params, fromSettings: true });
+
+    return (
+      <View style={styles.emptyWrap}>
+        <View style={styles.emptyStage}>
+          <Text style={[styles.emptyTitle, brandFontHeadMedium, { color: labelColor }]}>
+            {texts.cancelNoActiveTitle}
+          </Text>
+          <Text style={[styles.emptyBody, { color: mutedColor }]}>{texts.cancelNoActiveBody}</Text>
+
+          <Text style={[styles.emptySection, { color: mutedColor }]}>
+            {texts.cancelNoActivePerksTitle.toUpperCase()}
+          </Text>
+          <View style={styles.emptyPerkCol}>
+            {perks.map((line, i) => (
+              <View key={i} style={styles.emptyPerkLine}>
+                <Ionicons name="checkmark-circle" size={17} color={iconTint} style={styles.emptyPerkMark} />
+                <Text style={[styles.emptyPerkText, { color: labelColor }]}>{line}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Pressable
+            onPress={goPlans}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              styles.primaryBtnWide,
+              {
+                backgroundColor: light ? BRAND_BLUE : ACCENT,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.primaryBtnText, { color: light ? '#FFFFFF' : '#101010' }]}>
+              {texts.cancelGoPlans}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [styles.emptyBackLink, { opacity: pressed ? 0.72 : 1 }]}
+            android_ripple={ripple}
+          >
+            <Text style={[styles.emptyBackLinkText, { color: mutedColor }]}>{texts.cancelBack}</Text>
+          </Pressable>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderActions = () => {
     if (!paidTier) return null;
@@ -500,7 +419,10 @@ export default function CancelSubscriptionPage({ navigation, route }) {
             onPress={onContinueFromReason}
             style={({ pressed }) => [
               styles.primaryBtn,
-              { backgroundColor: light ? BRAND_BLUE : ACCENT, opacity: pressed ? 0.9 : 1 },
+              {
+                backgroundColor: light ? BRAND_BLUE : ACCENT,
+                opacity: pressed ? 0.9 : 1,
+              },
             ]}
           >
             <Text style={[styles.primaryBtnText, { color: light ? '#FFFFFF' : '#101010' }]}>
@@ -519,7 +441,10 @@ export default function CancelSubscriptionPage({ navigation, route }) {
             style={({ pressed }) => [
               styles.primaryBtn,
               styles.primaryBtnWide,
-              { backgroundColor: light ? BRAND_BLUE : ACCENT, opacity: busy ? 0.7 : pressed ? 0.9 : 1 },
+              {
+                backgroundColor: light ? BRAND_BLUE : ACCENT,
+                opacity: busy ? 0.7 : pressed ? 0.9 : 1,
+              },
             ]}
           >
             {busy ? (
@@ -588,12 +513,17 @@ export default function CancelSubscriptionPage({ navigation, route }) {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: Math.max(28, insets.bottom + 24) + lightTabBarExtraScrollPadding() },
+          !loading && !paidTier && styles.scrollContentEmpty,
+          {
+            paddingBottom: Math.max(28, insets.bottom + 24) + lightTabBarExtraScrollPadding(),
+            paddingHorizontal: 20,
+            paddingTop: 8,
+          },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={light ? styles.lightList : styles.darkListWrap}>
+        <View style={!loading && !paidTier ? styles.emptyListFill : null}>
           {loading ? (
             <ActivityIndicator
               style={{ marginTop: 40 }}
@@ -602,33 +532,23 @@ export default function CancelSubscriptionPage({ navigation, route }) {
           ) : !paidTier ? (
             renderEmptyState()
           ) : (
-            <>
-              <View collapsable={false} style={[styles.geoHeroShell, heroShadowStyle, { borderColor: heroStroke }]}>
-                <LinearGradient
-                  colors={heroGradColors}
-                  locations={light ? [0, 0.55, 1] : [0, 0.45, 1]}
-                  start={{ x: 0, y: 0 }}
-                  end={heroGradEnd}
-                  style={styles.geoHeroGradient}
-                >
-                  <View
-                    style={[styles.geoHeroIconWrap, light ? styles.geoHeroIconWrapLight : styles.geoHeroIconWrapDark]}
-                  >
-                    <Ionicons name={heroIcon} size={30} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <Text style={[styles.geoHeroTitle, { color: labelColor }]}>{heroTitle}</Text>
-                  <Text style={[styles.geoHeroSubtitle, { color: heroSubtitleColor }]}>{heroSubtitle}</Text>
-                </LinearGradient>
-              </View>
-
-              {renderStepIndicator()}
-
+            <View style={styles.pagePad}>
+              {renderStepMeta()}
+              <SettingsCleanHero
+                palette={palette}
+                icon={stepHero.icon}
+                iconPosition={step === 'offer' ? 'right' : 'left'}
+                title={stepHero.title}
+                titleStyle={[brandFontHeadMedium, styles.cancelHeroTitle]}
+                subtitle={stepHero.subtitle}
+                subtitleStyle={[brandFontSans, styles.cancelHeroSubtitle]}
+              />
+              {renderCurrentPlanNote()}
               {step === 'reason' ? renderReasonStep() : null}
               {step === 'offer' ? renderOfferStep() : null}
               {step === 'confirm' ? renderConfirmStep() : null}
-
               {renderActions()}
-            </>
+            </View>
           )}
         </View>
       </ScrollView>
@@ -639,233 +559,116 @@ export default function CancelSubscriptionPage({ navigation, route }) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 0, paddingTop: 4 },
-  lightList: { alignSelf: 'stretch', backgroundColor: LIGHT_BAR_BG },
-  darkListWrap: { alignSelf: 'stretch' },
-  geoHeroShell: {
-    marginHorizontal: 20,
-    marginTop: 4,
-    marginBottom: 16,
-    borderRadius: 20,
-    borderWidth: 1,
+  scrollContent: { paddingBottom: 16 },
+  scrollContentEmpty: {
+    flexGrow: 1,
   },
-  geoHeroGradient: {
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  geoHeroTitle: {
-    fontSize: 21,
-    fontWeight: '800',
-    letterSpacing: -0.35,
-    marginBottom: 8,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  geoHeroSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    letterSpacing: FIGMA_LSP,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  geoHeroIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    alignItems: 'center',
+  emptyListFill: {
+    flexGrow: 1,
     justifyContent: 'center',
-    marginBottom: 14,
   },
-  geoHeroIconWrapLight: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(98, 134, 228, 0.35)',
-    ...Platform.select({
-      ios: {
-        shadowColor: BRAND_BLUE,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.18,
-        shadowRadius: 10,
-      },
-      android: { elevation: 3 },
-    }),
+  pagePad: {
+    width: '100%',
   },
-  geoHeroIconWrapDark: {
-    backgroundColor: 'rgba(225, 255, 0, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(225, 255, 0, 0.45)',
-    ...Platform.select({
-      ios: {
-        shadowColor: ACCENT,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-      },
-      android: { elevation: 4 },
-    }),
+  cancelHeroTitle: {
+    fontSize: 32,
+    lineHeight: 40,
   },
-  geoSectionLabel: {
-    marginHorizontal: 20,
-    marginTop: 10,
-    marginBottom: 8,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.1,
+  cancelHeroSubtitle: {
+    fontSize: 17,
+    lineHeight: 24,
+  },
+  stepMeta: {
+    fontSize: 13,
+    letterSpacing: 0.35,
+    marginBottom: 4,
     textTransform: 'uppercase',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  geoRingOuterCard: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderRadius: 15,
-    padding: 1,
-  },
-  geoRingInnerCard: { borderRadius: 14 },
-  geoHintRingOuter: {
-    marginHorizontal: 20,
-    marginTop: 4,
-    marginBottom: 4,
-    borderRadius: 15,
-    padding: 1,
-  },
-  geoHintRingInner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  planNote: {
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
-    paddingVertical: 14,
     paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 18,
   },
-  geoHintText: {
-    fontSize: 14,
-    lineHeight: 20,
-    letterSpacing: FIGMA_LSP,
+  planNoteLabel: {
+    fontSize: 11,
+    letterSpacing: 0.45,
+    textTransform: 'uppercase',
+    marginBottom: 4,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  privacyRingSectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: FIGMA_LSP,
-    marginBottom: 6,
+  planNoteValue: {
+    fontSize: 24,
+    letterSpacing: -0.3,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  privacyProseDivider: {
-    height: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    marginVertical: 12,
+  reasonGroup: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginBottom: 14,
   },
-  notifIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+  reasonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 54,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  reasonIconSlot: {
+    width: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  notifIconWrapLight: { backgroundColor: 'rgba(98, 134, 228, 0.14)' },
-  geoNotifIconWrapDark: { backgroundColor: 'rgba(255, 255, 255, 0.2)' },
-  notifRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 58,
-    paddingVertical: 11,
+  reasonLabel: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  bonusBlock: {
+    borderLeftWidth: 3,
+    borderRadius: 12,
+    paddingVertical: 14,
     paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginBottom: 18,
   },
-  notifRowSingle: { borderBottomWidth: 0 },
-  notifRowTexts: { flex: 1, minWidth: 0, paddingRight: 8 },
-  notifRowTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: FIGMA_LSP,
-    marginBottom: 2,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  notifRowSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    letterSpacing: FIGMA_LSP,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  storeTag: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  stepRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: 20,
+  bonusKicker: {
+    fontSize: 28,
+    lineHeight: 32,
+    letterSpacing: -0.5,
     marginBottom: 6,
-    gap: 8,
-  },
-  stepItem: { flex: 1, alignItems: 'center', minWidth: 0 },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginBottom: 6,
-  },
-  stepLabel: {
-    fontSize: 11,
-    textAlign: 'center',
-    letterSpacing: 0.2,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  chipGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  chip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    maxWidth: '100%',
-  },
-  chipLabel: {
-    fontSize: 13,
-    lineHeight: 18,
+  bonusBody: {
+    fontSize: 17,
+    lineHeight: 24,
+    letterSpacing: FIGMA_LSP,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   commentInput: {
     minHeight: 88,
-    borderWidth: 1,
-    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
     textAlignVertical: 'top',
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  storeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  storeBtnTxt: {
-    fontSize: 14,
-    fontWeight: '600',
+    marginBottom: 8,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   actions: {
     flexDirection: 'row',
     gap: 10,
-    marginHorizontal: 20,
-    marginTop: 4,
+    marginTop: 8,
     marginBottom: 8,
   },
   actionsCol: {
-    marginHorizontal: 20,
-    marginTop: 4,
+    marginTop: 8,
     marginBottom: 8,
     gap: 10,
   },
@@ -879,7 +682,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnWide: { flex: 0, width: '100%' },
   primaryBtnText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
@@ -893,7 +696,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   ghostBtnText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
@@ -910,6 +713,77 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  emptyWrap: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 16,
+  },
+  emptyStage: {
+    width: '100%',
+    maxWidth: 320,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.45,
+    textAlign: 'center',
+    marginBottom: 10,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  emptyBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: FIGMA_LSP,
+    textAlign: 'center',
+    marginBottom: 22,
+    paddingHorizontal: 4,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  emptySection: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.15,
+    marginBottom: 10,
+    textAlign: 'center',
+    opacity: 0.72,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  emptyPerkCol: {
+    width: '100%',
+    maxWidth: 292,
+    marginBottom: 22,
+  },
+  emptyPerkLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 5,
+    gap: 10,
+  },
+  emptyPerkMark: {
+    marginTop: 1,
+  },
+  emptyPerkText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    letterSpacing: FIGMA_LSP,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  emptyBackLink: {
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignSelf: 'center',
+  },
+  emptyBackLinkText: {
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: FIGMA_LSP,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
 });
