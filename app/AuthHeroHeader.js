@@ -1,12 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
-import Svg, { Defs, ClipPath, Path, Image as SvgImage } from 'react-native-svg';
+import { Image as ExpoImage } from 'expo-image';
+import Svg, { Path } from 'react-native-svg';
 
 const LEMON = '#E1FF00';
 const LEMON_GLOW = 'rgba(225, 255, 0, 0.5)';
 export const WAVE_STROKE_PAD = 10;
-
-let heroInstanceCounter = 0;
 
 /** Нижній або верхній край героя — плавна хвиля. */
 function buildAuthHeroPaths(width, height, waveEdge = 'bottom') {
@@ -34,8 +33,16 @@ function buildAuthHeroPaths(width, height, waveEdge = 'bottom') {
       `L 0 ${h}`,
       'Z',
     ].join(' ');
+    const aboveWaveFillD = [
+      `M 0 0`,
+      `L ${w} 0`,
+      `L ${w} ${yRight.toFixed(2)}`,
+      `C ${(w * 0.9).toFixed(2)} ${yRight.toFixed(2)}, ${(w * 0.78).toFixed(2)} ${yPeak.toFixed(2)}, ${(w * 0.6).toFixed(2)} ${(yPeak - amp * 0.08).toFixed(2)}`,
+      `C ${(w * 0.42).toFixed(2)} ${(yDip * 0.55 + yPeak * 0.45).toFixed(2)}, ${(w * 0.2).toFixed(2)} ${yDip.toFixed(2)}, 0 ${yLeft.toFixed(2)}`,
+      'Z',
+    ].join(' ');
 
-    return { clipD, strokeD };
+    return { clipD, strokeD, belowWaveFillD: aboveWaveFillD };
   }
 
   const baseline = h - 6;
@@ -61,7 +68,17 @@ function buildAuthHeroPaths(width, height, waveEdge = 'bottom') {
     'Z',
   ].join(' ');
 
-  return { clipD, strokeD };
+  /** Зона під хвилею — чорна маска поверх фото. */
+  const belowWaveFillD = [
+    `M 0 ${h}`,
+    `L ${w} ${h}`,
+    `L ${w} ${yRight.toFixed(2)}`,
+    `C ${(w * 0.9).toFixed(2)} ${yRight.toFixed(2)}, ${(w * 0.78).toFixed(2)} ${yPeak.toFixed(2)}, ${(w * 0.6).toFixed(2)} ${(yPeak + amp * 0.08).toFixed(2)}`,
+    `C ${(w * 0.42).toFixed(2)} ${(yDip * 0.55 + yPeak * 0.45).toFixed(2)}, ${(w * 0.2).toFixed(2)} ${yDip.toFixed(2)}, 0 ${yLeft.toFixed(2)}`,
+    'Z',
+  ].join(' ');
+
+  return { clipD, strokeD, belowWaveFillD };
 }
 
 /** Лише лаймова хвиля — на межі фото й чорного фону (останній слайд онбордингу). */
@@ -110,15 +127,17 @@ export function AuthHeroWaveLine({ width, style }) {
 export default function AuthHeroHeader({
   source,
   height,
+  width: widthProp = 0,
   topInset = 0,
   imageNudgeY = 0,
   bottomBleedPx = 0,
   waveEdge = 'bottom',
+  imageContentPosition = 'top',
+  waveFillColor = '#000000',
   style,
 }) {
-  const clipId = useRef(`auth-hero-${++heroInstanceCounter}`).current;
-  const [width, setWidth] = useState(0);
-  const href = useMemo(() => Image.resolveAssetSource(source), [source]);
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const width = widthProp > 0 ? Math.round(widthProp) : layoutWidth;
   const bleedTop = Math.max(0, Math.round(topInset));
   const isTopWave = waveEdge === 'top';
   const bottomBleed = isTopWave ? Math.max(0, Math.round(bottomBleedPx)) : 0;
@@ -129,62 +148,93 @@ export default function AuthHeroHeader({
     [width, height, waveEdge, clipHeight],
   );
   const shellHeight = clipHeight + WAVE_STROKE_PAD;
+  const imageKey = useMemo(() => {
+    const resolved = Image.resolveAssetSource(source);
+    return resolved?.uri ?? String(source);
+  }, [source]);
+  const imageTop = (isTopWave ? WAVE_STROKE_PAD : -bleedTop) + imageNudgeY;
+  const topWaveImageExtend =
+    isTopWave && imageNudgeY < 0 ? -imageNudgeY : 0;
+  const imageHeight = isTopWave ? clipHeight + topWaveImageExtend : height + bleedTop;
+  const clipTop = isTopWave ? WAVE_STROKE_PAD : 0;
+  const waveTransform = isTopWave ? `translate(0, ${WAVE_STROKE_PAD})` : undefined;
 
   return (
     <View
-      style={[styles.shell, { height: shellHeight }, style]}
+      style={[
+        styles.shell,
+        { height: shellHeight, backgroundColor: isTopWave ? waveFillColor : 'transparent' },
+        style,
+      ]}
       onLayout={(e) => {
         const next = Math.round(e.nativeEvent.layout.width);
-        if (next > 0) setWidth(next);
+        if (next > 0) setLayoutWidth(next);
       }}
       pointerEvents="none"
     >
       {width > 0 && paths ? (
-        <Svg
-          width={width}
-          height={shellHeight}
-          style={[
-            styles.heroSvg,
-            isTopWave ? { top: 0 } : { top: 0 },
-          ]}
-        >
-          <Defs>
-            <ClipPath id={clipId}>
-              <Path d={paths.clipD} transform={isTopWave ? `translate(0, ${WAVE_STROKE_PAD})` : undefined} />
-            </ClipPath>
-          </Defs>
-          <SvgImage
-            x={0}
-            y={
-              isTopWave
-                ? WAVE_STROKE_PAD + imageNudgeY
-                : -bleedTop + imageNudgeY
-            }
-            width={width}
-            height={isTopWave ? clipHeight : height + bleedTop}
-            preserveAspectRatio={isTopWave ? 'xMidYMax slice' : 'xMidYMin slice'}
-            href={href}
-            clipPath={`url(#${clipId})`}
-          />
-          <Path
-            d={paths.strokeD}
-            transform={isTopWave ? `translate(0, ${WAVE_STROKE_PAD})` : undefined}
-            fill="none"
-            stroke={LEMON_GLOW}
-            strokeWidth={6}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <Path
-            d={paths.strokeD}
-            transform={isTopWave ? `translate(0, ${WAVE_STROKE_PAD})` : undefined}
-            fill="none"
-            stroke={LEMON}
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </Svg>
+        <>
+          <View
+            style={[
+              styles.heroPhotoClip,
+              {
+                width,
+                height: clipHeight,
+                top: clipTop,
+              },
+            ]}
+          >
+            <ExpoImage
+              key={imageKey}
+              source={source}
+              style={{
+                position: 'absolute',
+                left: 0,
+                width,
+                top: imageTop - clipTop,
+                height: imageHeight,
+              }}
+              contentFit="cover"
+              contentPosition={imageContentPosition}
+              cachePolicy="memory-disk"
+              transition={0}
+              accessibilityIgnoresInvertColors
+              accessible={false}
+            />
+            <Svg
+              width={width}
+              height={clipHeight}
+              style={styles.heroBelowWaveMask}
+              pointerEvents="none"
+            >
+              <Path
+                d={paths.belowWaveFillD}
+                fill={waveFillColor}
+                transform={isTopWave ? undefined : waveTransform}
+              />
+            </Svg>
+          </View>
+          <Svg width={width} height={shellHeight} style={styles.heroSvg} pointerEvents="none">
+            <Path
+              d={paths.strokeD}
+              transform={waveTransform}
+              fill="none"
+              stroke={LEMON_GLOW}
+              strokeWidth={6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <Path
+              d={paths.strokeD}
+              transform={waveTransform}
+              fill="none"
+              stroke={LEMON}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </>
       ) : null}
     </View>
   );
@@ -194,8 +244,18 @@ const styles = StyleSheet.create({
   shell: {
     width: '100%',
     position: 'relative',
-    overflow: 'visible',
+    overflow: 'hidden',
     backgroundColor: 'transparent',
+  },
+  heroPhotoClip: {
+    position: 'absolute',
+    left: 0,
+    overflow: 'hidden',
+  },
+  heroBelowWaveMask: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   heroSvg: {
     position: 'absolute',

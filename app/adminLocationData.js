@@ -10,6 +10,7 @@ import {
   HOME_REGION_IDS_BY_COUNTRY_ID,
   HOME_COUNTRY_HERO_REFS,
   HOME_COUNTRY_HERO_URIS,
+  invalidateHomeExploreCache,
 } from './homeExploreData';
 import { HERO_THUMB_MAP, heroThumbRefFromImageSource, isValidHeroThumbRef } from './krainaHeroThumbs';
 import { normalizeLandmarkStory } from './landmarkStorySchema';
@@ -185,13 +186,19 @@ function applySnapshot(data) {
       };
     }
   }
+  invalidateHomeExploreCache();
 }
 
 export async function loadAdminLocationBundleOnStartup() {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) {
+      invalidateHomeExploreCache();
+      DeviceEventEmitter.emit(KRAINA_ADMIN_LOCATION_EVENT);
+      return;
+    }
     applySnapshot(JSON.parse(raw));
+    DeviceEventEmitter.emit(KRAINA_ADMIN_LOCATION_EVENT);
   } catch {
     /* ignore */
   }

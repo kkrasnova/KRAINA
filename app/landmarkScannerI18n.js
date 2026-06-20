@@ -21,9 +21,33 @@ const S = {
     uk: 'Надати доступ',
     en: 'Allow',
   },
+  openSettings: {
+    uk: 'Налаштування',
+    en: 'Settings',
+  },
+  cancel: {
+    uk: 'Скасувати',
+    en: 'Cancel',
+  },
+  cameraDenied: {
+    uk: 'Доступ до камери вимкнено. Увімкніть його в налаштуваннях пристрою.',
+    en: 'Camera access is off. Enable it in your device settings.',
+  },
   analyzing: {
     uk: 'Шукаємо інформацію…',
     en: 'Looking up information…',
+  },
+  cameraNotReady: {
+    uk: 'Камера ще завантажується. Зачекайте секунду й спробуйте знову.',
+    en: 'The camera is still loading. Wait a moment and try again.',
+  },
+  captureFailed: {
+    uk: 'Не вдалося зробити знімок. Спробуйте ще раз.',
+    en: 'Could not take a photo. Please try again.',
+  },
+  tapToScan: {
+    uk: 'Натисніть тут або кнопку камери внизу',
+    en: 'Tap here or the camera button below',
   },
   captureHint: {
     uk: 'AR-скан: наведіть пам’ятку в жовту рамку й натисніть затвор. Працює з Wikipedia; з ключем Vision — також за фото.',
@@ -32,6 +56,10 @@ const S = {
   more: {
     uk: 'Детальніше',
     en: 'Read more',
+  },
+  miniSwipeHint: {
+    uk: 'Свайп вгору або вліво — детальніше',
+    en: 'Swipe up or left for details',
   },
   sourceVision: {
     uk: 'Розпізнано за фото (Google Vision + Wikipedia)',

@@ -53,6 +53,22 @@ const S = {
     uk: 'Публікації мандрівників з усього світу.',
     en: 'Travel posts from around the world.',
   },
+  feedFriendsEmptyHeadline: {
+    uk: 'Поки що порожньо',
+    en: 'Nothing here yet',
+  },
+  feedWorldEmptyHeadline: {
+    uk: 'Світ чекає',
+    en: 'The world awaits',
+  },
+  feedFriendsEmptyCta: {
+    uk: 'Знайти друзів',
+    en: 'Find friends',
+  },
+  feedWorldEmptyCta: {
+    uk: 'Створити пост',
+    en: 'Create a post',
+  },
   storyEmpty: {
     uk: 'Немає активних історій (24 год).',
     en: 'No active stories (24h window).',

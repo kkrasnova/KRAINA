@@ -7,9 +7,26 @@ export const HERO_THUMB_MAP = {
   t2: require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png'),
   t3: require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png'),
   t4: require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png'),
+  /** Повноекранне фото на LandmarkResult (захід сонця). */
+  maidan: require('./assets/maidan-nezalezhnosti-hero.jpg'),
+  /** Прев’ю на головній у списку локацій (синя година). */
+  maidanHome: require('./assets/maidan-home-thumb.jpg'),
+  /** Історична мапа «Козье болото» — друга сторінка аудіогіда Майдану. */
+  maidanKozyeBolotoMap: require('./assets/maidan-kozye-boloto-map.png'),
+  /** Водяний млин і болото — третя сторінка аудіогіда Майдану. */
+  maidanWatermill: require('./assets/maidan-watermill-hero.png'),
 };
 
-export const HERO_THUMB_KEYS = ['t1', 't2', 't3', 't4'];
+export const HERO_THUMB_KEYS = [
+  't1',
+  't2',
+  't3',
+  't4',
+  'maidan',
+  'maidanHome',
+  'maidanKozyeBolotoMap',
+  'maidanWatermill',
+];
 
 export function isValidHeroThumbRef(ref) {
   return typeof ref === 'string' && HERO_THUMB_KEYS.includes(ref);

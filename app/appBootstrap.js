@@ -9,11 +9,13 @@ import { getSubscriptionState } from './subscriptionStorage';
 import { initOfflineRuntime } from './offline/runtime';
 import { prepareOfflineMediaPack } from './offline/mediaOfflinePack';
 import { warmOfflineMediaCache } from './offline/localCacheStore';
-import { clearAllAppCaches, clearMemoryCaches } from './cacheCleanup';
+import { clearMemoryCaches } from './cacheCleanup';
+import { getHasUsedAppBefore } from './onboardingStorage';
 import { markStart, markEnd } from './performanceMetrics';
 import { prefetchChatsBundle } from './screenLoaders';
 import { setupCallKeep } from './callkeepService';
 import { installVoIPListeners } from './voipPushService';
+import { ensureBackendSession } from './syncBackendSessionBridge';
 
 /**
  * Сесія, маршрут після заставки та префетч асетів (спільно для звичайного старту і після force-update).
@@ -46,18 +48,21 @@ export async function runAppBootstrap(opts, api) {
     await useAuthStore.getState().hydrate();
     if (getCancelled()) return;
     let session = await getSession();
-    const hasAccessToken = !!useAuthStore.getState().accessToken;
+    let hasAccessToken = !!useAuthStore.getState().accessToken;
 
     // Дефернуті операції: не блокують навігацію
     void initOfflineRuntime().catch(() => {});
     void warmOfflineMediaCache().catch(() => {});
     void loadAdminLocationBundleOnStartup().catch(() => {});
     if (session?.user && !hasAccessToken) {
-      // Never trust stale local session without backend auth token.
-      // Очищаємо всі кеші — сесія невалідна
-      await clearAllAppCaches();
-      await clearSession();
-      session = null;
+      const refreshed = await useAuthStore.getState().refreshSession();
+      if (refreshed) {
+        hasAccessToken = !!useAuthStore.getState().accessToken;
+      } else {
+        await ensureBackendSession(session.user);
+        hasAccessToken = !!useAuthStore.getState().accessToken;
+      }
+      // Локальна сесія без JWT (офлайн / legacy) — не скидаємо; користувач лишається в акаунті.
     }
     const language = await AsyncStorage.getItem('@kraina_app_language');
     if (getCancelled()) return;
@@ -112,8 +117,15 @@ export async function runAppBootstrap(opts, api) {
         const base = language.split(/[-_]/)[0].toLowerCase();
         langForSelect = base === 'ru' ? 'uk' : base;
       }
-      setFirstPageNextRoute('SecondPage');
-      setFirstPageNextParams({ language: langForSelect, firstLaunchOnboarding: true });
+      const hasUsedBefore = await getHasUsedAppBefore();
+      if (getCancelled()) return;
+      if (hasUsedBefore) {
+        setFirstPageNextRoute('ThirdPage');
+        setFirstPageNextParams({ language: langForSelect });
+      } else {
+        setFirstPageNextRoute('SecondPage');
+        setFirstPageNextParams({ language: langForSelect, firstLaunchOnboarding: true });
+      }
     }
     if (language && typeof language === 'string') {
       const base = language.split(/[-_]/)[0].toLowerCase();
@@ -125,8 +137,24 @@ export async function runAppBootstrap(opts, api) {
   } catch {
     if (!getCancelled()) {
       setMainPageInitialParams(null);
-      setFirstPageNextRoute('SecondPage');
-      setFirstPageNextParams({ firstLaunchOnboarding: true });
+      let langForSelect = 'en';
+      try {
+        const language = await AsyncStorage.getItem('@kraina_app_language');
+        if (language && typeof language === 'string') {
+          const base = language.split(/[-_]/)[0].toLowerCase();
+          langForSelect = base === 'ru' ? 'uk' : base;
+        }
+      } catch {
+        /* ignore */
+      }
+      const hasUsedBefore = await getHasUsedAppBefore().catch(() => false);
+      if (hasUsedBefore) {
+        setFirstPageNextRoute('ThirdPage');
+        setFirstPageNextParams({ language: langForSelect });
+      } else {
+        setFirstPageNextRoute('SecondPage');
+        setFirstPageNextParams({ language: langForSelect, firstLaunchOnboarding: true });
+      }
     }
   }
 

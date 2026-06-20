@@ -117,13 +117,17 @@ if (readText('app.json')?.includes('"usesAppleSignIn": true')) {
 
 // Facebook
 console.log('\nFacebook:');
-const authConfig = readText('authConfig.js') || '';
-const fbMatch = authConfig.match(/FACEBOOK_APP_ID = process\.env\.EXPO_PUBLIC_FACEBOOK_APP_ID \|\| '(\d+)'/);
-const fbId = fbMatch?.[1] || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '';
-if (fbId) ok(`App ID: ${fbId}`);
-else {
-  fail('FACEBOOK_APP_ID не задано');
-  issues += 1;
+const env = readText('.env') || '';
+const fbFromEnv = env.match(/^EXPO_PUBLIC_FACEBOOK_APP_ID=(.+)$/m)?.[1]?.trim() || '';
+const fbId = process.env.EXPO_PUBLIC_FACEBOOK_APP_ID?.trim() || fbFromEnv;
+if (fbId) {
+  ok(`App ID (EXPO_PUBLIC_FACEBOOK_APP_ID): ${fbId}`);
+} else {
+  warn('EXPO_PUBLIC_FACEBOOK_APP_ID не задано — кнопка Facebook прихована');
+}
+const fbRedirect = env.match(/^EXPO_PUBLIC_FACEBOOK_REDIRECT_URI=(.+)$/m)?.[1]?.trim() || '';
+if (fbId && !fbRedirect) {
+  warn('Meta Console: Valid OAuth Redirect URIs → com.kraina.app://oauth');
 }
 // Backend API (Google / Apple token verification for /api/auth/google and /api/auth/apple)
 console.log('\nBackend (backend/.env):');
@@ -142,13 +146,16 @@ warn('Render/production: задайте ті самі GOOGLE_CLIENT_ID і APPLE_
 
 // UI
 console.log('\nUI (екран входу):');
-ok('Android: Google + Facebook (Apple приховано)');
-ok('iOS: Google + Facebook + Apple');
+ok('Google завжди (якщо налаштовано google-services / CLIENT_ID)');
+if (fbId) ok('Facebook: увімкнено (EXPO_PUBLIC_FACEBOOK_APP_ID)');
+else ok('Facebook: вимкнено на екрані входу');
+ok('iOS: Apple Sign-In (dev build)');
+warn('Google Cloud Console → Web OAuth client → Authorized redirect URIs → com.kraina.app:/oauthredirect');
+warn('Google iOS OAuth (browser fallback) → com.googleusercontent.apps.<ios-client-suffix>:/oauthredirect');
 warn('Facebook Meta Console: Valid OAuth Redirect URIs → com.kraina.app://oauth');
 
 // Firebase / env
 console.log('\nFirebase (.env):');
-const env = readText('.env') || '';
 const required = [
   'EXPO_PUBLIC_FIREBASE_API_KEY',
   'EXPO_PUBLIC_FIREBASE_PROJECT_ID',

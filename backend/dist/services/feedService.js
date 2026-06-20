@@ -124,6 +124,7 @@ function mapPostRow(row, author) {
         liked_by_viewer: Boolean(row.liked_by_viewer),
         reposted_by_viewer: Boolean(row.reposted_by_viewer),
         created_at: new Date(String(row.created_at)).toISOString(),
+        archived_at: row.archived_at == null ? null : new Date(String(row.archived_at)).toISOString(),
     };
 }
 async function loadAuthor(userId) {
@@ -508,6 +509,25 @@ export async function listActiveStoriesTray(viewerId) {
             : String(row.display_name).trim(),
         view_count: Number(row.view_count) || 0,
         seen_by_viewer: Boolean(row.seen_by_viewer),
+    }));
+}
+export async function listMyArchivedStories(userId, limit = 60) {
+    const r = await pool.query(`SELECT s.id, s.user_id, s.media_url, s.media_kind, s.caption, s.created_at, s.expires_at,
+        (SELECT COUNT(*)::int FROM story_views v WHERE v.story_id = s.id) AS view_count
+     FROM stories s
+     WHERE s.user_id = $1::uuid AND s.expires_at <= now()
+     ORDER BY s.created_at DESC
+     LIMIT $2`, [userId, Math.min(80, Math.max(1, limit))]);
+    return r.rows.map((row) => ({
+        id: String(row.id),
+        user_id: String(row.user_id),
+        media_url: String(row.media_url),
+        media_kind: String(row.media_kind),
+        caption: row.caption == null ? '' : String(row.caption),
+        created_at: new Date(String(row.created_at)).toISOString(),
+        expires_at: new Date(String(row.expires_at)).toISOString(),
+        view_count: Number(row.view_count) || 0,
+        expired: true,
     }));
 }
 export async function listActiveStoriesForUser(authorId, viewerId) {

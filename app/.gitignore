@@ -35,11 +35,11 @@ yarn-error.*
 .env
 .env*.local
 
-# Firebase / Google (завантажити з Firebase Console локально, не комітити)
+# Firebase / Google (секрети google-services.json — локально; публічні client ID — oauthClients.json)
 google-services.json
-GoogleService-Info.plist
-**/GoogleService-Info.plist
 google-ios-client.json
+GoogleService-Info.plist
+!ios/KRANA/GoogleService-Info.plist
 
 # typescript
 *.tsbuildinfo

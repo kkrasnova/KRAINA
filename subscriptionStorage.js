@@ -9,7 +9,7 @@ export const PRO_PRICE_USD = 19.99;
 export const PRO_LIST_PRICE_USD = 24.99;
 
 /** Explorer — проміжний тариф (продуктова модель). */
-export const EXPLORER_PRICE_USD = 4.99;
+export const EXPLORER_PRICE_USD = 7.99;
 
 export const FREE_LIMITS = {
   scans: 1,

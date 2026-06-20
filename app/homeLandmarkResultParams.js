@@ -1,10 +1,10 @@
 import { Image } from 'react-native';
-import { countriesForSelectCountryScreen } from './appLang';
 import { landmarkTitle, regionTitle } from './routeRegionsData';
 import { dominantVisitCategoryFromLandmark } from './visitStatsStorage';
 import { storyQuizForLandmarkRoute } from './landmarkQuizUtils';
 import { normalizeLandmarkStory } from './landmarkStorySchema';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
+import { HERO_THUMB_MAP, resolveHeroThumbRef } from './krainaHeroThumbs';
 
 function storyFactSlidesForLandmarkRoute(lm) {
   const raw = lm?.story;
@@ -45,6 +45,42 @@ function storyFactSlidesForLandmarkRoute(lm) {
   return slides.length > 0 ? slides : undefined;
 }
 
+function introPagesFromStory(story, langUk) {
+  const key = langUk ? 'introPagesUk' : 'introPagesEn';
+  const raw = story?.[key];
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const pages = raw
+    .map((page) => {
+      const body = typeof page?.body === 'string' ? page.body.trim() : '';
+      if (!body) return null;
+      const heroThumb = typeof page?.heroThumb === 'string' ? page.heroThumb.trim() : '';
+      const photoAsset = resolveHeroThumbRef(heroThumb);
+      const illustrationThumb =
+        typeof page?.illustrationThumb === 'string' ? page.illustrationThumb.trim() : '';
+      const illustrationAsset = resolveHeroThumbRef(illustrationThumb);
+      const illustrationLink = langUk
+        ? String(page?.illustrationLinkUk || page?.illustrationLinkEn || '').trim()
+        : String(page?.illustrationLinkEn || page?.illustrationLinkUk || '').trim();
+      const illustrationCaption = langUk
+        ? String(page?.illustrationCaptionUk || page?.illustrationCaptionEn || '').trim()
+        : String(page?.illustrationCaptionEn || page?.illustrationCaptionUk || '').trim();
+      const photoUri =
+        typeof page?.photoUri === 'string' && page.photoUri.trim()
+          ? resolveOfflineUriSync(page.photoUri.trim())
+          : undefined;
+      return {
+        body,
+        ...(photoAsset ? { photoAsset } : {}),
+        ...(photoUri ? { photoUri } : {}),
+        ...(typeof illustrationAsset === 'number' ? { illustrationAsset } : {}),
+        ...(illustrationLink ? { illustrationLink } : {}),
+        ...(illustrationCaption ? { illustrationCaption } : {}),
+      };
+    })
+    .filter(Boolean);
+  return pages.length > 0 ? pages : undefined;
+}
+
 /**
  * Спільні поля для LandmarkResult, коли є локальна пам’ятка `lm` + регіон `region` + countryId.
  * Використовується з головної, профілю (збережені), маршруту тощо.
@@ -52,10 +88,7 @@ function storyFactSlidesForLandmarkRoute(lm) {
 export function landmarkResultExtrasFromResolvedLandmark({ lm, region, countryId, language, user }) {
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const title = landmarkTitle(lm, langUk);
-  const countries = countriesForSelectCountryScreen(language);
-  const countryRow = countryId ? countries.find((c) => c.id === countryId) : null;
-  const countryLabel = (countryRow?.label || String(countryId || '')).trim();
-  const headerTitle = countryLabel && title ? `${countryLabel} - ${title}` : title;
+  const headerTitle = title;
 
   const canSave = !!(countryId && region?.id && lm?.id);
   const visitLandmarkSave = canSave
@@ -74,23 +107,48 @@ export function landmarkResultExtrasFromResolvedLandmark({ lm, region, countryId
   const visitLat = typeof lm?.lat === 'number' && Number.isFinite(lm.lat) ? lm.lat : undefined;
   const visitLng = typeof lm?.lng === 'number' && Number.isFinite(lm.lng) ? lm.lng : undefined;
 
+  const photoAsset =
+    lm?.id === 'maidan'
+      ? HERO_THUMB_MAP.maidan
+      : typeof lm?.thumb === 'number'
+        ? lm.thumb
+        : undefined;
   const photoUri =
     lm.thumb && typeof lm.thumb === 'object' && typeof lm.thumb.uri === 'string'
       ? resolveOfflineUriSync(lm.thumb.uri)
-      : Image.resolveAssetSource(lm.thumb)?.uri || null;
+      : photoAsset
+        ? Image.resolveAssetSource(photoAsset)?.uri || null
+        : Image.resolveAssetSource(lm.thumb)?.uri || null;
 
   const storyQuiz = storyQuizForLandmarkRoute(lm);
   const factSlides = storyFactSlidesForLandmarkRoute(lm);
+  const story = lm?.story ? normalizeLandmarkStory(lm.story) : null;
+  const rawStory = lm?.story && typeof lm.story === 'object' ? lm.story : null;
+  const audioScriptUk = story?.ttsEnabled ? String(story.audioScriptUk || '').trim() : '';
+  const audioScriptEn = story?.ttsEnabled ? String(story.audioScriptEn || '').trim() : '';
+  const introContinuationUk =
+    typeof rawStory?.introContinuationUk === 'string' ? rawStory.introContinuationUk.trim() : '';
+  const introContinuationEn =
+    typeof rawStory?.introContinuationEn === 'string' ? rawStory.introContinuationEn.trim() : '';
+  const introPagesUk = introPagesFromStory(rawStory, true);
+  const introPagesEn = introPagesFromStory(rawStory, false);
+  const introPages = langUk ? introPagesUk : introPagesEn;
 
   return {
     title,
     headerTitle,
     ...(visitLandmarkSave ? { visitLandmarkSave } : {}),
     ...(visitLat != null && visitLng != null ? { visitLat, visitLng } : {}),
+    ...(photoAsset ? { photoAsset } : {}),
     ...(photoUri ? { photoUri } : {}),
     ...(user && (user.id || user.firebaseUid) ? { user } : {}),
     ...(storyQuiz ? { storyQuiz } : {}),
     ...(factSlides ? { factSlides } : {}),
+    ...(audioScriptUk ? { audioScriptUk } : {}),
+    ...(audioScriptEn ? { audioScriptEn } : {}),
+    ...(introPages ? { introPages } : {}),
+    ...(introContinuationUk && !introPagesUk ? { introContinuation: introContinuationUk } : {}),
+    ...(introContinuationEn && !introPagesEn ? { introContinuationEn } : {}),
   };
 }
 
@@ -108,19 +166,49 @@ export function buildLandmarkResultParamsFromHomeLandmark({
 }) {
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const cityName = regionTitle(region, langUk);
-  const extract = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
+  const rawStory = lm?.story && typeof lm.story === 'object' ? lm.story : null;
+  const story = rawStory ? normalizeLandmarkStory(rawStory) : null;
+  const audioScriptUk = story?.ttsEnabled ? String(story.audioScriptUk || '').trim() : '';
+  const audioScriptEn = story?.ttsEnabled ? String(story.audioScriptEn || '').trim() : '';
+  const introPage1Uk =
+    typeof rawStory?.introPage1Uk === 'string' ? rawStory.introPage1Uk.trim() : '';
+  const introPage1En =
+    typeof rawStory?.introPage1En === 'string' ? rawStory.introPage1En.trim() : '';
+  const introContinuationUk =
+    typeof rawStory?.introContinuationUk === 'string' ? rawStory.introContinuationUk.trim() : '';
+  const introContinuationEn =
+    typeof rawStory?.introContinuationEn === 'string' ? rawStory.introContinuationEn.trim() : '';
+  const introPagesUk = introPagesFromStory(rawStory, true);
+  const introPagesEn = introPagesFromStory(rawStory, false);
+  const introPages = langUk ? introPagesUk : introPagesEn;
+  const introContinuation =
+    !introPages && (langUk ? introContinuationUk : introContinuationEn)
+      ? langUk
+        ? introContinuationUk
+        : introContinuationEn
+      : '';
+  const extract = langUk
+    ? introPage1Uk || audioScriptUk || lm.descUk || ''
+    : introPage1En || audioScriptEn || lm.descEn || lm.descUk || '';
   const rawAudio = typeof lm?.story?.audioUri === 'string' ? lm.story.audioUri.trim() : '';
   const audioGuideUrl = /^https?:\/\//i.test(rawAudio) ? rawAudio : undefined;
   const dist = lm?.distKm;
   const visitKm = dist != null && Number.isFinite(Number(dist)) ? Number(dist) : undefined;
 
   const panelTagline = langUk
-    ? typeof lm?.story?.shortIntroUk === 'string'
-      ? lm.story.shortIntroUk.trim()
-      : ''
-    : typeof lm?.story?.shortIntroEn === 'string'
-      ? lm.story.shortIntroEn.trim()
-      : '';
+    ? typeof story?.shortIntroUk === 'string'
+      ? story.shortIntroUk.trim()
+      : typeof lm?.story?.shortIntroUk === 'string'
+        ? lm.story.shortIntroUk.trim()
+        : ''
+    : typeof story?.shortIntroEn === 'string'
+      ? story.shortIntroEn.trim()
+      : typeof lm?.story?.shortIntroEn === 'string'
+        ? lm.story.shortIntroEn.trim()
+        : '';
+  const miniExtract = langUk
+    ? String(story?.miniPreviewUk || '').trim()
+    : String(story?.miniPreviewEn || '').trim();
 
   const flag = typeof region?.flag === 'string' ? region.flag : '';
   const subtitle = `${flag} ${cityName}`.trim();
@@ -138,10 +226,13 @@ export function buildLandmarkResultParamsFromHomeLandmark({
     appTheme,
     ...extras,
     ...(panelTagline ? { panelTagline } : {}),
+    ...(miniExtract ? { miniExtract, previewBodyLines: 4 } : {}),
     subtitle,
     extract,
     source: 'sourceDemo',
     startPhase: 'home',
+    ...(introPages ? { introPages } : {}),
+    ...(introContinuation ? { introContinuation } : {}),
     visitCity: cityName,
     visitCategory: dominantVisitCategoryFromLandmark(lm),
     ...(visitKm != null ? { visitKm } : {}),

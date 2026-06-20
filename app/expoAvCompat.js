@@ -6,6 +6,7 @@ import React, { Component, useCallback, useEffect, useMemo, useRef, useState } f
 import { AppState, Image, Platform, StyleSheet, View } from 'react-native';
 import { createAudioPlayer, setAudioModeAsync as setExpoAudioModeAsync } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
 import { runAfterInteractions } from './runAfterInteractions';
 
 export const ResizeMode = {
@@ -143,6 +144,7 @@ function VideoPlayerInner({
   const player = useVideoPlayer(videoSource, (playerInstance) => {
     playerInstance.loop = isLooping;
     playerInstance.muted = isMuted;
+    playerInstance.audioMixingMode = 'mixWithOthers';
   });
   const readyToPlayRef = useRef(false);
 
@@ -314,7 +316,11 @@ class CompatSound {
 export const Audio = {
   setAudioModeAsync(mode = {}) {
     return setExpoAudioModeAsync({
-      playsInSilentMode: mode.playsInSilentModeIOS ?? mode.playsInSilentMode ?? false,
+      ...APP_PLAYBACK_AUDIO_MODE,
+      playsInSilentMode:
+        mode.playsInSilentModeIOS ?? mode.playsInSilentMode ?? APP_PLAYBACK_AUDIO_MODE.playsInSilentMode,
+      interruptionMode: mode.interruptionMode ?? APP_PLAYBACK_AUDIO_MODE.interruptionMode,
+      allowsRecording: mode.allowsRecording ?? APP_PLAYBACK_AUDIO_MODE.allowsRecording,
     });
   },
   Sound: {

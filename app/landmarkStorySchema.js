@@ -43,6 +43,10 @@ export function emptyLandmarkStory() {
     closingUk: '',
     closingEn: '',
     audioUri: '',
+    audioScriptUk: '',
+    audioScriptEn: '',
+    miniPreviewUk: '',
+    miniPreviewEn: '',
     ttsEnabled: false,
   };
 }
@@ -97,6 +101,10 @@ export function normalizeLandmarkStory(raw) {
     closingUk: typeof raw.closingUk === 'string' ? raw.closingUk : '',
     closingEn: typeof raw.closingEn === 'string' ? raw.closingEn : '',
     audioUri: clampUri(raw.audioUri),
+    audioScriptUk: typeof raw.audioScriptUk === 'string' ? raw.audioScriptUk : '',
+    audioScriptEn: typeof raw.audioScriptEn === 'string' ? raw.audioScriptEn : '',
+    miniPreviewUk: typeof raw.miniPreviewUk === 'string' ? raw.miniPreviewUk : '',
+    miniPreviewEn: typeof raw.miniPreviewEn === 'string' ? raw.miniPreviewEn : '',
     ttsEnabled: !!raw.ttsEnabled,
   };
 }

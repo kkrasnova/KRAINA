@@ -84,6 +84,10 @@ export const aiRouteConfig = {
   model: opt('OPENAI_ROUTE_MODEL') || 'gpt-4o-mini',
 };
 
+export const visionConfig = {
+  apiKey: opt('GOOGLE_VISION_API_KEY'),
+};
+
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   sentryDsn: opt('SENTRY_DSN'),
@@ -155,4 +159,7 @@ export const config = {
 
   // Helper: true if APNs env vars are present (not necessarily valid)
   apnsConfigured: !!(opt('APNS_KEY_ID') && opt('APNS_TEAM_ID') && opt('APNS_TOPIC')),
+
+  googleVisionApiKey: visionConfig.apiKey,
+  googleTtsApiKey: opt('GOOGLE_TTS_API_KEY'),
 };

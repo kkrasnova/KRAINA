@@ -158,16 +158,39 @@ async function searchProfilesFromBackend(q, lim) {
 
 /** Топ-N профілів для початкового наповнення DiscoverPeople, коли запит порожній. */
 export async function socialListTopProfiles(limit = 24) {
-  if (!firebaseEnabled || !db) return [];
   const lim = Math.min(40, Math.max(1, Number(limit) || 24));
-  const all = await loadProfiles(PROFILES_FOR_SEARCH);
   const me = currentUid();
-  const rows = all
-    .filter((p) => !me || p.id !== me)
+
+  // Основне джерело — реальні зареєстровані користувачі з PostgreSQL (порожній q = «огляд людей»).
+  const fromApi = await searchProfilesFromBackend('', lim);
+
+  // Firestore як додаткове джерело, коли він увімкнений.
+  let fromFs = [];
+  if (firebaseEnabled && db) {
+    try {
+      const all = await loadProfiles(PROFILES_FOR_SEARCH);
+      fromFs = all
+        .filter((p) => !me || p.id !== me)
+        .slice(0, lim)
+        .map(toPublicRow)
+        .map((r) => ({ ...r, is_following: false }));
+    } catch {
+      fromFs = [];
+    }
+  }
+
+  const apiIds = new Set(fromApi.map((r) => String(r.user_id)));
+  const apiKeys = new Set(fromApi.map((r) => normalizeUsername(r.username)));
+  const merged = [...fromApi];
+  for (const r of fromFs) {
+    if (apiIds.has(String(r.user_id))) continue;
+    if (apiKeys.has(normalizeUsername(r.username))) continue;
+    merged.push(r);
+  }
+  return merged
+    .filter((r) => !me || String(r.user_id) !== me)
     .slice(0, lim)
-    .map(toPublicRow)
-    .map((r) => ({ ...r, is_following: false }));
-  return rows;
+    .map((r) => ({ ...r, is_following: Boolean(r.is_following) }));
 }
 
 export async function socialSearchProfiles(q, limit = 24) {

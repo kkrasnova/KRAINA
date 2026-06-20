@@ -940,7 +940,6 @@ export function SettingsLegalDocPage({ navigation, route }) {
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey={titleKey}>
       {({ language, light }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
-        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
         const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
         const cardFill = light ? '#FFFFFF' : '#1E2128';
         const text =
@@ -957,27 +956,6 @@ export function SettingsLegalDocPage({ navigation, route }) {
               >
                 <Text selectable style={[styles.bodyText, { color: labelColor, lineHeight: 22, fontSize: 14 }]}>
                   {text}
-                </Text>
-              </View>
-            </View>
-            <View style={[styles.geoHintRingOuter, { backgroundColor: light ? 'rgba(98, 134, 228, 0.42)' : 'rgba(225, 255, 0, 0.42)' }]}>
-              <View
-                style={[
-                  styles.geoHintRingInner,
-                  {
-                    backgroundColor: light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(225, 255, 0, 0.14)',
-                  },
-                ]}
-                collapsable={false}
-              >
-                <Ionicons
-                  name="information-circle-outline"
-                  size={22}
-                  color={light ? BRAND_BLUE : ACCENT}
-                  style={{ marginRight: 10, marginTop: 1 }}
-                />
-                <Text style={[styles.geoHintText, { color: mutedColor, flex: 1 }]}>
-                  {st(language, 'legalDocScrollHint')}
                 </Text>
               </View>
             </View>

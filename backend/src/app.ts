@@ -24,6 +24,7 @@ import { aiRouteRouter } from './routes/aiRouteRoutes.js';
 import { routesCrudRouter } from './routes/routesCrudRoutes.js';
 import { postsTopRouter } from './routes/postsTopRoutes.js';
 import { appMetaRouter } from './routes/appMetaRoutes.js';
+import { privacyRouter } from './routes/privacyRoutes.js';
 import { Sentry as _Sentry } from './instrument.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { landmarkContentAdminRouter } from './routes/landmarkContentAdminRoutes.js';
@@ -70,6 +71,7 @@ export function createApp(): express.Application {
   app.use('/api/profile', profileRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/billing', billingRouter);
+  app.use('/api/privacy', privacyRouter);
   app.use('/api/messages', messageRouter);
   app.use('/api/social', socialRouter);
   app.use('/api/feed', feedRouter);

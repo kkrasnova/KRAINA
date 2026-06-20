@@ -178,7 +178,7 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
         )
       ) : (
         <Pressable
-          onPress={() => navigation?.navigate?.('SettingsSteps', shell)}
+          onPress={() => navigation?.navigate?.('WalkReminderSetup', { ...shell, fromOnboarding: false })}
           style={({ pressed }) => [
             styles.stepsCta,
             {

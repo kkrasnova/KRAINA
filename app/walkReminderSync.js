@@ -1,7 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
+import { DeviceEventEmitter, Linking, NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 import { st } from './settingsI18n';
 import { getWalkReminderPrefs, setWalkReminderPrefs } from './walkReminderStorage';
+import {
+  getInAppNotificationPrefs,
+  isInAppNotificationEnabled,
+  isInAppNotificationSoundEnabled,
+  NOTIFICATION_PREFS_CHANGED_EVENT,
+  readInAppNotificationPrefsSnapshot,
+} from './inAppNotificationPrefs';
 
 /** undefined = ще не пробували; null = модуль недоступний (немає нативу / dev-білд). */
 let notificationsModuleCache;
@@ -11,19 +18,25 @@ let notificationsModuleCache;
  * Це не ловиться try/catch — тому спочатку перевіряємо наявність нативу.
  */
 function hasExpoNotificationsNativeRuntime() {
+  const moduleNames = [
+    'ExpoNotificationScheduler',
+    'ExpoNotificationPermissionsModule',
+    'ExpoPushTokenManager',
+  ];
   try {
-    const fromTurbo =
-      typeof TurboModuleRegistry?.get === 'function' &&
-      TurboModuleRegistry.get('ExpoPushTokenManager') != null;
-    if (fromTurbo) return true;
+    if (typeof TurboModuleRegistry?.get === 'function') {
+      if (moduleNames.some((name) => TurboModuleRegistry.get(name) != null)) return true;
+    }
   } catch {
     /* */
   }
   try {
-    return NativeModules?.ExpoPushTokenManager != null;
+    const mods = NativeModules || {};
+    if (moduleNames.some((name) => mods[name] != null)) return true;
   } catch {
     return false;
   }
+  return false;
 }
 
 function getExpoNotifications() {
@@ -44,21 +57,66 @@ function getExpoNotifications() {
 }
 
 let handlerInstalled = false;
+let prefsListenerInstalled = false;
+
+async function resolveNotificationCategory(notification) {
+  const data = notification?.request?.content?.data;
+  const raw = data?.category || data?.notifCategory;
+  if (raw === 'messages' || raw === 'feed' || raw === 'routesTips' || raw === 'productNews') {
+    return raw;
+  }
+  return 'routesTips';
+}
+
+async function readEffectiveNotificationPrefs() {
+  return readInAppNotificationPrefsSnapshot() || (await getInAppNotificationPrefs());
+}
+
+function installNotificationPrefsListener() {
+  if (prefsListenerInstalled) return;
+  prefsListenerInstalled = true;
+  DeviceEventEmitter.addListener(NOTIFICATION_PREFS_CHANGED_EVENT, () => {
+    void resyncWalkReminderAfterPrefsChange();
+  });
+}
+
+async function resyncWalkReminderAfterPrefsChange() {
+  let language = 'uk';
+  try {
+    const raw = await AsyncStorage.getItem('@kraina_app_language');
+    if (raw && typeof raw === 'string') {
+      const base = raw.split(/[-_]/)[0].toLowerCase();
+      language = base === 'ru' ? 'uk' : base;
+    }
+  } catch {
+    /* */
+  }
+  const copy = {
+    title: st(language, 'walkReminderNotifTitle'),
+    body: st(language, 'walkReminderNotifBody'),
+  };
+  await syncWalkReminderScheduleFromStorage(copy);
+}
 
 export function installWalkReminderNotificationHandler() {
   if (handlerInstalled) return;
   const Notifications = getExpoNotifications();
+  installNotificationPrefsListener();
   if (!Notifications) {
     handlerInstalled = true;
     return;
   }
   handlerInstalled = true;
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      const category = await resolveNotificationCategory(notification);
+      const prefs = await readEffectiveNotificationPrefs();
+      return {
+        shouldShowAlert: isInAppNotificationEnabled(prefs, category),
+        shouldPlaySound: isInAppNotificationSoundEnabled(prefs, category),
+        shouldSetBadge: false,
+      };
+    },
   });
 }
 
@@ -83,12 +141,79 @@ function notificationPermissionOk(p) {
   return s === 'granted' || s === 'provisional';
 }
 
+export function isWalkReminderNotificationsAvailable() {
+  return !!getExpoNotifications();
+}
+
+export async function getWalkReminderNotificationPermissionStatus() {
+  const Notifications = getExpoNotifications();
+  if (!Notifications) {
+    return { granted: false, canAskAgain: false, available: false, status: 'unavailable' };
+  }
+  try {
+    const p = await Notifications.getPermissionsAsync();
+    return {
+      granted: notificationPermissionOk(p),
+      canAskAgain: p?.canAskAgain !== false,
+      available: true,
+      status: p?.status || 'unknown',
+    };
+  } catch {
+    return { granted: false, canAskAgain: false, available: false, status: 'error' };
+  }
+}
+
+function resolveAndroidPackageId() {
+  try {
+    const Application = require('expo-application');
+    const id = Application?.applicationId;
+    if (id && typeof id === 'string') return id;
+  } catch {
+    /* */
+  }
+  return 'com.kraina.app';
+}
+
+/** Відкриває системні налаштування сповіщень для KRAÏNA (Android — екран Notifications, iOS — сторінка застосунку). */
+export async function openWalkReminderNotificationSettings() {
+  if (Platform.OS === 'android') {
+    const pkg = resolveAndroidPackageId();
+    const intents = [
+      `intent:#Intent;action=android.settings.APP_NOTIFICATION_SETTINGS;launchFlags=0x10000000;S.android.provider.extra.APP_PACKAGE=${pkg};end`,
+      `intent:#Intent;action=android.settings.APP_NOTIFICATION_SETTINGS;launchFlags=0x10000000;S.app_package=${pkg};end`,
+    ];
+    for (const uri of intents) {
+      try {
+        const can = await Linking.canOpenURL(uri);
+        if (can) {
+          await Linking.openURL(uri);
+          return true;
+        }
+      } catch {
+        /* try next */
+      }
+    }
+  }
+  if (typeof Linking.openSettings === 'function') {
+    await Linking.openSettings();
+    return true;
+  }
+  await Linking.openURL('app-settings:').catch(() => {});
+  return true;
+}
+
 export async function requestWalkReminderNotificationPermission() {
   const Notifications = getExpoNotifications();
   if (!Notifications) return false;
   const cur = await Notifications.getPermissionsAsync();
   if (notificationPermissionOk(cur)) return true;
-  const next = await Notifications.requestPermissionsAsync();
+  const next = await Notifications.requestPermissionsAsync({
+    ios: {
+      allowAlert: true,
+      allowBadge: false,
+      allowSound: true,
+    },
+  });
   return notificationPermissionOk(next);
 }
 
@@ -127,16 +252,20 @@ export async function syncWalkReminderScheduleFromStorage(copy) {
       await setWalkReminderPrefs({ scheduledNotificationId: null });
     }
     if (!prefs.enabled) return 'ok';
+    const notifPrefs = await getInAppNotificationPrefs();
+    if (!isInAppNotificationEnabled(notifPrefs, 'routesTips')) return 'ok';
     const ok = await requestWalkReminderNotificationPermission();
     if (!ok) return 'permission_denied';
+    const playSound = isInAppNotificationSoundEnabled(notifPrefs, 'routesTips');
     const id = await Notifications.scheduleNotificationAsync({
       content: {
         title: copy.title,
         body: copy.body,
-        sound: true,
+        sound: playSound ? true : false,
+        data: { category: 'routesTips' },
       },
       trigger: {
-        type: 'daily',
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour: prefs.hour,
         minute: prefs.minute,
         ...(Platform.OS === 'android' ? { channelId: CHANNEL_ID } : {}),

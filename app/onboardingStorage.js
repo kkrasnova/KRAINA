@@ -66,7 +66,7 @@ export async function markReturningUserAfterSuccessfulAuth() {
   } catch (_) {}
 }
 
-/** Без активної сесії завжди показуємо повний онбординг (заставка → мова → банери). */
+/** Після першого успішного входу до головної — без каруселі банерів на холодному старті. */
 export async function shouldSkipOnboardingIntroOnColdStart() {
-  return false;
+  return getHasUsedAppBefore();
 }

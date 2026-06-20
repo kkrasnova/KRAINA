@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, memo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, memo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,12 @@ import {
   ActivityIndicator,
   DeviceEventEmitter,
   Keyboard,
+  Pressable,
+  PanResponder,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSession } from './db';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
@@ -25,7 +29,6 @@ import { KRAINA_APP_LANGUAGE_CHANGED } from './appLanguageEvents';
 import LightHomeCountrySearch from './LightHomeCountrySearch';
 import HomeExploreSection from './HomeExploreSection';
 import HomeCountryCarousel from './HomeCountryCarousel';
-import HomeCategoryChips from './HomeCategoryChips';
 import { getHomeCountriesForCarousel, HOME_COUNTRY_ORDER } from './homeExploreData';
 import { KRAINA_ADMIN_LOCATION_EVENT } from './adminLocationData';
 import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
@@ -40,6 +43,7 @@ const BG = APP_SCREEN_BG;
  */
 const HOME_GAP_AFTER_TOPBAR = 16;
 const HOME_GAP_AFTER_SEARCH = 6;
+const HOME_SCROLL_PAD_H = 24;
 
 const MUTED = '#888888';
 
@@ -58,9 +62,18 @@ const MainPageSearchBlock = memo(function MainPageSearchBlock({
   onUnifiedPick,
   onParentScrollLockChange,
   resetToken,
+  dismissSignal,
+  onRequestDismiss,
+  searchExpanded,
 }) {
   return (
-    <View style={[styles.homeSearchInlineBlock, { marginBottom: HOME_GAP_AFTER_SEARCH }]}>
+    <View
+      style={[
+        styles.homeSearchInlineBlock,
+        searchExpanded && styles.homeSearchInlineBlockExpanded,
+        { marginBottom: searchExpanded ? 0 : HOME_GAP_AFTER_SEARCH },
+      ]}
+    >
       <LightHomeCountrySearch
         variant={variant}
         placeholder={placeholder}
@@ -70,9 +83,40 @@ const MainPageSearchBlock = memo(function MainPageSearchBlock({
         onUnifiedPick={onUnifiedPick}
         onParentScrollLockChange={onParentScrollLockChange}
         resetToken={resetToken}
+        dismissSignal={dismissSignal}
+        onRequestDismiss={onRequestDismiss}
         presentedInOverlay={false}
         profileSearchEnabled={false}
         peopleOnlyMode={false}
+      />
+    </View>
+  );
+});
+
+/** Повноекранний фон під пошуком: тап або свайп вгору закриває каталог. */
+const SearchDismissLayer = memo(function SearchDismissLayer({ onDismiss, language }) {
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        gesture.dy < -6 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.85,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy < -18 || gesture.vy < -0.1) {
+          onDismissRef.current();
+        }
+      },
+    }),
+  ).current;
+
+  return (
+    <View style={styles.searchDismissLayer} {...panResponder.panHandlers}>
+      <Pressable
+        style={StyleSheet.absoluteFillObject}
+        onPress={() => onDismissRef.current()}
+        accessibilityRole="button"
+        accessibilityLabel={language === 'uk' ? 'Закрити пошук' : 'Close search'}
       />
     </View>
   );
@@ -83,8 +127,6 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
   visible,
   language,
   appTheme,
-  homeCategoryId,
-  onSelectCategory,
   homeCountries,
   countryId,
   onHomePickCountry,
@@ -96,12 +138,6 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
   const isLightMain = appTheme === 'light';
   return (
     <>
-      <HomeCategoryChips
-        language={language}
-        appTheme={appTheme}
-        selectedId={homeCategoryId}
-        onSelect={onSelectCategory}
-      />
       <HomeCountryCarousel
         language={language}
         appTheme={appTheme}
@@ -120,7 +156,7 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
         countryId={countryId}
         language={language}
         appTheme={appTheme}
-        categoryId={homeCategoryId}
+        categoryId="all"
         homeLocationsEpoch={homeLocationsEpoch}
       />
     </>
@@ -128,12 +164,13 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
 });
 
 export default function MainPage({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionLang, setSessionLang] = useState(null);
   const [appTheme, setAppTheme] = useState('dark');
   const [countrySearchLocksScroll, setCountrySearchLocksScroll] = useState(false);
   const [searchResetToken, setSearchResetToken] = useState(0);
-  const [homeCategoryId, setHomeCategoryId] = useState('all');
+  const [searchDismissSignal, setSearchDismissSignal] = useState(0);
   const [homeLocationsEpoch, setHomeLocationsEpoch] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -359,6 +396,10 @@ export default function MainPage({ navigation, route }) {
     setSearchResetToken((n) => n + 1);
   }, []);
 
+  const dismissHomeSearch = useCallback(() => {
+    setSearchDismissSignal((n) => n + 1);
+  }, []);
+
   const onHomePickCountry = useCallback(
     (nextId) => {
       if (!nextId) return;
@@ -447,6 +488,8 @@ export default function MainPage({ navigation, route }) {
     language === 'uk'
       ? 'Пошук місць: країни, міста, локації'
       : 'Search places: countries, cities, locations';
+  const { height: windowHeight } = useWindowDimensions();
+  const searchContentMinHeight = Math.max(360, windowHeight - 168);
   const contentReady = gateReady && userHasIdentity(user);
 
   if (!contentReady) {
@@ -482,53 +525,75 @@ export default function MainPage({ navigation, route }) {
             onSendPress={openTopRight}
           />
           <View style={styles.countryOverlayHost} collapsable={false}>
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={[
-                styles.scroll,
-                {
-                  paddingTop: HOME_GAP_AFTER_TOPBAR,
-                  /** iOS: індикатор «дому» + плаваюча нижня панель — мінімальний запас. */
-                  paddingBottom: lightTabBarExtraScrollPadding() + 16,
-                },
+            {countrySearchLocksScroll ? (
+              <SearchDismissLayer onDismiss={dismissHomeSearch} language={language} />
+            ) : null}
+            <View
+              style={[
+                styles.homeScrollShell,
+                countrySearchLocksScroll && styles.homeScrollShellSearchOpen,
               ]}
-              keyboardShouldPersistTaps="always"
-              keyboardDismissMode="on-drag"
-              onScrollBeginDrag={dismissKeyboardOnScroll}
-              scrollEnabled={!countrySearchLocksScroll}
-              nestedScrollEnabled
-              removeClippedSubviews={Platform.OS === 'android'}
-              showsVerticalScrollIndicator
-              {...(Platform.OS === 'ios'
-                ? {
-                    /** Уникаємо подвійного safe area з UIScrollView і обрізання нижнього контенту. */
-                    contentInsetAdjustmentBehavior: 'never',
-                  }
-                : {})}
+              pointerEvents={countrySearchLocksScroll ? 'box-none' : 'auto'}
             >
-                <MainPageSearchBlock
-                  variant={searchVariant}
-                  placeholder={searchPlaceholder}
-                  language={language}
-                  selectedCountryId={countryId}
-                  onUnifiedPick={onHomeSearchPick}
-                  onParentScrollLockChange={setCountrySearchLocksScroll}
-                  resetToken={searchResetToken}
-                />
-                <MainPageHomeSections
-                  visible={showHomeSections}
-                  language={language}
-                  appTheme={appTheme}
-                  homeCategoryId={homeCategoryId}
-                  onSelectCategory={setHomeCategoryId}
-                  homeCountries={homeCountries}
-                  countryId={countryId}
-                  onHomePickCountry={onHomePickCountry}
-                  onOpenAllCountries={openAllCountriesLocations}
-                  user={user}
-                  homeLocationsEpoch={homeLocationsEpoch}
-                />
-            </ScrollView>
+              <ScrollView
+                style={styles.homeScroll}
+                contentContainerStyle={[
+                  styles.scroll,
+                  countrySearchLocksScroll && styles.scrollSearchOpen,
+                  countrySearchLocksScroll && { minHeight: searchContentMinHeight },
+                  {
+                    paddingTop: HOME_GAP_AFTER_TOPBAR,
+                    /** iOS: індикатор «дому» + плаваюча нижня панель — резервуємо safe-area, щоб останні локації не ховались за таб-баром. */
+                    paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 16,
+                  },
+                ]}
+                pointerEvents={countrySearchLocksScroll ? 'box-none' : 'auto'}
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="on-drag"
+                onScrollBeginDrag={dismissKeyboardOnScroll}
+                scrollEnabled={!countrySearchLocksScroll}
+                nestedScrollEnabled
+                removeClippedSubviews={Platform.OS === 'android'}
+                showsVerticalScrollIndicator
+                {...(Platform.OS === 'ios'
+                  ? {
+                      /** Уникаємо подвійного safe area з UIScrollView і обрізання нижнього контенту. */
+                      contentInsetAdjustmentBehavior: 'never',
+                    }
+                  : {})}
+              >
+                <View
+                  pointerEvents="box-none"
+                  style={countrySearchLocksScroll ? styles.homeSearchScrollSlot : null}
+                >
+                  <MainPageSearchBlock
+                    variant={searchVariant}
+                    placeholder={searchPlaceholder}
+                    language={language}
+                    selectedCountryId={countryId}
+                    onUnifiedPick={onHomeSearchPick}
+                    onParentScrollLockChange={setCountrySearchLocksScroll}
+                    resetToken={searchResetToken}
+                    dismissSignal={searchDismissSignal}
+                    onRequestDismiss={dismissHomeSearch}
+                    searchExpanded={countrySearchLocksScroll}
+                  />
+                </View>
+                {!countrySearchLocksScroll ? (
+                  <MainPageHomeSections
+                    visible={showHomeSections}
+                    language={language}
+                    appTheme={appTheme}
+                    homeCountries={homeCountries}
+                    countryId={countryId}
+                    onHomePickCountry={onHomePickCountry}
+                    onOpenAllCountries={openAllCountriesLocations}
+                    user={user}
+                    homeLocationsEpoch={homeLocationsEpoch}
+                  />
+                ) : null}
+              </ScrollView>
+            </View>
           </View>
         </View>
       </View>
@@ -550,10 +615,37 @@ const styles = StyleSheet.create({
   homeSearchInlineBlock: {
     alignSelf: 'stretch',
   },
-  countryOverlayHost: { flex: 1 },
+  homeSearchInlineBlockExpanded: {
+    flex: 1,
+  },
+  homeSearchScrollSlot: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  countryOverlayHost: {
+    flex: 1,
+    position: 'relative',
+  },
+  homeScrollShell: {
+    flex: 1,
+  },
+  homeScrollShellSearchOpen: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  homeScroll: {
+    flex: 1,
+  },
+  searchDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+  },
   center: { justifyContent: 'center', alignItems: 'center' },
   loadingBody: { flex: 1 },
-  scroll: { paddingHorizontal: 24, paddingBottom: 32 },
+  scroll: { paddingHorizontal: HOME_SCROLL_PAD_H, paddingBottom: 32 },
+  scrollSearchOpen: {
+    flexGrow: 1,
+  },
   homeHint: {
     fontSize: 14,
     lineHeight: 20,

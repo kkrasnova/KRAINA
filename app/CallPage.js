@@ -22,6 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ExpoAudio from 'expo-audio';
+import { CALL_AUDIO_MODE, configureBackgroundMusicFriendlyAudio } from './audioSession';
 import {
   callsGetStatus,
   callsInitiate,
@@ -261,8 +262,18 @@ export default function CallPage({ navigation, route }) {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      void configureBackgroundMusicFriendlyAudio().catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    if (callStatus !== 'active') return undefined;
+    void ExpoAudio.setAudioModeAsync({
+      ...CALL_AUDIO_MODE,
+      ...(Platform.OS === 'ios' ? { shouldPlayInBackground: true } : {}),
+    }).catch(() => {});
+    return undefined;
+  }, [callStatus]);
 
   // Initiate call on mount
   useEffect(() => {
@@ -350,6 +361,7 @@ export default function CallPage({ navigation, route }) {
         /* ignore */
       }
     }
+    void configureBackgroundMusicFriendlyAudio().catch(() => {});
     navigation.goBack();
   }, [callId, navigation]);
 
@@ -367,10 +379,9 @@ export default function CallPage({ navigation, route }) {
     setIsSpeaker((prev) => !prev);
     try {
       await ExpoAudio.setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
+        ...CALL_AUDIO_MODE,
         ...(Platform.OS === 'ios'
-          ? { staysActiveInBackground: true }
+          ? { shouldPlayInBackground: true }
           : {}),
       });
     } catch {

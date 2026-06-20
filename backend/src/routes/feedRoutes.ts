@@ -16,6 +16,7 @@ import {
   listUserPostsForViewer,
   createStory,
   listActiveStoriesTray,
+  listMyArchivedStories,
   listActiveStoriesForUser,
   recordStoryView,
   getStoryViewers,
@@ -293,6 +294,18 @@ router.get('/stories', authenticateToken, async (req, res, next) => {
     const id = req.authUser?.id;
     if (!id) throw new HttpError(401, 'token_invalid');
     const stories = await listActiveStoriesTray(id);
+    res.status(200).json({ stories });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/stories/me/archived', authenticateToken, async (req, res, next) => {
+  try {
+    const id = req.authUser?.id;
+    if (!id) throw new HttpError(401, 'token_invalid');
+    const limit = Math.min(80, Math.max(1, Number(req.query.limit) || 60));
+    const stories = await listMyArchivedStories(id, limit);
     res.status(200).json({ stories });
   } catch (e) {
     next(e);

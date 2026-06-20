@@ -212,67 +212,55 @@ function countryStringToSupportedIso(countryField) {
   return GEO_NORMALIZED_NAME_TO_ISO[k] || '';
 }
 
-function pickBetterPosition(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  const ac = a.coords?.accuracy;
-  const bc = b.coords?.accuracy;
-  if (bc != null && ac != null) return bc < ac ? b : a;
-  if (bc != null && ac == null) return b;
-  return a;
-}
-
 function isFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-/** Пауза перед повторним зчитуванням, якщо перша точка дуже груба (мілісекунди). */
-const GEO_RETRY_AFTER_MS = 650;
-/** Уточнення GPS через watch при середній/поганій точності (мілісекунди). */
-const GEO_REFINE_WATCH_MS = 3200;
+/** Цільовий час отримання координат для вибору країни (мілісекунди). */
+const GEO_LOCATION_BUDGET_MS = 1000;
+/** Кешована точка придатна для визначення країни (мілісекунди). */
+const GEO_LAST_KNOWN_MAX_AGE_MS = 5 * 60 * 1000;
 
 /**
- * Координати для країни: Highest + коротке уточнення — зменшує хибні країни через грубий сигнал.
+ * Швидкі координати для країни: кеш → Balanced GPS, у межах ~1 с.
+ * Точність міста не потрібна — достатньо bbox / reverse geocode / IP fallback.
  */
-async function getHighAccuracyCoords(Location) {
+async function getCountryCoordsFast(Location) {
   const Acc = Location.Accuracy || {};
-  const accuracy = Acc.Highest != null ? Acc.Highest : Acc.High != null ? Acc.High : Acc.Balanced;
-  const opts = {
+  const accuracy =
+    Acc.Balanced != null ? Acc.Balanced : Acc.Low != null ? Acc.Low : Acc.Highest;
+  const currentOpts = {
     accuracy,
-    /** Android: не брати дуже старий кеш. */
-    ...(Platform.OS === 'android' ? { mayShowUserSettingsDialog: true, maximumAge: 0 } : {}),
+    ...(Platform.OS === 'android'
+      ? { mayShowUserSettingsDialog: true, maximumAge: GEO_LAST_KNOWN_MAX_AGE_MS }
+      : {}),
   };
-  let best = await Location.getCurrentPositionAsync(opts);
-  const acc = best?.coords?.accuracy;
-  if (acc != null && acc > 6000) {
-    await new Promise((resolve) => setTimeout(resolve, GEO_RETRY_AFTER_MS));
+  const deadline = Date.now() + GEO_LOCATION_BUDGET_MS;
+
+  if (typeof Location.getLastKnownPositionAsync === 'function') {
     try {
-      const pos2 = await Location.getCurrentPositionAsync(opts);
-      best = pickBetterPosition(best, pos2);
-    } catch (_) {
-      /* залишаємо best */
-    }
-  }
-  const accAfter = best?.coords?.accuracy;
-  const needsRefine = accAfter == null || accAfter > 2500;
-  if (needsRefine && typeof Location.watchPositionAsync === 'function') {
-    let sub;
-    try {
-      let watchBest = best;
-      sub = await Location.watchPositionAsync(opts, (loc) => {
-        watchBest = pickBetterPosition(watchBest, loc);
+      const cached = await Location.getLastKnownPositionAsync({
+        maxAge: GEO_LAST_KNOWN_MAX_AGE_MS,
       });
-      await new Promise((resolve) => setTimeout(resolve, GEO_REFINE_WATCH_MS));
-      best = pickBetterPosition(best, watchBest);
+      if (
+        cached?.coords &&
+        isFiniteNumber(cached.coords.latitude) &&
+        isFiniteNumber(cached.coords.longitude)
+      ) {
+        return cached;
+      }
     } catch (_) {
-      /* лишаємо best */
-    } finally {
-      try {
-        sub?.remove?.();
-      } catch (_) {}
+      /* fresh fix below */
     }
   }
-  return best;
+
+  const remainingMs = Math.max(250, deadline - Date.now());
+  return Promise.race([
+    Location.getCurrentPositionAsync(currentOpts),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('GEO_TIMEOUT')), remainingMs);
+    }),
+  ]);
 }
 
 /** Приблизні межі (прямокутник) — лише для підтримуваних країн; порядок: менший перетин з сусідами вище. */
@@ -868,6 +856,29 @@ export default function SelectCountryPage({ navigation, route }) {
       : countriesForUi;
   }, [countriesForUi, searchQuery]);
 
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+
+  const applyGeoCountrySelection = useCallback(
+    (resolvedId) => {
+      if (!resolvedId || !SUPPORTED_COUNTRY_IDS.has(resolvedId)) return;
+      const q = String(searchQueryRef.current || '').trim();
+      if (q) {
+        const opt = countriesForUi.find((c) => c.id === resolvedId);
+        const visible = opt && countryMatchesSearchQuery(opt, searchQueryRef.current);
+        if (!visible) {
+          setSearchQuery('');
+          Keyboard.dismiss();
+        }
+      }
+      setCountryId(resolvedId);
+      setSelectionSource('geo');
+      setGeoError(null);
+      setGeoUnsupportedRegion(false);
+    },
+    [countriesForUi],
+  );
+
   const handleUseLocation = useCallback(async () => {
     const t = getTexts(lang);
     setGeoError(null);
@@ -879,10 +890,7 @@ export default function SelectCountryPage({ navigation, route }) {
         if (__DEV__) console.warn('[SelectCountry] expo-location native module not linked');
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
-          setCountryId(byIp);
-          setSelectionSource('geo');
-          setGeoError(null);
-          setGeoUnsupportedRegion(false);
+          applyGeoCountrySelection(byIp);
           return;
         }
         setGeoUnsupportedRegion(false);
@@ -894,10 +902,7 @@ export default function SelectCountryPage({ navigation, route }) {
       if (status !== 'granted') {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
-          setCountryId(byIp);
-          setSelectionSource('geo');
-          setGeoError(null);
-          setGeoUnsupportedRegion(false);
+          applyGeoCountrySelection(byIp);
           return;
         }
         setGeoUnsupportedRegion(false);
@@ -926,10 +931,7 @@ export default function SelectCountryPage({ navigation, route }) {
         if (!servicesOn) {
           const byIpSvc = await detectCountryByIpBackend();
           if (byIpSvc && SUPPORTED_COUNTRY_IDS.has(byIpSvc)) {
-            setCountryId(byIpSvc);
-            setSelectionSource('geo');
-            setGeoError(null);
-            setGeoUnsupportedRegion(false);
+            applyGeoCountrySelection(byIpSvc);
             return;
           }
           setGeoUnsupportedRegion(false);
@@ -937,7 +939,17 @@ export default function SelectCountryPage({ navigation, route }) {
           return;
         }
       }
-      const pos = await getHighAccuracyCoords(Location);
+      let pos;
+      try {
+        pos = await getCountryCoordsFast(Location);
+      } catch (geoFixErr) {
+        const byIpFast = await detectCountryByIpBackend();
+        if (byIpFast && SUPPORTED_COUNTRY_IDS.has(byIpFast)) {
+          applyGeoCountrySelection(byIpFast);
+          return;
+        }
+        throw geoFixErr;
+      }
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       const fromBox = countryIdFromBoundingBox(lat, lng);
@@ -989,10 +1001,7 @@ export default function SelectCountryPage({ navigation, route }) {
         });
       }
       if (countryIdResolved && SUPPORTED_COUNTRY_IDS.has(countryIdResolved)) {
-        setCountryId(countryIdResolved);
-        setSelectionSource('geo');
-        setGeoUnsupportedRegion(false);
-        setGeoError(null);
+        applyGeoCountrySelection(countryIdResolved);
       } else if (rawIsoForNotice && !mapsToSupported && !boxSupported) {
         setGeoUnsupportedRegion(true);
         setGeoError(null);
@@ -1005,10 +1014,7 @@ export default function SelectCountryPage({ navigation, route }) {
       try {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
-          setCountryId(byIp);
-          setSelectionSource('geo');
-          setGeoError(null);
-          setGeoUnsupportedRegion(false);
+          applyGeoCountrySelection(byIp);
           return;
         }
       } catch (_) {
@@ -1019,7 +1025,7 @@ export default function SelectCountryPage({ navigation, route }) {
     } finally {
       setLocating(false);
     }
-  }, [lang]);
+  }, [lang, applyGeoCountrySelection]);
 
   const handleUseLocationRef = useRef(handleUseLocation);
   handleUseLocationRef.current = handleUseLocation;
@@ -1075,8 +1081,10 @@ export default function SelectCountryPage({ navigation, route }) {
   const geoGlobeH = Math.round(geoCardHeight * 1.18);
   const geoCardPrimary =
     locating || (selectionSource === 'geo' && !!countryId);
-  const titleLimeSize = Math.min(23, Math.round((r.titleFontSize + 1) * (r.isNarrow ? 0.84 : 0.88)));
+  const titleLimeSize = Math.min(20, Math.round((r.titleFontSize + 1) * (r.isNarrow ? 0.76 : 0.8)));
   const fontUkraine = brandFontText;
+  const footerBottomPad = Math.max(insets.bottom, 12) + 10;
+  const scrollBottomPad = buttonMinHeight + footerBottomPad + 20;
 
   return (
     <View style={styles.container}>
@@ -1085,12 +1093,12 @@ export default function SelectCountryPage({ navigation, route }) {
           styles.content,
           {
             paddingTop: insets.top + 10,
-            paddingBottom: r.bottomPadding,
             paddingHorizontal: r.horizontalPadding,
           },
         ]}
         onPress={Keyboard.dismiss}
       >
+        <View style={styles.topShell}>
         <View
           style={[
             styles.headerBlock,
@@ -1102,7 +1110,7 @@ export default function SelectCountryPage({ navigation, route }) {
               styles.screenTitleLime,
               {
                 fontSize: titleLimeSize,
-                lineHeight: titleLimeSize + 8,
+                lineHeight: titleLimeSize + 6,
                 ...fontUkraine,
               },
             ]}
@@ -1197,13 +1205,15 @@ export default function SelectCountryPage({ navigation, route }) {
           <Text style={[styles.geoError, { fontSize: r.hintFontSize }]}>{geoError}</Text>
         ) : null}
 
+        </View>
+
         <View style={styles.listSection}>
           <Text style={[styles.hintMuted, { fontSize: r.hintFontSize - 1 }]}>{texts.scrollHint}</Text>
 
           <ScrollView
             style={styles.gridScroll}
-            contentContainerStyle={styles.gridContent}
-            showsVerticalScrollIndicator
+            contentContainerStyle={[styles.gridContent, { paddingBottom: scrollBottomPad }]}
+            showsVerticalScrollIndicator={false}
             indicatorStyle="white"
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -1363,8 +1373,13 @@ export default function SelectCountryPage({ navigation, route }) {
                         </View>
                         <LinearGradient
                           pointerEvents="none"
-                          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.92)']}
-                          locations={[0, 0.3, 1]}
+                          colors={[
+                            'rgba(0,0,0,0)',
+                            'rgba(0,0,0,0.06)',
+                            'rgba(0,0,0,0.42)',
+                            'rgba(0,0,0,0.88)',
+                          ]}
+                          locations={[0, 0.42, 0.78, 1]}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 1 }}
                           style={styles.countryTilePhotoFade}
@@ -1396,9 +1411,13 @@ export default function SelectCountryPage({ navigation, route }) {
             </View>
           </ScrollView>
         </View>
+      </Pressable>
 
-        <View style={styles.footer}>
-          <View style={styles.footerDivider} />
+      <View
+        pointerEvents="box-none"
+        style={[styles.footerOverlay, { paddingBottom: footerBottomPad, paddingHorizontal: r.horizontalPadding }]}
+      >
+        <View style={styles.footerInner}>
           <Lemon3DButton
             label={texts.continue}
             onPress={handleContinue}
@@ -1412,7 +1431,7 @@ export default function SelectCountryPage({ navigation, route }) {
             accessibilityLabel={texts.continue}
           />
         </View>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -1420,13 +1439,16 @@ export default function SelectCountryPage({ navigation, route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
   },
   content: {
     flex: 1,
     maxWidth: 480,
     width: '100%',
     alignSelf: 'center',
+    backgroundColor: 'transparent',
+  },
+  topShell: {
     backgroundColor: '#000000',
   },
   headerBlock: {
@@ -1455,6 +1477,8 @@ const styles = StyleSheet.create({
   },
   countryTileMedia: {
     ...StyleSheet.absoluteFillObject,
+    borderRadius: 20,
+    overflow: 'hidden',
     backgroundColor: '#1A1A1A',
   },
   countryTilePhotoImage: {
@@ -1467,6 +1491,7 @@ const styles = StyleSheet.create({
   },
   geoCardInner: {
     width: '100%',
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#010103',
   },
@@ -1580,6 +1605,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     marginTop: 10,
+    backgroundColor: 'transparent',
   },
   hintMuted: {
     marginTop: 2,
@@ -1592,10 +1618,10 @@ const styles = StyleSheet.create({
   },
   gridScroll: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   gridContent: {
     paddingTop: 4,
-    paddingBottom: 20,
   },
   grid: {
     flexDirection: 'row',
@@ -1626,7 +1652,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: '56%',
+    height: '50%',
     zIndex: 1,
   },
   countryTileLabelRow: {
@@ -1669,13 +1695,17 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 8,
   },
-  footer: {
-    paddingTop: 16,
-    paddingBottom: 4,
+  footerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
   },
-  footerDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginBottom: 18,
+  footerInner: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    paddingHorizontal: 22,
   },
 });

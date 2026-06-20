@@ -36,6 +36,7 @@ import { getUserFeedPosts, getLatestUserStory } from './feedLocalStorage';
 import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
+import { brandFontHeadMedium } from './brandFont';
 import {
   hasFeedApiToken,
   feedListFriendsPosts,
@@ -55,6 +56,99 @@ const CARD_LIGHT = '#FFFFFF';
 const CARD_DARK = '#141414';
 
 const AVATAR = require('./assets/person-12.png');
+
+const FEED_EMPTY_FRIENDS_PHOTOS = [
+  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.jpg'),
+  require('./assets/carousel/photo-1615119449152-d94284eafa45.jpg'),
+  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.jpg'),
+];
+
+const FEED_EMPTY_WORLD_PHOTOS = [
+  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.jpg'),
+  require('./assets/carousel/photo-1518684079-3c830dcef090.jpg'),
+  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.jpg'),
+];
+
+function FeedEmptyPlaceholder({
+  segment,
+  language,
+  isLight,
+  textMain,
+  textMuted,
+  accent,
+  onAccentTxt,
+  onCreate,
+  onFindFriends,
+  ripple,
+}) {
+  const photos = segment === 'world' ? FEED_EMPTY_WORLD_PHOTOS : FEED_EMPTY_FRIENDS_PHOTOS;
+  const photoBorder = isLight ? '#FFFFFF' : 'rgba(255, 255, 255, 0.16)';
+  const photoShadow = isLight ? '#0212EB' : '#000000';
+  const headline =
+    segment === 'world' ? ft(language, 'feedWorldEmptyHeadline') : ft(language, 'feedFriendsEmptyHeadline');
+  const hintText = segment === 'world' ? ft(language, 'worldHint') : ft(language, 'friendsHint');
+  const ctaLabel =
+    segment === 'world' ? ft(language, 'feedWorldEmptyCta') : ft(language, 'feedFriendsEmptyCta');
+  const onCta = segment === 'world' ? onCreate : onFindFriends;
+  const ctaIcon = segment === 'world' ? 'camera-outline' : 'people-outline';
+
+  return (
+    <View style={styles.feedEmptyWrap}>
+      <View style={styles.feedEmptyStage}>
+        <View style={styles.feedEmptyPhotoRow} pointerEvents="none">
+          {photos.map((source, idx) => {
+            const center = idx === 1;
+            return (
+              <Image
+                key={`feed-empty-${segment}-${String(idx)}`}
+                source={source}
+                style={[
+                  styles.feedEmptyPhoto,
+                  center ? styles.feedEmptyPhotoCenter : null,
+                  {
+                    borderColor: photoBorder,
+                    transform: [{ rotate: idx === 0 ? '-10deg' : idx === 2 ? '10deg' : '0deg' }],
+                    marginLeft: idx === 0 ? 0 : -26,
+                    zIndex: center ? 3 : idx === 0 ? 1 : 2,
+                    opacity: center ? 1 : 0.88,
+                    ...(Platform.OS === 'ios'
+                      ? {
+                          shadowColor: photoShadow,
+                          shadowOffset: { width: 0, height: center ? 10 : 6 },
+                          shadowOpacity: isLight ? 0.18 : 0.35,
+                          shadowRadius: center ? 16 : 10,
+                        }
+                      : { elevation: center ? 6 : 3 }),
+                  },
+                ]}
+                resizeMode="cover"
+              />
+            );
+          })}
+        </View>
+
+        <Text style={[styles.feedEmptyTitle, brandFontHeadMedium, { color: textMain }]} numberOfLines={2}>
+          {headline}
+        </Text>
+        <Text style={[styles.feedEmptyHint, { color: textMuted }]}>{hintText}</Text>
+      </View>
+
+      {onCta ? (
+        <Pressable
+          onPress={onCta}
+          style={({ pressed }) => [
+            styles.feedEmptyCta,
+            { backgroundColor: accent, opacity: pressed ? 0.92 : 1 },
+          ]}
+          android_ripple={ripple}
+        >
+          <Ionicons name={ctaIcon} size={22} color={onAccentTxt} />
+          <Text style={[styles.feedEmptyCtaTxt, { color: onAccentTxt }]}>{ctaLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 function storyAvatarRingStyle(story, viewerId, isLight) {
   if (!story) return { borderWidth: 0 };
@@ -334,6 +428,7 @@ export default function FeedPage({ navigation, route }) {
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
+  const onAccentTxt = onAccentButtonText(isLight);
   const bg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const textMain = isLight ? '#1E1E1E' : 'rgba(255,255,255,0.9)';
   const textMuted = isLight ? '#5C5C5C' : '#9A9A9A';
@@ -401,6 +496,9 @@ export default function FeedPage({ navigation, route }) {
     return local;
   }, [userPosts, segment, user, language, apiFriendsPosts, apiWorldPosts]);
 
+  const feedReady = !hasFeedApiToken() || (segment === 'world' ? apiWorldPosts : apiFriendsPosts) !== null;
+  const showFeedEmpty = posts.length === 0 && feedReady;
+
   useEffect(() => {
     const nextLike = {};
     const nextLikeCount = {};
@@ -429,6 +527,11 @@ export default function FeedPage({ navigation, route }) {
         cameraInitialMode: segment === 'world' ? 'post' : 'story',
       }),
     [navigation, shell, segment],
+  );
+
+  const openFindFriends = useCallback(
+    () => navigation.navigate('DiscoverPeople', shell),
+    [navigation, shell],
   );
 
   const openStoryForUser = useCallback(
@@ -796,6 +899,22 @@ export default function FeedPage({ navigation, route }) {
         </View>
           </>
         }
+        ListEmptyComponent={
+          showFeedEmpty ? (
+            <FeedEmptyPlaceholder
+              segment={segment}
+              language={language}
+              isLight={isLight}
+              textMain={textMain}
+              textMuted={textMuted}
+              accent={accent}
+              onAccentTxt={onAccentTxt}
+              onCreate={openCreate}
+              onFindFriends={openFindFriends}
+              ripple={ripple}
+            />
+          ) : null
+        }
         renderItem={({ item: post }) => (
           <View
             style={[
@@ -865,11 +984,6 @@ export default function FeedPage({ navigation, route }) {
                   >
                     {ft(language, 'routeToFriend')}
                   </Text>
-                  <Ionicons
-                    name="arrow-forward"
-                    size={16}
-                    color={post.route_plan ? '#1E1E1E' : '#FFFFFF'}
-                  />
                 </Pressable>
               </View>
             </View>
@@ -1004,6 +1118,64 @@ const styles = StyleSheet.create({
     height: 3,
     opacity: 0,
   },
+  feedEmptyWrap: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 28,
+    paddingBottom: 32,
+  },
+  feedEmptyStage: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  feedEmptyPhotoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 118,
+    marginBottom: 26,
+    paddingHorizontal: 8,
+  },
+  feedEmptyPhoto: {
+    width: 74,
+    height: 98,
+    borderRadius: 16,
+    borderWidth: 2.5,
+  },
+  feedEmptyPhotoCenter: {
+    width: 84,
+    height: 108,
+    borderRadius: 18,
+  },
+  feedEmptyTitle: {
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    maxWidth: 320,
+    marginBottom: 12,
+  },
+  feedEmptyHint: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 320,
+    opacity: 0.88,
+  },
+  feedEmptyCta: {
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    minHeight: 52,
+    borderRadius: 16,
+    paddingHorizontal: 22,
+    paddingVertical: Platform.OS === 'ios' ? 14 : 12,
+  },
+  feedEmptyCtaTxt: { fontSize: 16, fontWeight: '800' },
   hint: { fontSize: 12, lineHeight: 17, marginTop: 8, marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
   postsSectionTitle: {

@@ -290,6 +290,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
         peerDisplayName: peerDisplayNameFromMeta(meta) || profile.display_name || profile.username,
         peerUsername: peerUsernameFromMeta(meta),
         peerAvatarUrl: resolveFeedMediaUrl(profile.avatar_url || meta.peer_avatar_url || '') || '',
+        peerUserId: String(meta.peer_user_id || profile.user_id),
         useMessageApi: true,
         pendingForMe: !!meta.pending_for_me,
       });

@@ -179,8 +179,24 @@ const S = {
   usernameLabel: { uk: 'Нікнейм у KRAÏNA', en: 'KRAÏNA username' },
   openChatCta: { uk: 'Відкрити чат', en: 'Open chat' },
   needBackendLogin: {
-    uk: 'Увійдіть у KRAÏNA через email, щоб писати іншим користувачам.',
-    en: 'Sign in with your KRAÏNA email to message other users.',
+    uk: 'Не вдалося підключити чати до вашого акаунта. Спробуйте вийти та увійти знову.',
+    en: 'Could not connect chats to your account. Try signing out and back in.',
+  },
+  connectingChats: {
+    uk: 'Підключення чатів…',
+    en: 'Connecting chats…',
+  },
+  connectChatsHint: {
+    uk: 'Натисніть «Спробувати знову» або увійдіть знову з увімкненим «Запамʼятати мене».',
+    en: 'Tap “Try again” or sign in again with “Remember me” enabled.',
+  },
+  connectChatsRetry: {
+    uk: 'Спробувати знову',
+    en: 'Try again',
+  },
+  reauthForChatsCta: {
+    uk: 'Увійти знову',
+    en: 'Sign in again',
   },
   acceptRequest: { uk: 'Прийняти запит', en: 'Accept request' },
   requestBanner: {

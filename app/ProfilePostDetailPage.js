@@ -346,7 +346,6 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                 >
                   {pf(language, 'route')}
                 </Text>
-                <Ionicons name="arrow-forward" size={14} color={isLight ? '#FFF' : '#1E1E1E'} />
               </Pressable>
             </View>
           </View>

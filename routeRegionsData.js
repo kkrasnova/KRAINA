@@ -6,7 +6,56 @@ const T1 = require('./assets/kling_20260405_IMAGE____________5495_1.png');
 const T2 = require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png');
 const T3 = require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png');
 const T4 = require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png');
+const T_MAIDAN_HOME = require('./assets/maidan-home-thumb.jpg');
 const T_KYIV = require('./assets/kyiv-main-hero.png');
+const { MAIDAN_AUDIO_SCRIPT_UK, MAIDAN_SHORT_INTRO_UK, MAIDAN_MINI_PREVIEW_UK } = require('./landmarkAudioScripts/maidan');
+const T_LIVIV = require('./assets/lviv-main-hero.png');
+const T_ODESA = require('./assets/odesa-main-hero.png');
+const T_KHARKIV = require('./assets/kharkiv-main-hero.png');
+const T_DNIPRO = require('./assets/dnipro-main-hero.png');
+const T_ZAPORIZHZHIA = require('./assets/zaporizhzhia-main-hero.png');
+const T_KRYVYI_RIH = require('./assets/kryvyi-rih-main-hero.png');
+const T_MARIUPOL = require('./assets/mariupol-main-hero.png');
+const T_MYKOLAIV = require('./assets/mykolaiv-main-hero.png');
+const T_VINNYTSIA = require('./assets/vinnytsia-main-hero.png');
+const T_CHERNIHIV = require('./assets/chernihiv-main-hero.png');
+const T_POLTAVA = require('./assets/poltava-main-hero.png');
+const T_CHERKASY = require('./assets/cherkasy-main-hero.png');
+const T_SUMY = require('./assets/sumy-main-hero.png');
+const T_ZHYTOMYR = require('./assets/zhytomyr-main-hero.png');
+const T_KHMELNYTSKYI = require('./assets/khmelnytskyi-main-hero.png');
+const T_RIVNE = require('./assets/rivne-main-hero.png');
+const T_IVANO_FRANKIVSK = require('./assets/ivano-frankivsk-main-hero.png');
+const T_TERNOPIL = require('./assets/ternopil-main-hero.png');
+const T_LUTSK = require('./assets/lutsk-main-hero.png');
+const T_UZHHOROD = require('./assets/uzhhorod-main-hero.png');
+const T_CHERNIVTSI = require('./assets/chernivtsi-main-hero.png');
+const T_KROPYVNYTSKYI = require('./assets/kropyvnytskyi-main-hero.png');
+const T_KREMENCHUK = require('./assets/kremenchuk-main-hero.png');
+const T_KRAMATORSK = require('./assets/kramatorsk-main-hero.png');
+const T_BERDYANSK = require('./assets/berdyansk-main-hero.png');
+const T_UMAN = require('./assets/uman-main-hero.png');
+const T_KAMIANETS_PODILSKYI = require('./assets/kamianets-podilskyi-main-hero.png');
+const T_MUKACHEVO = require('./assets/mukachevo-main-hero.png');
+const T_DROHOBYCH = require('./assets/drohobych-main-hero.png');
+const T_KONOTOP = require('./assets/konotop-main-hero.png');
+const T_NIZHYN = require('./assets/nizhyn-main-hero.png');
+const T_SLOVIANSK = require('./assets/sloviansk-main-hero.png');
+const T_BILA_TSERKVA = require('./assets/bila-tserkva-main-hero.png');
+const T_BROVARY = require('./assets/brovary-main-hero.png');
+const T_PARIS = require('./assets/paris-main-hero.png');
+const T_ROME = require('./assets/rome-main-hero.png');
+const T_BERLIN = require('./assets/berlin-main-hero.png');
+const T_WARSAW = require('./assets/warsaw-main-hero.png');
+const T_AMSTERDAM = require('./assets/amsterdam-main-hero.png');
+const T_WAALWIJK = require('./assets/waalwijk-main-hero.png');
+const T_DEN_BOSCH = require('./assets/den-bosch-main-hero.png');
+const T_VLIJMEN = require('./assets/vlijmen-main-hero.png');
+const T_BUCHAREST = require('./assets/bucharest-main-hero.png');
+const T_VILNIUS = require('./assets/vilnius-main-hero.png');
+const T_RIGA = require('./assets/riga-main-hero.png');
+const T_YEREVAN = require('./assets/yerevan-main-hero.png');
+const T_MADRID = require('./assets/madrid-main-hero.png');
 
 /** @typedef {{ id: string, titleUk: string, titleEn: string, lat: number, lng: number, minutes: number, free: boolean, thumb: number, descUk?: string, descEn?: string, distKm?: number, story?: object }} Landmark */
 
@@ -19,6 +68,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Франція',
     countryEn: 'France',
     flag: '🇫🇷',
+    heroThumb: T_PARIS,
     center: {
       latitude: 48.8566,
       longitude: 2.3522,
@@ -87,6 +137,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Італія',
     countryEn: 'Italy',
     flag: '🇮🇹',
+    heroThumb: T_ROME,
     center: {
       latitude: 41.9028,
       longitude: 12.4964,
@@ -243,10 +294,20 @@ export const ROUTE_REGIONS = {
         lng: 30.5234,
         minutes: 25,
         free: true,
-        thumb: T3,
+        thumb: T_MAIDAN_HOME,
         distKm: 0.2,
         descUk: 'Центральна площа столиці — події, фонтани та прогулянки.',
         descEn: 'Central square of the capital — fountains and city walks.',
+        story: {
+          shortIntroUk: MAIDAN_SHORT_INTRO_UK,
+          shortIntroEn: 'A heart beating in unison with Ukraine',
+          miniPreviewUk: MAIDAN_MINI_PREVIEW_UK,
+          miniPreviewEn: '',
+          audioScriptUk: MAIDAN_AUDIO_SCRIPT_UK,
+          audioScriptEn: '',
+          ttsEnabled: true,
+          audioUri: '',
+        },
       },
       {
         id: 'motherland',
@@ -420,6 +481,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_LIVIV,
     center: { latitude: 49.8397, longitude: 24.0297, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -448,6 +510,71 @@ export const ROUTE_REGIONS = {
         descUk: 'Театр опери та балету — неоренесанс і вечірні вистави.',
         descEn: 'Opera house — neo-Renaissance architecture.',
       },
+      {
+        id: 'lviv_high_castle',
+        titleUk: 'Високий замок',
+        titleEn: 'High Castle Park',
+        lat: 49.8483,
+        lng: 24.0397,
+        minutes: 50,
+        free: true,
+        thumb: T3,
+        distKm: 1.1,
+        descUk: 'Парк на горі з панорамою на все місто й руїнами замку.',
+        descEn: 'Hilltop park with a full-city panorama and castle ruins.',
+      },
+      {
+        id: 'lviv_svobody',
+        titleUk: 'Проспект Свободи',
+        titleEn: 'Svobody Avenue',
+        lat: 49.8419,
+        lng: 24.0283,
+        minutes: 35,
+        free: true,
+        thumb: T4,
+        distKm: 0.3,
+        descUk: 'Головна вулиця Львова — театр, університет і кав’ярні.',
+        descEn: 'Lviv’s main avenue — theatre, university and cafés.',
+      },
+      {
+        id: 'lviv_dom_sobor',
+        titleUk: 'Домініканський собор',
+        titleEn: 'Dominican Cathedral',
+        lat: 49.8436,
+        lng: 24.0342,
+        minutes: 35,
+        free: true,
+        thumb: T1,
+        distKm: 0.5,
+        descUk: 'Бароковий собор XVIII століття в центрі Старого міста.',
+        descEn: '18th-century Baroque cathedral in the Old Town centre.',
+      },
+      {
+        id: 'lviv_lychakiv',
+        titleUk: 'Личаківський цвинтар',
+        titleEn: 'Lychakiv Cemetery',
+        lat: 49.8322,
+        lng: 24.0567,
+        minutes: 55,
+        free: true,
+        thumb: T2,
+        distKm: 2.4,
+        descUk: 'Історичний некрополь з меморіалами видатних українців і поляків.',
+        descEn: 'Historic cemetery with memorials to notable Ukrainians and Poles.',
+      },
+      {
+        id: 'lviv_palace',
+        titleUk: 'Палац Потоцьких',
+        titleEn: 'Potocki Palace',
+        lat: 49.8434,
+        lng: 24.0232,
+        minutes: 45,
+        free: false,
+        thumb: T3,
+        distKm: 0.6,
+        descUk: 'Палац XIX століття — сьогодні Львівська галерея мистецтв.',
+        descEn: '19th-century palace — now the Lviv National Art Gallery.',
+      },
     ],
   },
   odesa: {
@@ -457,6 +584,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_ODESA,
     center: { latitude: 46.4825, longitude: 30.7233, latitudeDelta: 0.12, longitudeDelta: 0.12 },
     landmarks: [
       {
@@ -494,6 +622,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KHARKIV,
     center: { latitude: 49.9935, longitude: 36.2304, latitudeDelta: 0.12, longitudeDelta: 0.12 },
     landmarks: [
       {
@@ -531,6 +660,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_DNIPRO,
     center: { latitude: 48.4647, longitude: 35.0462, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -568,6 +698,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_ZAPORIZHZHIA,
     center: { latitude: 47.8388, longitude: 35.1396, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -605,6 +736,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KRYVYI_RIH,
     center: { latitude: 47.9105, longitude: 33.3918, latitudeDelta: 0.11, longitudeDelta: 0.11 },
     landmarks: [
       {
@@ -642,6 +774,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_MYKOLAIV,
     center: { latitude: 46.975, longitude: 32.0029, latitudeDelta: 0.11, longitudeDelta: 0.11 },
     landmarks: [
       {
@@ -679,6 +812,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_MARIUPOL,
     center: { latitude: 47.0956, longitude: 37.5413, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -716,6 +850,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_VINNYTSIA,
     center: { latitude: 49.2328, longitude: 28.4809, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -753,6 +888,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_CHERNIHIV,
     center: { latitude: 51.4982, longitude: 31.2893, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -790,6 +926,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_POLTAVA,
     center: { latitude: 49.5883, longitude: 34.5514, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -827,6 +964,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_CHERKASY,
     center: { latitude: 49.4444, longitude: 32.0598, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -864,6 +1002,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_SUMY,
     center: { latitude: 50.9077, longitude: 34.7981, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -901,6 +1040,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_ZHYTOMYR,
     center: { latitude: 50.2547, longitude: 28.6587, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -938,6 +1078,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KHMELNYTSKYI,
     center: { latitude: 49.4225, longitude: 26.9871, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -975,6 +1116,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_RIVNE,
     center: { latitude: 50.6199, longitude: 26.2516, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1012,6 +1154,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_IVANO_FRANKIVSK,
     center: { latitude: 48.9226, longitude: 24.7104, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1049,6 +1192,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_TERNOPIL,
     center: { latitude: 49.5535, longitude: 25.5948, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1086,6 +1230,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_LUTSK,
     center: { latitude: 50.7472, longitude: 25.3254, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1123,6 +1268,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_UZHHOROD,
     center: { latitude: 48.6208, longitude: 22.2879, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1160,6 +1306,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_CHERNIVTSI,
     center: { latitude: 48.2915, longitude: 25.9403, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1197,6 +1344,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KROPYVNYTSKYI,
     center: { latitude: 48.5079, longitude: 32.2623, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1234,6 +1382,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KREMENCHUK,
     center: { latitude: 49.0658, longitude: 33.41, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1271,6 +1420,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KRAMATORSK,
     center: { latitude: 48.7233, longitude: 37.5553, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1308,6 +1458,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_BERDYANSK,
     center: { latitude: 46.7559, longitude: 36.7888, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1345,6 +1496,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_UMAN,
     center: { latitude: 48.7489, longitude: 30.2218, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1382,6 +1534,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KAMIANETS_PODILSKYI,
     center: { latitude: 48.6844, longitude: 26.583, latitudeDelta: 0.07, longitudeDelta: 0.07 },
     landmarks: [
       {
@@ -1419,6 +1572,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_MUKACHEVO,
     center: { latitude: 48.4415, longitude: 22.7126, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1456,6 +1610,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_DROHOBYCH,
     center: { latitude: 49.3495, longitude: 23.5059, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1493,6 +1648,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_KONOTOP,
     center: { latitude: 51.2377, longitude: 33.2056, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1530,6 +1686,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_NIZHYN,
     center: { latitude: 51.048, longitude: 31.8828, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1567,6 +1724,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_SLOVIANSK,
     center: { latitude: 48.8708, longitude: 38.0932, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1604,6 +1762,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_BILA_TSERKVA,
     center: { latitude: 49.8073, longitude: 30.1151, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1641,6 +1800,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Україна',
     countryEn: 'Ukraine',
     flag: '🇺🇦',
+    heroThumb: T_BROVARY,
     center: { latitude: 50.5111, longitude: 30.7909, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1678,6 +1838,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Польща',
     countryEn: 'Poland',
     flag: '🇵🇱',
+    heroThumb: T_WARSAW,
     center: { latitude: 52.2297, longitude: 21.0122, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1715,6 +1876,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Німеччина',
     countryEn: 'Germany',
     flag: '🇩🇪',
+    heroThumb: T_BERLIN,
     center: { latitude: 52.52, longitude: 13.405, latitudeDelta: 0.11, longitudeDelta: 0.11 },
     landmarks: [
       {
@@ -1752,6 +1914,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Іспанія',
     countryEn: 'Spain',
     flag: '🇪🇸',
+    heroThumb: T_MADRID,
     center: { latitude: 40.4168, longitude: -3.7038, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1789,6 +1952,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Нідерланди',
     countryEn: 'Netherlands',
     flag: '🇳🇱',
+    heroThumb: T_AMSTERDAM,
     center: { latitude: 52.3676, longitude: 4.9041, latitudeDelta: 0.08, longitudeDelta: 0.08 },
     landmarks: [
       {
@@ -1819,6 +1983,120 @@ export const ROUTE_REGIONS = {
       },
     ],
   },
+  waalwijk: {
+    id: 'waalwijk',
+    titleUk: 'Валвейк',
+    titleEn: 'Waalwijk',
+    countryUk: 'Нідерланди',
+    countryEn: 'Netherlands',
+    flag: '🇳🇱',
+    heroThumb: T_WAALWIJK,
+    center: { latitude: 51.685, longitude: 5.0708, latitudeDelta: 0.06, longitudeDelta: 0.06 },
+    landmarks: [
+      {
+        id: 'waalwijk_sint_jan',
+        titleUk: 'Церква Sint-Jan',
+        titleEn: 'Sint-Jan Church',
+        lat: 51.6858,
+        lng: 5.0702,
+        minutes: 30,
+        free: true,
+        thumb: T1,
+        distKm: 0.1,
+        descUk: 'Необізантійська базиліка з великим куполом — символ центру міста.',
+        descEn: 'Neo-Byzantine basilica with a large dome — the town centre landmark.',
+      },
+      {
+        id: 'waalwijk_markt',
+        titleUk: 'Markt',
+        titleEn: 'Market Square',
+        lat: 51.6853,
+        lng: 5.0695,
+        minutes: 25,
+        free: true,
+        thumb: T2,
+        distKm: 0.1,
+        descUk: 'Головна площа з терасами кафе й історичними будинками.',
+        descEn: 'Main square with café terraces and historic brick houses.',
+      },
+    ],
+  },
+  den_bosch: {
+    id: 'den_bosch',
+    titleUk: 'Ден Бош',
+    titleEn: "'s-Hertogenbosch",
+    countryUk: 'Нідерланди',
+    countryEn: 'Netherlands',
+    flag: '🇳🇱',
+    heroThumb: T_DEN_BOSCH,
+    center: { latitude: 51.6978, longitude: 5.3037, latitudeDelta: 0.06, longitudeDelta: 0.06 },
+    landmarks: [
+      {
+        id: 'den_bosch_cathedral',
+        titleUk: 'Собор Sint-Jan',
+        titleEn: "St. John's Cathedral",
+        lat: 51.688,
+        lng: 5.3046,
+        minutes: 40,
+        free: false,
+        thumb: T1,
+        distKm: 0.1,
+        descUk: 'Готичний собор з вітражами — головна пам’ятка історичного центру.',
+        descEn: 'Gothic cathedral with stained glass — the old town’s main landmark.',
+      },
+      {
+        id: 'den_bosch_markt',
+        titleUk: 'De Markt',
+        titleEn: 'Market Square',
+        lat: 51.6888,
+        lng: 5.3031,
+        minutes: 25,
+        free: true,
+        thumb: T2,
+        distKm: 0.1,
+        descUk: 'Центральна площа біля собору з терасами кафе.',
+        descEn: 'Central square near the cathedral with café terraces.',
+      },
+    ],
+  },
+  vlijmen: {
+    id: 'vlijmen',
+    titleUk: 'Влаймен',
+    titleEn: 'Vlijmen',
+    countryUk: 'Нідерланди',
+    countryEn: 'Netherlands',
+    flag: '🇳🇱',
+    heroThumb: T_VLIJMEN,
+    center: { latitude: 51.6847, longitude: 5.2139, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+    landmarks: [
+      {
+        id: 'vlijmen_church',
+        titleUk: 'Церква Sint-Petrus’-Banden',
+        titleEn: "St. Peter in Chains Church",
+        lat: 51.6849,
+        lng: 5.2145,
+        minutes: 25,
+        free: true,
+        thumb: T1,
+        distKm: 0.1,
+        descUk: 'Неоготична церква з високою шпилькою — символ центру Vlijmen.',
+        descEn: 'Neo-Gothic church with a tall spire — the centre of Vlijmen.',
+      },
+      {
+        id: 'vlijmen_centre',
+        titleUk: 'Центр Vlijmen',
+        titleEn: 'Vlijmen town centre',
+        lat: 51.6845,
+        lng: 5.2135,
+        minutes: 20,
+        free: true,
+        thumb: T2,
+        distKm: 0.1,
+        descUk: 'Тихі цегляні вулиці, велосипедні доріжки та затишні дворики.',
+        descEn: 'Quiet brick streets, cycle paths and cosy residential lanes.',
+      },
+    ],
+  },
   vilnius: {
     id: 'vilnius',
     titleUk: 'Вільнюс',
@@ -1826,6 +2104,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Литва',
     countryEn: 'Lithuania',
     flag: '🇱🇹',
+    heroThumb: T_VILNIUS,
     center: { latitude: 54.6872, longitude: 25.2797, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1863,6 +2142,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Латвія',
     countryEn: 'Latvia',
     flag: '🇱🇻',
+    heroThumb: T_RIGA,
     center: { latitude: 56.9496, longitude: 24.1052, latitudeDelta: 0.09, longitudeDelta: 0.09 },
     landmarks: [
       {
@@ -1900,6 +2180,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Румунія',
     countryEn: 'Romania',
     flag: '🇷🇴',
+    heroThumb: T_BUCHAREST,
     center: { latitude: 44.4268, longitude: 26.1025, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -1937,6 +2218,7 @@ export const ROUTE_REGIONS = {
     countryUk: 'Вірменія',
     countryEn: 'Armenia',
     flag: '🇦🇲',
+    heroThumb: T_YEREVAN,
     center: { latitude: 40.1792, longitude: 44.4991, latitudeDelta: 0.1, longitudeDelta: 0.1 },
     landmarks: [
       {
@@ -2064,6 +2346,9 @@ export function resolveRegionIdFromQuery(query) {
   if (/берлін|berlin|brandenburg|рейхстаг|reichstag/.test(q)) return 'berlin';
   if (/мадрид|madrid|prado|прадо|retiro|ретіро/.test(q)) return 'madrid';
   if (/amsterdam|амстердам|rijksmuseum|канал/.test(q)) return 'amsterdam';
+  if (/waalwijk|валвейк|sint-jan|sint jan/.test(q)) return 'waalwijk';
+  if (/den.bosch|ден.бош|hertogenbosch|sint-jan.*kathedraal|binnendieze/.test(q)) return 'den_bosch';
+  if (/vlijmen|влаймен|petrus.*banden|sint-petrus/.test(q)) return 'vlijmen';
   if (/вільнюс|vilnius|gediminas|гедиміна/.test(q)) return 'vilnius';
   if (/рига|riga|латві|latvia.*riga/.test(q)) return 'riga';
   if (/бухарест|bucharest|palace of parliament|парламенту/.test(q)) return 'bucharest';
@@ -2072,8 +2357,27 @@ export function resolveRegionIdFromQuery(query) {
 }
 
 export function regionTitle(region, langIsUk) {
-  return langIsUk ? region.titleUk : region.titleEn;
+  const arg = langIsUk;
+  // Backward compatible: existing call sites pass boolean (uk/en).
+  if (typeof arg === 'boolean') return arg ? region.titleUk : region.titleEn;
+
+  const lang = String(arg || 'en')
+    .trim()
+    .split(/[-_]/)[0]
+    .toLowerCase();
+
+  const id = region?.id;
+  const pack = id && REGION_TITLES_BY_LANG[id];
+  const byLang = pack && (pack[lang] || pack.en);
+  return byLang || region.titleEn || region.titleUk;
 }
+
+/** Optional city-name overrides per UI language (fallback to en). */
+const REGION_TITLES_BY_LANG = {
+  waalwijk: { uk: 'Валвейк', en: 'Waalwijk', nl: 'Waalwijk' },
+  den_bosch: { uk: 'Ден Бош', en: 'Den Bosch', nl: 'Den Bosch' },
+  vlijmen: { uk: 'Влаймен', en: 'Vlijmen', nl: 'Vlijmen' },
+};
 
 export function landmarkTitle(lm, langIsUk) {
   return langIsUk ? lm.titleUk : lm.titleEn;

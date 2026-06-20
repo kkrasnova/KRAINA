@@ -11,7 +11,7 @@ import {
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { GOOGLE_SIGNIN_WEB_CLIENT_ID, hasGoogleConfig } from '../authConfig';
+import { GOOGLE_IOS_CLIENT_ID, GOOGLE_SIGNIN_WEB_CLIENT_ID, hasGoogleConfig } from '../authConfig';
 import { useAuthStore } from './authStore';
 import { formatAuthError } from './formatError';
 import type { AuthStackParamList } from './navigation.types';
@@ -29,7 +29,10 @@ export default function LoginScreen({ navigation }: Props) {
 
   useEffect(() => {
     if (hasGoogleConfig) {
-      GoogleSignin.configure({ webClientId: GOOGLE_SIGNIN_WEB_CLIENT_ID });
+      GoogleSignin.configure({
+        webClientId: GOOGLE_SIGNIN_WEB_CLIENT_ID,
+        ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {}),
+      });
     }
   }, []);
 

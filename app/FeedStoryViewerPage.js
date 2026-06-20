@@ -67,6 +67,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   const authorId = route?.params?.userId;
   const initialStoryId = route?.params?.storyId;
   const useLocalStories = route?.params?.useLocalStories === true;
+  const prefetchedStories = route?.params?.prefetchedStories;
   const paramAuthorUsername = route?.params?.authorUsername;
   const paramAuthorDisplayName = route?.params?.authorDisplayName;
   const paramAuthorAvatarUrl = route?.params?.authorAvatarUrl;
@@ -128,6 +129,20 @@ export default function FeedStoryViewerPage({ navigation, route }) {
     }
     setLoading(true);
     try {
+      if (Array.isArray(prefetchedStories) && prefetchedStories.length) {
+        setStories(prefetchedStories);
+        setFailedMediaIds(new Set());
+        setForceImageIds(new Set());
+        if (initialStoryId) {
+          const i = prefetchedStories.findIndex((s) => String(s.id) === String(initialStoryId));
+          setIndex(i >= 0 ? i : 0);
+        } else {
+          setIndex(0);
+        }
+        setLoading(false);
+        return;
+      }
+
       if (useLocalStories && user?.id && String(authorId) === String(user.id)) {
         const rows = await getUserFeedStories(user);
         const displayName =
@@ -182,7 +197,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  }, [authorId, initialStoryId, navigation, useLocalStories, user]);
+  }, [authorId, initialStoryId, navigation, prefetchedStories, useLocalStories, user]);
 
   useEffect(() => {
     load();

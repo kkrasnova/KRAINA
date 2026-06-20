@@ -1,0 +1,7 @@
+{
+  "webClientId": "58561963441-pnnvj45vfinrjbo7ouifojmts1u19r49.apps.googleusercontent.com",
+  "iosClientId": "58561963441-646snkkptpmes6aqhdcg1ki75pflvao7.apps.googleusercontent.com",
+  "androidClientId": "58561963441-u0mcn29l92vufbfv3djdu1mtp8do8n83.apps.googleusercontent.com",
+  "googleRedirectPath": "oauthredirect",
+  "facebookRedirectPath": "oauth"
+}

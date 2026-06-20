@@ -7,6 +7,12 @@ module.exports = {
         ios: null,
       },
     },
+    'react-native-performance': {
+      platforms: {
+        android: null,
+        ios: null,
+      },
+    },
     'react-native-health-connect': {
       platforms: {
         android: {

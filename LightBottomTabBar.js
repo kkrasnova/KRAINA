@@ -209,7 +209,6 @@ export default function LightBottomTabBar({ navEpoch = 0 }) {
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.MAP) ||
     active === 'RouteResults' ||
     active === 'RouteNavigation';
-  const centerShowsCamera = active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED;
   const profileTabActive =
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.PROFILE) ||
     active === 'ProfilePage' ||
@@ -288,9 +287,9 @@ export default function LightBottomTabBar({ navEpoch = 0 }) {
             pressed && styles.fabPressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={centerShowsCamera ? 'Camera' : 'Scanner'}
+          accessibilityLabel="Camera"
         >
-          <Ionicons name={centerShowsCamera ? 'camera-outline' : 'scan-outline'} size={30} color={fabIconTint} />
+          <Ionicons name="camera-outline" size={30} color={fabIconTint} />
         </Pressable>
         <Pressable
           onPress={onMap}

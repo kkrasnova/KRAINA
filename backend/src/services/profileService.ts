@@ -109,11 +109,47 @@ export async function searchProfilesForViewer(
   limit = 24,
 ): Promise<ProfileSearchHitDTO[]> {
   const raw = sanitizeLikeFragment(String(q || '').replace(/^@/, '')).slice(0, 80);
-  
-  if (raw.length < 1) return [];
+  const lim = Math.min(40, Math.max(1, limit));
+
+  // Empty query → "browse people": return real, recently-joined public profiles
+  // so Discover is populated with actual registered users (not Firestore-only).
+  if (raw.length < 1) {
+    const browse = await pool.query(
+      `SELECT p.user_id::text AS user_id,
+              p.username,
+              p.display_name,
+              p.avatar_url,
+              p.bio,
+              p.is_public,
+              EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $1::uuid AND f.following_id = p.user_id
+              ) AS is_following
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       WHERE u.status <> 'deleted'
+         AND ($1::uuid IS NULL OR p.user_id <> $1::uuid)
+         AND p.username IS NOT NULL AND trim(p.username) <> ''
+         AND COALESCE(p.is_public, true) = true
+       ORDER BY u.created_at DESC NULLS LAST, p.username ASC
+       LIMIT $2`,
+      [viewerId, lim],
+    );
+    return (browse.rows as Array<Record<string, unknown>>).map((row) => ({
+      user_id: String(row.user_id),
+      username: String(row.username),
+      display_name:
+        row.display_name == null || String(row.display_name).trim() === ''
+          ? null
+          : String(row.display_name).trim(),
+      avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+      bio: row.bio == null ? null : String(row.bio),
+      is_following: Boolean(row.is_following),
+      is_public: row.is_public == null ? true : Boolean(row.is_public),
+    }));
+  }
   const namePattern = `%${raw}%`;
 
-  const lim = Math.min(40, Math.max(1, limit));
   const r = await pool.query(
     `SELECT p.user_id::text AS user_id,
             p.username,

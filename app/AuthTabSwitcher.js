@@ -12,26 +12,28 @@ const BRAND_TEXT_FONT = brandFontText;
 
 function AuthTabButton({ label, selected, onPress, accessibilityLabel }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        selected ? styles.buttonActive : styles.buttonInactive,
-        pressed && styles.buttonPressed,
-      ]}
-      android_ripple={rippleOnDarkSurface}
-      accessibilityRole="tab"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ selected }}
-    >
-      <Text
-        style={[styles.buttonText, selected ? styles.buttonTextActive : styles.buttonTextInactive]}
-        numberOfLines={1}
-        ellipsizeMode="tail"
+    <View style={styles.tabSlot}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.button,
+          selected ? styles.buttonActive : styles.buttonInactive,
+          pressed && styles.buttonPressed,
+        ]}
+        android_ripple={rippleOnDarkSurface}
+        accessibilityRole="tab"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={{ selected }}
       >
-        {label}
-      </Text>
-    </Pressable>
+        <Text
+          style={[styles.buttonText, selected ? styles.buttonTextActive : styles.buttonTextInactive]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {label}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -64,11 +66,16 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     width: '100%',
-    gap: 10,
+    gap: 12,
     alignItems: 'stretch',
   },
-  button: {
+  tabSlot: {
     flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  button: {
+    width: '100%',
     minHeight: 40,
     borderRadius: 10,
     alignItems: 'center',

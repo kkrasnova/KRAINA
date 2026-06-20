@@ -10,7 +10,7 @@ import {
   tabBarFabIconTint,
   TAB_ICON_INACTIVE_DARK,
 } from './themeAccent';
-import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
+import { HOME_TAB_ROUTE, HOME_TAB, LANDMARK_SCANNER_CAPTURE_EVENT } from './homeTabPagerConstants';
 import { shellNavigate } from './shellNavigate';
 
 /** Світла панель: Figma #DADADA 80%. Темна: #1E1E1E 80%. */
@@ -110,10 +110,13 @@ function LightBottomTabBar() {
     () => baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.FEED, routeFinderExtras: {} }),
     [baseNavigate],
   );
-  const onCenter = useCallback(
-    () => baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.SCANNER, routeFinderExtras: {} }),
-    [baseNavigate],
-  );
+  const onCenter = useCallback(() => {
+    if (routeName === 'HomeTabPager' && pagerTab === HOME_TAB.SCANNER) {
+      DeviceEventEmitter.emit(LANDMARK_SCANNER_CAPTURE_EVENT);
+      return;
+    }
+    baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.SCANNER, routeFinderExtras: {} });
+  }, [baseNavigate, routeName, pagerTab]);
   const onMap = useCallback(
     () => baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.MAP, routeFinderExtras: {} }),
     [baseNavigate],
@@ -140,7 +143,6 @@ function LightBottomTabBar() {
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.MAP) ||
     active === 'RouteResults' ||
     active === 'RouteNavigation';
-  const centerShowsCamera = active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED;
   const profileTabActive =
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.PROFILE) ||
     active === 'ProfilePage' ||
@@ -222,9 +224,9 @@ function LightBottomTabBar() {
             pressed && styles.fabPressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={centerShowsCamera ? 'Camera' : 'Scanner'}
+          accessibilityLabel="Camera"
         >
-          <Ionicons name={centerShowsCamera ? 'camera-outline' : 'scan-outline'} size={30} color={fabIconTint} />
+          <Ionicons name="camera-outline" size={30} color={fabIconTint} />
         </Pressable>
         <Pressable
           onPress={onMap}

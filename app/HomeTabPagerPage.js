@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Platform, DeviceEventEmitter } from 'react-native';
 import PagerView from 'react-native-pager-view';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import MainPage from './MainPage';
 import FeedPage from './FeedPage';
@@ -105,6 +106,8 @@ export default function HomeTabPagerPage({ navigation, route }) {
     [shellParams, route.params?.routeFinderExtras],
   );
 
+  const activeTabIndex = clampTab(route.params?.tabIndex);
+
   const profileRoute = useMemo(
     () => ({
       key: 'profile-in-pager',
@@ -145,6 +148,35 @@ export default function HomeTabPagerPage({ navigation, route }) {
     }
   }, [route.params?.tabIndex]);
 
+  /** Після повернення з Settings / синхронізації кроків iOS інколи не перемальовує PagerView — синхронізуємо вкладку. */
+  useFocusEffect(
+    useCallback(() => {
+      const t = clampTab(route.params?.tabIndex);
+      setMountedTabs((prev) => {
+        if (prev.has(t)) return prev;
+        const next = new Set(prev);
+        next.add(t);
+        return next;
+      });
+      const pager = pagerRef.current;
+      if (!pager) return;
+      skipPageSelectRef.current = true;
+      requestAnimationFrame(() => {
+        try {
+          if (typeof pager.setPageWithoutAnimation === 'function') {
+            pager.setPageWithoutAnimation(t);
+          } else if (typeof pager.setPage === 'function') {
+            pager.setPage(t);
+          } else {
+            skipPageSelectRef.current = false;
+          }
+        } catch {
+          skipPageSelectRef.current = false;
+        }
+      });
+    }, [route.params?.tabIndex]),
+  );
+
   const onPageSelected = useCallback(
     (e) => {
       if (skipPageSelectRef.current) {
@@ -184,7 +216,13 @@ export default function HomeTabPagerPage({ navigation, route }) {
           {mountedTabs.has(1) ? <FeedPage navigation={navigation} route={feedRoute} /> : null}
         </View>
         <View key="2" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
-          {mountedTabs.has(2) ? <LandmarkScannerPage navigation={navigation} route={scannerRoute} /> : null}
+          {mountedTabs.has(2) ? (
+            <LandmarkScannerPage
+              navigation={navigation}
+              route={scannerRoute}
+              isTabActive={activeTabIndex === 2}
+            />
+          ) : null}
         </View>
         <View key="3" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
           {mountedTabs.has(3) ? <MapTabPage navigation={navigation} route={mapTabRoute} /> : null}

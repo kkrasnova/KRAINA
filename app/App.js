@@ -15,7 +15,6 @@ import HomeTabPagerPage from './HomeTabPagerPage';
 import ThirdPage from './ThirdPage';
 import SelectCountryPage from './SelectCountryPage';
 import ChoosePlanPage from './ChoosePlanPage';
-import CancelSubscriptionPage from './CancelSubscriptionPage';
 import ForceUpdateScreen from './ForceUpdateScreen';
 import LazyScreen, { makeLazyLoader } from './LazyScreen';
 import { loadChatsPage, loadChatThreadPage, loadSettingsArchivePage } from './screenLoaders';
@@ -23,11 +22,13 @@ import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
 import { fetchAppVersionGate } from './fetchAppVersionGate';
 import { runAppBootstrap } from './appBootstrap';
 import { waitForSplashLogoPainted, notifySplashHidden } from './splashLogoGate';
+import { splashTitleVideoReady } from './splashTitleVideoAsset';
 import {
   KRAINA_FONT_MAP_CRITICAL,
   KRAINA_FONT_MAP_DEFERRED,
 } from './krainaFonts';
 import { markEnd } from './performanceMetrics';
+import { configureBackgroundMusicFriendlyAudio } from './audioSession';
 
 function scheduleIdleWork(fn) {
   if (typeof globalThis.requestIdleCallback === 'function') {
@@ -122,6 +123,9 @@ const SettingsAboutPage = (p) => (
     )}
     {...p}
   />
+);
+const CancelSubscriptionPage = (p) => (
+  <LazyScreen loader={makeLazyLoader(() => require('./CancelSubscriptionPage'))} {...p} />
 );
 const ChatsPage = (p) => <LazyScreen loader={loadChatsPage} {...p} />;
 const ChatThreadPage = (p) => <LazyScreen loader={loadChatThreadPage} {...p} />;
@@ -232,6 +236,27 @@ void SplashScreen.preventAutoHideAsync();
 
 const Stack = createNativeStackNavigator();
 
+/** Поверх HomeTabPager: не відʼєднуємо нижній екран і даємо slide — інакше iOS після goBack лишає чорний екран. */
+const STACK_OVER_HOME_OPTIONS = {
+  animation: Platform.OS === 'ios' ? 'slide_from_right' : 'default',
+  freezeOnBlur: false,
+  detachPreviousScreen: false,
+};
+
+const HOME_TAB_PAGER_OPTIONS = {
+  freezeOnBlur: false,
+  ...(Platform.OS === 'ios'
+    ? {
+        scrollEdgeEffects: {
+          top: 'automatic',
+          bottom: 'hidden',
+          left: 'automatic',
+          right: 'automatic',
+        },
+      }
+    : {}),
+};
+
 export default function App() {
   /* Завантажуємо лише критичні шрифти (12 файлів) — інші 20+ підвантажаться в фоновому режимі після першого рендера.
      FirstPage (сплеш) не використовує кастомні шрифти — показуємо сплеш негайно. */
@@ -257,6 +282,11 @@ export default function App() {
    * 2) Чекаємо, поки FirstPage відрендерить лого (або таймаут 3с).
    * 3) Ховаємо нативний сплеш — лого FirstPage вже на екрані, без чорного кадру.
    */
+  useEffect(() => {
+    void configureBackgroundMusicFriendlyAudio().catch(() => {});
+    void splashTitleVideoReady.catch(() => {});
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -408,6 +438,7 @@ export default function App() {
                   headerShown: false,
                   contentStyle: { backgroundColor: '#000000' },
                   animation: 'none',
+                  freezeOnBlur: false,
                   ...(Platform.OS === 'ios'
                     ? {
                         gestureEnabled: true,
@@ -473,16 +504,28 @@ export default function App() {
                         statusBarStyle: 'light',
                         statusBarBackgroundColor: 'transparent',
                       }
-                    : { statusBarStyle: 'light' }),
+                    : {}),
                 }}
               />
-              <Stack.Screen name="SelectCountry" component={SelectCountryPage} />
-              <Stack.Screen name="WalkReminderSetup" component={WalkReminderSetupPage} options={{ headerShown: false }} />
-              <Stack.Screen name="ChoosePlan" component={ChoosePlanPage} options={{ headerShown: false }} />
+              <Stack.Screen
+                name="SelectCountry"
+                component={SelectCountryPage}
+                options={{ contentStyle: { backgroundColor: 'transparent' } }}
+              />
+              <Stack.Screen
+                name="WalkReminderSetup"
+                component={WalkReminderSetupPage}
+                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
+              />
+              <Stack.Screen
+                name="ChoosePlan"
+                component={ChoosePlanPage}
+                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
+              />
               <Stack.Screen
                 name="CancelSubscription"
                 component={CancelSubscriptionPage}
-                options={{ headerShown: false }}
+                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
               />
               <Stack.Screen
                 name="HomeTabPager"
@@ -492,18 +535,7 @@ export default function App() {
                     ? { ...mainPageInitialParams, tabIndex: 0 }
                     : { tabIndex: 0 }
                 }
-                options={
-                  Platform.OS === 'ios'
-                    ? {
-                        scrollEdgeEffects: {
-                          top: 'automatic',
-                          bottom: 'hidden',
-                          left: 'automatic',
-                          right: 'automatic',
-                        },
-                      }
-                    : undefined
-                }
+                options={HOME_TAB_PAGER_OPTIONS}
               />
               <Stack.Screen
                 name="AllCountriesLocations"
@@ -515,16 +547,33 @@ export default function App() {
                 component={HomeCityPickerPage}
                 options={{ headerShown: false }}
               />
-              <Stack.Screen name="Settings" component={SettingsPage} />
-              <Stack.Screen name="SettingsLanguage" component={SettingsLanguagePage} />
-              <Stack.Screen name="SettingsGeo" component={SettingsGeoPage} />
-              <Stack.Screen name="SettingsNotifications" component={SettingsNotificationsPage} />
-              <Stack.Screen name="SettingsSteps" component={SettingsStepsPage} options={{ headerShown: false }} />
-              <Stack.Screen name="SettingsPrivacy" component={SettingsPrivacyPage} />
-              <Stack.Screen name="SettingsLegalDoc" component={SettingsLegalDocPage} />
-              <Stack.Screen name="SettingsHelp" component={SettingsHelpPage} />
-              <Stack.Screen name="SettingsAbout" component={SettingsAboutPage} />
-              <Stack.Screen name="SettingsArchive" component={SettingsArchivePage} options={{ headerShown: false }} />
+              <Stack.Screen name="Settings" component={SettingsPage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen name="SettingsLanguage" component={SettingsLanguagePage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen name="SettingsGeo" component={SettingsGeoPage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen
+                name="SettingsNotifications"
+                component={SettingsNotificationsPage}
+                options={STACK_OVER_HOME_OPTIONS}
+              />
+              <Stack.Screen
+                name="SettingsSteps"
+                component={SettingsStepsPage}
+                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
+              />
+              <Stack.Screen name="SettingsPrivacy" component={SettingsPrivacyPage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen
+                name="SettingsCancelSubscription"
+                component={CancelSubscriptionPage}
+                options={STACK_OVER_HOME_OPTIONS}
+              />
+              <Stack.Screen name="SettingsLegalDoc" component={SettingsLegalDocPage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen name="SettingsHelp" component={SettingsHelpPage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen name="SettingsAbout" component={SettingsAboutPage} options={STACK_OVER_HOME_OPTIONS} />
+              <Stack.Screen
+                name="SettingsArchive"
+                component={SettingsArchivePage}
+                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
+              />
               <Stack.Screen
                 name="ProfilePage"
                 component={ProfilePageComponent}
@@ -552,7 +601,7 @@ export default function App() {
               <Stack.Screen name="Chats" component={ChatsPage} />
               <Stack.Screen name="StartChat" component={StartChatPage} options={{ headerShown: false }} />
               <Stack.Screen name="ChatThread" component={ChatThreadPage} options={{ headerShown: false }} />
-              <Stack.Screen name="Call" component={CallPage} options={{ headerShown: false, ...(Platform.OS === 'ios' ? { statusBarStyle: 'light' } : {}) }} />
+              <Stack.Screen name="Call" component={CallPage} options={{ headerShown: false }} />
               <Stack.Screen
                 name="FeedCamera"
                 component={FeedCameraPage}
@@ -568,7 +617,7 @@ export default function App() {
                 options={{
                   headerShown: false,
                   ...(Platform.OS === 'ios'
-                    ? { presentation: 'fullScreenModal', statusBarStyle: 'light' }
+                    ? { presentation: 'fullScreenModal' }
                     : {}),
                 }}
               />

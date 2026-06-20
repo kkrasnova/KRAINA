@@ -73,8 +73,8 @@ const S = {
     hy: 'Պահվածս',
   },
   archive: {
-    uk: 'Архів публікацій',
-    en: 'Post archive',
+    uk: 'Архів',
+    en: 'Archive',
     pl: 'Archiwum',
     nl: 'Archief',
     es: 'Archivo',
@@ -107,8 +107,8 @@ const S = {
     hy: 'Ծանուցումներ',
   },
   walkReminderRow: {
-    uk: 'Щоденне нагадування прогулятися',
-    en: 'Daily walk reminder',
+    uk: 'Прогулянка та кроки',
+    en: 'Walk & steps',
   },
   walkReminderScreenTitle: {
     uk: 'Прогулянка',
@@ -119,12 +119,32 @@ const S = {
     en: 'Keep moving every day',
   },
   walkReminderHeroBody: {
-    uk: 'Увімкніть нагадування — у зручний час нагадаємо вийти на прогулянку чи дослідити місто.',
-    en: 'Turn on a reminder — we will nudge you at the time you pick to walk or explore.',
+    uk: 'Увімкніть нагадування та синхронізацію кроків — нагадаємо про прогулянку й покажемо активність у профілі.',
+    en: 'Turn on reminders and step sync — we will nudge you to walk and show your activity in profile.',
   },
   walkReminderToggle: {
     uk: 'Щоденне нагадування',
     en: 'Daily reminder',
+  },
+  walkReminderStepsHint: {
+    uk: 'Денні кроки з Apple Health або Health Connect — у вкладці «Статистика» профілю.',
+    en: 'Daily steps from Apple Health or Health Connect — on your profile Statistics tab.',
+  },
+  walkReminderLegalPrefix: {
+    uk: 'Увімкнення нагадувань або синхронізації кроків означає згоду з ',
+    en: 'Enabling reminders or step sync means you agree to our ',
+  },
+  walkReminderLegalPrivacyLink: {
+    uk: 'політикою конфіденційності',
+    en: 'Privacy Policy',
+  },
+  walkReminderLegalJoin: {
+    uk: ' та ',
+    en: ' and ',
+  },
+  walkReminderLegalTermsLink: {
+    uk: 'умовами використання',
+    en: 'Terms of Use',
   },
   walkReminderTimeLabel: {
     uk: 'Час нагадування',
@@ -169,6 +189,10 @@ const S = {
   walkReminderPermissionDenied: {
     uk: 'Дозвіл на сповіщення не надано — нагадування не буде. Увімкніть у системних налаштуваннях.',
     en: 'Notifications permission denied — reminders will not fire. Enable them in system settings.',
+  },
+  walkReminderUnavailable: {
+    uk: 'Нагадування недоступні в цій збірці. Зберігаємо налаштування — сповіщення запрацюють у повній версії застосунку.',
+    en: 'Reminders are unavailable in this build. Your preference is saved — notifications will work in the full app build.',
   },
   walkReminderNotifTitle: {
     uk: 'Час прогулятися',
@@ -411,6 +435,22 @@ const S = {
     uk: 'Рідкі корисні оновлення про функції (без спаму).',
     en: 'Occasional useful updates about features (no spam).',
   },
+  notifSectionSound: {
+    uk: 'Звук',
+    en: 'Sound',
+  },
+  notifSoundMasterTitle: {
+    uk: 'Звук для всіх сповіщень',
+    en: 'Sound for all notifications',
+  },
+  notifSoundMasterSubtitle: {
+    uk: 'Увімкніть — звук застосовується до всіх типів одразу. Окремі можна вимкнути нижче.',
+    en: 'When on, sound applies to all types at once. Turn off individual categories below.',
+  },
+  notifSoundCatSubtitle: {
+    uk: 'Звук для цього типу',
+    en: 'Sound for this type',
+  },
   notifSystemTitle: {
     uk: 'Системні сповіщення',
     en: 'System notifications',
@@ -527,6 +567,22 @@ const S = {
   privacyExportAlertBody: {
     uk: 'Ми обробимо запит у розумний строк. Відкрийте пошту з темою листа — або надішліть лист вручну на адресу нижче.',
     en: 'We will process your request within a reasonable time. Open your mail app with the subject filled in — or send manually to the address below.',
+  },
+  privacyExportSuccessTitle: {
+    uk: 'Запит надіслано',
+    en: 'Request sent',
+  },
+  privacyExportSuccessBody: {
+    uk: 'Ми отримали ваш запит на копію даних і обробимо його у розумний строк. Відповідь надішлемо на email вашого акаунта.',
+    en: 'We received your data export request and will process it within a reasonable time. We will reply to your account email.',
+  },
+  privacyDeleteSuccessTitle: {
+    uk: 'Запит надіслано',
+    en: 'Request sent',
+  },
+  privacyDeleteSuccessBody: {
+    uk: 'Ми отримали запит на видалення акаунта. Команда підтримки зв’яжеться з вами на email, з якого ви реєструвалися.',
+    en: 'We received your account deletion request. Support will contact you at the email you used to register.',
   },
   privacyOpenMailApp: {
     uk: 'Відкрити пошту',
@@ -662,12 +718,12 @@ const S = {
     en: 'Open chats',
   },
   helpOpenFaq: {
-    uk: 'Поширені питання (веб)',
-    en: 'FAQ (web)',
+    uk: 'Сайт KRAÏNA',
+    en: 'KRAÏNA website',
   },
   helpOpenDocs: {
-    uk: 'Документація (веб)',
-    en: 'Help docs (web)',
+    uk: 'Як користуватися',
+    en: 'How to use the app',
   },
   helpEmailSupport: {
     uk: 'Написати в підтримку',

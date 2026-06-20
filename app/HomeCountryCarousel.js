@@ -18,6 +18,10 @@ const CARD_RADIUS = 16;
 const GAP = 12;
 /** Одна висота для всіх карток; фото — на всю площу, contain + градієнт лише знизу. */
 const CARD_H = 200;
+const CARD_SIDE_PAD = 24;
+const CARD_PEEK = 28;
+const CARD_W_MAX = 332;
+const CARD_W_MIN = 248;
 
 export default memo(function HomeCountryCarousel({
   language,
@@ -34,7 +38,10 @@ export default memo(function HomeCountryCarousel({
   const textMain = '#FFFFFF';
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
-  const cardW = useMemo(() => Math.min(305, Math.max(236, winW - 78)), [winW]);
+  const cardW = useMemo(
+    () => Math.min(CARD_W_MAX, Math.max(CARD_W_MIN, winW - CARD_SIDE_PAD - CARD_PEEK)),
+    [winW],
+  );
   const itemStride = cardW + GAP;
 
   const data = countries || [];

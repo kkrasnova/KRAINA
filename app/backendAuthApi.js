@@ -20,51 +20,142 @@ async function parseApiError(res) {
   throw new ApiError(res.status, data, data?.error || data?.message || res.statusText);
 }
 
+/**
+ * Безкоштовний інстанс Render «засинає» після ~15 хв простою; перший запит будить його
+ * 30–60 с. Без таймауту fetch висить безкінечно — кнопка «Увійти» зависає без відповіді.
+ */
+const AUTH_FETCH_TIMEOUT_MS = 60000;
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (timedOut) {
+      const te = new Error('NETWORK_ERROR');
+      te.name = 'TimeoutError';
+      throw te;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Швидкий збій мережі (не таймаут, не серверна помилка) — варто повторити один раз. */
+function isFastNetworkFailure(e) {
+  if (e?.name === 'TimeoutError') return false;
+  const m = String(e?.message || '').toLowerCase();
+  return (
+    m.includes('network request failed') ||
+    m.includes('failed to fetch') ||
+    m.includes('network error') ||
+    e?.name === 'TypeError'
+  );
+}
+
 async function postJson(path, body, token) {
+  if (!API_BASE_URL) throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) await parseApiError(res);
-  return res.json();
+  const opts = { method: 'POST', headers, body: JSON.stringify(body) };
+  const url = `${API_BASE_URL}${path}`;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const res = await fetchWithTimeout(url, opts, AUTH_FETCH_TIMEOUT_MS);
+      if (!res.ok) await parseApiError(res);
+      return res.json();
+    } catch (e) {
+      // Реальна відповідь сервера (4xx/5xx) — не повторюємо, повертаємо як є.
+      if (e instanceof ApiError) throw e;
+      // Лише швидкий мережевий збій на першій спробі повторюємо (після короткої паузи).
+      if (attempt === 0 && isFastNetworkFailure(e)) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      if (__DEV__) console.warn('[backendAuthApi] network', e?.name, e?.message);
+      throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
+    }
+  }
+  throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
 }
 
 export async function backendLogin(email, password) {
   return postJson('/api/auth/login', { email, password });
 }
 
+function isEmailTakenError(err) {
+  if (!(err instanceof ApiError)) return false;
+  const code = String(err.payload?.error || '').toLowerCase();
+  return code === 'email_taken' || code === 'email_exists';
+}
+
+/** Fallback when production API has not deployed /email-exists yet. */
+async function backendProbeEmailExists(email) {
+  const probeUsername = `x${Date.now().toString(36).slice(-7)}`.slice(0, 32);
+  try {
+    await postJson('/api/auth/register', {
+      email,
+      password: 'probe1234',
+      username: probeUsername,
+    });
+    return false;
+  } catch (err) {
+    if (isEmailTakenError(err)) return true;
+    if (err instanceof ApiError && err.status === 400) return false;
+    throw err;
+  }
+}
+
 export async function backendEmailExists(email) {
   if (!API_BASE_URL) return false;
+  const normalized = String(email || '').trim().toLowerCase();
   try {
-    const data = await postJson('/api/auth/email-exists', {
-      email: String(email || '').trim().toLowerCase(),
-    });
+    const data = await postJson('/api/auth/email-exists', { email: normalized });
     return !!data?.exists;
-  } catch (e) {
-    if (__DEV__) console.warn('[backendAuthApi] email-exists', e?.message);
-    return false;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return backendProbeEmailExists(normalized);
+    }
+    throw err;
   }
 }
 
 export async function backendStoreAppPasswordResetOtp(email, code, expiresAtMs) {
   if (!API_BASE_URL) return;
-  await postJson('/api/auth/app-password-reset/otp', {
-    email: String(email || '').trim().toLowerCase(),
-    code: String(code || '').replace(/\s/g, ''),
-    expires_at: expiresAtMs,
-  });
+  try {
+    await postJson('/api/auth/app-password-reset/otp', {
+      email: String(email || '').trim().toLowerCase(),
+      code: String(code || '').replace(/\s/g, ''),
+      expires_at: expiresAtMs,
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return;
+    throw err;
+  }
 }
 
 export async function backendResetPasswordWithAppOtp(email, code, newPassword) {
-  if (!API_BASE_URL) return;
-  await postJson('/api/auth/app-password-reset/confirm', {
-    email: String(email || '').trim().toLowerCase(),
-    code: String(code || '').replace(/\s/g, ''),
-    new_password: newPassword,
-  });
+  if (!API_BASE_URL) return { ok: false, reason: 'NO_API' };
+  try {
+    await postJson('/api/auth/app-password-reset/confirm', {
+      email: String(email || '').trim().toLowerCase(),
+      code: String(code || '').replace(/\s/g, ''),
+      new_password: newPassword,
+    });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { ok: false, reason: 'BACKEND_OUTDATED' };
+    }
+    throw err;
+  }
 }
 
 export async function backendRegister(email, password, opts = {}) {
@@ -81,6 +172,14 @@ export async function backendRegister(email, password, opts = {}) {
 
 export async function backendGoogle(id_token) {
   return postJson('/api/auth/google', { id_token });
+}
+
+export async function backendFirebase(id_token) {
+  return postJson('/api/auth/firebase', { id_token });
+}
+
+export async function backendFacebook(access_token) {
+  return postJson('/api/auth/facebook', { access_token });
 }
 
 export async function backendApple(identity_token, user) {
@@ -133,14 +232,14 @@ export async function backendAuthFetch(method, path, body) {
     opts.body = JSON.stringify(body);
   }
 
-  let res = await fetch(`${base}${path}`, opts);
+  let res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
   if (res.status === 401) {
     const refreshed = await useAuthStore.getState().refreshSession();
     if (refreshed) {
       token = useAuthStore.getState().accessToken;
       if (isBackendJwt(token)) {
         headers.Authorization = `Bearer ${token}`;
-        res = await fetch(`${base}${path}`, opts);
+        res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
       }
     }
   }
@@ -166,14 +265,14 @@ export async function backendAuthUpload(path, formData) {
   const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
   const opts = { method: 'POST', headers, body: formData };
 
-  let res = await fetch(`${base}${path}`, opts);
+  let res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
   if (res.status === 401) {
     const refreshed = await useAuthStore.getState().refreshSession();
     if (refreshed) {
       token = useAuthStore.getState().accessToken;
       if (isBackendJwt(token)) {
         headers.Authorization = `Bearer ${token}`;
-        res = await fetch(`${base}${path}`, opts);
+        res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
       }
     }
   }

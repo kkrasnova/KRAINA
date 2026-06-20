@@ -4,27 +4,39 @@ import SplashTitleVideo from './SplashTitleVideo';
 import { useResponsive } from './useResponsive';
 import { notifySplashLogoPainted, subscribeSplashHidden } from './splashLogoGate';
 
-const SPLASH_TITLE_VIDEO_IOS = require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4');
-const SPLASH_TITLE_VIDEO_ANDROID = require('./assets/kraina-splash-android.mp4');
-const SPLASH_TITLE_VIDEO =
-  Platform.OS === 'android' ? SPLASH_TITLE_VIDEO_ANDROID : SPLASH_TITLE_VIDEO_IOS;
 const SPLASH_TITLE_POSTER = require('./assets/kraina-title-splash-frame0.png');
 const GLOBE_IMAGE = require('./assets/globe.png');
 const PERSON_IMAGE = require('./assets/person-12.png');
 
-/** Android потребує більше часу для рендера FirstPage (assets, відео, глобус). */
-const FIRST_LAUNCH_SPLASH_MIN_MS = 2600;
-const RETURNING_USER_SPLASH_MS = Platform.OS === 'android' ? 700 : 200;
+/** Мінімум відтворення після старту — майже повний цикл лінзи (~6 с відео). */
+const SPLASH_MIN_PLAYBACK_MS = 5400;
+/** Абсолютний мінімум на FirstPage (first launch). */
+const FIRST_LAUNCH_SPLASH_MIN_MS = 5800;
+/** Для повернення в застосунок — коротше, але достатньо для анімації. */
+const RETURNING_USER_SPLASH_MIN_MS = 4800;
+const RETURNING_USER_MIN_PLAYBACK_MS = 4200;
+/** Не чекати відео довше цього — все одно переходимо далі. */
+const SPLASH_VIDEO_MAX_WAIT_MS = 9500;
 
 function resolveSplashDelayMs(nextRoute, nextParams) {
   const isFirstLaunchOnboarding =
     nextRoute === 'SecondPage' || nextParams?.firstLaunchOnboarding === true;
   if (isFirstLaunchOnboarding) return FIRST_LAUNCH_SPLASH_MIN_MS;
-  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth') {
-    return RETURNING_USER_SPLASH_MS;
+  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth' || nextRoute === 'ThirdPage') {
+    return RETURNING_USER_SPLASH_MIN_MS;
   }
-  if (nextRoute === 'ChoosePlan') return 100;
-  return 150;
+  if (nextRoute === 'ChoosePlan') return RETURNING_USER_SPLASH_MIN_MS;
+  return FIRST_LAUNCH_SPLASH_MIN_MS;
+}
+
+function resolveMinPlaybackMs(nextRoute, nextParams) {
+  const isFirstLaunchOnboarding =
+    nextRoute === 'SecondPage' || nextParams?.firstLaunchOnboarding === true;
+  if (isFirstLaunchOnboarding) return SPLASH_MIN_PLAYBACK_MS;
+  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth' || nextRoute === 'ThirdPage') {
+    return RETURNING_USER_MIN_PLAYBACK_MS;
+  }
+  return SPLASH_MIN_PLAYBACK_MS;
 }
 
 export default function FirstPage({ navigation, route }) {
@@ -45,10 +57,10 @@ export default function FirstPage({ navigation, route }) {
   const safeBottom = insets?.bottom ?? 0;
 
   const PERSON_ASPECT = 570 / 823;
-  const personHeight = screenHeight * 0.86;
+  const personHeight = screenHeight * 0.92 + safeBottom;
   const personWidth = personHeight * PERSON_ASPECT;
   const personLeft = (screenWidth - personWidth) / 2;
-  const personBottom = Math.round(-screenHeight * 0.17);
+  const personBottom = Math.round(-screenHeight * 0.14 - safeBottom * 0.35);
 
   const globeSize = useMemo(() => {
     const k = Platform.OS === 'android' ? 1.85 : 1.72;
@@ -59,9 +71,10 @@ export default function FirstPage({ navigation, route }) {
   const globeLeft = Math.round(
     (screenWidth - globeSize) / 2 + screenWidth * (Platform.OS === 'android' ? 0.38 : 0.32),
   );
-  const globeBottom = Math.round(-screenHeight * (Platform.OS === 'android' ? 0.07 : 0.05));
+  const globeBottom = Math.round(-screenHeight * (Platform.OS === 'android' ? 0.07 : 0.05) - safeBottom * 0.25);
 
   const mountTimeRef = useRef(Date.now());
+  const titleVideoPlaybackStartedAtRef = useRef(null);
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [imagesLoaded, setImagesLoaded] = useState({
     poster: false,
@@ -69,6 +82,7 @@ export default function FirstPage({ navigation, route }) {
     person: false,
   });
   const [splashHidden, setSplashHidden] = useState(false);
+  const [showTitlePoster, setShowTitlePoster] = useState(true);
   const overlayOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -120,6 +134,18 @@ export default function FirstPage({ navigation, route }) {
     [],
   );
 
+  const onTitleVideoPlaybackStarted = useCallback(() => {
+    if (titleVideoPlaybackStartedAtRef.current == null) {
+      titleVideoPlaybackStartedAtRef.current = Date.now();
+    }
+    setShowTitlePoster(false);
+    setImagesLoaded((prev) => (prev.poster ? prev : { ...prev, poster: true }));
+  }, []);
+
+  const onTitleVideoReady = useCallback(() => {
+    /* резерв для майбутніх гейтів; навігація — за таймінгом відтворення */
+  }, []);
+
   useEffect(() => {
     const ready = route?.params?.bootstrapReady === true;
     const nextRoute = route?.params?.nextRoute;
@@ -127,17 +153,50 @@ export default function FirstPage({ navigation, route }) {
     if (!ready || nextRoute == null || typeof nextRoute !== 'string' || nextRoute.trim() === '') {
       return undefined;
     }
-    const minSplashMs = resolveSplashDelayMs(nextRoute, nextParams);
-    const elapsedMs = Date.now() - mountTimeRef.current;
-    const delayMs = Math.max(0, minSplashMs - elapsedMs);
-    const t = setTimeout(() => {
+
+    let cancelled = false;
+    let timer = null;
+
+    const tryNavigate = () => {
+      if (cancelled) return;
+      const minSplashMs = resolveSplashDelayMs(nextRoute, nextParams);
+      const minPlaybackMs = resolveMinPlaybackMs(nextRoute, nextParams);
+      const elapsedMs = Date.now() - mountTimeRef.current;
+      const playbackStartedAt = titleVideoPlaybackStartedAtRef.current;
+      const playbackElapsedMs =
+        playbackStartedAt != null ? Date.now() - playbackStartedAt : 0;
+      const videoWaitExceeded = elapsedMs >= SPLASH_VIDEO_MAX_WAIT_MS;
+
+      if (elapsedMs < minSplashMs) {
+        timer = setTimeout(tryNavigate, Math.min(80, minSplashMs - elapsedMs));
+        return;
+      }
+
+      if (playbackStartedAt != null) {
+        if (playbackElapsedMs < minPlaybackMs) {
+          timer = setTimeout(
+            tryNavigate,
+            Math.min(80, minPlaybackMs - playbackElapsedMs),
+          );
+          return;
+        }
+      } else if (!videoWaitExceeded) {
+        timer = setTimeout(tryNavigate, 50);
+        return;
+      }
+
       if (nextParams != null && typeof nextParams === 'object') {
         navigation.replace(nextRoute, nextParams);
       } else {
         navigation.replace(nextRoute);
       }
-    }, delayMs);
-    return () => clearTimeout(t);
+    };
+
+    tryNavigate();
+    return () => {
+      cancelled = true;
+      if (timer != null) clearTimeout(timer);
+    };
   }, [
     navigation,
     route?.params?.nextRoute,
@@ -146,7 +205,7 @@ export default function FirstPage({ navigation, route }) {
   ]);
 
   return (
-    <View style={[styles.container, { paddingBottom: safeBottom, backgroundColor: '#000000' }]}>
+    <View style={[styles.container, { backgroundColor: '#000000' }]}>
       <View
         collapsable={false}
         style={[
@@ -161,18 +220,21 @@ export default function FirstPage({ navigation, route }) {
           },
         ]}
       >
-        <Image
-          source={SPLASH_TITLE_POSTER}
-          style={styles.logoPoster}
-          resizeMode="contain"
-          fadeDuration={0}
-          onLoad={imageOnLoad('poster')}
-          onError={imageOnLoad('poster')}
-          accessibilityIgnoresInvertColors
-        />
+        {showTitlePoster ? (
+          <Image
+            source={SPLASH_TITLE_POSTER}
+            style={styles.logoPoster}
+            resizeMode="contain"
+            fadeDuration={0}
+            onLoad={imageOnLoad('poster')}
+            onError={imageOnLoad('poster')}
+            accessibilityIgnoresInvertColors
+          />
+        ) : null}
         <SplashTitleVideo
-          source={SPLASH_TITLE_VIDEO}
           style={StyleSheet.absoluteFill}
+          onPlaybackStarted={onTitleVideoPlaybackStarted}
+          onReady={onTitleVideoReady}
         />
       </View>
 

@@ -33,6 +33,7 @@ export declare function listMyPosts(userId: string, limit?: number): Promise<{
     liked_by_viewer: boolean;
     reposted_by_viewer: boolean;
     created_at: string;
+    archived_at: string | null;
 }[]>;
 export declare function listMyArchivedPosts(userId: string, limit?: number): Promise<{
     id: string;
@@ -52,6 +53,7 @@ export declare function listMyArchivedPosts(userId: string, limit?: number): Pro
     liked_by_viewer: boolean;
     reposted_by_viewer: boolean;
     created_at: string;
+    archived_at: string | null;
 }[]>;
 export declare function setPostArchived(userId: string, postId: string, archived: boolean): Promise<void>;
 export declare function updatePostByAuthor(userId: string, postId: string, patch: {
@@ -81,6 +83,7 @@ export declare function listWorldPosts(_viewerId: string | null, limit?: number)
     liked_by_viewer: boolean;
     reposted_by_viewer: boolean;
     created_at: string;
+    archived_at: string | null;
 }[]>;
 export declare function listFriendsPosts(viewerId: string, limit?: number): Promise<{
     id: string;
@@ -100,6 +103,7 @@ export declare function listFriendsPosts(viewerId: string, limit?: number): Prom
     liked_by_viewer: boolean;
     reposted_by_viewer: boolean;
     created_at: string;
+    archived_at: string | null;
 }[]>;
 export declare function listUserPostsForViewer(viewerId: string, targetUsername: string, limit?: number): Promise<{
     id: string;
@@ -119,6 +123,7 @@ export declare function listUserPostsForViewer(viewerId: string, targetUsername:
     liked_by_viewer: boolean;
     reposted_by_viewer: boolean;
     created_at: string;
+    archived_at: string | null;
 }[]>;
 export declare function togglePostLike(postId: string, viewerId: string): Promise<{
     liked: boolean;
@@ -164,6 +169,17 @@ export declare function listActiveStoriesTray(viewerId: string): Promise<{
     display_name: string | null;
     view_count: number;
     seen_by_viewer: boolean;
+}[]>;
+export declare function listMyArchivedStories(userId: string, limit?: number): Promise<{
+    id: string;
+    user_id: string;
+    media_url: string;
+    media_kind: "image" | "video";
+    caption: string;
+    created_at: string;
+    expires_at: string;
+    view_count: number;
+    expired: boolean;
 }[]>;
 export declare function listActiveStoriesForUser(authorId: string, viewerId: string): Promise<{
     id: string;
