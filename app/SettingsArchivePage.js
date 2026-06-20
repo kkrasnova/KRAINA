@@ -389,12 +389,10 @@ export default function SettingsArchivePage({ navigation, route }) {
   );
 
   const goChoosePlanCancel = useCallback(() => {
-    navigation.navigate('ChoosePlan', {
+    navigation.navigate('CancelSubscription', {
       user: route?.params?.user,
       language,
       appTheme,
-      fromSettings: true,
-      openCancelSubscription: true,
       ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
     });
   }, [navigation, route?.params?.user, route?.params?.countryId, language, appTheme]);

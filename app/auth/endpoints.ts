@@ -195,6 +195,14 @@ export async function postBillingCancelFeedback(_: string, payload: Record<strin
   return { ok: true };
 }
 
+export async function postBillingRetentionAccept(_: string, payload: Record<string, unknown>) {
+  const db: any = (FirebaseCfg as any).db;
+  const uid = requireAuthUser();
+  const { addDoc, collection, serverTimestamp } = require('firebase/firestore');
+  await addDoc(collection(db, 'billingRetentionOffers'), { uid, ...payload, createdAt: serverTimestamp() });
+  return { ok: true };
+}
+
 export async function getAdminSubscriptionCancelFeedback() {
   const db: any = (FirebaseCfg as any).db;
   const { collection, getDocs, limit: qLimit, orderBy, query } = require('firebase/firestore');
