@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAppAdminUser } from './adminGate';
 
 const PREFIX = '@kraina_subscription_v1:';
+const RETENTION_OFFER_PREFIX = '@kraina_retention_offer_v1:';
 
 export const PRO_PRICE_USD = 19.99;
 
@@ -212,6 +213,32 @@ export async function tryConsume(user, feature) {
   return { ok: true, remaining: limit - full.usage[key], limit };
 }
 
+
+export async function hasUsedRetentionOffer(user) {
+  try {
+    const v = await AsyncStorage.getItem(`${RETENTION_OFFER_PREFIX}${stableUserKey(user)}`);
+    return v === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** +30 днів до поточного тарифу (одноразова пропозиція утримання). */
+export async function applyRetentionOffer(user, extraDays = 30) {
+  const state = await readRaw(user);
+  const tier = state.tier;
+  if (!['explorer', 'pro', 'family'].includes(tier)) {
+    return { ok: false, reason: 'not_paid' };
+  }
+  const currentMs = state.proExpiresAt ? new Date(state.proExpiresAt).getTime() : Date.now();
+  const baseMs = Math.max(currentMs, Date.now());
+  const newExp = new Date(baseMs + extraDays * 24 * 60 * 60 * 1000).toISOString();
+  await extendPaidSubscription(user, tier, newExp);
+  try {
+    await AsyncStorage.setItem(`${RETENTION_OFFER_PREFIX}${stableUserKey(user)}`, '1');
+  } catch (_) {}
+  return { ok: true, tier, expiresAt: newExp, extraDays };
+}
 
 export async function extendPaidSubscription(user, tier, expiresAtIso) {
   const paid = ['explorer', 'pro', 'family'];

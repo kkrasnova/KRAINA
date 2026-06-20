@@ -15,6 +15,7 @@ import HomeTabPagerPage from './HomeTabPagerPage';
 import ThirdPage from './ThirdPage';
 import SelectCountryPage from './SelectCountryPage';
 import ChoosePlanPage from './ChoosePlanPage';
+import CancelSubscriptionPage from './CancelSubscriptionPage';
 import ForceUpdateScreen from './ForceUpdateScreen';
 import LazyScreen, { makeLazyLoader } from './LazyScreen';
 import { loadChatsPage, loadChatThreadPage, loadSettingsArchivePage } from './screenLoaders';
@@ -478,6 +479,11 @@ export default function App() {
               <Stack.Screen name="SelectCountry" component={SelectCountryPage} />
               <Stack.Screen name="WalkReminderSetup" component={WalkReminderSetupPage} options={{ headerShown: false }} />
               <Stack.Screen name="ChoosePlan" component={ChoosePlanPage} options={{ headerShown: false }} />
+              <Stack.Screen
+                name="CancelSubscription"
+                component={CancelSubscriptionPage}
+                options={{ headerShown: false }}
+              />
               <Stack.Screen
                 name="HomeTabPager"
                 component={HomeTabPagerPage}

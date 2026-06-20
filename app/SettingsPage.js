@@ -149,7 +149,7 @@ export default function SettingsPage({ navigation, route }) {
   }, [appTheme]);
 
   const goCancelSubscription = useCallback(() => {
-    shellPush('ChoosePlan', { fromSettings: true, openCancelSubscription: true }, appTheme);
+    shellPush('CancelSubscription', {}, appTheme);
   }, [appTheme]);
 
   const signOut = useCallback(() => {
