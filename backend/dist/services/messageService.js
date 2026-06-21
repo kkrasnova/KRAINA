@@ -1,6 +1,8 @@
 import { pool } from '../db/pool.js';
 import { HttpError } from '../errors/HttpError.js';
 import { isMutualFollow, resolveUserIdByUsername } from './socialService.js';
+import { sendChatMessagePush } from './chatPushService.js';
+import { logger } from '../logger.js';
 function orderedPair(a, b) {
     return a < b ? [a, b] : [b, a];
 }
@@ -191,6 +193,16 @@ export async function sendTextMessage(threadId, senderId, content) {
         await client.query(`UPDATE dm_threads SET updated_at = now() WHERE id = $1::uuid`, [threadId]);
         await client.query('COMMIT');
         const m = ins.rows[0];
+        // Fire-and-forget push notification to the receiver
+        const senderName = await resolveSenderName(senderId);
+        sendChatMessagePush(receiverId, {
+            threadId,
+            senderName,
+            senderId,
+            content: trimmed,
+        }).catch((pushErr) => {
+            logger.warn('[messageService] Failed to send push', pushErr instanceof Error ? pushErr.message : pushErr);
+        });
         return {
             id: String(m.id),
             sender_id: String(m.sender_id),
@@ -222,6 +234,20 @@ export async function acceptThread(threadId, meId) {
 export async function clearThreadMessages(threadId, meId) {
     await assertParticipant(threadId, meId);
     await pool.query(`DELETE FROM messages WHERE thread_id = $1::uuid`, [threadId]);
+}
+async function resolveSenderName(senderId) {
+    try {
+        const r = await pool.query(`SELECT COALESCE(display_name, username) AS name FROM profiles WHERE user_id = $1::uuid`, [senderId]);
+        if (r.rowCount) {
+            const name = r.rows[0].name;
+            if (name && String(name).trim())
+                return String(name).trim();
+        }
+    }
+    catch {
+        /* best-effort */
+    }
+    return 'KRAЇNA';
 }
 export async function removeThread(threadId, meId) {
     await assertParticipant(threadId, meId);

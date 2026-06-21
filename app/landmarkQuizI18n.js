@@ -34,12 +34,12 @@ const S = {
     en: 'You already claimed this quiz reward.',
   },
   swipeHint: {
-    uk: 'Свайп вгору або вліво — назад до тексту. Вниз або вправо — показати відповідь (якщо вже обрано варіант).',
-    en: 'Swipe up or left to go back. Swipe down or right to reveal the answer (after you pick an option).',
+    uk: 'Свайп вгору або вліво — назад.',
+    en: 'Swipe up or left to go back.',
   },
   swipeHintPager: {
-    uk: 'Свайпом вліво поверніться до тексту пам’ятки. Після вибору варіанта: вниз або вправо — показати відповідь.',
-    en: 'Swipe left to return to the story. After picking an option: swipe down or right to reveal the answer.',
+    uk: 'Свайпом вліво — назад до тексту пам’ятки.',
+    en: 'Swipe left to return to the story.',
   },
   readPagerSwipeHint: {
     uk: 'Свайпніть уліво — вікторина за історією.',
@@ -50,8 +50,8 @@ const S = {
     en: 'Quiz',
   },
   chooseOptionHint: {
-    uk: 'Оберіть один варіант і натисніть кнопку нижче.',
-    en: 'Choose one option and tap the button below.',
+    uk: 'Оберіть один варіант — відповідь одразу, повторити не можна.',
+    en: 'Pick one option — your answer is final.',
   },
   resultCorrectTitle: {
     uk: 'Чудово! Правильна відповідь.',
@@ -76,6 +76,14 @@ const S = {
   feedbackDislike: {
     uk: 'Ні, не вгадав(ла)',
     en: 'No, you did not guess it',
+  },
+  continueNext: {
+    uk: 'Далі',
+    en: 'Next',
+  },
+  pointsBurst: {
+    uk: '+{n} балів',
+    en: '+{n} pts',
   },
 };
 

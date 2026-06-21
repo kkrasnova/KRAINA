@@ -478,6 +478,27 @@ export async function feedDeletePost(postId) {
   return true;
 }
 
+export async function feedTogglePostRepost(postId, caption = '') {
+  if (!postId) throw new Error('invalid_post');
+  if (hasBackendSession()) {
+    const out = await backendAuthFetch('POST', `${FEED}/posts/${encodeURIComponent(String(postId))}/repost`, {
+      caption: String(caption || '').trim(),
+    });
+    ttlInvalidate('feed:');
+    return { reposted: Boolean(out?.reposted), reposts_count: Number(out?.reposts_count) || 0 };
+  }
+  return { reposted: false, reposts_count: 0 };
+}
+
+export async function feedToggleCommentLike(commentId) {
+  if (!commentId) throw new Error('invalid_comment');
+  if (hasBackendSession()) {
+    const out = await backendAuthFetch('POST', `${FEED}/comments/${encodeURIComponent(String(commentId))}/like`);
+    return { liked: Boolean(out?.liked), likes_count: Number(out?.likes_count) || 0 };
+  }
+  return { liked: false, likes_count: 0 };
+}
+
 export async function feedTogglePostLike(postId) {
   if (!postId) throw new Error('invalid_post');
   if (hasBackendSession()) {

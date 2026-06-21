@@ -113,18 +113,35 @@ async function backendProbeEmailExists(email) {
   }
 }
 
+function isRetryableAuthNetworkError(err) {
+  if (!(err instanceof ApiError)) return true;
+  if (err.status === 0) return true;
+  return err.status === 408 || err.status === 429 || err.status === 502 || err.status === 503 || err.status === 504;
+}
+
 export async function backendEmailExists(email) {
   if (!API_BASE_URL) return false;
   const normalized = String(email || '').trim().toLowerCase();
-  try {
-    const data = await postJson('/api/auth/email-exists', { email: normalized });
-    return !!data?.exists;
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
-      return backendProbeEmailExists(normalized);
+  const retryDelaysMs = [0, 2000, 5000];
+  for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {
+    if (retryDelaysMs[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
     }
-    throw err;
+    try {
+      const data = await postJson('/api/auth/email-exists', { email: normalized });
+      return !!data?.exists;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        return backendProbeEmailExists(normalized);
+      }
+      if (attempt < retryDelaysMs.length - 1 && isRetryableAuthNetworkError(err)) {
+        if (__DEV__) console.warn('[backendAuthApi] email-exists retry', attempt + 1, err?.message);
+        continue;
+      }
+      throw err;
+    }
   }
+  return false;
 }
 
 export async function backendStoreAppPasswordResetOtp(email, code, expiresAtMs) {

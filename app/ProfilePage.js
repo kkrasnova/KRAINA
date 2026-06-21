@@ -57,6 +57,7 @@ import {
 import { getLatestUserStory, getUserFeedPosts } from './feedLocalStorage';
 import { getVisitLog } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
+import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
 import ProfileGameLevelCard from './ProfileGameLevelCard';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
 import { hasSocialApi, socialListIncomingRequests } from './socialApi';
@@ -239,8 +240,11 @@ export default function ProfilePage({ navigation, route }) {
       }
       const [sv, places] = await Promise.all([getSavedRoutes(), getSavedLandmarks()]);
       try {
-        const visitLog = await getVisitLog({ physicalOnly: true });
-        setGamify(computeGamificationFromVisits(visitLog));
+        const [visitLog, quizBonusXp] = await Promise.all([
+          getVisitLog({ physicalOnly: true }),
+          getLandmarkQuizBonusXpTotal(),
+        ]);
+        setGamify(computeGamificationFromVisits(visitLog, quizBonusXp));
       } catch {
         setGamify(computeGamificationFromVisits([]));
       }

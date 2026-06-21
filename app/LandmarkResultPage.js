@@ -17,9 +17,11 @@ import {
   DeviceEventEmitter,
   BackHandler,
 } from 'react-native';
-import { Audio } from './expoAvCompat';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurView } from 'expo-blur';
+import { Image as ExpoImage } from 'expo-image';
+import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
 import { getCachedOrRemoteAudioUri } from './audioGuideCache';
 import {
   startLandmarkNarration,
@@ -52,11 +54,81 @@ import LandmarkGlassHeaderBar, { LANDMARK_TITLE_SINGLE_LINE_PROPS } from './Land
 import LandmarkQuizContent from './LandmarkQuizContent';
 import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
-import OfflineStatusBanner from './OfflineStatusBanner';
 import { RenderProfiler } from './performanceMetrics';
-import { createLandmarkPagerPanResponder } from './landmarkPagerSwipe';
+import { createLandmarkPagerPanResponder, LANDMARK_SCROLL_PULL_DISMISS_PX } from './landmarkPagerSwipe';
+import { resolveHeroThumbRef, HERO_THUMB_MAP } from './krainaHeroThumbs';
 import { shellPush } from './shellNavigate';
 import { useAuthStore } from './auth/authStore';
+
+/** Fallback hero thumbs for Maidan intro sub-pages (survives stale nav params). */
+const MAIDAN_INTRO_PAGE_HERO = {
+  'intro-2': 'maidanKozyeBolotoMap',
+  'intro-4': 'maidanGudovskyHistoric',
+  'intro-5': 'maidanHolovposhtamtTragedy',
+  'intro-6': 'maidanCityDumaPostcard',
+  'intro-7': 'maidan',
+  'intro-8': 'maidanLyadskiGates',
+  'intro-9': 'maidanZeroKilometerGlobe',
+  'intro-10': 'maidanRevolutionGranite1990',
+  'intro-11': 'maidanOrangeRevolution2004',
+  'intro-12': 'maidan',
+};
+
+/** Same as above, keyed by introPart when nav params are stale. */
+const MAIDAN_INTRO_PART_HERO = {
+  2: 'maidanKozyeBolotoMap',
+  4: 'maidanGudovskyHistoric',
+  5: 'maidanHolovposhtamtTragedy',
+  6: 'maidanCityDumaPostcard',
+  7: 'maidan',
+  8: 'maidanLyadskiGates',
+  9: 'maidanZeroKilometerGlobe',
+  10: 'maidanRevolutionGranite1990',
+  11: 'maidanOrangeRevolution2004',
+  12: 'maidan',
+};
+
+const MAIDAN_INTRO_PAGE_SECONDARY_HERO = {
+  'intro-6': 'maidanKhreshchatykRuins',
+  'intro-10': 'maidanRevolutionGraniteCamp',
+};
+
+/** Crop anchor for intro hero photos (object-position). */
+const MAIDAN_INTRO_PAGE_HERO_POSITION = {
+  'intro-5': { left: '72%', top: '50%' },
+  'intro-6': { left: '50%', top: '34%' },
+  'intro-8': { left: '50%', top: '2%' },
+};
+
+/** Fit mode for intro hero photos (`cover` default). */
+const MAIDAN_INTRO_PAGE_HERO_FIT = {};
+
+const MAIDAN_INTRO_PAGE_COMPARE_TOP_INSET = {
+  'intro-2': 22,
+  'intro-3': 22,
+  'intro-7': 22,
+};
+
+const MAIDAN_INTRO_PAGE_SECONDARY_HERO_POSITION = {
+  'intro-6': { left: '50%', top: '40%' },
+};
+
+/** Taller hero only on selected Maidan intro pages. */
+const MAIDAN_INTRO_PAGE_HERO_HEIGHT = {
+  'intro-2': { ratio: 0.4, max: 340 },
+  'intro-5': { ratio: 0.68, max: 600 },
+  'intro-6': { ratio: 0.48, max: 400 },
+  'intro-7': { ratio: 0.62, max: 560 },
+  'intro-8': { ratio: 0.46, max: 380 },
+  'intro-9': { ratio: 0.44, max: 380 },
+  'intro-10': { ratio: 0.44, max: 380 },
+};
+
+/** Shorter second photo on selected Maidan intro pages. */
+const MAIDAN_INTRO_PAGE_SECONDARY_HERO_HEIGHT = {
+  'intro-6': { ratio: 0.3, max: 260 },
+  'intro-10': { ratio: 0.4, max: 340 },
+};
 
 /** Ті самі кольори, що кнопка «Вхід» / «Реєстрація» у ThirdPage (`authOnboardCta*`). */
 const AUTH_CTA_ACCENT = '#E1FF00';
@@ -69,9 +141,23 @@ const BODY_LINK_LIGHT = '#1558C0';
 
 const PREVIEW_BODY_LINES = 3;
 const PARAM_MENU_DISMISS_DRAG_PX = 56;
+const MINI_SHEET_OPEN_DRAG_PX = 44;
+const MINI_SHEET_OPEN_VY = -0.26;
+const MINI_SHEET_OPEN_VX = -0.26;
+const MINI_SHEET_BACK_VX = 0.26;
+const MINI_SHEET_AXIS_LOCK_PX = 8;
+const INTRO_COMPARE_HPAD = 16;
+/** Share of screen height for intro sub-page hero / compare card. */
+const INTRO_SUB_HERO_HEIGHT_RATIO = 0.56;
+/** Only the intro before/after slider card — keep shorter than map/photo pages. */
+const INTRO_COMPARE_HEIGHT_RATIO = 0.4;
+const INTRO_COMPARE_HEIGHT_MAX = 400;
+let speechModuleAvailable = false;
 const Speech = (() => {
   try {
-    return require('expo-speech');
+    const mod = require('expo-speech');
+    speechModuleAvailable = !!mod?.speak;
+    return mod;
   } catch (error) {
     console.warn('[LandmarkResultPage] expo-speech native module unavailable', error?.message || error);
     return {
@@ -163,7 +249,7 @@ function parseIntroBodyBlocks(text) {
     }));
 }
 
-function LandmarkIntroFormattedBody({
+const LandmarkIntroFormattedBody = React.memo(function LandmarkIntroFormattedBody({
   text,
   isLight,
   accent,
@@ -219,6 +305,31 @@ function LandmarkIntroFormattedBody({
       })}
     </View>
   );
+});
+
+function fitAssetWithinBox(source, maxWidth, maxHeight) {
+  const resolved = typeof source === 'number' ? Image.resolveAssetSource(source) : null;
+  if (!resolved?.width || !resolved?.height) {
+    return { width: maxWidth, height: maxHeight };
+  }
+  const assetScale = Number(resolved.scale) || 1;
+  const nativeWidthPt = resolved.width / assetScale;
+  const aspect = resolved.width / Math.max(1, resolved.height);
+  let width = Math.min(maxWidth, nativeWidthPt);
+  let height = width / aspect;
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspect;
+  }
+  // У lightbox дозволяємо масштабувати портретні ілюстрації до ширини екрана.
+  if (width < maxWidth * 0.98 && height < maxHeight * 0.98) {
+    const scaleUp = Math.min(maxWidth / width, maxHeight / height);
+    if (scaleUp > 1.02) {
+      width = Math.min(maxWidth, Math.round(width * scaleUp));
+      height = Math.min(maxHeight, Math.round(width / aspect));
+    }
+  }
+  return { width: Math.round(width), height: Math.round(height) };
 }
 
 function LandmarkIllustrationLightbox({ visible, source, caption, onClose }) {
@@ -226,6 +337,12 @@ function LandmarkIllustrationLightbox({ visible, source, caption, onClose }) {
   const { width, height } = useWindowDimensions();
   const zoomScaleRef = useRef(1);
   const scrollRef = useRef(null);
+  const imageSize = useMemo(() => {
+    const captionReserve = caption ? 96 : 48;
+    const maxW = width - 8;
+    const maxH = height - insets.top - insets.bottom - captionReserve;
+    return fitAssetWithinBox(source, maxW, Math.max(320, maxH));
+  }, [source, width, height, insets.top, insets.bottom, caption]);
 
   useEffect(() => {
     if (!visible) {
@@ -264,10 +381,15 @@ function LandmarkIllustrationLightbox({ visible, source, caption, onClose }) {
           scrollEventThrottle={16}
         >
           <Pressable onPress={tryCloseOnTap} accessibilityRole="imagebutton">
-            <Image
+            <ExpoImage
               source={source}
-              style={{ width, height: Math.round(height * 0.72) }}
-              resizeMode="contain"
+              style={imageSize}
+              contentFit="contain"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={0}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
             />
           </Pressable>
         </ScrollView>
@@ -336,7 +458,7 @@ function AuthStylePrimaryCta({ onPress, label, androidRipple = rippleOnDarkSurfa
 
 export default function LandmarkResultPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { height: winH } = useWindowDimensions();
+  const { width: winW, height: winH } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
 
@@ -359,9 +481,52 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (!Array.isArray(raw)) return [];
     return raw
       .map((page) => {
+        const compareBeforeThumb =
+          typeof page?.compareBeforeThumb === 'string' ? page.compareBeforeThumb.trim() : '';
+        const compareAfterThumb =
+          typeof page?.compareAfterThumb === 'string' ? page.compareAfterThumb.trim() : '';
+        const compareBeforeAsset =
+          typeof page?.compareBeforeAsset === 'number'
+            ? page.compareBeforeAsset
+            : resolveHeroThumbRef(compareBeforeThumb);
+        const compareAfterAsset =
+          typeof page?.compareAfterAsset === 'number'
+            ? page.compareAfterAsset
+            : resolveHeroThumbRef(compareAfterThumb);
+        const compareBeforeUri =
+          typeof page?.compareBeforeUri === 'string' ? page.compareBeforeUri.trim() : '';
+        const compareAfterUri =
+          typeof page?.compareAfterUri === 'string' ? page.compareAfterUri.trim() : '';
+        if (
+          (typeof compareBeforeAsset === 'number' && typeof compareAfterAsset === 'number') ||
+          (compareBeforeUri && compareAfterUri)
+        ) {
+          const bodyEarly = typeof page?.body === 'string' ? page.body.trim() : '';
+          if (!bodyEarly) {
+            return {
+              compareOnly: true,
+              ...(typeof compareBeforeAsset === 'number' ? { compareBeforeAsset } : {}),
+              ...(typeof compareAfterAsset === 'number' ? { compareAfterAsset } : {}),
+              ...(compareBeforeThumb ? { compareBeforeThumb } : {}),
+              ...(compareAfterThumb ? { compareAfterThumb } : {}),
+              ...(compareBeforeUri ? { compareBeforeUri } : {}),
+              ...(compareAfterUri ? { compareAfterUri } : {}),
+            };
+          }
+        }
         const body = typeof page?.body === 'string' ? page.body.trim() : '';
         if (!body) return null;
-        const photoAsset = typeof page?.photoAsset === 'number' ? page.photoAsset : undefined;
+        const heroThumb = typeof page?.heroThumb === 'string' ? page.heroThumb.trim() : '';
+        const secondaryHeroThumb =
+          typeof page?.secondaryHeroThumb === 'string' ? page.secondaryHeroThumb.trim() : '';
+        const photoAsset =
+          typeof page?.photoAsset === 'number'
+            ? page.photoAsset
+            : resolveHeroThumbRef(heroThumb) || undefined;
+        const secondaryPhotoAsset =
+          typeof page?.secondaryPhotoAsset === 'number'
+            ? page.secondaryPhotoAsset
+            : resolveHeroThumbRef(secondaryHeroThumb) || undefined;
         const illustrationAsset =
           typeof page?.illustrationAsset === 'number' ? page.illustrationAsset : undefined;
         const illustrationLink =
@@ -369,13 +534,53 @@ export default function LandmarkResultPage({ navigation, route }) {
         const illustrationCaption =
           typeof page?.illustrationCaption === 'string' ? page.illustrationCaption.trim() : '';
         const pageUri = typeof page?.photoUri === 'string' ? page.photoUri.trim() : '';
+        const photoUri =
+          pageUri ||
+          (photoAsset ? Image.resolveAssetSource(photoAsset)?.uri || undefined : undefined);
+        const hasCompare =
+          (typeof compareBeforeAsset === 'number' && typeof compareAfterAsset === 'number') ||
+          (compareBeforeUri && compareAfterUri);
+        const compareHeroHeightRatio = Number(page?.compareHeroHeightRatio);
+        const compareHeroHeightMax = Number(page?.compareHeroHeightMax);
+        const compareHeroTopInset = Number(page?.compareHeroTopInset);
+        const heroHeightRatio = Number(page?.heroHeightRatio);
+        const heroHeightMax = Number(page?.heroHeightMax);
         return {
           body,
+          ...(hasCompare
+            ? {
+                ...(compareBeforeAsset ? { compareBeforeAsset } : {}),
+                ...(compareAfterAsset ? { compareAfterAsset } : {}),
+                ...(compareBeforeThumb ? { compareBeforeThumb } : {}),
+                ...(compareAfterThumb ? { compareAfterThumb } : {}),
+                ...(compareBeforeUri ? { compareBeforeUri } : {}),
+                ...(compareAfterUri ? { compareAfterUri } : {}),
+                ...(Number.isFinite(compareHeroHeightRatio) && compareHeroHeightRatio > 0
+                  ? { compareHeroHeightRatio }
+                  : {}),
+                ...(Number.isFinite(compareHeroHeightMax) && compareHeroHeightMax > 0
+                  ? { compareHeroHeightMax }
+                  : {}),
+                ...(Number.isFinite(compareHeroTopInset) && compareHeroTopInset > 0
+                  ? { compareHeroTopInset }
+                  : {}),
+              }
+            : {}),
           ...(photoAsset ? { photoAsset } : {}),
-          ...(pageUri ? { photoUri: pageUri } : {}),
+          ...(heroThumb ? { heroThumb } : {}),
+          ...(secondaryHeroThumb ? { secondaryHeroThumb } : {}),
+          ...(secondaryPhotoAsset ? { secondaryPhotoAsset } : {}),
+          ...(Number.isFinite(heroHeightRatio) && heroHeightRatio > 0 ? { heroHeightRatio } : {}),
+          ...(Number.isFinite(heroHeightMax) && heroHeightMax > 0 ? { heroHeightMax } : {}),
+          ...(photoUri ? { photoUri } : {}),
           ...(illustrationAsset ? { illustrationAsset } : {}),
           ...(illustrationLink ? { illustrationLink } : {}),
           ...(illustrationCaption ? { illustrationCaption } : {}),
+          ...(page.introFullBleedPhoto ? { introFullBleedPhoto: true } : {}),
+          ...(page.introHeroAfterText ? { introHeroAfterText: true } : {}),
+          ...(page.introHeroBleedTop ? { introHeroBleedTop: true } : {}),
+          ...(page.introFactCard ? { introFactCard: true } : {}),
+          ...(page.introHeroInsetRounded ? { introHeroInsetRounded: true } : {}),
         };
       })
       .filter(Boolean);
@@ -401,7 +606,8 @@ export default function LandmarkResultPage({ navigation, route }) {
     return resolved || (/^https?:\/\//i.test(u) ? u : '');
   }, [route?.params?.audioGuideUrl]);
 
-  const soundRef = useRef(null);
+  const audioPlayerRef = useRef(null);
+  const fileAudioActiveRef = useRef(false);
   const visitRecordedRef = useRef(false);
 
   const miniExtract = useMemo(() => {
@@ -445,6 +651,12 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, [winH, route?.params?.previewBodyLines, route?.params?.miniExtract, startPhaseParam]);
   /** Вхід нижньої панелі: з’являється знизу. */
   const miniPanelEnterY = useRef(new Animated.Value(280)).current;
+  /** Інтерактивний свайп картки вгору (від’ємне значення — тягнемо вгору). */
+  const miniSheetDragY = useRef(new Animated.Value(0)).current;
+  /** Інтерактивний свайп картки вліво (від’ємне значення — тягнемо вліво). */
+  const miniSheetDragX = useRef(new Animated.Value(0)).current;
+  /** Зафіксована вісь жесту на mini-екрані: up | left | back. */
+  const miniDragAxisRef = useRef(null);
   /** Вхід верхньої «скляної» панелі: з’являється зверху. */
   const miniTopEnterY = useRef(new Animated.Value(-96)).current;
 
@@ -452,8 +664,11 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (phase !== 'mini') return undefined;
     miniPanelEnterY.setValue(0);
     miniTopEnterY.setValue(0);
+    miniSheetDragY.setValue(0);
+    miniSheetDragX.setValue(0);
+    miniDragAxisRef.current = null;
     return undefined;
-  }, [phase, miniSheetMaxH, winH, miniPanelEnterY, miniTopEnterY]);
+  }, [phase, miniSheetMaxH, winH, miniPanelEnterY, miniTopEnterY, miniSheetDragY, miniSheetDragX]);
 
   const [speaking, setSpeaking] = useState(false);
   const [paramsMenuOpen, setParamsMenuOpen] = useState(false);
@@ -472,7 +687,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    Audio.setAudioModeAsync({ playsInSilentModeIOS: true, interruptionMode: 'mixWithOthers' }).catch(() => {});
+    setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -648,47 +863,60 @@ export default function LandmarkResultPage({ navigation, route }) {
     return () => sub.remove();
   }, [visitSaveKey, visitLandmarkSave]);
 
+  const ensureLandmarkAudioPlayer = useCallback(() => {
+    if (!audioPlayerRef.current) {
+      const player = createAudioPlayer(null);
+      player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          fileAudioActiveRef.current = false;
+          setSpeaking(false);
+        }
+        if (status.error) {
+          fileAudioActiveRef.current = false;
+          setSpeaking(false);
+          if (__DEV__) console.warn('[audioGuide] playback', status.error);
+        }
+      });
+      audioPlayerRef.current = player;
+    }
+    return audioPlayerRef.current;
+  }, []);
+
   const stopFileAudio = useCallback(async () => {
-    const s = soundRef.current;
-    soundRef.current = null;
-    if (s) {
-      try {
-        await s.stopAsync();
-      } catch {
-        /* */
-      }
-      try {
-        await s.unloadAsync();
-      } catch {
-        /* */
-      }
+    fileAudioActiveRef.current = false;
+    const player = audioPlayerRef.current;
+    if (!player) return;
+    try {
+      player.pause();
+      await player.seekTo(0);
+    } catch {
+      /* */
     }
   }, []);
 
   const playLocalAudioUri = useCallback(
     async (localUri) => {
+      const uri = String(localUri || '').trim();
+      if (!uri) throw new Error('audio_empty_uri');
       Speech.stop();
-      const { sound } = await Audio.Sound.createAsync({ uri: localUri }, { shouldPlay: false });
-      soundRef.current = sound;
-      sound.setOnPlaybackStatusUpdate((st) => {
-        if (st.isLoaded && st.didJustFinish) {
-          setSpeaking(false);
-          soundRef.current?.unloadAsync().catch(() => {});
-          soundRef.current = null;
-        }
-      });
+      await setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE);
+      const player = ensureLandmarkAudioPlayer();
+      player.replace(uri);
+      fileAudioActiveRef.current = true;
       setSpeaking(true);
-      await sound.playAsync();
+      player.play();
     },
-    [],
+    [ensureLandmarkAudioPlayer],
   );
 
   useEffect(() => {
     return () => {
       Speech.stop();
-      stopFileAudio();
+      fileAudioActiveRef.current = false;
+      audioPlayerRef.current?.remove?.();
+      audioPlayerRef.current = null;
     };
-  }, [stopFileAudio]);
+  }, []);
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
@@ -724,6 +952,10 @@ export default function LandmarkResultPage({ navigation, route }) {
     return String(miniExtract ?? '').trim();
   }, [extract, miniExtract]);
 
+  const hasInlineIntroFactCard = useMemo(
+    () => introPages.some((page) => page.introFactCard),
+    [introPages],
+  );
   const postQuizSlides = useMemo(() => {
     if (adminFactSlides.length > 0) {
       return adminFactSlides.map((it) => ({
@@ -791,7 +1023,7 @@ export default function LandmarkResultPage({ navigation, route }) {
       })
       .filter(Boolean);
     if (mappedFromLooseArrays.length > 0) return mappedFromLooseArrays;
-    if (photoUri) {
+    if (photoUri && !hasInlineIntroFactCard) {
       const teaser = String(fullBodyText || '').replace(/\s+/g, ' ').trim();
       return [
         {
@@ -828,6 +1060,7 @@ export default function LandmarkResultPage({ navigation, route }) {
     photoUri,
     fullBodyText,
     headerTitle,
+    hasInlineIntroFactCard,
   ]);
 
   const effectiveStoryQuiz = useMemo(() => {
@@ -918,6 +1151,7 @@ export default function LandmarkResultPage({ navigation, route }) {
     return out;
   }, [postQuizSlides]);
   const fullReadTopClearance = 0;
+  const introHeaderClearance = Math.max(insets.top + 86, 104);
   const isIntroTextShort = useMemo(() => String(fullBodyText || '').trim().length < 220, [fullBodyText]);
   const introAutoShift = useMemo(() => {
     if (!isIntroTextShort) return 0;
@@ -940,11 +1174,52 @@ export default function LandmarkResultPage({ navigation, route }) {
     return Math.max(680, Math.round(winH * 0.9));
   }, [fullReadViewportH, winH]);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [compareDragLock, setCompareDragLock] = useState(false);
   const activeSectionIndexRef = useRef(0);
   const pageSections = useMemo(() => {
     const pages = [{ id: 'intro', type: 'intro', introPart: 1 }];
     if (introPages.length > 0) {
       introPages.forEach((page, i) => {
+        if (page.compareOnly && (page.compareBeforeAsset || page.compareBeforeUri)) {
+          pages.push({
+            id: `intro-compare-${i + 2}`,
+            type: 'compare',
+            slide: {
+              compareBottomSource: page.compareBeforeAsset,
+              compareTopSource: page.compareAfterAsset,
+              compareBottomUri: page.compareBeforeUri,
+              compareTopUri: page.compareAfterUri,
+            },
+          });
+          return;
+        }
+        if (page.introFactCard) {
+          const heroThumb = typeof page.heroThumb === 'string' ? page.heroThumb.trim() : '';
+          const photoAsset =
+            typeof page.photoAsset === 'number' ? page.photoAsset : resolveHeroThumbRef(heroThumb);
+          const photoUriResolved =
+            typeof page.photoUri === 'string' && page.photoUri.trim()
+              ? page.photoUri.trim()
+              : typeof photoAsset === 'number'
+                ? Image.resolveAssetSource(photoAsset)?.uri || ''
+                : '';
+          pages.push({
+            id: `intro-${i + 2}`,
+            type: 'fact',
+            slide: {
+              introFact: true,
+              ...(typeof photoAsset === 'number' ? { photoAsset } : {}),
+              photoUri: photoUriResolved,
+              fact: page.body,
+              title: '',
+              subtitle: '',
+            },
+          });
+          if (hasStoryQuiz && i + 2 === 7) {
+            pages.push({ id: 'quiz', type: 'quiz' });
+          }
+          return;
+        }
         pages.push({
           id: `intro-${i + 2}`,
           type: 'intro',
@@ -952,15 +1227,38 @@ export default function LandmarkResultPage({ navigation, route }) {
           body: page.body,
           photoAsset: page.photoAsset,
           photoUri: page.photoUri,
+          heroThumb: page.heroThumb,
+          secondaryHeroThumb: page.secondaryHeroThumb,
+          secondaryPhotoAsset: page.secondaryPhotoAsset,
           illustrationAsset: page.illustrationAsset,
           illustrationLink: page.illustrationLink,
           illustrationCaption: page.illustrationCaption,
+          compareBeforeAsset: page.compareBeforeAsset,
+          compareAfterAsset: page.compareAfterAsset,
+          compareBeforeThumb: page.compareBeforeThumb,
+          compareAfterThumb: page.compareAfterThumb,
+          compareBeforeUri: page.compareBeforeUri,
+          compareAfterUri: page.compareAfterUri,
+          compareHeroHeightRatio: page.compareHeroHeightRatio,
+          compareHeroHeightMax: page.compareHeroHeightMax,
+          compareHeroTopInset: page.compareHeroTopInset,
+          heroHeightRatio: page.heroHeightRatio,
+          heroHeightMax: page.heroHeightMax,
+          introFullBleedPhoto: page.introFullBleedPhoto,
+          introHeroAfterText: page.introHeroAfterText,
+          introHeroBleedTop: page.introHeroBleedTop,
+          introHeroInsetRounded: page.introHeroInsetRounded,
         });
+        if (hasStoryQuiz && i + 2 === 7) {
+          pages.push({ id: 'quiz', type: 'quiz' });
+        }
       });
     } else if (introContinuation) {
       pages.push({ id: 'intro-2', type: 'intro', introPart: 2, body: introContinuation });
     }
-    if (hasStoryQuiz) pages.push({ id: 'quiz', type: 'quiz' });
+    if (hasStoryQuiz && !pages.some((page) => page.id === 'quiz')) {
+      pages.push({ id: 'quiz', type: 'quiz' });
+    }
     postQuizSections.forEach((slide) => {
       pages.push({
         id: slide.sectionId,
@@ -973,12 +1271,52 @@ export default function LandmarkResultPage({ navigation, route }) {
   const currentPage = pageSections[activeSectionIndex] || pageSections[0];
   const heroPhotoSource = useMemo(() => {
     if (currentPage?.type === 'intro' && currentPage.introPart > 1) {
+      const pageHeroKey =
+        MAIDAN_INTRO_PAGE_HERO[currentPage?.id] || MAIDAN_INTRO_PART_HERO[currentPage.introPart];
+      if (pageHeroKey) {
+        const forced = HERO_THUMB_MAP[pageHeroKey] || resolveHeroThumbRef(pageHeroKey);
+        if (forced) return forced;
+      }
       if (typeof currentPage.photoAsset === 'number') return currentPage.photoAsset;
+      const heroThumb =
+        typeof currentPage.heroThumb === 'string' ? currentPage.heroThumb.trim() : '';
+      const thumbAsset = resolveHeroThumbRef(heroThumb);
+      if (typeof thumbAsset === 'number') return thumbAsset;
       const subUri = typeof currentPage.photoUri === 'string' ? currentPage.photoUri.trim() : '';
       if (subUri) return { uri: subUri };
     }
     return defaultHeroPhotoSource;
   }, [currentPage, defaultHeroPhotoSource]);
+  const isMaidanDumaIntroPage =
+    currentPage?.id === 'intro-6' || currentPage?.introPart === 6;
+  const secondaryHeroPhotoSource = useMemo(() => {
+    if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
+    const pageHeroKey =
+      MAIDAN_INTRO_PAGE_SECONDARY_HERO[currentPage?.id] ||
+      (currentPage.introPart === 6 ? 'maidanKhreshchatykRuins' : null);
+    if (pageHeroKey) {
+      const forced = HERO_THUMB_MAP[pageHeroKey] || resolveHeroThumbRef(pageHeroKey);
+      if (forced) return forced;
+    }
+    if (typeof currentPage.secondaryPhotoAsset === 'number') return currentPage.secondaryPhotoAsset;
+    const secondaryHeroThumb =
+      typeof currentPage.secondaryHeroThumb === 'string' ? currentPage.secondaryHeroThumb.trim() : '';
+    const thumbAsset = resolveHeroThumbRef(secondaryHeroThumb);
+    if (typeof thumbAsset === 'number') return thumbAsset;
+    return null;
+  }, [currentPage]);
+  const introPrimaryPhotoSource = useMemo(() => {
+    if (isMaidanDumaIntroPage) {
+      return HERO_THUMB_MAP.maidanCityDumaPostcard || heroPhotoSource;
+    }
+    return heroPhotoSource;
+  }, [isMaidanDumaIntroPage, heroPhotoSource]);
+  const introSecondaryPhotoSource = useMemo(() => {
+    if (isMaidanDumaIntroPage) {
+      return HERO_THUMB_MAP.maidanKhreshchatykRuins || secondaryHeroPhotoSource;
+    }
+    return secondaryHeroPhotoSource;
+  }, [isMaidanDumaIntroPage, secondaryHeroPhotoSource]);
   const currentIllustration = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
     if (typeof currentPage.illustrationAsset !== 'number') return null;
@@ -988,34 +1326,160 @@ export default function LandmarkResultPage({ navigation, route }) {
       caption: String(currentPage.illustrationCaption || '').trim(),
     };
   }, [currentPage]);
+  const currentIntroCompare = useMemo(() => {
+    if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
+    const beforeThumb =
+      typeof currentPage.compareBeforeThumb === 'string' ? currentPage.compareBeforeThumb.trim() : '';
+    const afterThumb =
+      typeof currentPage.compareAfterThumb === 'string' ? currentPage.compareAfterThumb.trim() : '';
+    const beforeAsset =
+      typeof currentPage.compareBeforeAsset === 'number'
+        ? currentPage.compareBeforeAsset
+        : resolveHeroThumbRef(beforeThumb);
+    const afterAsset =
+      typeof currentPage.compareAfterAsset === 'number'
+        ? currentPage.compareAfterAsset
+        : resolveHeroThumbRef(afterThumb);
+    const beforeUri = typeof currentPage.compareBeforeUri === 'string' ? currentPage.compareBeforeUri.trim() : '';
+    const afterUri = typeof currentPage.compareAfterUri === 'string' ? currentPage.compareAfterUri.trim() : '';
+    if (!(beforeAsset && afterAsset) && !(beforeUri && afterUri)) return null;
+    return {
+      beforeAsset,
+      afterAsset,
+      beforeUri,
+      afterUri,
+    };
+  }, [currentPage]);
+  const introCompareLayout = useMemo(() => {
+    if (!currentIntroCompare) return null;
+    const ratio = Number(currentPage?.compareHeroHeightRatio);
+    const maxH = Number(currentPage?.compareHeroHeightMax);
+    const heightRatio =
+      Number.isFinite(ratio) && ratio > 0 ? ratio : INTRO_COMPARE_HEIGHT_RATIO;
+    const heightMax =
+      Number.isFinite(maxH) && maxH > 0 ? maxH : INTRO_COMPARE_HEIGHT_MAX;
+    const topInsetRaw = Number(currentPage?.compareHeroTopInset);
+    const topInsetFallback = MAIDAN_INTRO_PAGE_COMPARE_TOP_INSET[currentPage?.id];
+    const topInset =
+      Number.isFinite(topInsetRaw) && topInsetRaw > 0
+        ? Math.round(topInsetRaw)
+        : Number.isFinite(topInsetFallback) && topInsetFallback > 0
+          ? topInsetFallback
+          : 0;
+    return {
+      topInset,
+      height: Math.min(
+        heightMax,
+        Math.max(260, Math.round(winH * heightRatio)),
+      ),
+      horizontalPad: INTRO_COMPARE_HPAD,
+    };
+  }, [
+    currentIntroCompare,
+    currentPage?.compareHeroHeightRatio,
+    currentPage?.compareHeroHeightMax,
+    currentPage?.compareHeroTopInset,
+    winH,
+  ]);
+  const introSubPageHeroHeight = useMemo(() => {
+    if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
+    if (currentIntroCompare || !introPrimaryPhotoSource) return null;
+    const customHeight = MAIDAN_INTRO_PAGE_HERO_HEIGHT[currentPage?.id];
+    const ratioRaw = Number(currentPage?.heroHeightRatio);
+    const maxRaw = Number(currentPage?.heroHeightMax);
+    const ratio =
+      Number.isFinite(ratioRaw) && ratioRaw > 0
+        ? ratioRaw
+        : customHeight?.ratio ?? INTRO_SUB_HERO_HEIGHT_RATIO;
+    const maxH =
+      Number.isFinite(maxRaw) && maxRaw > 0
+        ? maxRaw
+        : customHeight?.max ?? 540;
+    return Math.min(maxH, Math.max(320, Math.round(winH * ratio)));
+  }, [currentPage, currentIntroCompare, heroPhotoSource, winH]);
+  const introHeroTopInset = introCompareLayout?.topInset ?? 0;
+  const introHeroHeight = useMemo(() => {
+    if (introCompareLayout) return introCompareLayout.height;
+    if (introSubPageHeroHeight) return introSubPageHeroHeight;
+    if (currentIntroCompare) {
+      return Math.min(Math.round(winH * 0.58), 600);
+    }
+    return smallHeroHeight;
+  }, [introCompareLayout, introSubPageHeroHeight, currentIntroCompare, smallHeroHeight, winH]);
   const currentIntroBody = useMemo(() => {
     if (currentPage?.type !== 'intro') return '';
     if (currentPage.introPart > 1) return String(currentPage.body || '').trim();
     return fullBodyText;
   }, [currentPage, fullBodyText]);
   const isIntroSubPage = currentPage?.type === 'intro' && currentPage?.introPart > 1;
+  const isIntroFullBleedPhotoPage =
+    currentPage?.type === 'intro' && currentPage.introFullBleedPhoto === true;
+  const isIntroHeroAfterTextPage =
+    currentPage?.type === 'intro' &&
+    (currentPage.introHeroAfterText || currentPage?.id === 'intro-9');
+  const isIntroHeroBleedTopPage =
+    currentPage?.type === 'intro' &&
+    (currentPage.introHeroBleedTop === true ||
+      currentPage?.id === 'intro-4' ||
+      currentPage?.introPart === 4 ||
+      currentPage?.id === 'intro-5' ||
+      currentPage?.introPart === 5 ||
+      currentPage?.id === 'intro-6' ||
+      currentPage?.introPart === 6 ||
+      currentPage?.id === 'intro-10' ||
+      currentPage?.introPart === 10);
+  const isMaidanCompareIntroPage =
+    currentPage?.type === 'intro' &&
+    !!currentIntroCompare &&
+    (currentPage?.id === 'intro-3' || currentPage?.introPart === 3);
+  const isMaidanMapIntroPage =
+    currentPage?.type === 'intro' &&
+    (currentPage?.id === 'intro-2' || currentPage?.introPart === 2);
+  const isIntroHeroInsetRoundedPage =
+    currentPage?.type === 'intro' &&
+    (currentPage.introHeroInsetRounded === true ||
+      currentPage?.id === 'intro-2' ||
+      currentPage?.introPart === 2 ||
+      currentPage?.id === 'intro-7' ||
+      currentPage?.introPart === 7);
+  const isIntroHeroInsetRoundedHeroFirstPage =
+    isIntroHeroInsetRoundedPage && !isIntroHeroAfterTextPage;
+  const introScrollTopPad =
+    isIntroSubPage && isIntroHeroBleedTopPage
+      ? 0
+      : isIntroSubPage &&
+          (isMaidanCompareIntroPage ||
+            isMaidanMapIntroPage ||
+            isIntroHeroInsetRoundedHeroFirstPage)
+        ? Math.max(insets.top + 66, 82)
+      : isIntroSubPage && isIntroHeroAfterTextPage
+        ? Math.max(insets.top + 98, 116)
+        : isIntroSubPage
+          ? introHeaderClearance
+          : 0;
+  const isIntroFirstPage = currentPage?.type === 'intro' && Number(currentPage?.introPart || 1) === 1;
+  useEffect(() => {
+    isIntroFirstPageRef.current = isIntroFirstPage;
+  }, [isIntroFirstPage]);
+  useEffect(() => {
+    currentPageTypeRef.current = currentPage?.type || 'intro';
+  }, [currentPage?.type]);
+  const introScrollBottomPad = Math.max(insets.bottom + 88, 112);
+  const quizHeaderClearance = Math.max(insets.top + 90, 108);
+  const quizScrollBottomPad = Math.max(insets.bottom + 104, 128);
+  const quizViewportMinHeight = useMemo(
+    () => Math.max(320, Math.round(winH - quizScrollBottomPad - quizHeaderClearance)),
+    [winH, quizScrollBottomPad, quizHeaderClearance],
+  );
   const sectionDotCount = pageSections.length;
-  const headerDotsContent =
-    phase === 'full' && sectionDotCount > 1 ? (
-      <View style={styles.headerPagerDots}>
-        {Array.from({ length: sectionDotCount }).map((_, idx) => (
-          <View
-            key={`dot-${idx}`}
-            style={[
-              styles.headerPagerDot,
-              {
-                backgroundColor:
-                  idx === activeSectionIndex ? accent : isLight ? 'rgba(2,18,235,0.24)' : 'rgba(225,255,0,0.24)',
-                opacity: idx === activeSectionIndex ? 1 : 0.55,
-              },
-            ]}
-          />
-        ))}
-      </View>
-    ) : null;
   const fullReadScrollRef = useRef(null);
+  const introPageScrollRef = useRef(null);
+  const quizPageScrollRef = useRef(null);
   const fullReadScrollYRef = useRef(0);
   const introScrollYRef = useRef(0);
+  const isIntroFirstPageRef = useRef(false);
+  const currentPageTypeRef = useRef('intro');
+  const introPullDismissArmedRef = useRef(false);
   const [fullReadScrollY, setFullReadScrollY] = useState(0);
   const introSectionYRef = useRef(0);
   const introSectionHRef = useRef(0);
@@ -1036,19 +1500,43 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, [audioScriptText, phase, miniExtract, extract, fullBodyText]);
 
   const toggleSpeech = useCallback(async () => {
+    const filePlaying = fileAudioActiveRef.current || !!audioPlayerRef.current?.playing;
     if (audioGuideUrl) {
-      if (soundRef.current) {
+      if (filePlaying) {
         await stopFileAudio();
         setSpeaking(false);
         return;
       }
       Speech.stop();
+      setSpeaking(true);
       try {
         const localUri = await getCachedOrRemoteAudioUri(audioGuideUrl);
         await playLocalAudioUri(localUri);
       } catch (e) {
         setSpeaking(false);
         await stopFileAudio();
+        const t = (textForTts || '').trim();
+        if (t) {
+          try {
+            const mode = await startLandmarkNarration({
+              Speech,
+              text: t,
+              appLanguage: language,
+              playFileAudio: playLocalAudioUri,
+              callbacks: {
+                onDone: () => setSpeaking(false),
+                onStopped: () => setSpeaking(false),
+                onError: () => {
+                  setSpeaking(false);
+                  Alert.alert('', ls(language, 'audioGuideError'));
+                },
+              },
+            });
+            if (mode) return;
+          } catch (fallbackErr) {
+            if (__DEV__) console.warn('[audioGuide] tts fallback', fallbackErr?.message);
+          }
+        }
         if (__DEV__) console.warn('[audioGuide]', e?.message);
         Alert.alert('', ls(language, 'audioGuideError'));
       }
@@ -1058,7 +1546,7 @@ export default function LandmarkResultPage({ navigation, route }) {
     const t = (textForTts || '').trim();
     if (!t) return;
     const on = await Speech.isSpeakingAsync();
-    if (on || soundRef.current) {
+    if (on || filePlaying) {
       Speech.stop();
       await stopFileAudio();
       setSpeaking(false);
@@ -1075,21 +1563,71 @@ export default function LandmarkResultPage({ navigation, route }) {
         callbacks: {
           onDone: () => setSpeaking(false),
           onStopped: () => setSpeaking(false),
-          onError: () => setSpeaking(false),
+          onError: () => {
+            setSpeaking(false);
+            Alert.alert('', ls(language, 'audioGuideError'));
+          },
         },
       });
-      if (!mode) setSpeaking(false);
+      if (!mode) {
+        setSpeaking(false);
+        Alert.alert('', ls(language, 'audioGuideError'));
+      }
     } catch (e) {
       setSpeaking(false);
       await stopFileAudio();
       if (__DEV__) console.warn('[audioGuide]', e?.message);
+      Alert.alert('', ls(language, 'audioGuideError'));
     }
   }, [audioGuideUrl, language, playLocalAudioUri, stopFileAudio, textForTts]);
 
+  const resetMiniSheetDrag = useCallback(() => {
+    miniSheetDragY.stopAnimation();
+    miniSheetDragX.stopAnimation();
+    miniSheetDragY.setValue(0);
+    miniSheetDragX.setValue(0);
+  }, [miniSheetDragY, miniSheetDragX]);
+
   const openFull = useCallback(() => {
     if (phase !== 'mini') return;
+    resetMiniSheetDrag();
     setPhase('full');
-  }, [phase]);
+  }, [phase, resetMiniSheetDrag]);
+
+  const finishMiniSheetOpenVertical = useCallback(() => {
+    miniSheetDragX.setValue(0);
+    miniSheetDragY.stopAnimation();
+    Animated.timing(miniSheetDragY, {
+      toValue: -Math.max(winH * 0.92, 480),
+      duration: 240,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      resetMiniSheetDrag();
+      setPhase('full');
+    });
+  }, [miniSheetDragY, winH, resetMiniSheetDrag]);
+
+  const finishMiniSheetOpenHorizontal = useCallback(() => {
+    miniSheetDragY.setValue(0);
+    miniSheetDragX.stopAnimation();
+    Animated.timing(miniSheetDragX, {
+      toValue: -Math.max(winW * 1.05, 360),
+      duration: 240,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      resetMiniSheetDrag();
+      setPhase('full');
+    });
+  }, [miniSheetDragX, winW, resetMiniSheetDrag]);
+
+  const finishMiniSheetOpenVerticalRef = useRef(finishMiniSheetOpenVertical);
+  const finishMiniSheetOpenHorizontalRef = useRef(finishMiniSheetOpenHorizontal);
+  useEffect(() => {
+    finishMiniSheetOpenVerticalRef.current = finishMiniSheetOpenVertical;
+    finishMiniSheetOpenHorizontalRef.current = finishMiniSheetOpenHorizontal;
+  }, [finishMiniSheetOpenVertical, finishMiniSheetOpenHorizontal]);
 
   const onBack = useCallback(() => {
     if (phase === 'full' && returnToMiniOnBack) {
@@ -1109,11 +1647,11 @@ export default function LandmarkResultPage({ navigation, route }) {
   useLayoutEffect(() => {
     if (Platform.OS !== 'ios') return undefined;
     navigation.setOptions({
-      gestureEnabled: phase !== 'full',
-      fullScreenGestureEnabled: phase !== 'full',
+      gestureEnabled: false,
+      fullScreenGestureEnabled: false,
     });
     return undefined;
-  }, [navigation, phase]);
+  }, [navigation]);
 
   const onIntroSectionLayout = useCallback((e) => {
     const nextY = Number(e?.nativeEvent?.layout?.y);
@@ -1220,6 +1758,7 @@ export default function LandmarkResultPage({ navigation, route }) {
       const maxIdx = Math.max(0, pageSections.length - 1);
       const next = Math.max(0, Math.min(maxIdx, Number(index) || 0));
       activeSectionIndexRef.current = next;
+      introScrollYRef.current = 0;
       setActiveSectionIndex(next);
       return true;
     },
@@ -1239,6 +1778,49 @@ export default function LandmarkResultPage({ navigation, route }) {
     },
     [activeSectionIndex, goToSectionIndex, pageSections.length],
   );
+
+  const quizHasNextSection = useMemo(() => {
+    const quizIdx = pageSections.findIndex((p) => p.id === 'quiz');
+    return quizIdx >= 0 && quizIdx < pageSections.length - 1;
+  }, [pageSections]);
+
+  const handleQuizContinue = useCallback(() => {
+    goToAdjacentSection(1);
+  }, [goToAdjacentSection]);
+
+  const scrollQuizIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        quizPageScrollRef.current?.scrollToEnd({ animated: true });
+      });
+    });
+  }, []);
+
+  const headerDotsContent =
+    phase === 'full' && sectionDotCount > 1 ? (
+      <View style={styles.headerPagerDots}>
+        {Array.from({ length: sectionDotCount }).map((_, idx) => (
+          <Pressable
+            key={`dot-${idx}`}
+            onPress={() => goToSectionIndex(idx)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`${idx + 1} / ${sectionDotCount}`}
+          >
+            <View
+              style={[
+                styles.headerPagerDot,
+                {
+                  backgroundColor:
+                    idx === activeSectionIndex ? accent : isLight ? 'rgba(2,18,235,0.24)' : 'rgba(225,255,0,0.24)',
+                  opacity: idx === activeSectionIndex ? 1 : 0.55,
+                },
+              ]}
+            />
+          </Pressable>
+        ))}
+      </View>
+    ) : null;
 
   /** На повному екрані: попередня секція пейджера або mini / goBack — не одразу на головну. */
   const handleFullPhaseStepBack = useCallback(() => {
@@ -1285,6 +1867,12 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   useEffect(() => {
     setIllustrationLightboxOpen(false);
+    setCompareDragLock(false);
+    introPullDismissArmedRef.current = false;
+    introScrollYRef.current = 0;
+    requestAnimationFrame(() => {
+      introPageScrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
   }, [activeSectionIndex]);
 
   useEffect(() => {
@@ -1344,47 +1932,144 @@ export default function LandmarkResultPage({ navigation, route }) {
     [snapToClosestReadSection, computeActiveSectionIndex],
   );
 
-  const miniOpenPanResponder = useMemo(
+  const miniPhasePanResponder = useMemo(
     () =>
-      createLandmarkPagerPanResponder({
-        enabled: phase === 'mini' && !paramsMenuOpen,
-        onSwipeUp: openFull,
-        onSwipeLeft: openFull,
-        onSwipeRight: onBack,
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, g) => {
+          if (phase !== 'mini' || paramsMenuOpen) return false;
+          const ax = Math.abs(g.dx);
+          const ay = Math.abs(g.dy);
+          return (
+            (g.dy < -4 && ay > ax * 0.45) ||
+            (g.dx < -4 && ax > ay * 0.45) ||
+            (g.dx > 4 && ax > ay * 0.45)
+          );
+        },
+        onMoveShouldSetPanResponder: (_, g) => {
+          if (phase !== 'mini' || paramsMenuOpen) return false;
+          const ax = Math.abs(g.dx);
+          const ay = Math.abs(g.dy);
+          return (
+            (g.dy < -3 && ay > ax * 0.45) ||
+            (g.dx < -3 && ax > ay * 0.45) ||
+            (g.dx > 3 && ax > ay * 0.45)
+          );
+        },
+        onPanResponderTerminationRequest: () => miniDragAxisRef.current == null,
+        onPanResponderGrant: () => {
+          miniDragAxisRef.current = null;
+        },
+        onPanResponderMove: (_, g) => {
+          const ax = Math.abs(g.dx);
+          const ay = Math.abs(g.dy);
+          if (!miniDragAxisRef.current) {
+            if (g.dy < -MINI_SHEET_AXIS_LOCK_PX && ay >= ax * 0.55) {
+              miniDragAxisRef.current = 'up';
+            } else if (g.dx < -MINI_SHEET_AXIS_LOCK_PX && ax >= ay * 0.55) {
+              miniDragAxisRef.current = 'left';
+            } else if (g.dx > MINI_SHEET_AXIS_LOCK_PX && ax >= ay * 0.55) {
+              miniDragAxisRef.current = 'back';
+            }
+          }
+          const axis = miniDragAxisRef.current;
+          if (axis === 'up') {
+            miniSheetDragX.setValue(0);
+            miniSheetDragY.setValue(Math.min(0, g.dy));
+            return;
+          }
+          if (axis === 'left') {
+            miniSheetDragY.setValue(0);
+            miniSheetDragX.setValue(Math.min(0, g.dx));
+          }
+        },
+        onPanResponderRelease: (_, g) => {
+          const axis = miniDragAxisRef.current;
+          miniDragAxisRef.current = null;
+          if (axis === 'up' && (g.dy < -MINI_SHEET_OPEN_DRAG_PX || g.vy < MINI_SHEET_OPEN_VY)) {
+            finishMiniSheetOpenVerticalRef.current();
+            return;
+          }
+          if (axis === 'left' && (g.dx < -MINI_SHEET_OPEN_DRAG_PX || g.vx < MINI_SHEET_OPEN_VX)) {
+            finishMiniSheetOpenHorizontalRef.current();
+            return;
+          }
+          if (axis === 'back' && (g.dx > MINI_SHEET_OPEN_DRAG_PX || g.vx > MINI_SHEET_BACK_VX)) {
+            onBackRef.current();
+            return;
+          }
+          Animated.parallel([
+            Animated.spring(miniSheetDragY, {
+              toValue: 0,
+              useNativeDriver: true,
+              damping: 22,
+              stiffness: 280,
+            }),
+            Animated.spring(miniSheetDragX, {
+              toValue: 0,
+              useNativeDriver: true,
+              damping: 22,
+              stiffness: 280,
+            }),
+          ]).start();
+        },
       }),
-    [phase, paramsMenuOpen, openFull, onBack],
+    [phase, paramsMenuOpen, miniSheetDragY, miniSheetDragX],
+  );
+
+  const onIntroScroll = useCallback((e) => {
+    const y = Number(e?.nativeEvent?.contentOffset?.y);
+    const rawY = Number.isFinite(y) ? y : 0;
+    introScrollYRef.current = Math.max(0, rawY);
+    if (
+      isIntroFirstPageRef.current &&
+      rawY < -LANDMARK_SCROLL_PULL_DISMISS_PX &&
+      !introPullDismissArmedRef.current
+    ) {
+      introPullDismissArmedRef.current = true;
+      handleFullPhaseStepBackRef.current();
+    }
+  }, []);
+
+  const onIntroScrollEnd = useCallback(() => {
+    introPullDismissArmedRef.current = false;
+  }, []);
+
+  const introScrollProps = useMemo(
+    () =>
+      isIntroFirstPage
+        ? {
+            onScroll: onIntroScroll,
+            onScrollEndDrag: onIntroScrollEnd,
+            onMomentumScrollEnd: onIntroScrollEnd,
+            scrollEventThrottle: 32,
+          }
+        : {},
+    [isIntroFirstPage, onIntroScroll, onIntroScrollEnd],
   );
 
   const fullBackPanResponder = useMemo(
     () =>
       createLandmarkPagerPanResponder({
         enabled: phase === 'full' && !paramsMenuOpen,
-        canSwipeDown: () =>
-          currentPage?.type !== 'intro' || introScrollYRef.current <= 32,
+        preferVerticalScroll: () => {
+          const t = currentPageTypeRef.current;
+          return t === 'intro' || t === 'quiz';
+        },
+        canSwipeDown: () => isIntroFirstPageRef.current && introScrollYRef.current <= 32,
         onSwipeDown: () => handleFullPhaseStepBackRef.current(),
+        canSwipeUp: () => isIntroFirstPageRef.current && introScrollYRef.current <= 32,
+        onSwipeUp: () => handleFullPhaseStepBackRef.current(),
         onSwipeLeft: () => handleLandmarkPagerSwipe(-1),
         onSwipeRight: () => handleLandmarkPagerSwipe(1),
       }),
-    [phase, paramsMenuOpen, handleLandmarkPagerSwipe, currentPage?.type],
-  );
-
-  const introScrollBackPanResponder = useMemo(
-    () =>
-      createLandmarkPagerPanResponder({
-        enabled: phase === 'full' && !paramsMenuOpen && currentPage?.type === 'intro',
-        canSwipeDown: () => introScrollYRef.current <= 32,
-        onSwipeDown: () => handleFullPhaseStepBackRef.current(),
-        onSwipeRight: () => handleFullPhaseStepBackRef.current(),
-      }),
-    [phase, paramsMenuOpen, currentPage?.type],
+    [phase, paramsMenuOpen, handleLandmarkPagerSwipe],
   );
 
   const fullBackSwipeHandlers =
     paramsMenuOpen ? {} : fullBackPanResponder?.panHandlers || {};
-  const introScrollBackSwipeHandlers =
-    paramsMenuOpen ? {} : introScrollBackPanResponder?.panHandlers || {};
-  const landmarkSwipeHandlers = fullBackSwipeHandlers;
-  const miniSwipeHandlers = paramsMenuOpen ? {} : miniOpenPanResponder?.panHandlers || {};
+  const landmarkSwipeHandlers =
+    paramsMenuOpen ? {} : fullBackSwipeHandlers;
+  const miniPhaseSwipeHandlers = paramsMenuOpen ? {} : miniPhasePanResponder.panHandlers;
 
   const paramMenuSheetHRef = useRef(360);
   const paramMenuDragY = useRef(new Animated.Value(0)).current;
@@ -1415,6 +2100,10 @@ export default function LandmarkResultPage({ navigation, route }) {
     finishDismissParamsMenuRef.current = finishDismissParamsMenu;
   }, [finishDismissParamsMenu]);
 
+  const requestDismissParamsMenu = useCallback(() => {
+    finishDismissParamsMenuRef.current();
+  }, []);
+
   useEffect(() => {
     if (!paramsMenuOpen) return undefined;
     const travel = Math.min(winH * 0.55, 460);
@@ -1432,18 +2121,29 @@ export default function LandmarkResultPage({ navigation, route }) {
   useEffect(() => {
     if (!paramsMenuOpen) return undefined;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      dismissParamsMenuRef.current();
+      requestDismissParamsMenu();
       return true;
     });
     return () => sub.remove();
-  }, [paramsMenuOpen]);
+  }, [paramsMenuOpen, requestDismissParamsMenu]);
+
+  const paramMenuBackdropOpacity = useMemo(
+    () =>
+      paramMenuDragY.interpolate({
+        inputRange: [0, 460],
+        outputRange: [0.45, 0],
+        extrapolate: 'clamp',
+      }),
+    [paramMenuDragY],
+  );
 
   const paramMenuSheetPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && g.dy > Math.abs(g.dx) * 1.05,
-        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 8 && g.dy > Math.abs(g.dx) * 1.08,
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponder: (_, g) => g.dy > 2 && g.dy >= Math.abs(g.dx) * 0.85,
+        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
         onPanResponderTerminationRequest: (_, g) => !(g.dy > 4 && g.dy > Math.abs(g.dx)),
         onPanResponderMove: (_, g) => {
           paramMenuDragY.setValue(Math.max(0, g.dy));
@@ -1465,8 +2165,12 @@ export default function LandmarkResultPage({ navigation, route }) {
   );
 
   const onMoreMenu = useCallback(() => {
+    if (paramsMenuOpen) {
+      finishDismissParamsMenuRef.current();
+      return;
+    }
     setParamsMenuOpen(true);
-  }, []);
+  }, [paramsMenuOpen]);
 
   const openMapsRoute = useCallback(() => {
     const url =
@@ -1592,17 +2296,22 @@ export default function LandmarkResultPage({ navigation, route }) {
       visible={paramsMenuOpen}
       transparent
       animationType="fade"
-      onRequestClose={dismissParamsMenu}
+      onRequestClose={requestDismissParamsMenu}
       statusBarTranslucent
       {...(Platform.OS === 'ios' ? { presentationStyle: 'overFullScreen' } : {})}
     >
       <View style={styles.paramMenuModalRoot}>
         <Pressable
-          style={styles.paramMenuBackdropPress}
-          onPress={dismissParamsMenu}
+          style={StyleSheet.absoluteFill}
+          onPress={requestDismissParamsMenu}
           accessibilityRole="button"
           accessibilityLabel={ls(language, 'goBack')}
-        />
+        >
+          <Animated.View
+            style={[styles.paramMenuBackdropPress, { opacity: paramMenuBackdropOpacity }]}
+            pointerEvents="none"
+          />
+        </Pressable>
         <Animated.View
           onLayout={(e) => {
             const h = Math.round(e.nativeEvent.layout.height);
@@ -1616,9 +2325,8 @@ export default function LandmarkResultPage({ navigation, route }) {
               transform: [{ translateY: paramMenuDragY }],
             },
           ]}
-          {...paramMenuSheetPanResponder.panHandlers}
         >
-          <View style={styles.paramMenuDragZone} pointerEvents="box-none">
+          <View style={styles.paramMenuDragZone} {...paramMenuSheetPanResponder.panHandlers}>
             <View style={styles.paramMenuHandleWrap}>
               <View
                 style={[
@@ -1724,10 +2432,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   if (phase === 'mini') {
     return (
       <RenderProfiler id="LandmarkResultPage">
-      <View
-        style={styles.screen}
-        {...miniSwipeHandlers}
-      >
+      <View style={styles.screen} {...miniPhaseSwipeHandlers}>
         {heroPhotoSource ? (
           <Image
             source={heroPhotoSource}
@@ -1752,6 +2457,7 @@ export default function LandmarkResultPage({ navigation, route }) {
             headerTitle={headerTitle}
             onBack={onBack}
             onMorePress={onMoreMenu}
+            moreMenuOpen={paramsMenuOpen}
             bottomContent={headerDotsContent}
           />
         </View>
@@ -1760,11 +2466,14 @@ export default function LandmarkResultPage({ navigation, route }) {
             styles.miniBottomStack,
             isLight && styles.miniBottomStackLight,
             {
-              transform: [{ translateY: miniPanelEnterY }],
+              transform: [
+                { translateY: Animated.add(miniPanelEnterY, miniSheetDragY) },
+                { translateX: miniSheetDragX },
+              ],
             },
           ]}
         >
-          <View style={styles.miniFabStraddle}>
+          <View style={styles.miniFabStraddle} pointerEvents="box-none">
             <Pressable
               style={[styles.audioFabMini, isLight && styles.audioFabMiniLight]}
               onPress={toggleSpeech}
@@ -1772,7 +2481,11 @@ export default function LandmarkResultPage({ navigation, route }) {
               accessibilityRole="button"
               accessibilityLabel={ls(language, 'audioGuide')}
             >
-              <Ionicons name="headset" size={18} color={isLight ? ACCENT_BLUE : '#1E1E1E'} />
+              <Ionicons
+                name={speaking ? 'pause' : 'headset'}
+                size={18}
+                color={speaking ? accent : isLight ? ACCENT_BLUE : '#1E1E1E'}
+              />
             </Pressable>
           </View>
           <Animated.View
@@ -1785,8 +2498,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                 marginBottom: isLight ? Math.max(insets.bottom, 12) : Math.max(insets.bottom, 8),
               },
             ]}
-            {...miniSwipeHandlers}
-            accessibilityRole="button"
+            accessibilityRole="adjustable"
             accessibilityLabel={ls(language, 'miniSwipeHint')}
           >
             {Platform.OS === 'ios' && !isLight ? (
@@ -1801,7 +2513,8 @@ export default function LandmarkResultPage({ navigation, route }) {
               ]}
             />
             <View style={styles.miniSheetInner}>
-              <View style={styles.miniSheetHandleRow} pointerEvents="none">
+              <View style={styles.miniSheetHandleRow}>
+                <View style={styles.miniSheetHandleHit} />
                 <Ionicons
                   name="chevron-up"
                   size={24}
@@ -1848,117 +2561,255 @@ export default function LandmarkResultPage({ navigation, route }) {
     );
   }
 
-  const readArticleColumn = (
-    <View style={[styles.readQuizPagePad, { paddingTop: fullReadTopClearance, backgroundColor: sheetBg }]}>
-      {currentPage?.type === 'intro' ? (
-        <View style={[styles.fullReadPage, { backgroundColor: sheetBg }]}>
-          <View
-            style={[
-              styles.fullReadHeroCard,
-              { height: smallHeroHeight, marginHorizontal: 0, marginTop: 0 },
-              isLight && styles.fullReadHeroCardLight,
-            ]}
+  const introArticleBody = (
+    <>
+      {!isIntroSubPage ? (
+        <>
+          <Text
+            style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
+            {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
           >
-            {heroPhotoSource ? (
-              <Image
-                source={heroPhotoSource}
+            {headerTitle}
+          </Text>
+          {sheetTagline ? (
+            <View
+              style={[
+                styles.introTaglineBlock,
+                { borderBottomColor: isLight ? 'rgba(2, 18, 235, 0.1)' : 'rgba(255,255,255,0.12)' },
+              ]}
+            >
+              <Text
                 style={[
-                  styles.fullReadHeroImg,
-                  isIntroTextShort ? { transform: [{ translateY: 22 + introAutoShift }] } : { transform: [{ translateY: 0 }] },
+                  styles.subtitle,
+                  styles.fullReadSubtitle,
+                  brandFontSans,
+                  { color: isLight ? 'rgba(2, 18, 235, 0.72)' : subColor },
                 ]}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={[styles.fullReadHeroImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
-            )}
-          </View>
-          <View style={styles.fullReadIntroScrollWrap} {...introScrollBackSwipeHandlers}>
+              >
+                {sheetTagline}
+              </Text>
+            </View>
+          ) : null}
+          {showSourceTag ? (
+            <Text style={[styles.sourceTag, brandFontSansMedium, { color: accent }]}>{sourceLine}</Text>
+          ) : null}
+        </>
+      ) : null}
+      <LandmarkIntroFormattedBody
+        text={currentIntroBody}
+        isLight={isLight}
+        accent={accent}
+        titleColor={titleColor}
+        bodyColor={bodyColor}
+        bodyLinkColor={bodyLinkColor}
+        emphasisColor={emphasisColor}
+        brandFontSans={brandFontSans}
+        brandFontHeadMedium={brandFontHeadMedium}
+        leadOnly={isIntroSubPage}
+        uniformParagraphs={isIntroSubPage}
+      />
+      {currentIllustration ? (
+        <Pressable
+          onPress={() => setIllustrationLightboxOpen(true)}
+          style={styles.introIllustrationLinkWrap}
+          android_ripple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
+        >
+          <Text style={[styles.introIllustrationLinkText, brandFontSansMedium, { color: accent }]}>
+            {currentIllustration.link ||
+              (language === 'uk' ? 'Подивитися, як це могло виглядати' : 'See how it might have looked')}
+          </Text>
+          {currentIllustration.caption ? (
+            <Text style={[styles.introIllustrationCaption, brandFontSans, { color: bodyColor }]}>
+              {currentIllustration.caption}
+            </Text>
+          ) : null}
+        </Pressable>
+      ) : null}
+      {!isIntroSubPage && wikipediaUrl ? (
+        <AuthStylePrimaryCta
+          onPress={openWiki}
+          label={ls(language, 'more')}
+          isLight={isLight}
+          androidRipple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
+        />
+      ) : null}
+    </>
+  );
+
+  const introHeroCard = (variant = 'primary') => {
+    const source = variant === 'secondary' ? introSecondaryPhotoSource : introPrimaryPhotoSource;
+    const secondaryHeightConfig = MAIDAN_INTRO_PAGE_SECONDARY_HERO_HEIGHT[currentPage?.id];
+    const height =
+      variant === 'secondary'
+        ? secondaryHeightConfig
+          ? Math.min(
+              secondaryHeightConfig.max,
+              Math.max(200, Math.round(winH * secondaryHeightConfig.ratio)),
+            )
+          : Math.min(420, Math.max(260, Math.round(winH * 0.44)))
+        : introHeroHeight;
+    if (!source && variant === 'secondary') return null;
+    const heroPosition =
+      variant === 'secondary'
+        ? MAIDAN_INTRO_PAGE_SECONDARY_HERO_POSITION[currentPage?.id] || 'center'
+        : MAIDAN_INTRO_PAGE_HERO_POSITION[currentPage?.id] || 'center';
+    const heroFit =
+      variant === 'secondary'
+        ? 'cover'
+        : MAIDAN_INTRO_PAGE_HERO_FIT[currentPage?.id] || 'cover';
+    const insetRoundedGap = MAIDAN_INTRO_PAGE_COMPARE_TOP_INSET[currentPage?.id] ?? 12;
+    const stackGap =
+      isMaidanDumaIntroPage && variant === 'secondary'
+        ? 0
+        : variant === 'primary'
+          ? isIntroHeroBleedTopPage
+            ? 0
+            : isMaidanMapIntroPage ||
+                isMaidanCompareIntroPage ||
+                (isIntroHeroInsetRoundedHeroFirstPage && variant === 'primary')
+              ? insetRoundedGap
+              : isIntroHeroAfterTextPage
+                ? 20
+                : introHeroTopInset
+          : 10;
+    return (
+    <View
+      style={[
+        styles.fullReadHeroCard,
+        {
+          height,
+          marginHorizontal: currentIntroCompare
+            ? INTRO_COMPARE_HPAD
+            : isIntroHeroInsetRoundedPage && variant === 'primary'
+              ? 20
+              : 0,
+          marginTop: stackGap,
+        },
+        isLight && styles.fullReadHeroCardLight,
+        currentIntroCompare && styles.fullReadHeroCardCompare,
+        currentIntroCompare && isLight && styles.fullReadHeroCardCompareLight,
+        isMaidanCompareIntroPage && styles.fullReadHeroCardCompareRoundedAll,
+        variant === 'secondary' && styles.fullReadHeroCardSecondary,
+        isIntroHeroAfterTextPage && variant === 'primary' && styles.fullReadHeroCardInsetRounded,
+        isIntroHeroInsetRoundedPage && variant === 'primary' && styles.fullReadHeroCardInsetRounded,
+        isIntroHeroBleedTopPage && variant === 'primary' && styles.fullReadHeroCardBleedTop,
+      ]}
+    >
+      {variant === 'primary' && currentIntroCompare ? (
+        <LandmarkPhotoCompare
+          beforeSource={currentIntroCompare.beforeAsset}
+          afterSource={currentIntroCompare.afterAsset}
+          beforeUri={currentIntroCompare.beforeUri}
+          afterUri={currentIntroCompare.afterUri}
+          initialPosition={0.5}
+          containerHeight={introHeroHeight}
+          isLight={isLight}
+          nestedInScroll
+          onDragStateChange={setCompareDragLock}
+          style={[
+            styles.fullReadHeroCompare,
+            isMaidanCompareIntroPage && styles.fullReadHeroCompareRounded,
+          ]}
+        />
+      ) : source ? (
+        <ExpoImage
+          source={source}
+          style={[
+            styles.fullReadHeroImg,
+            variant === 'primary' && isIntroTextShort
+              ? { transform: [{ translateY: 22 + introAutoShift }] }
+              : { transform: [{ translateY: 0 }] },
+          ]}
+          contentFit={heroFit}
+          contentPosition={heroPosition}
+          cachePolicy="memory-disk"
+          transition={0}
+          allowDownscaling
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <View style={[styles.fullReadHeroImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
+      )}
+    </View>
+    );
+  };
+
+  const readArticleColumn = (
+    <View
+      style={[
+        styles.readQuizPagePad,
+        {
+          paddingTop: fullReadTopClearance,
+          backgroundColor: isIntroFullBleedPhotoPage ? '#000' : sheetBg,
+        },
+      ]}
+    >
+      {currentPage?.type === 'intro' && isIntroFullBleedPhotoPage ? (
+        <View style={[styles.fullReadPage, styles.introFullBleedPage]}>
+          {introPrimaryPhotoSource ? (
+            <ExpoImage
+              source={introPrimaryPhotoSource}
+              style={styles.introFullBleedImg}
+              contentFit="cover"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={0}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View style={[styles.introFullBleedImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
+          )}
+        </View>
+      ) : currentPage?.type === 'intro' ? (
+        <View
+          style={[styles.fullReadPage, { backgroundColor: sheetBg }]}
+        >
           <ScrollView
+            ref={introPageScrollRef}
+            key={`intro-scroll-${currentPage?.id ?? activeSectionIndex}`}
             style={styles.fullReadScroll}
             contentContainerStyle={{
-              paddingHorizontal: 20,
-              paddingTop: 12 + introAutoShift,
-              paddingBottom: Math.max(insets.bottom, 96),
+              paddingBottom: introScrollBottomPad,
+              paddingTop: introScrollTopPad,
             }}
             showsVerticalScrollIndicator={false}
-            scrollEventThrottle={16}
-            onScroll={(e) => {
-              const y = Number(e?.nativeEvent?.contentOffset?.y);
-              introScrollYRef.current = Number.isFinite(y) ? Math.max(0, y) : 0;
-            }}
+            nestedScrollEnabled
+            scrollEnabled={!compareDragLock}
+            bounces={isIntroFirstPage}
+            overScrollMode={isIntroFirstPage ? 'always' : 'never'}
+            keyboardShouldPersistTaps="handled"
+            removeClippedSubviews={Platform.OS === 'android'}
+            {...introScrollProps}
           >
-            {!isIntroSubPage ? (
+            {isIntroHeroAfterTextPage ? (
               <>
-                <Text
-                  style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
-                  {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
+                <View
+                  style={[
+                    styles.introScrollTextBlock,
+                    styles.introScrollTextBlockFirst,
+                    styles.introScrollTextBlockHeroFirst,
+                  ]}
                 >
-                  {headerTitle}
-                </Text>
-                {sheetTagline ? (
-                  <View
-                    style={[
-                      styles.introTaglineBlock,
-                      { borderBottomColor: isLight ? 'rgba(2, 18, 235, 0.1)' : 'rgba(255,255,255,0.12)' },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.subtitle,
-                        styles.fullReadSubtitle,
-                        brandFontSans,
-                        { color: isLight ? 'rgba(2, 18, 235, 0.72)' : subColor },
-                      ]}
-                    >
-                      {sheetTagline}
-                    </Text>
-                  </View>
-                ) : null}
-                {showSourceTag ? (
-                  <Text style={[styles.sourceTag, brandFontSansMedium, { color: accent }]}>{sourceLine}</Text>
-                ) : null}
+                  {introArticleBody}
+                </View>
+                {introPrimaryPhotoSource ? introHeroCard('primary') : null}
               </>
-            ) : null}
-            <LandmarkIntroFormattedBody
-              text={currentIntroBody}
-              isLight={isLight}
-              accent={accent}
-              titleColor={titleColor}
-              bodyColor={bodyColor}
-              bodyLinkColor={bodyLinkColor}
-              emphasisColor={emphasisColor}
-              brandFontSans={brandFontSans}
-              brandFontHeadMedium={brandFontHeadMedium}
-              leadOnly={isIntroSubPage}
-              uniformParagraphs={isIntroSubPage}
-            />
-            {currentIllustration ? (
-              <Pressable
-                onPress={() => setIllustrationLightboxOpen(true)}
-                style={styles.introIllustrationLinkWrap}
-                android_ripple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
-              >
-                <Text style={[styles.introIllustrationLinkText, brandFontSansMedium, { color: accent }]}>
-                  {currentIllustration.link ||
-                    (language === 'uk' ? 'Подивитися, як це могло виглядати' : 'See how it might have looked')}
-                </Text>
-                {currentIllustration.caption ? (
-                  <Text style={[styles.introIllustrationCaption, brandFontSans, { color: bodyColor }]}>
-                    {currentIllustration.caption}
-                  </Text>
-                ) : null}
-              </Pressable>
-            ) : null}
-            {!isIntroSubPage && wikipediaUrl ? (
-              <AuthStylePrimaryCta
-                onPress={openWiki}
-                label={ls(language, 'more')}
-                isLight={isLight}
-                androidRipple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
-              />
-            ) : null}
+            ) : (
+              <>
+                {introPrimaryPhotoSource ? introHeroCard('primary') : null}
+                {(isMaidanDumaIntroPage || introSecondaryPhotoSource) && introHeroCard('secondary')}
+                <View
+                  style={[
+                    styles.introScrollTextBlock,
+                    !currentIntroCompare && !isIntroSubPage && { paddingTop: 12 + introAutoShift },
+                  ]}
+                >
+                  {introArticleBody}
+                </View>
+              </>
+            )}
           </ScrollView>
-          </View>
         </View>
       ) : null}
 
@@ -1970,26 +2821,55 @@ export default function LandmarkResultPage({ navigation, route }) {
             isLight ? styles.quizPageBgLight : styles.quizPageBgDark,
           ]}
         >
-          <View style={styles.quizPageTitleRow}>
-            <Text
+          <ScrollView
+            ref={quizPageScrollRef}
+            style={styles.quizPageScroll}
+            contentContainerStyle={[
+              styles.quizPageScrollContent,
+              { paddingBottom: quizScrollBottomPad },
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            bounces
+            overScrollMode="always"
+            removeClippedSubviews={Platform.OS === 'android'}
+          >
+            <View
               style={[
-                styles.quizPageTitle,
-                brandFontHeadMedium,
-                { color: isLight ? '#0C2FA8' : '#E1FF00' },
+                styles.quizPageViewportCenter,
+                {
+                  minHeight: quizViewportMinHeight,
+                  paddingTop: quizHeaderClearance,
+                },
               ]}
             >
-              {language === 'uk' ? 'Вікторина' : 'Quiz'}
-            </Text>
-          </View>
-          <View style={styles.quizPageInner}>
-            <LandmarkQuizContent
-              navigation={navigation}
-              route={quizPagerRoute}
-              pagerMode
-              hideHeader
-              inlineMode
-            />
-          </View>
+              <View style={styles.quizPageCenterColumn}>
+              <View style={styles.quizPageTitleRow}>
+                <Text
+                  style={[
+                    styles.quizPageTitle,
+                    brandFontHeadMedium,
+                    { color: isLight ? '#0C2FA8' : '#E1FF00' },
+                  ]}
+                >
+                  {language === 'uk' ? 'Вікторина' : 'Quiz'}
+                </Text>
+              </View>
+              <View style={styles.quizPageInner}>
+                <LandmarkQuizContent
+                  navigation={navigation}
+                  route={quizPagerRoute}
+                  pagerMode
+                  hideHeader
+                  inlineMode
+                  onContinue={quizHasNextSection ? handleQuizContinue : undefined}
+                  onAfterReveal={scrollQuizIntoView}
+                />
+              </View>
+              </View>
+            </View>
+          </ScrollView>
         </View>
       ) : null}
 
@@ -2003,11 +2883,25 @@ export default function LandmarkResultPage({ navigation, route }) {
         >
           {currentPage.type === 'compare' ? (
             <LandmarkPhotoCompare
+              beforeSource={currentPage.slide?.compareBottomSource}
+              afterSource={currentPage.slide?.compareTopSource}
               beforeUri={currentPage.slide?.compareBottomUri}
               afterUri={currentPage.slide?.compareTopUri}
               initialPosition={0.5}
+              containerHeight={Math.round(winH * 0.92)}
               isLight={isLight}
               style={styles.readFactCompare}
+            />
+          ) : typeof currentPage.slide?.photoAsset === 'number' ? (
+            <ExpoImage
+              source={currentPage.slide.photoAsset}
+              style={[styles.readFactImage, styles.readFactImageBleed]}
+              contentFit="cover"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={0}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
             />
           ) : (
             <Image
@@ -2020,6 +2914,37 @@ export default function LandmarkResultPage({ navigation, route }) {
             <View style={styles.readFactOverlay} />
           ) : null}
           {currentPage.type === 'fact' ? (
+            currentPage.slide?.introFact ? (
+              <View
+                style={[
+                  styles.readFactCard,
+                  styles.readFactCardIntro,
+                  isLight && styles.readFactCardLight,
+                  { opacity: 1, maxHeight: Math.round(winH * 0.5) },
+                ]}
+              >
+                <ScrollView
+                  contentContainerStyle={styles.readFactCardIntroScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                  bounces={false}
+                >
+                  <LandmarkIntroFormattedBody
+                    text={String(currentPage.slide?.fact || '').trim()}
+                    isLight={isLight}
+                    accent={accent}
+                    titleColor={titleColor}
+                    bodyColor={accent}
+                    bodyLinkColor={bodyLinkColor}
+                    emphasisColor={emphasisColor}
+                    brandFontSans={brandFontSans}
+                    brandFontHeadMedium={brandFontHeadMedium}
+                    leadOnly
+                    uniformParagraphs
+                  />
+                </ScrollView>
+              </View>
+            ) : (
             <View style={[styles.readFactCard, isLight && styles.readFactCardLight, { opacity: 1 }]}>
               {currentPage.slide?.title ? (
                 <Text style={[styles.readFactTitle, brandFontHeadMedium, { color: titleColor }]}>
@@ -2038,6 +2963,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                 </Text>
               ) : null}
             </View>
+            )
           ) : null}
         </View>
       ) : null}
@@ -2048,7 +2974,6 @@ export default function LandmarkResultPage({ navigation, route }) {
     <RenderProfiler id="LandmarkResultPage">
       <View
         style={[styles.screen, isLight && styles.screenLight]}
-        {...fullBackSwipeHandlers}
       >
         <View
           style={[styles.miniTopDock, { paddingTop: insets.top + 2, paddingHorizontal: 6 }]}
@@ -2060,11 +2985,10 @@ export default function LandmarkResultPage({ navigation, route }) {
             headerTitle={headerTitle}
             onBack={onBack}
             onMorePress={onMoreMenu}
+            moreMenuOpen={paramsMenuOpen}
             bottomContent={headerDotsContent}
           />
         </View>
-        <OfflineStatusBanner isLight={isLight} top={insets.top + 70} />
-
         <View style={styles.readQuizPager} {...landmarkSwipeHandlers}>
           {readArticleColumn}
         </View>
@@ -2083,7 +3007,11 @@ export default function LandmarkResultPage({ navigation, route }) {
             accessibilityRole="button"
             accessibilityLabel={ls(language, 'audioGuide')}
           >
-            <Ionicons name="headset" size={24} color={isLight ? ACCENT_BLUE : '#1E1E1E'} />
+            <Ionicons
+              name={speaking ? 'pause' : 'headset'}
+              size={24}
+              color={speaking ? accent : isLight ? ACCENT_BLUE : '#1E1E1E'}
+            />
           </Pressable>
         </View>
       </View>
@@ -2217,6 +3145,13 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 4,
   },
+  miniSheetHandleHit: {
+    position: 'absolute',
+    top: 0,
+    left: '20%',
+    right: '20%',
+    height: 36,
+  },
   miniSheetBottomContent: {
     marginTop: 'auto',
   },
@@ -2261,6 +3196,35 @@ const styles = StyleSheet.create({
   fullReadHeroCardLight: {
     backgroundColor: '#DDE0E8',
   },
+  fullReadHeroCardCompare: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#0E0E0E',
+  },
+  fullReadHeroCardCompareLight: {
+    backgroundColor: '#FFFFFF',
+  },
+  fullReadHeroCardCompareRoundedAll: {
+    borderRadius: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  fullReadHeroCardSecondary: {
+    borderRadius: 20,
+    marginBottom: 6,
+  },
+  fullReadHeroCompare: {
+    flex: 1,
+    width: '100%',
+  },
+  fullReadHeroCompareRounded: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
   fullReadHeroImg: {
     width: '100%',
     height: '100%',
@@ -2275,10 +3239,10 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   introIllustrationCaption: {
-    marginTop: 8,
-    fontSize: 13,
-    lineHeight: 18,
-    opacity: 0.82,
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 16,
+    opacity: 0.78,
   },
   illustrationLightboxRoot: {
     flex: 1,
@@ -2311,6 +3275,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  introScrollTextBlock: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  introScrollTextBlockFirst: {
+    paddingTop: 0,
+    paddingBottom: 4,
+  },
+  introScrollTextBlockHeroFirst: {
+    paddingTop: 32,
+    paddingBottom: 20,
+  },
+  fullReadHeroCardInsetRounded: {
+    borderRadius: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    marginHorizontal: 20,
+    alignSelf: 'stretch',
+    marginBottom: 12,
+  },
+  fullReadHeroCardBleedTop: {
+    marginTop: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+  },
+  introFullBleedPage: {
+    backgroundColor: '#000',
+    overflow: 'hidden',
+  },
+  introFullBleedImg: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   fullReadIntroScrollWrap: {
     flex: 1,
@@ -2346,8 +3346,7 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   quizPageBg: {
-    paddingHorizontal: 14,
-    paddingTop: 146,
+    paddingHorizontal: 12,
   },
   quizPageBgLight: {
     backgroundColor: '#EAF1FF',
@@ -2355,9 +3354,26 @@ const styles = StyleSheet.create({
   quizPageBgDark: {
     backgroundColor: '#10192B',
   },
+  quizPageScroll: {
+    flex: 1,
+  },
+  quizPageScrollContent: {
+    flexGrow: 1,
+    alignItems: 'stretch',
+  },
+  quizPageViewportCenter: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  quizPageCenterColumn: {
+    width: '100%',
+    alignSelf: 'center',
+    maxWidth: 520,
+  },
   quizPageTitleRow: {
-    marginTop: 72,
-    marginBottom: 12,
+    marginTop: 0,
+    marginBottom: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2369,12 +3385,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   quizPageInner: {
-    flex: 1,
-    marginTop: 0,
-    marginBottom: 12,
-    justifyContent: 'flex-start',
-    paddingTop: 16,
-    paddingBottom: 18,
+    flexGrow: 0,
+    flexShrink: 1,
+    justifyContent: 'center',
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   readFactsDeck: {
     marginTop: 0,
@@ -2433,6 +3448,19 @@ const styles = StyleSheet.create({
   readFactCardLight: {
     backgroundColor: 'rgba(255,255,255,0.84)',
     borderColor: 'rgba(2,18,235,0.2)',
+  },
+  readFactCardIntro: {
+    top: '46%',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  readFactCardIntroScrollContent: {
+    paddingBottom: 2,
+  },
+  readFactBodyIntro: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   readFactTitle: {
     fontSize: 13,
@@ -2666,7 +3694,7 @@ const styles = StyleSheet.create({
   /** Тап по затемненому фону закриває панель. */
   paramMenuBackdropPress: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: '#000',
   },
   paramMenuSheet: {
     width: '100%',

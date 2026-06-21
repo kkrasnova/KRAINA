@@ -657,24 +657,36 @@ const NOTIFICATION_CATEGORY_ROWS = [
     icon: 'chatbubbles-outline',
     titleKey: 'notifCatMessagesTitle',
     descKey: 'notifCatMessagesDesc',
+    screenName: 'SettingsNotificationMessages',
+    screenTitleKey: 'notifMessagesScreenTitle',
+    screenDescKey: 'notifMessagesScreenDesc',
   },
   {
     key: 'feed',
     icon: 'newspaper-outline',
     titleKey: 'notifCatFeedTitle',
     descKey: 'notifCatFeedDesc',
+    screenName: 'SettingsNotificationFeed',
+    screenTitleKey: 'notifFeedScreenTitle',
+    screenDescKey: 'notifFeedScreenDesc',
   },
   {
     key: 'routesTips',
     icon: 'map-outline',
     titleKey: 'notifCatRoutesTitle',
     descKey: 'notifCatRoutesDesc',
+    screenName: 'SettingsNotificationRoutes',
+    screenTitleKey: 'notifRoutesScreenTitle',
+    screenDescKey: 'notifRoutesScreenDesc',
   },
   {
     key: 'productNews',
     icon: 'sparkles-outline',
     titleKey: 'notifCatProductTitle',
     descKey: 'notifCatProductDesc',
+    screenName: 'SettingsNotificationProduct',
+    screenTitleKey: 'notifProductScreenTitle',
+    screenDescKey: 'notifProductScreenDesc',
   },
 ];
 
@@ -781,6 +793,15 @@ export function SettingsNotificationsPage({ navigation, route }) {
   const openSystemSettings = useCallback(() => {
     void openWalkReminderNotificationSettings();
   }, []);
+
+  const goToNotifCategory = useCallback((screenName) => {
+    navigation.navigate(screenName, {
+      user: route?.params?.user,
+      language,
+      ...(route?.params?.countryId ? { countryId: route.params.countryId } : {}),
+      appTheme: route?.params?.appTheme || 'dark',
+    });
+  }, [navigation, language, route?.params?.user, route?.params?.countryId, route?.params?.appTheme]);
 
   return (
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey="notifications">
@@ -912,12 +933,10 @@ export function SettingsNotificationsPage({ navigation, route }) {
                     title: st(language, row.titleKey),
                     subtitle: st(language, row.descKey),
                     value: on,
-                    onValueChange: (v) => {
-                      if (!masterOn) return;
-                      patchPref(row.key, v);
-                    },
+                    onValueChange: undefined,
+                    onPress: () => goToNotifCategory(row.screenName),
+                    showChevron: true,
                     dimmed: !masterOn,
-                    switchPointerEvents: masterOn ? 'auto' : 'none',
                     isLast,
                   })}
                 </View>
@@ -992,6 +1011,239 @@ export function SettingsNotificationsPage({ navigation, route }) {
       }}
     </SettingsSubScreenShell>
   );
+}
+
+/** Конфіг категорій сповіщень для детальних екранів. */
+const NOTIF_CATEGORY_CONFIG = {
+  messages: {
+    icon: 'chatbubbles-outline',
+    prefsKey: 'messages',
+    soundKey: 'soundMessages',
+    titleKey: 'notifCatMessagesTitle',
+    descKey: 'notifCatMessagesDesc',
+    screenTitleKey: 'notifMessagesScreenTitle',
+    screenDescKey: 'notifMessagesScreenDesc',
+    pushNoteKey: 'notifMessagesPushNote',
+  },
+  feed: {
+    icon: 'newspaper-outline',
+    prefsKey: 'feed',
+    soundKey: 'soundFeed',
+    titleKey: 'notifCatFeedTitle',
+    descKey: 'notifCatFeedDesc',
+    screenTitleKey: 'notifFeedScreenTitle',
+    screenDescKey: 'notifFeedScreenDesc',
+  },
+  routesTips: {
+    icon: 'map-outline',
+    prefsKey: 'routesTips',
+    soundKey: 'soundRoutesTips',
+    titleKey: 'notifCatRoutesTitle',
+    descKey: 'notifCatRoutesDesc',
+    screenTitleKey: 'notifRoutesScreenTitle',
+    screenDescKey: 'notifRoutesScreenDesc',
+    pushNoteKey: 'notifRoutesPushNote',
+  },
+  productNews: {
+    icon: 'sparkles-outline',
+    prefsKey: 'productNews',
+    soundKey: 'soundProductNews',
+    titleKey: 'notifCatProductTitle',
+    descKey: 'notifCatProductDesc',
+    screenTitleKey: 'notifProductScreenTitle',
+    screenDescKey: 'notifProductScreenDesc',
+  },
+};
+
+/**
+ * Універсальний компонент екрану налаштувань для однієї категорії сповіщень.
+ * Використовує `config` з `NOTIF_CATEGORY_CONFIG` для заповнення даних.
+ */
+function NotifCategoryScreen({ navigation, route, config }) {
+  const language = useSyncedAppLanguage(route, 'uk');
+  const [prefs, setPrefs] = useState(() => {
+    const snap = readInAppNotificationPrefsSnapshot();
+    return snap ?? { ...DEFAULT_NOTIFICATION_PREFS };
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void prefetchInAppNotificationPrefs().then((next) => {
+      if (cancelled || !next) return;
+      setPrefs({ ...next });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const patchPref = useCallback((key, value) => {
+    setPrefs((prev) => {
+      const next = persistInAppNotificationPrefs({ ...prev, [key]: value });
+      return next;
+    });
+  }, []);
+
+  const openSystemSettings = useCallback(() => {
+    Linking.openSettings().catch(() => {});
+  }, []);
+
+  const cfg = config;
+
+  return (
+    <SettingsSubScreenShell navigation={navigation} route={route} titleKey={cfg.screenTitleKey}>
+      {({ language, light }) => {
+        const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
+        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
+        const hairline = light ? 'rgba(30, 30, 30, 0.1)' : 'rgba(255, 255, 255, 0.1)';
+        const accent = light ? BRAND_BLUE : ACCENT;
+        const rowSubtitleMuted = light ? FIGMA_ICON_MUTED : '#D2DAE8';
+        const masterOn = prefs.master;
+        const categoryOn = prefs[cfg.prefsKey] !== false;
+        const categorySoundOn = prefs[cfg.soundKey] !== false;
+        const soundMasterOn = prefs.soundMaster !== false;
+        const soundActive = masterOn && soundMasterOn && categoryOn;
+
+        const renderSwitchRow = ({ icon, title, subtitle, value, onValueChange, dimmed = false, isLast = false }) => {
+          const pal = notificationSwitchPalette(light, value);
+          return (
+            <View
+              style={[
+                styles.notifCleanRow,
+                dimmed && styles.notifRowDimmed,
+                !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: hairline },
+              ]}
+            >
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name={icon} size={22} color={accent} />
+              </View>
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{title}</Text>
+                {subtitle ? (
+                  <Text style={[styles.notifCleanSubtitle, { color: rowSubtitleMuted }]}>{subtitle}</Text>
+                ) : null}
+              </View>
+              {onValueChange != null ? (
+                <Switch
+                  value={value}
+                  onValueChange={onValueChange}
+                  trackColor={pal.trackColor}
+                  thumbColor={pal.thumbColor}
+                  ios_backgroundColor={pal.ios_backgroundColor}
+                />
+              ) : null}
+            </View>
+          );
+        };
+
+        return (
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage, styles.notifCleanPageTight]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      styles.notifHeroTitleTight,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, cfg.screenTitleKey)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroLead,
+                      styles.notifHeroLeadTight,
+                      { color: rowSubtitleMuted, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, cfg.screenDescKey)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>{st(language, 'notifSectionMain')}</Text>
+            {renderSwitchRow({
+              icon: cfg.icon,
+              title: st(language, cfg.titleKey),
+              subtitle: st(language, cfg.descKey),
+              value: categoryOn && masterOn,
+              onValueChange: masterOn ? (v) => patchPref(cfg.prefsKey, v) : undefined,
+              dimmed: !masterOn,
+              isLast: true,
+            })}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'notifSectionSound')}
+            </Text>
+            {renderSwitchRow({
+              icon: 'musical-notes-outline',
+              title: st(language, 'notifSoundCatSubtitle'),
+              subtitle: st(language, 'notifSoundCatSubtitle'),
+              value: categorySoundOn && soundActive,
+              onValueChange: soundActive ? (v) => patchPref(cfg.soundKey, v) : undefined,
+              dimmed: !soundActive,
+              isLast: cfg.pushNoteKey ? false : true,
+            })}
+
+            {cfg.pushNoteKey ? (
+              <>
+                <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+                  {st(language, 'notifSectionSystem')}
+                </Text>
+                <Text style={[styles.notifCleanFootnote, { color: rowSubtitleMuted, textAlign: 'left', marginBottom: 4 }]}>
+                  {st(language, cfg.pushNoteKey)}
+                </Text>
+                <Pressable
+                  {...FAST_PRESS}
+                  hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+                  style={({ pressed }) => [
+                    styles.notifCleanRow,
+                    pressed && { opacity: 0.72 },
+                  ]}
+                  onPress={openSystemSettings}
+                  android_ripple={ripple}
+                >
+                  <View style={styles.notifCleanIcon}>
+                    <Ionicons name="open-outline" size={22} color={accent} />
+                  </View>
+                  <View style={styles.notifRowTexts}>
+                    <Text style={[styles.notifCleanTitle, { color: labelColor }]}>
+                      {st(language, 'notifSystemButton')}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={mutedColor} />
+                </Pressable>
+              </>
+            ) : null}
+
+            <Text style={[styles.notifCleanFootnote, { color: rowSubtitleMuted }]}>
+              {st(language, 'notifFooterHint')}
+            </Text>
+          </View>
+        );
+      }}
+    </SettingsSubScreenShell>
+  );
+}
+
+/** Спеціалізовані сторінки для кожної категорії. */
+export function SettingsNotificationMessagesPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.messages} />;
+}
+
+export function SettingsNotificationFeedPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.feed} />;
+}
+
+export function SettingsNotificationRoutesPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.routesTips} />;
+}
+
+export function SettingsNotificationProductPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.productNews} />;
 }
 
 function StaticTextSubPage({ navigation, route, titleKey, bodyKey }) {

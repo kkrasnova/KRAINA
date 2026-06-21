@@ -26,6 +26,7 @@ import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { useAuthStore } from './auth/authStore';
 import { getVisitLog } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
+import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
 import ProfileGameLevelCard from './ProfileGameLevelCard';
 import { brandFontSans, brandFontSansSemibold, brandFontHeadMedium } from './brandFont';
 
@@ -142,8 +143,11 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
           }
         }
         try {
-          const visitLog = await getVisitLog({ physicalOnly: true });
-          if (!cancelled) setGamify(computeGamificationFromVisits(visitLog));
+          const [visitLog, quizBonusXp] = await Promise.all([
+            getVisitLog({ physicalOnly: true }),
+            getLandmarkQuizBonusXpTotal(),
+          ]);
+          if (!cancelled) setGamify(computeGamificationFromVisits(visitLog, quizBonusXp));
         } catch {
           if (!cancelled) setGamify(computeGamificationFromVisits([]));
         }

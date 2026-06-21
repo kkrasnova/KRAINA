@@ -30,11 +30,11 @@ function storyFactSlidesForLandmarkRoute(lm) {
   if (story.beforeAfter?.newUri || story.beforeAfter?.oldUri) {
     const bodyUk = String(story.secondFact?.bodyUk || '').trim();
     const bodyEn = String(story.secondFact?.bodyEn || '').trim();
-      slides.push({
+    slides.push({
       id: 'story-before-after',
-        photoUri: resolveOfflineUriSync(story.beforeAfter.newUri || story.beforeAfter.oldUri),
-        beforePhotoUri: resolveOfflineUriSync(story.beforeAfter.oldUri || ''),
-        afterPhotoUri: resolveOfflineUriSync(story.beforeAfter.newUri || story.beforeAfter.oldUri || ''),
+      photoUri: resolveOfflineUriSync(story.beforeAfter.newUri || story.beforeAfter.oldUri),
+      beforePhotoUri: resolveOfflineUriSync(story.beforeAfter.oldUri || ''),
+      afterPhotoUri: resolveOfflineUriSync(story.beforeAfter.newUri || story.beforeAfter.oldUri || ''),
       titleUk: String(story.secondFact?.titleUk || '').trim(),
       titleEn: String(story.secondFact?.titleEn || '').trim(),
       factUk: bodyUk || 'Було / стало',
@@ -51,10 +51,30 @@ function introPagesFromStory(story, langUk) {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const pages = raw
     .map((page) => {
+      const compareBeforeThumb =
+        typeof page?.compareBeforeThumb === 'string' ? page.compareBeforeThumb.trim() : '';
+      const compareAfterThumb =
+        typeof page?.compareAfterThumb === 'string' ? page.compareAfterThumb.trim() : '';
+      const compareBeforeAsset = resolveHeroThumbRef(compareBeforeThumb);
+      const compareAfterAsset = resolveHeroThumbRef(compareAfterThumb);
+      const hasCompare =
+        typeof compareBeforeAsset === 'number' && typeof compareAfterAsset === 'number';
       const body = typeof page?.body === 'string' ? page.body.trim() : '';
+      if (!body && hasCompare) {
+        return {
+          compareOnly: true,
+          compareBeforeAsset,
+          compareAfterAsset,
+          compareBeforeThumb,
+          compareAfterThumb,
+        };
+      }
       if (!body) return null;
       const heroThumb = typeof page?.heroThumb === 'string' ? page.heroThumb.trim() : '';
+      const secondaryHeroThumb =
+        typeof page?.secondaryHeroThumb === 'string' ? page.secondaryHeroThumb.trim() : '';
       const photoAsset = resolveHeroThumbRef(heroThumb);
+      const secondaryPhotoAsset = resolveHeroThumbRef(secondaryHeroThumb);
       const illustrationThumb =
         typeof page?.illustrationThumb === 'string' ? page.illustrationThumb.trim() : '';
       const illustrationAsset = resolveHeroThumbRef(illustrationThumb);
@@ -67,14 +87,48 @@ function introPagesFromStory(story, langUk) {
       const photoUri =
         typeof page?.photoUri === 'string' && page.photoUri.trim()
           ? resolveOfflineUriSync(page.photoUri.trim())
-          : undefined;
+          : photoAsset
+            ? Image.resolveAssetSource(photoAsset)?.uri || undefined
+            : undefined;
+      const compareHeroHeightRatio = Number(page?.compareHeroHeightRatio);
+      const compareHeroHeightMax = Number(page?.compareHeroHeightMax);
+      const compareHeroTopInset = Number(page?.compareHeroTopInset);
+      const heroHeightRatio = Number(page?.heroHeightRatio);
+      const heroHeightMax = Number(page?.heroHeightMax);
       return {
         body,
+        ...(hasCompare
+          ? {
+              compareBeforeAsset,
+              compareAfterAsset,
+              compareBeforeThumb,
+              compareAfterThumb,
+              ...(Number.isFinite(compareHeroHeightRatio) && compareHeroHeightRatio > 0
+                ? { compareHeroHeightRatio }
+                : {}),
+              ...(Number.isFinite(compareHeroHeightMax) && compareHeroHeightMax > 0
+                ? { compareHeroHeightMax }
+                : {}),
+              ...(Number.isFinite(compareHeroTopInset) && compareHeroTopInset > 0
+                ? { compareHeroTopInset }
+                : {}),
+            }
+          : {}),
+        ...(heroThumb ? { heroThumb } : {}),
+        ...(secondaryHeroThumb ? { secondaryHeroThumb } : {}),
         ...(photoAsset ? { photoAsset } : {}),
+        ...(secondaryPhotoAsset ? { secondaryPhotoAsset } : {}),
+        ...(Number.isFinite(heroHeightRatio) && heroHeightRatio > 0 ? { heroHeightRatio } : {}),
+        ...(Number.isFinite(heroHeightMax) && heroHeightMax > 0 ? { heroHeightMax } : {}),
         ...(photoUri ? { photoUri } : {}),
         ...(typeof illustrationAsset === 'number' ? { illustrationAsset } : {}),
         ...(illustrationLink ? { illustrationLink } : {}),
         ...(illustrationCaption ? { illustrationCaption } : {}),
+        ...(page?.introFullBleedPhoto ? { introFullBleedPhoto: true } : {}),
+        ...(page?.introHeroAfterText ? { introHeroAfterText: true } : {}),
+        ...(page?.introHeroBleedTop ? { introHeroBleedTop: true } : {}),
+        ...(page?.introFactCard ? { introFactCard: true } : {}),
+        ...(page?.introHeroInsetRounded ? { introHeroInsetRounded: true } : {}),
       };
     })
     .filter(Boolean);
@@ -191,7 +245,12 @@ export function buildLandmarkResultParamsFromHomeLandmark({
     ? introPage1Uk || audioScriptUk || lm.descUk || ''
     : introPage1En || audioScriptEn || lm.descEn || lm.descUk || '';
   const rawAudio = typeof lm?.story?.audioUri === 'string' ? lm.story.audioUri.trim() : '';
-  const audioGuideUrl = /^https?:\/\//i.test(rawAudio) ? rawAudio : undefined;
+  const resolvedAudio = rawAudio ? resolveOfflineUriSync(rawAudio) : '';
+  const audioGuideUrl =
+    resolvedAudio &&
+    (/^https?:\/\//i.test(resolvedAudio) || resolvedAudio.startsWith('file://'))
+      ? resolvedAudio
+      : undefined;
   const dist = lm?.distKm;
   const visitKm = dist != null && Number.isFinite(Number(dist)) ? Number(dist) : undefined;
 

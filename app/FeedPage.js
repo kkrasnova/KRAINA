@@ -43,6 +43,9 @@ import {
   feedListWorldPosts,
   feedListStoriesTray,
   feedTogglePostLike,
+  feedTogglePostRepost,
+  feedToggleCommentLike,
+  feedDeletePostComment,
   feedListPostComments,
   feedAddPostComment,
 } from './feedApi';
@@ -312,9 +315,12 @@ export default function FeedPage({ navigation, route }) {
   const FEED_CACHE_KEY = 'feed_main';
   const [postLikeMap, setPostLikeMap] = useState({});
   const [postLikeCountMap, setPostLikeCountMap] = useState({});
+  const [postRepostMap, setPostRepostMap] = useState({});
+  const [postRepostCountMap, setPostRepostCountMap] = useState({});
   const [postCommentCountMap, setPostCommentCountMap] = useState({});
   const [commentModalPost, setCommentModalPost] = useState(null);
   const [commentList, setCommentList] = useState([]);
+  const [commentLikeMap, setCommentLikeMap] = useState({});
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentText, setCommentText] = useState('');
 
@@ -467,7 +473,9 @@ export default function FeedPage({ navigation, route }) {
         lat: p.lat != null ? Number(p.lat) : null,
         lng: p.lng != null ? Number(p.lng) : null,
         likedByViewer: Boolean(p.liked_by_viewer),
+        repostedByViewer: Boolean(p.reposted_by_viewer),
         likesCount: Number(p.likes_count) || 0,
+        repostsCount: Number(p.reposts_count) || 0,
         commentsCount: Number(p.comments_count) || 0,
       };
     };
@@ -502,6 +510,8 @@ export default function FeedPage({ navigation, route }) {
   useEffect(() => {
     const nextLike = {};
     const nextLikeCount = {};
+    const nextRepost = {};
+    const nextRepostCount = {};
     const nextCommentCount = {};
     posts.forEach((p) => {
       const id = String(p.id);
@@ -509,12 +519,18 @@ export default function FeedPage({ navigation, route }) {
       nextLikeCount[id] = Number.isFinite(Number(postLikeCountMap[id]))
         ? Number(postLikeCountMap[id])
         : Number(p.likesCount) || 0;
+      nextRepost[id] = postRepostMap[id] != null ? postRepostMap[id] : !!p.repostedByViewer;
+      nextRepostCount[id] = Number.isFinite(Number(postRepostCountMap[id]))
+        ? Number(postRepostCountMap[id])
+        : Number(p.repostsCount) || 0;
       nextCommentCount[id] = Number.isFinite(Number(postCommentCountMap[id]))
         ? Number(postCommentCountMap[id])
         : Number(p.commentsCount) || 0;
     });
     setPostLikeMap(nextLike);
     setPostLikeCountMap(nextLikeCount);
+    setPostRepostMap(nextRepost);
+    setPostRepostCountMap(nextRepostCount);
     setPostCommentCountMap(nextCommentCount);
   }, [posts]);
 
@@ -644,21 +660,99 @@ export default function FeedPage({ navigation, route }) {
     }
   }, [postLikeMap, postLikeCountMap]);
 
+  const toggleRepost = useCallback(async (post) => {
+    const id = String(post?.id || '');
+    if (!id) return;
+    const prevReposted = !!postRepostMap[id];
+    const prevCount = Number(postRepostCountMap[id]) || 0;
+    const optimistic = prevReposted ? Math.max(0, prevCount - 1) : prevCount + 1;
+    setPostRepostMap((m) => ({ ...m, [id]: !prevReposted }));
+    setPostRepostCountMap((m) => ({ ...m, [id]: optimistic }));
+    try {
+      const out = await feedTogglePostRepost(id);
+      setPostRepostMap((m) => ({ ...m, [id]: !!out.reposted }));
+      setPostRepostCountMap((m) => ({ ...m, [id]: Number(out.reposts_count) || 0 }));
+      emitFeedMediaUpdated({ postId: id });
+    } catch {
+      setPostRepostMap((m) => ({ ...m, [id]: prevReposted }));
+      setPostRepostCountMap((m) => ({ ...m, [id]: prevCount }));
+    }
+  }, [postRepostMap, postRepostCountMap]);
+
   const openComments = useCallback(async (post) => {
     const id = String(post?.id || '');
     if (!id) return;
     setCommentModalPost(post);
     setCommentList([]);
+    setCommentLikeMap({});
     setCommentBusy(true);
     try {
       const list = await feedListPostComments(id, 120);
       setCommentList(Array.isArray(list) ? list : []);
+      const likeMap = {};
+      (Array.isArray(list) ? list : []).forEach((c) => {
+        const cid = String(c.id);
+        likeMap[cid] = !!c.liked_by_viewer;
+      });
+      setCommentLikeMap(likeMap);
     } catch {
       setCommentList([]);
     } finally {
       setCommentBusy(false);
     }
   }, []);
+
+  const toggleCommentLike = useCallback(async (comment) => {
+    const cid = String(comment?.id || '');
+    if (!cid) return;
+    const prevLiked = !!commentLikeMap[cid];
+    setCommentLikeMap((m) => ({ ...m, [cid]: !prevLiked }));
+    try {
+      const out = await feedToggleCommentLike(cid);
+      setCommentLikeMap((m) => ({ ...m, [cid]: !!out.liked }));
+      setCommentList((prev) =>
+        prev.map((c) =>
+          String(c.id) === cid
+            ? { ...c, liked_by_viewer: !!out.liked, likes_count: Number(out.likes_count) || 0 }
+            : c,
+        ),
+      );
+    } catch {
+      setCommentLikeMap((m) => ({ ...m, [cid]: prevLiked }));
+    }
+  }, [commentLikeMap]);
+
+  const deleteComment = useCallback(async (comment) => {
+    const cid = String(comment?.id || '');
+    if (!cid) return;
+    const postId = String(commentModalPost?.id || '');
+    Alert.alert(
+      ft(language, 'deleteCommentTitle'),
+      ft(language, 'deleteCommentConfirm'),
+      [
+        { text: pf(language, 'cancel'), style: 'cancel' },
+        {
+          text: pf(language, 'delete'),
+          style: 'destructive',
+          onPress: async () => {
+            setCommentBusy(true);
+            try {
+              await feedDeletePostComment(postId, cid);
+              setCommentList((prev) => prev.filter((c) => String(c.id) !== cid));
+              setPostCommentCountMap((m) => ({
+                ...m,
+                [postId]: Math.max(0, (Number(m[postId]) || 0) - 1),
+              }));
+            } catch {
+              /* */
+            } finally {
+              setCommentBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [commentModalPost?.id, language]);
 
   const sendComment = useCallback(async () => {
     const postId = String(commentModalPost?.id || '');
@@ -963,6 +1057,17 @@ export default function FeedPage({ navigation, route }) {
                     {Number(postCommentCountMap[String(post.id)]) || 0}
                   </Text>
                 </Pressable>
+                <Pressable onPress={() => toggleRepost(post)} style={styles.actionPress}>
+                  <Ionicons
+                    name="repeat-outline"
+                    size={22}
+                    color={postRepostMap[String(post.id)] ? accent : textMain}
+                    style={styles.actionIcon}
+                  />
+                  <Text style={[styles.actionCount, { color: textMuted }]}>
+                    {Number(postRepostCountMap[String(post.id)]) || 0}
+                  </Text>
+                </Pressable>
                 <Pressable onPress={() => sendPostToFriend(post, false)} style={styles.actionPress}>
                   <Ionicons name="paper-plane-outline" size={20} color={textMain} />
                 </Pressable>
@@ -1004,13 +1109,44 @@ export default function FeedPage({ navigation, route }) {
             {commentBusy && !commentList.length ? (
               <ActivityIndicator color={accent} style={{ marginVertical: 16 }} />
             ) : (
-              <ScrollView style={{ maxHeight: 260 }}>
-                {commentList.map((c) => (
-                  <View key={String(c.id)} style={styles.commentRow}>
-                    <Text style={[styles.commentAuthor, { color: textMain }]}>@{c.username || 'user'}</Text>
-                    <Text style={[styles.commentText, { color: textMuted }]}>{c.content}</Text>
-                  </View>
-                ))}
+              <ScrollView style={{ maxHeight: 260 }} keyboardShouldPersistTaps="handled">
+                {commentList.map((c) => {
+                  const cid = String(c.id);
+                  const liked = !!commentLikeMap[cid];
+                  return (
+                    <View key={cid} style={styles.commentRow}>
+                      <View style={styles.commentHead}>
+                        <Text style={[styles.commentAuthor, { color: textMain }]} numberOfLines={1}>@{c.username || 'user'}</Text>
+                        <View style={styles.commentHeadActions}>
+                          {(viewerUserId === String(c.user_id || '') || viewerUserId === String(commentModalPost?.authorUserId || '')) ? (
+                            <Pressable
+                              onPress={() => deleteComment(c)}
+                              hitSlop={10}
+                              style={styles.commentDeleteBtn}
+                            >
+                              <Ionicons name="trash-outline" size={14} color={textMuted} />
+                            </Pressable>
+                          ) : null}
+                          <Pressable
+                            onPress={() => toggleCommentLike(c)}
+                            hitSlop={8}
+                            style={styles.commentLikeBtn}
+                          >
+                            <Ionicons
+                              name={liked ? 'heart' : 'heart-outline'}
+                              size={14}
+                              color={liked ? '#FF4D6A' : textMuted}
+                            />
+                            <Text style={[styles.commentLikeCount, { color: textMuted }]}>
+                              {Number(c.likes_count) || 0}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                      <Text style={[styles.commentText, { color: textMuted }]}>{c.content}</Text>
+                    </View>
+                  );
+                })}
               </ScrollView>
             )}
             <View style={styles.commentComposer}>
@@ -1315,9 +1451,30 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   commentsModalTitle: { fontSize: 17, fontWeight: '800', marginBottom: 8 },
-  commentRow: { paddingVertical: 7 },
-  commentAuthor: { fontSize: 13, fontWeight: '700' },
-  commentText: { fontSize: 13, marginTop: 2 },
+  commentRow: { paddingVertical: 8 },
+  commentHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  commentAuthor: { fontSize: 13, fontWeight: '700', flex: 1 },
+  commentHeadActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  commentDeleteBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  commentLikeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingLeft: 8,
+  },
+  commentLikeCount: { fontSize: 11, marginLeft: 2 },
+  commentText: { fontSize: 13, marginTop: 2, paddingRight: 40 },
   commentComposer: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
   commentInput: {
     flex: 1,

@@ -19,9 +19,12 @@ export function emptyLandmarkStory() {
     quiz: {
       questionUk: '',
       questionEn: '',
-      options: [emptyOption(), emptyOption(), emptyOption()],
+      options: [emptyOption(), emptyOption(), emptyOption(), emptyOption()],
+      explanationUk: '',
+      explanationEn: '',
       multiHintUk: '',
       multiHintEn: '',
+      xpReward: 0,
     },
     photoFact: {
       bgUri: '',
@@ -62,7 +65,8 @@ export function normalizeLandmarkStory(raw) {
   const e = emptyLandmarkStory();
   if (!raw || typeof raw !== 'object') return e;
   const opts = Array.isArray(raw.quiz?.options) ? raw.quiz.options : [];
-  const options = [0, 1, 2].map((i) => {
+  const optionCount = opts.length >= 4 ? 4 : 3;
+  const options = Array.from({ length: optionCount }, (_, i) => {
     const o = opts[i] && typeof opts[i] === 'object' ? opts[i] : {};
     return {
       textUk: typeof o.textUk === 'string' ? o.textUk : '',
@@ -70,6 +74,7 @@ export function normalizeLandmarkStory(raw) {
       correct: !!o.correct,
     };
   });
+  const xpRewardRaw = Number(raw.quiz?.xpReward);
   return {
     builtAt: typeof raw.builtAt === 'string' ? raw.builtAt : '',
     shortIntroUk: typeof raw.shortIntroUk === 'string' ? raw.shortIntroUk : '',
@@ -78,8 +83,11 @@ export function normalizeLandmarkStory(raw) {
       questionUk: typeof raw.quiz?.questionUk === 'string' ? raw.quiz.questionUk : '',
       questionEn: typeof raw.quiz?.questionEn === 'string' ? raw.quiz.questionEn : '',
       options,
+      explanationUk: typeof raw.quiz?.explanationUk === 'string' ? raw.quiz.explanationUk : '',
+      explanationEn: typeof raw.quiz?.explanationEn === 'string' ? raw.quiz.explanationEn : '',
       multiHintUk: typeof raw.quiz?.multiHintUk === 'string' ? raw.quiz.multiHintUk : '',
       multiHintEn: typeof raw.quiz?.multiHintEn === 'string' ? raw.quiz.multiHintEn : '',
+      xpReward: Number.isFinite(xpRewardRaw) && xpRewardRaw > 0 ? Math.round(xpRewardRaw) : 0,
     },
     photoFact: {
       bgUri: clampUri(raw.photoFact?.bgUri),

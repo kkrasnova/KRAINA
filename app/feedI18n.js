@@ -114,6 +114,8 @@ const S = {
   postSend: { uk: 'Надіслати', en: 'Send' },
   postCommentsTitle: { uk: 'Коментарі', en: 'Comments' },
   postCommentPlaceholder: { uk: 'Напишіть коментар…', en: 'Write a comment…' },
+  deleteCommentTitle: { uk: 'Видалити коментар', en: 'Delete comment' },
+  deleteCommentConfirm: { uk: 'Видалити цей коментар?', en: 'Delete this comment?' },
   postShareToFriend: { uk: 'Надіслати другу', en: 'Send to friend' },
   postNoFriendsToShare: { uk: 'Немає друзів для пересилання.', en: 'No friends to share with.' },
   postSharedOk: { uk: 'Надіслано у повідомлення.', en: 'Sent in messages.' },

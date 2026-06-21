@@ -23,6 +23,7 @@ import {
   sumKmInVisits,
 } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
+import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
 import ProfileGameLevelCard from './ProfileGameLevelCard';
 import { getStepSyncEnabled, KRAINA_STEP_SYNC_CHANGED } from './stepSyncStorage';
 import { fetchDailyStepsMapLastDays, buildStepsSeriesForChart, localDateKey, isStepsPlatformSupported } from './healthSteps';
@@ -44,13 +45,19 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
   const chartW = Math.min(winW - 32, 360);
   const [periodKey, setPeriodKey] = useState('30d');
   const [visits, setVisits] = useState([]);
+  const [quizBonusXp, setQuizBonusXp] = useState(0);
   const [stepSyncOn, setStepSyncOn] = useState(false);
   const [stepsByDay, setStepsByDay] = useState({});
   const [stepsLoading, setStepsLoading] = useState(false);
   const [stepsLoadError, setStepsLoadError] = useState(false);
 
   const reload = useCallback(async () => {
-    setVisits(await getVisitLog({ physicalOnly: true }));
+    const [visitLog, bonusXp] = await Promise.all([
+      getVisitLog({ physicalOnly: true }),
+      getLandmarkQuizBonusXpTotal(),
+    ]);
+    setVisits(visitLog);
+    setQuizBonusXp(bonusXp);
   }, []);
 
   const loadSteps = useCallback(async () => {
@@ -94,7 +101,7 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
   const pieAgg = useMemo(() => aggregateCategoryPie(inPeriod), [inPeriod]);
   const barData = useMemo(() => topCitiesBar(inPeriod, 5), [inPeriod]);
   const kmSum = useMemo(() => sumKmInVisits(inPeriod), [inPeriod]);
-  const gamify = useMemo(() => computeGamificationFromVisits(visits), [visits]);
+  const gamify = useMemo(() => computeGamificationFromVisits(visits, quizBonusXp), [visits, quizBonusXp]);
 
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? '#727272' : '#A8A8A8';

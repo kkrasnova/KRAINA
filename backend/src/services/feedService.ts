@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { HttpError } from '../errors/HttpError.js';
 import { pool } from '../db/pool.js';
 import { getStorageProvider } from '../storage/index.js';
+import { sendPostLikePush, sendPostCommentPush, sendCommentLikePush } from './chatPushService.js';
+import { logger } from '../logger.js';
 
 function extFromMime(mimetype: string): string {
   if (mimetype === 'image/jpeg') return 'jpg';
@@ -144,6 +146,20 @@ async function loadAuthor(userId: string): Promise<{ username: string; avatar_ur
   }
   const row = r.rows[0] as { username: string; avatar_url: string | null };
   return { username: row.username, avatar_url: row.avatar_url };
+}
+
+/** Best-effort username resolver for push notifications — never throws. */
+async function resolveProfileUsername(userId: string): Promise<string> {
+  try {
+    const r = await pool.query(`SELECT username FROM profiles WHERE user_id = $1::uuid`, [userId]);
+    if (r.rowCount) {
+      const name = String((r.rows[0] as { username: string }).username);
+      if (name.trim()) return name.trim();
+    }
+  } catch {
+    /* best-effort */
+  }
+  return 'KRAЇNA';
 }
 
 // TODO(cursor-pagination): replace limit-only with (created_at DESC, id DESC) composite cursor.
@@ -424,10 +440,32 @@ export async function togglePostLike(postId: string, viewerId: string): Promise<
     [postId, viewerId],
   );
 
-  return {
+  const result = {
     liked: Boolean(out.rows[0]?.liked),
     likes_count: Number(out.rows[0]?.likes_count) || 0,
   };
+
+  // Fire-and-forget push to post author on like (not unlike)
+  if (result.liked) {
+    Promise.all([
+      pool.query(`SELECT user_id FROM posts WHERE id = $1::uuid`, [postId]).then(r => {
+        if (r.rowCount) {
+          const authorId = String(r.rows[0].user_id);
+          if (authorId !== viewerId) {
+            resolveProfileUsername(viewerId).then(name => {
+              sendPostLikePush(authorId, {
+                likerName: name,
+                likerId: viewerId,
+                postId,
+              }).catch(e => logger.warn('[feedPush] togglePostLike', e instanceof Error ? e.message : e));
+            }).catch(() => {});
+          }
+        }
+      }).catch(() => {}),
+    ]).catch(() => {});
+  }
+
+  return result;
 }
 export async function listPostComments(postId: string, viewerId: string, limit = 80) {
   const allowed = await canViewerAccessPost(postId, viewerId);
@@ -520,7 +558,7 @@ export async function addPostComment(
     await client.query('COMMIT');
     const row = ins.rows[0] as Record<string, unknown>;
 
-    return {
+    const comment = {
       id: String(row.id),
       post_id: String(row.post_id),
       user_id: String(row.user_id),
@@ -533,6 +571,24 @@ export async function addPostComment(
       deleted: false,
       created_at: new Date(String(row.created_at)).toISOString(),
     };
+
+    // Fire-and-forget push to post author on new comment
+    pool.query(`SELECT user_id FROM posts WHERE id = $1::uuid`, [postId]).then(r => {
+      if (r.rowCount) {
+        const authorId = String(r.rows[0].user_id);
+        if (authorId !== viewerId) {
+          sendPostCommentPush(authorId, {
+            commenterName: me.username,
+            commenterId: viewerId,
+            postId,
+            commentId: comment.id,
+            commentPreview: text,
+          }).catch(e => logger.warn('[feedPush] addPostComment', e instanceof Error ? e.message : e));
+        }
+      }
+    }).catch(() => {});
+
+    return comment;
   } catch (e) {
     // .catch() absorbs any ROLLBACK error (e.g. broken connection) so the
     // original error is always what propagates to the caller.
@@ -859,10 +915,34 @@ export async function toggleCommentLike(commentId: string, viewerId: string): Pr
     [commentId, viewerId],
   );
 
-  return {
+  const result = {
     liked: Boolean(out.rows[0]?.liked),
     likes_count: Number(out.rows[0]?.likes_count) || 0,
   };
+
+  // Fire-and-forget push to comment author on like (not unlike)
+  if (result.liked) {
+    Promise.all([
+      pool.query(`SELECT user_id, post_id::text AS post_id FROM comments WHERE id = $1::uuid`, [commentId]).then(r => {
+        if (r.rowCount) {
+          const authorId = String(r.rows[0].user_id);
+          const cPostId = String((r.rows[0] as { post_id: string }).post_id);
+          if (authorId !== viewerId) {
+            resolveProfileUsername(viewerId).then(name => {
+              sendCommentLikePush(authorId, {
+                likerName: name,
+                likerId: viewerId,
+                commentId,
+                postId: cPostId,
+              }).catch(e => logger.warn('[feedPush] toggleCommentLike', e instanceof Error ? e.message : e));
+            }).catch(() => {});
+          }
+        }
+      }).catch(() => {}),
+    ]).catch(() => {});
+  }
+
+  return result;
 }
 
 export async function deletePostCommentByAuthor(commentId: string, viewerId: string): Promise<void> {

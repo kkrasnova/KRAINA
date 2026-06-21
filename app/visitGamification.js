@@ -50,12 +50,14 @@ export function computeVisitXp(visits) {
  *   titleKey: string,
  * }}
  */
-export function computeGamificationFromVisits(visits) {
+export function computeGamificationFromVisits(visits, extraXp = 0) {
   const { xp, uniquePlaces, totalVisits } = computeVisitXp(visits);
+  const bonusXp = Math.max(0, Math.round(Number(extraXp) || 0));
+  const totalXp = xp + bonusXp;
 
   let level = 1;
   for (let i = 1; i < MAX_LEVEL; i += 1) {
-    if (xp >= XP_FOR_LEVEL[i]) level = i + 1;
+    if (totalXp >= XP_FOR_LEVEL[i]) level = i + 1;
   }
   level = Math.min(Math.max(1, level), MAX_LEVEL);
 
@@ -66,7 +68,7 @@ export function computeGamificationFromVisits(visits) {
   if (nextLevelXp != null && nextLevelXp > levelMinXp) {
     progressInLevel = Math.min(
       1,
-      Math.max(0, (xp - levelMinXp) / (nextLevelXp - levelMinXp)),
+      Math.max(0, (totalXp - levelMinXp) / (nextLevelXp - levelMinXp)),
     );
   }
 
@@ -75,7 +77,9 @@ export function computeGamificationFromVisits(visits) {
   return {
     totalVisits,
     uniquePlaces,
-    xp,
+    xp: totalXp,
+    visitXp: xp,
+    quizXp: bonusXp,
     level,
     levelMinXp,
     nextLevelXp,

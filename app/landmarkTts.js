@@ -93,17 +93,63 @@ export async function fetchCloudTtsFileUri(text, appLanguage) {
   }
 }
 
+export function splitTextForDeviceSpeech(text, maxLen = 360) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return [];
+  if (trimmed.length <= maxLen) return [trimmed];
+  const parts = [];
+  let rest = trimmed;
+  while (rest.length > maxLen) {
+    let cut = rest.lastIndexOf('\n\n', maxLen);
+    if (cut < maxLen * 0.35) cut = rest.lastIndexOf('. ', maxLen);
+    if (cut < maxLen * 0.35) cut = rest.lastIndexOf(' ', maxLen);
+    if (cut <= 0) cut = maxLen;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
 export async function speakWithDeviceTts(Speech, text, appLanguage, callbacks) {
   const locale = ttsLocaleForContent(appLanguage);
   const voice = await pickBestVoiceIdentifier(Speech, locale);
-  Speech.speak(text, {
-    language: locale,
-    ...(voice ? { voice } : {}),
-    rate: naturalSpeechRate(),
-    pitch: 1.0,
-    volume: 1.0,
-    ...callbacks,
-  });
+  const chunks = splitTextForDeviceSpeech(text);
+  if (!chunks.length) return;
+
+  let stopped = false;
+  let index = 0;
+
+  const finish = () => {
+    if (!stopped) callbacks?.onDone?.();
+  };
+
+  const speakNext = () => {
+    if (stopped || index >= chunks.length) {
+      finish();
+      return;
+    }
+    const chunk = chunks[index];
+    index += 1;
+    Speech.speak(chunk, {
+      language: locale,
+      ...(voice ? { voice } : {}),
+      rate: naturalSpeechRate(),
+      pitch: 1.0,
+      volume: 1.0,
+      onDone: () => speakNext(),
+      onStopped: () => {
+        stopped = true;
+        callbacks?.onStopped?.();
+      },
+      onError: (e) => {
+        stopped = true;
+        callbacks?.onError?.(e);
+      },
+    });
+  };
+
+  speakNext();
 }
 
 /**
@@ -116,8 +162,14 @@ export async function startLandmarkNarration({ Speech, text, appLanguage, playFi
 
   const cloudUri = await fetchCloudTtsFileUri(trimmed, appLanguage);
   if (cloudUri && typeof playFileAudio === 'function') {
-    await playFileAudio(cloudUri);
-    return 'file';
+    try {
+      await playFileAudio(cloudUri);
+      return 'file';
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('[landmarkTts] cloud playback failed, fallback to device', e?.message || e);
+      }
+    }
   }
 
   await speakWithDeviceTts(Speech, trimmed, appLanguage, callbacks);
