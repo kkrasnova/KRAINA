@@ -59,6 +59,7 @@ import {
   messagesDeleteThread,
   messagesUploadVoice,
 } from './messageApi';
+import { initChatPushNotifications, teardownChatPushNotifications } from './chatPushService';
 import { feedUploadMediaFromUri } from './feedApi';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { getRegion } from './routeRegionsData';
@@ -496,6 +497,21 @@ export default function ChatThreadPage({ navigation, route }) {
     }
     prevMessageCount.current = messages.length;
   }, [messages.length, scrollEnd]);
+
+  useEffect(() => {
+    if (useMessageApi && threadId) {
+      initChatPushNotifications((tId) => {
+        navigation.navigate('ChatThread', {
+          ...shell,
+          threadId: tId,
+          useMessageApi: true,
+        });
+      }).catch(() => {});
+    }
+    return () => {
+      teardownChatPushNotifications();
+    };
+  }, [useMessageApi, threadId]);
 
   useEffect(
     () => () => {

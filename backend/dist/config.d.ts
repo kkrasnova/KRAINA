@@ -59,6 +59,7 @@ export declare const config: {
     apnsTeamId: string;
     apnsTopic: string;
     apnsProduction: boolean;
+    expoPushAccessToken: string;
     corsOrigins: string[];
     trustProxy: number | boolean;
     apnsConfigured: boolean;

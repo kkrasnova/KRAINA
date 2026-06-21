@@ -66,6 +66,7 @@ const S = {
   },
   avatarUploadError: { uk: 'Не вдалося завантажити фото', en: 'Could not upload photo' },
   cancel: { uk: 'Скасувати', en: 'Cancel' },
+  delete: { uk: 'Видалити', en: 'Delete' },
   bio: { uk: 'Про себе', en: 'Bio' },
   birthDate: { uk: 'Дата народження', en: 'Date of birth' },
   birthDateHint: { uk: 'Формат: РРРР-ММ-ДД (наприклад 1996-04-14)', en: 'Format: YYYY-MM-DD (e.g. 1996-04-14)' },

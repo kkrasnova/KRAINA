@@ -7,60 +7,40 @@ import {
   Platform,
   ScrollView,
   PanResponder,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { getAppTheme } from './themeStorage';
-import { ACCENT_BLUE, accentForTheme, onAccentButtonText } from './themeAccent';
+import { ACCENT_BLUE, accentForTheme } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { brandFontHeadMedium, brandFontSans } from './brandFont';
 import { lq } from './landmarkQuizI18n';
-import { resolveCorrectOptionIndex, LANDMARK_QUIZ_XP_WIN, hasPlayableStoryQuiz } from './landmarkQuizUtils';
-import { applyLandmarkQuizReward } from './landmarkQuizRewards';
+import { resolveCorrectOptionIndex, resolveLandmarkQuizXpWin, hasPlayableStoryQuiz } from './landmarkQuizUtils';
+import { applyLandmarkQuizReward, getLandmarkQuizClaimedReward } from './landmarkQuizRewards';
+import { loadLandmarkQuizAnswer, saveLandmarkQuizAnswer } from './landmarkQuizAnswers';
 import LandmarkGlassHeaderBar, { landmarkGlassHeaderDockStyle } from './LandmarkGlassHeaderBar';
 
 const FIGMA_CREAM = '#F2F2EA';
-const AUTH_CTA_ACCENT = '#E1FF00';
-const AUTH_CTA_BACK = '#6F8500';
-const AUTH_CTA_FRONT_BORDER = '#7A9000';
 
-function AuthStylePrimaryCta({ onPress, label, androidRipple, isLight }) {
-  const outerBorder = isLight ? 'rgba(2, 18, 235, 0.22)' : 'rgba(225, 255, 0, 0.45)';
-  const backBg = isLight ? '#1c2d66' : AUTH_CTA_BACK;
-  const frontBg = isLight ? ACCENT_BLUE : AUTH_CTA_ACCENT;
-  const frontBorder = isLight ? '#2544c4' : AUTH_CTA_FRONT_BORDER;
-  const shadowCol = isLight ? 'rgba(0, 0, 0, 0.28)' : AUTH_CTA_BACK;
-  const shadowOpacity = isLight ? 0.2 : 0.32;
-  const elevation = isLight ? 3 : 5;
-  const txtColor = onAccentButtonText(!!isLight);
-  const outerBorderW = isLight ? 3 : 5;
+function QuizContinueButton({ onPress, label, isLight, ripple, inline }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.ctaOuter, { borderColor: outerBorder, borderWidth: outerBorderW }]}
-      android_ripple={androidRipple}
+      style={({ pressed }) => [
+        styles.continueBtn,
+        inline ? styles.continueBtnInline : null,
+        isLight ? styles.continueBtnLight : styles.continueBtnDark,
+        pressed ? styles.continueBtnPressed : null,
+      ]}
+      android_ripple={ripple}
+      accessibilityRole="button"
     >
-      {({ pressed }) => (
-        <>
-          <View style={[styles.ctaBack, { backgroundColor: backBg }]} />
-          <View
-            style={[
-              styles.ctaFront,
-              {
-                backgroundColor: frontBg,
-                borderColor: frontBorder,
-                shadowColor: shadowCol,
-                shadowOpacity,
-                elevation,
-                transform: [{ translateY: pressed ? 0 : -8 }],
-              },
-            ]}
-          >
-            <Text style={[styles.ctaTxt, { color: txtColor }]}>{label}</Text>
-          </View>
-        </>
-      )}
+      <Text style={[styles.continueBtnText, brandFontSans, { color: isLight ? '#FFFFFF' : '#1A1A1A' }]}>
+        {label}
+      </Text>
+      <Ionicons name="arrow-forward" size={18} color={isLight ? '#FFFFFF' : '#1A1A1A'} />
     </Pressable>
   );
 }
@@ -77,6 +57,10 @@ export default function LandmarkQuizContent({
   hideHeader = false,
   /** Вбудований режим у ScrollView сторінки опису (без власного fullscreen-скролу). */
   inlineMode = false,
+  /** Після відповіді — перейти до наступної сторінки пейджера. */
+  onContinue,
+  /** Після відповіді — прокрутити батьківський ScrollView. */
+  onAfterReveal,
 }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
@@ -90,10 +74,13 @@ export default function LandmarkQuizContent({
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [revealed, setRevealed] = useState(false);
   const [rewardXp, setRewardXp] = useState(0);
+  const [rewardAlready, setRewardAlready] = useState(false);
+  const [rewardBurstVisible, setRewardBurstVisible] = useState(false);
   const [answerHint, setAnswerHint] = useState('');
 
   const selectedRef = useRef(null);
   const revealedRef = useRef(false);
+  const rewardBurst = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     selectedRef.current = selectedIndex;
   }, [selectedIndex]);
@@ -119,6 +106,8 @@ export default function LandmarkQuizContent({
   const textMain = isLight ? '#1E1E1E' : FIGMA_CREAM;
   const textMuted = isLight ? '#5C5C5C' : '#A8A8A8';
 
+  const quizXpWin = useMemo(() => resolveLandmarkQuizXpWin(storyQuiz), [storyQuiz]);
+
   const correctIdx = useMemo(() => resolveCorrectOptionIndex(storyQuiz), [storyQuiz]);
 
   const question = useMemo(() => {
@@ -141,12 +130,61 @@ export default function LandmarkQuizContent({
     setSelectedIndex(null);
     setRevealed(false);
     setRewardXp(0);
+    setRewardAlready(false);
     setAnswerHint('');
   }, []);
 
   useEffect(() => {
-    onResetRound();
-  }, [quizLandmarkKey, onResetRound]);
+    let cancelled = false;
+    (async () => {
+      if (!quizLandmarkKey) {
+        onResetRound();
+        return;
+      }
+      const saved = await loadLandmarkQuizAnswer(quizLandmarkKey);
+      if (cancelled) return;
+      if (saved?.revealed && Number.isInteger(saved.selectedIndex)) {
+        setSelectedIndex(saved.selectedIndex);
+        selectedRef.current = saved.selectedIndex;
+        setRevealed(true);
+        revealedRef.current = true;
+        setRewardXp(saved.rewardXp || 0);
+        setRewardAlready(!!saved.rewardAlready);
+        setAnswerHint(saved.answerHint || '');
+        onAfterReveal?.();
+        return;
+      }
+      onResetRound();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quizLandmarkKey, onResetRound, onAfterReveal]);
+
+  const playRewardBurst = useCallback(
+    (xp) => {
+      if (!(xp > 0)) return;
+      setRewardBurstVisible(true);
+      rewardBurst.setValue(0);
+      Animated.sequence([
+        Animated.spring(rewardBurst, {
+          toValue: 1,
+          friction: 6,
+          tension: 130,
+          useNativeDriver: true,
+        }),
+        Animated.delay(1500),
+        Animated.timing(rewardBurst, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) setRewardBurstVisible(false);
+      });
+    },
+    [rewardBurst],
+  );
 
   const prefix = (i) => {
     if (langUk) {
@@ -185,32 +223,66 @@ export default function LandmarkQuizContent({
   const feedbackPanelFg = isLight ? '#2A2A2A' : '#E2E2DB';
   const feedbackPanelBorder = 'transparent';
 
-  const tryReveal = useCallback(async () => {
-    if (revealedRef.current) return;
-    const sel = selectedRef.current;
-    if (sel == null) {
-      return;
-    }
-    setRevealed(true);
-    const won = sel === correctIdx;
-    if (rewardEnabled) {
-      const { already, xp } = await applyLandmarkQuizReward(quizLandmarkKey, won, LANDMARK_QUIZ_XP_WIN);
-      if (won) {
+  const explanationText = useMemo(() => {
+    if (!storyQuiz) return '';
+    const t = langUk ? storyQuiz.explanationUk : storyQuiz.explanationEn;
+    return String(t || storyQuiz.explanationUk || storyQuiz.explanationEn || '').trim();
+  }, [storyQuiz, langUk]);
+
+  const submitAnswer = useCallback(
+    async (index) => {
+      if (revealedRef.current) return;
+      setSelectedIndex(index);
+      selectedRef.current = index;
+      setRevealed(true);
+      revealedRef.current = true;
+      const won = index === correctIdx;
+      let xpShown = 0;
+      let already = false;
+      let hint = '';
+      if (rewardEnabled && won) {
+        const { already: wasClaimed, xp } = await applyLandmarkQuizReward(quizLandmarkKey, won, quizXpWin);
+        already = !!wasClaimed;
         if (!already && xp > 0) {
-          setRewardXp(xp);
+          xpShown = xp;
+          playRewardBurst(xp);
+        } else if (already) {
+          const claimed = await getLandmarkQuizClaimedReward(quizLandmarkKey);
+          if (claimed?.xp) xpShown = claimed.xp;
         }
+        setRewardAlready(already);
+        setRewardXp(xpShown);
+      } else {
+        setRewardAlready(false);
+        setRewardXp(0);
       }
-    } else {
-      setRewardXp(0);
-    }
-    if (won) {
-      setAnswerHint('');
-    } else {
-      const hint = langUk ? storyQuiz?.multiHintUk : storyQuiz?.multiHintEn;
-      const h = String(hint || '').trim();
-      setAnswerHint(h);
-    }
-  }, [correctIdx, quizLandmarkKey, storyQuiz, langUk, rewardEnabled]);
+      if (won) {
+        hint = '';
+        setAnswerHint('');
+      } else {
+        hint = String((langUk ? storyQuiz?.multiHintUk : storyQuiz?.multiHintEn) || '').trim();
+        setAnswerHint(hint);
+      }
+      if (quizLandmarkKey) {
+        await saveLandmarkQuizAnswer(quizLandmarkKey, {
+          selectedIndex: index,
+          revealed: true,
+          won,
+          rewardXp: xpShown,
+          rewardAlready: already,
+          answerHint: hint,
+        });
+      }
+      onAfterReveal?.();
+    },
+    [correctIdx, quizLandmarkKey, storyQuiz, langUk, rewardEnabled, quizXpWin, playRewardBurst, onAfterReveal],
+  );
+
+  const tryReveal = useCallback(async () => {
+    const sel = selectedRef.current;
+    if (sel == null || revealedRef.current) return;
+    await submitAnswer(sel);
+  }, [submitAnswer]);
 
   const panResponder = useMemo(() => {
     if (pagerMode || inlineMode) return null;
@@ -296,27 +368,39 @@ export default function LandmarkQuizContent({
         const isWrongSel = revealed && isSel && i !== correctIdx;
         const neutralBorder = isLight ? 'rgba(30,30,30,0.18)' : 'rgba(255,255,255,0.28)';
         const borderCol = revealed
-          ? isWrongSel
-            ? '#EB4335'
-            : neutralBorder
+          ? isCor
+            ? accent
+            : isWrongSel
+              ? '#EB4335'
+              : neutralBorder
           : isSel
             ? accent
             : neutralBorder;
-        const bgCol = optionSurface;
+        const bgCol =
+          revealed && isCor
+            ? isLight
+              ? 'rgba(46, 160, 67, 0.12)'
+              : 'rgba(100, 255, 138, 0.14)'
+            : revealed && isWrongSel
+              ? isLight
+                ? 'rgba(235, 67, 53, 0.08)'
+                : 'rgba(235, 67, 53, 0.12)'
+              : optionSurface;
         return (
           <Pressable
             key={i}
             disabled={revealed}
-            onPress={() => !revealed && setSelectedIndex(i)}
+            onPress={() => void submitAnswer(i)}
             style={({ pressed }) => [
               styles.opt,
+              inlineMode ? styles.optInline : null,
               isLight ? styles.optLightShadow : null,
               isSel && !revealed ? styles.optSelected : null,
               { borderColor: borderCol, backgroundColor: 'transparent', transform: [{ scale: pressed ? 0.992 : 1 }] },
             ]}
             android_ripple={ripple}
           >
-            <View style={[styles.optInner, { backgroundColor: bgCol }]}>
+            <View style={[styles.optInner, inlineMode ? styles.optInnerInline : null, { backgroundColor: bgCol }]}>
               <View style={styles.optLeft}>
                 <View
                   style={[
@@ -352,13 +436,6 @@ export default function LandmarkQuizContent({
         );
       })}
 
-      <AuthStylePrimaryCta
-        onPress={revealed ? onResetRound : () => void tryReveal()}
-        label={revealed ? lq(language, 'tryAgain') : lq(language, 'showAnswer')}
-        isLight={isLight}
-        androidRipple={ripple}
-      />
-
       {revealed ? (
         <View
           style={[
@@ -373,16 +450,45 @@ export default function LandmarkQuizContent({
                 {
                   backgroundColor: feedbackPanelBg,
                   borderColor: feedbackPanelBorder,
-                  shadowColor: 'transparent',
                 },
               ]}
             >
               <Text style={[styles.feedbackLabel, brandFontHeadMedium, { color: feedbackPanelFg }]}>
                 {wonAnswer ? lq(language, 'feedbackLike') : lq(language, 'feedbackDislike')}
               </Text>
+              {wonAnswer && rewardXp > 0 ? (
+                <Text style={[styles.rewardLine, brandFontSans, { color: accent }]}>
+                  {lq(language, 'pointsLine', { n: rewardXp })}
+                </Text>
+              ) : null}
+              {wonAnswer && rewardAlready ? (
+                <Text style={[styles.feedbackHint, brandFontSans, { color: textMuted }]}>
+                  {lq(language, 'pointsAlready')}
+                </Text>
+              ) : null}
+              {wonAnswer && explanationText ? (
+                <Text style={[styles.feedbackHint, brandFontSans, { color: textMuted }]}>
+                  {explanationText}
+                </Text>
+              ) : null}
+              {!wonAnswer && answerHint ? (
+                <Text style={[styles.feedbackHint, brandFontSans, { color: textMuted }]}>
+                  {answerHint}
+                </Text>
+              ) : null}
             </View>
           </View>
         </View>
+      ) : null}
+
+      {revealed && typeof onContinue === 'function' ? (
+        <QuizContinueButton
+          onPress={onContinue}
+          label={lq(language, 'continueNext')}
+          isLight={isLight}
+          ripple={ripple}
+          inline={inlineMode}
+        />
       ) : null}
 
       {!inlineMode ? (
@@ -395,6 +501,38 @@ export default function LandmarkQuizContent({
   if (inlineMode) {
     return (
       <View style={styles.inlineWrap}>
+        {rewardBurstVisible ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.rewardBurst,
+              {
+                opacity: rewardBurst,
+                transform: [
+                  {
+                    scale: rewardBurst.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.7, 1],
+                    }),
+                  },
+                  {
+                    translateY: rewardBurst.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [18, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={[styles.rewardBurstInner, { borderColor: accent, backgroundColor: cardBg }]}>
+              <Ionicons name="trophy" size={24} color={accent} />
+              <Text style={[styles.rewardBurstText, brandFontHeadMedium, { color: accent }]}>
+                {lq(language, 'pointsBurst', { n: rewardXp })}
+              </Text>
+            </View>
+          </Animated.View>
+        ) : null}
         <View style={styles.inlineInner}>{quizBody}</View>
       </View>
     );
@@ -446,7 +584,8 @@ export default function LandmarkQuizContent({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   inlineWrap: {
-    marginTop: 12,
+    marginTop: 0,
+    position: 'relative',
   },
   inlineInner: {
     paddingHorizontal: 0,
@@ -563,6 +702,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
   },
+  optInline: {
+    marginBottom: 8,
+  },
   optLightShadow: {
     ...Platform.select({
       ios: {
@@ -582,6 +724,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  optInnerInline: {
+    minHeight: 52,
+    paddingVertical: 8,
   },
   optSelected: {
     borderWidth: 2,
@@ -644,72 +790,38 @@ const styles = StyleSheet.create({
   resultCard: {
     borderWidth: 1,
     borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 2,
+    marginBottom: 8,
   },
   feedbackRow: {
     alignItems: 'stretch',
-    marginBottom: 8,
   },
   feedbackPanel: {
     width: '100%',
-    borderRadius: 0,
-    borderWidth: 0,
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: 0,
-    justifyContent: 'flex-start',
-    ...Platform.select({
-      ios: {},
-      android: {},
-    }),
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    rowGap: 8,
   },
   feedbackLabel: {
-    flex: 0,
-    fontSize: 16,
+    fontSize: 17,
+    lineHeight: 22,
+    textAlign: 'left',
+  },
+  rewardLine: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  feedbackHint: {
+    fontSize: 14,
     lineHeight: 21,
     textAlign: 'left',
   },
-  ctaOuter: {
-    alignSelf: 'stretch',
-    minHeight: 50,
-    height: 56,
-    borderRadius: 999,
-    marginTop: 10,
-    marginBottom: 18,
-    overflow: 'visible',
-  },
-  ctaBack: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: '100%',
-    height: '100%',
-    borderRadius: 999,
-  },
-  ctaFront: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: '100%',
-    height: '100%',
-    borderRadius: 999,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.32,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  ctaTxt: {
-    fontWeight: '400',
-    fontSize: 15,
-    ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif-medium' } : {}),
+  explanationText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
   },
   xpLine: {
     textAlign: 'center',
@@ -721,5 +833,73 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: 8,
+  },
+  continueBtn: {
+    marginTop: 8,
+    marginBottom: 2,
+    minHeight: 52,
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    columnGap: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.14,
+        shadowRadius: 8,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  continueBtnLight: {
+    backgroundColor: ACCENT_BLUE,
+  },
+  continueBtnDark: {
+    backgroundColor: '#E1FF00',
+  },
+  continueBtnPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
+  },
+  continueBtnInline: {
+    marginBottom: 12,
+  },
+  continueBtnText: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  rewardBurst: {
+    position: 'absolute',
+    top: '28%',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rewardBurstInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 10,
+    borderWidth: 2,
+    borderRadius: 999,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  rewardBurstText: {
+    fontSize: 22,
+    lineHeight: 26,
   },
 });

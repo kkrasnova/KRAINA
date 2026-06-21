@@ -13,8 +13,32 @@ export const HERO_THUMB_MAP = {
   maidanHome: require('./assets/maidan-home-thumb.jpg'),
   /** Історична мапа «Козье болото» — друга сторінка аудіогіда Майдану. */
   maidanKozyeBolotoMap: require('./assets/maidan-kozye-boloto-map.png'),
+  /** Водяний млин — ілюстрація «як це могло виглядати» (портрет). */
+  maidanWatermillIllustration: require('./assets/maidan-watermill-illustration.png'),
   /** Водяний млин і болото — третя сторінка аудіогіда Майдану. */
   maidanWatermill: require('./assets/maidan-watermill-hero.png'),
+  /** Історична гравюра Хрещатика — порівняння «було / стало». */
+  maidanHistoric: require('./assets/maidan-historic-engraving.png'),
+  /** Сучасний вигляд Майдану зверху — порівняння «було / стало». */
+  maidanModern: require('./assets/maidan-modern-aerial.png'),
+  /** Будинок Гудовського на історичній гравюрі — четверта сторінка аудіогіда. */
+  maidanGudovskyHistoric: require('./assets/maidan-gudovsky-historic.png'),
+  /** Обвал колон Головпоштамту, 1989 — п’ята сторінка аудіогіда. */
+  maidanHolovposhtamtTragedy: require('./assets/maidan-holovposhtamt-tragedy.png'),
+  /** Руїни Хрещатика після війни — шоста сторінка аудіогіда. */
+  maidanKhreshchatykRuins: require('./assets/maidan-khreshchatyk-ruins.png'),
+  /** Міська дума на листівці — шоста сторінка аудіогіда. */
+  maidanCityDumaPostcard: require('./assets/maidan-city-duma-postcard.png'),
+  /** Лядські ворота з Архангелом — восьма сторінка аудіогіда. */
+  maidanLyadskiGates: require('./assets/maidan-lyadski-gates.png'),
+  /** Нульовий кілометр (глобус) — дев’ята сторінка аудіогіда. */
+  maidanZeroKilometerGlobe: require('./assets/maidan-zero-kilometer-globe.png'),
+  /** Революція на граніті, 1990 — десята сторінка аудіогіда. */
+  maidanRevolutionGranite1990: require('./assets/maidan-revolution-granite-1990.png'),
+  /** Табір студентів на граніті, 1990 — десята сторінка аудіогіда. */
+  maidanRevolutionGraniteCamp: require('./assets/maidan-revolution-granite-camp.png'),
+  /** Помаранчева революція, 2004 — одинадцята сторінка (картка поверх фото). */
+  maidanOrangeRevolution2004: require('./assets/maidan-orange-revolution-2004.png'),
 };
 
 export const HERO_THUMB_KEYS = [
@@ -25,7 +49,19 @@ export const HERO_THUMB_KEYS = [
   'maidan',
   'maidanHome',
   'maidanKozyeBolotoMap',
+  'maidanWatermillIllustration',
   'maidanWatermill',
+  'maidanHistoric',
+  'maidanModern',
+  'maidanGudovskyHistoric',
+  'maidanHolovposhtamtTragedy',
+  'maidanKhreshchatykRuins',
+  'maidanCityDumaPostcard',
+  'maidanLyadskiGates',
+  'maidanZeroKilometerGlobe',
+  'maidanRevolutionGranite1990',
+  'maidanRevolutionGraniteCamp',
+  'maidanOrangeRevolution2004',
 ];
 
 export function isValidHeroThumbRef(ref) {

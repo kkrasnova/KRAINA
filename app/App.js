@@ -88,6 +88,42 @@ const SettingsNotificationsPage = (p) => (
     {...p}
   />
 );
+const SettingsNotificationMessagesPage = (p) => (
+  <LazyScreen
+    loader={makeLazyLoader(
+      () => require('./SettingsSubScreens'),
+      (m) => ({ default: m.SettingsNotificationMessagesPage }),
+    )}
+    {...p}
+  />
+);
+const SettingsNotificationFeedPage = (p) => (
+  <LazyScreen
+    loader={makeLazyLoader(
+      () => require('./SettingsSubScreens'),
+      (m) => ({ default: m.SettingsNotificationFeedPage }),
+    )}
+    {...p}
+  />
+);
+const SettingsNotificationRoutesPage = (p) => (
+  <LazyScreen
+    loader={makeLazyLoader(
+      () => require('./SettingsSubScreens'),
+      (m) => ({ default: m.SettingsNotificationRoutesPage }),
+    )}
+    {...p}
+  />
+);
+const SettingsNotificationProductPage = (p) => (
+  <LazyScreen
+    loader={makeLazyLoader(
+      () => require('./SettingsSubScreens'),
+      (m) => ({ default: m.SettingsNotificationProductPage }),
+    )}
+    {...p}
+  />
+);
 const SettingsPrivacyPage = (p) => (
   <LazyScreen
     loader={makeLazyLoader(
@@ -556,6 +592,26 @@ export default function App() {
                 options={STACK_OVER_HOME_OPTIONS}
               />
               <Stack.Screen
+                name="SettingsNotificationMessages"
+                component={SettingsNotificationMessagesPage}
+                options={STACK_OVER_HOME_OPTIONS}
+              />
+              <Stack.Screen
+                name="SettingsNotificationFeed"
+                component={SettingsNotificationFeedPage}
+                options={STACK_OVER_HOME_OPTIONS}
+              />
+              <Stack.Screen
+                name="SettingsNotificationRoutes"
+                component={SettingsNotificationRoutesPage}
+                options={STACK_OVER_HOME_OPTIONS}
+              />
+              <Stack.Screen
+                name="SettingsNotificationProduct"
+                component={SettingsNotificationProductPage}
+                options={STACK_OVER_HOME_OPTIONS}
+              />
+              <Stack.Screen
                 name="SettingsSteps"
                 component={SettingsStepsPage}
                 options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
@@ -632,7 +688,15 @@ export default function App() {
               <Stack.Screen name="ExploreMap" component={ExploreMapPage} />
               <Stack.Screen name="RouteResults" component={RouteResultsPage} />
               <Stack.Screen name="RouteNavigation" component={RouteNavigationPage} />
-              <Stack.Screen name="LandmarkResult" component={LandmarkResultPage} />
+              <Stack.Screen
+                name="LandmarkResult"
+                component={LandmarkResultPage}
+                options={
+                  Platform.OS === 'ios'
+                    ? { gestureEnabled: false, fullScreenGestureEnabled: false }
+                    : undefined
+                }
+              />
               <Stack.Screen name="LandmarkQuiz" component={LandmarkQuizPage} options={{ headerShown: false }} />
               <Stack.Screen name="LandmarkNotFound" component={LandmarkNotFoundPage} options={{ headerShown: false }} />
               <Stack.Screen name="DiscoverPeople" component={DiscoverPeoplePage} options={{ headerShown: false }} />

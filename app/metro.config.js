@@ -174,6 +174,12 @@ config.resolver = {
         filePath: path.resolve(__dirname, 'expoAvCompat.js'),
       };
     }
+    if (moduleName === 'events') {
+      return {
+        type: 'sourceFile',
+        filePath: path.join(appNodeModules, 'events', 'events.js'),
+      };
+    }
     if (defaultResolveRequest) {
       return defaultResolveRequest(context, moduleName, platform);
     }
@@ -185,7 +191,7 @@ config.resolver = {
 config.maxWorkers = Math.max(2, os.cpus().length - 1);
 
 // cacheVersion: форсувати скидання кешу при зміні конфігурації трансформера
-config.cacheVersion = '1.7';
+config.cacheVersion = '1.8';
 
 // Ensure the patch wins even if a dependency re-required Metro during config setup.
 patchExpoSourceMapSerializer();

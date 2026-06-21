@@ -131,6 +131,8 @@ export const config = {
     apnsTeamId: opt('APNS_TEAM_ID'),
     apnsTopic: opt('APNS_TOPIC'),
     apnsProduction: /^(1|true|yes)$/i.test(process.env.APNS_PRODUCTION ?? ''),
+    // --- Expo Push (chat message notifications) ---
+    expoPushAccessToken: opt('EXPO_PUSH_ACCESS_TOKEN'),
     corsOrigins: parseCorsOrigins(),
     trustProxy: parseTrustProxy(),
     // Helper: true if APNs env vars are present (not necessarily valid)

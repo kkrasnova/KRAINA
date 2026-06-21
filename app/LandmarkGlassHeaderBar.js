@@ -29,6 +29,7 @@ export default function LandmarkGlassHeaderBar({
   headerTitle,
   onBack,
   onMorePress,
+  moreMenuOpen = false,
   showMore = true,
   bottomContent = null,
   Shell = View,
@@ -105,11 +106,15 @@ export default function LandmarkGlassHeaderBar({
           </Text>
           {showMore && typeof onMorePress === 'function' ? (
             <Pressable
-              style={isLight ? styles.miniTopIconBtnLight : styles.miniTopIconBtnGlass}
+              style={[
+                isLight ? styles.miniTopIconBtnLight : styles.miniTopIconBtnGlass,
+                moreMenuOpen && (isLight ? styles.miniTopIconBtnLightActive : styles.miniTopIconBtnGlassActive),
+              ]}
               onPress={onMorePress}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel={accessibilityMoreLabel}
+              accessibilityState={{ expanded: moreMenuOpen }}
               android_ripple={ripple}
             >
               <Ionicons name="ellipsis-vertical" size={20} color={isLight ? '#1E1E1E' : FIGMA_CREAM} />
@@ -187,6 +192,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  miniTopIconBtnGlassActive: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.62)',
+  },
+  miniTopIconBtnLightActive: {
+    backgroundColor: 'rgba(2, 18, 235, 0.1)',
+    borderColor: 'rgba(2, 18, 235, 0.28)',
   },
   backGlyphLight: {
     color: '#1E1E1E',
