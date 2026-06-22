@@ -39,6 +39,7 @@ import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from '.
 import { brandFontHeadMedium } from './brandFont';
 import {
   hasFeedApiToken,
+  ensureFeedApiReady,
   feedListFriendsPosts,
   feedListWorldPosts,
   feedListStoriesTray,
@@ -193,16 +194,12 @@ const MemoFeedHeader = React.memo(function MemoFeedHeader({ appTheme, insetsTop,
           <Pressable
             onPress={onAdd}
             hitSlop={12}
-            style={({ pressed }) => [
-              styles.addCircle,
-              { borderColor: isLight ? '#000000' : '#FFFFFF', borderWidth: 1.5 },
-              pressed && styles.pressedIOS,
-            ]}
+            style={({ pressed }) => [styles.addHit, pressed && styles.pressedIOS]}
             android_ripple={ripple}
             accessibilityRole="button"
             accessibilityLabel="Add"
           >
-            <Ionicons name="add" size={22} color={iconColor} />
+            <Ionicons name="add" size={28} color={iconColor} />
           </Pressable>
         </View>
         <View style={styles.feedHeaderCenter} pointerEvents="none" />
@@ -396,6 +393,11 @@ export default function FeedPage({ navigation, route }) {
           console.log(`[Cache] FeedPage MISS`);
         }
 
+        if (cancelled) return;
+
+        // Перед мережевим запитом пробуємо відновити backend-сесію, якщо JWT протух —
+        // інакше стрічка лишається порожньою до перезапуску застосунку.
+        await ensureFeedApiReady(user);
         if (cancelled) return;
 
         const apiResult = await fetchApiFeed();
@@ -1201,10 +1203,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 22,
   },
-  addCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  addHit: {
+    minWidth: 44,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

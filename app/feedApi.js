@@ -85,6 +85,25 @@ export function hasFeedApiToken() {
   return hasBackendSession() || (firebaseEnabled && !!db && !!uid());
 }
 
+/**
+ * Спроба відновити backend-сесію перед стрічкою/постами/сторіс (refresh / Firebase / Google /
+ * email). Дзеркалить `ensureMessageApiReady` для чатів — без цього транзієнтне протухання JWT
+ * лишає стрічку порожньою, а публікацію — з помилкою, аж до перезапуску застосунку.
+ */
+export async function ensureFeedApiReady(localUser) {
+  if (hasBackendSession()) return true;
+  if (!useAuthStore.getState().hydrated) {
+    await useAuthStore.getState().hydrate();
+  }
+  if (hasBackendSession()) return true;
+  try {
+    const { ensureBackendSession } = require('./syncBackendSessionBridge');
+    return await ensureBackendSession(localUser);
+  } catch {
+    return false;
+  }
+}
+
 /** Підготувати FormData-файл для multipart-завантаження на бекенд. */
 function buildMediaFormFile(localUri) {
   const lower = String(localUri || '').toLowerCase();
