@@ -23,6 +23,7 @@ import { fc } from './feedComposerI18n';
 import { prependUserFeedPost } from './feedLocalStorage';
 import {
   hasFeedApiToken,
+  ensureFeedApiReady,
   feedUploadMediaFromUri,
   feedCreatePost,
 } from './feedApi';
@@ -136,6 +137,9 @@ export default function FeedPostComposerPage({ navigation, route }) {
       const placeLine =
         place.trim() ||
         (mapLat != null && mapLng != null ? `${mapLat.toFixed(3)}, ${mapLng.toFixed(3)}` : '');
+      // Пробуємо відновити backend-сесію перед публікацією, щоб пост пішов у Postgres,
+      // а не лише в локальне сховище.
+      await ensureFeedApiReady(user);
       if (hasFeedApiToken()) {
         const remoteUrls = [];
         for (const u of uris) {
