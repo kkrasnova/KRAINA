@@ -16,25 +16,13 @@ export function visitPlaceKey(v) {
   return `C:${city}|${String(v?.category || 'other')}`;
 }
 
-/**
- * XP: перший візит за ключем +100, кожний наступний +25 (хронологічно).
- * @param {Array<{ at?: string, city?: string, label?: string, category?: string }>} visits
- */
 export function computeVisitXp(visits) {
-  const list = Array.isArray(visits) ? [...visits] : [];
-  list.sort((a, b) => new Date(a.at || 0).getTime() - new Date(b.at || 0).getTime());
+  const list = Array.isArray(visits) ? visits.filter((v) => v && v.physicalVisit === true) : [];
   const seen = new Set();
-  let xp = 0;
   for (const v of list) {
-    const k = visitPlaceKey(v);
-    if (!seen.has(k)) {
-      seen.add(k);
-      xp += 100;
-    } else {
-      xp += 25;
-    }
+    seen.add(visitPlaceKey(v));
   }
-  return { xp, uniquePlaces: seen.size, totalVisits: list.length };
+  return { xp: 0, uniquePlaces: seen.size, totalVisits: list.length };
 }
 
 /**

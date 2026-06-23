@@ -4,8 +4,15 @@ import { fillBundleMissingLangs, pickI18n } from './i18nBundle';
 const STR = {
   mapTab: { uk: 'Карта', en: 'Map' },
   plannerTab: { uk: 'Маршрут', en: 'Route' },
-  searchPlaceholder: { uk: 'Пошук локацій…', en: 'Search places…' },
-  searchHint: { uk: 'Введіть від 2 символів — пошук у каталозі KRAÏNA', en: 'Type at least 2 characters to search the KRAÏNA catalog' },
+  searchPlaceholder: { uk: 'Пошук місця…', en: 'Search for a place…' },
+  searchHint: {
+    uk: 'Введіть від 2 символів — каталог KRAÏNA або будь-яка адреса',
+    en: 'Type at least 2 characters — KRAÏNA catalog or any address',
+  },
+  tapMapHint: { uk: 'Торкніться карти, щоб додати точку', en: 'Tap the map to add a point' },
+  customPoint: { uk: 'Обрана точка', en: 'Selected point' },
+  startWalk: { uk: 'Почати прогулянку', en: 'Start walking' },
+  openInMaps: { uk: 'Відкрити в Google Maps', en: 'Open in Google Maps' },
   noResults: { uk: 'Нічого не знайдено', en: 'Nothing found' },
   searchFailed: {
     uk: 'Не вдалося виконати пошук. Перевірте з’єднання та спробуйте ще раз.',
@@ -31,6 +38,12 @@ const STR = {
   navigate: { uk: 'Навігація', en: 'Navigate' },
   savedPlaces: { uk: 'Збережені', en: 'Saved' },
   noSaved: { uk: 'Немає збережених локацій', en: 'No saved locations' },
+  mapLoading: { uk: 'Завантажуємо карту…', en: 'Loading map…' },
+  mapLoadFailed: {
+    uk: 'Карта не відобразилась. Натисніть, щоб оновити.',
+    en: 'Map did not load. Tap to refresh.',
+  },
+  mapRetry: { uk: 'Оновити карту', en: 'Refresh map' },
 };
 
 fillBundleMissingLangs(STR);

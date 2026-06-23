@@ -19,7 +19,7 @@ import { useAppTheme } from './useAppTheme';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { st } from './settingsI18n';
 import { getChoosePlanTexts } from './choosePlanI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import {
   getSubscriptionState,
@@ -515,7 +515,7 @@ export default function CancelSubscriptionPage({ navigation, route }) {
           styles.scrollContent,
           !loading && !paidTier && styles.scrollContentEmpty,
           {
-            paddingBottom: Math.max(28, insets.bottom + 24) + lightTabBarExtraScrollPadding(),
+            paddingBottom: Math.max(28, lightTabBarScrollContentPadding(insets.bottom, 24)),
             paddingHorizontal: 20,
             paddingTop: 8,
           },

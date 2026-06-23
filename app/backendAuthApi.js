@@ -1,6 +1,7 @@
 import { useAuthStore } from './auth/authStore';
 import { API_BASE_URL } from './auth/config';
 import { ApiError } from './auth/types';
+import { logError } from './errorLogger';
 
 /** JWT має формат header.payload.signature — не Firebase UID. */
 export function isBackendJwt(token) {
@@ -12,7 +13,14 @@ export function hasBackendJwt() {
 }
 
 export function hasBackendSession() {
-  return !!API_BASE_URL && hasBackendJwt() && !!useAuthStore.getState().user?.id;
+  const hasBase = !!API_BASE_URL;
+  const hasJwt = hasBackendJwt();
+  const hasUser = !!useAuthStore.getState().user?.id;
+  const result = hasBase && hasJwt && hasUser;
+  if (__DEV__ && !result) {
+    console.log('[backendAuthApi] hasBackendSession check failed:', { hasBase, hasJwt, hasUser, API_BASE_URL });
+  }
+  return result;
 }
 
 async function parseApiError(res) {
@@ -23,8 +31,10 @@ async function parseApiError(res) {
 /**
  * Безкоштовний інстанс Render «засинає» після ~15 хв простою; перший запит будить його
  * 30–60 с. Без таймауту fetch висить безкінечно — кнопка «Увійти» зависає без відповіді.
+ * 
+ * ⚡ Оптимізовано: 15s для login (критично), 30s для інших операцій.
  */
-const AUTH_FETCH_TIMEOUT_MS = 60000;
+const AUTH_FETCH_TIMEOUT_MS = 15000; // Скорочено з 60000
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
@@ -59,6 +69,28 @@ function isFastNetworkFailure(e) {
   );
 }
 
+async function fetchWithNetworkRetry(url, opts, timeoutMs) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await fetchWithTimeout(url, opts, timeoutMs);
+    } catch (e) {
+      if (attempt === 0 && isFastNetworkFailure(e)) {
+        // ⚡ Коротша пауза перед повтором (800ms замість 1500ms)
+        await new Promise((r) => setTimeout(r, 800));
+        continue;
+      }
+      if (attempt === 0 && (e?.name === 'TimeoutError' || String(e?.message || '').includes('aborted'))) {
+        // ⚡ Якщо таймаут — одразу повертаємо помилку, не чекаємо 3s
+        if (__DEV__) console.warn('[backendAuthApi] timeout on attempt 1, giving up');
+        throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
+      }
+      if (__DEV__) console.warn('[backendAuthApi] network', e?.name, e?.message);
+      throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
+    }
+  }
+  throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
+}
+
 async function postJson(path, body, token) {
   if (!API_BASE_URL) throw new ApiError(0, { error: 'NETWORK_ERROR' }, 'NETWORK_ERROR');
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
@@ -77,6 +109,10 @@ async function postJson(path, body, token) {
       // Лише швидкий мережевий збій на першій спробі повторюємо (після короткої паузи).
       if (attempt === 0 && isFastNetworkFailure(e)) {
         await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      if (attempt === 0 && (e?.name === 'TimeoutError' || String(e?.message || '').includes('aborted'))) {
+        await new Promise((r) => setTimeout(r, 3000));
         continue;
       }
       if (__DEV__) console.warn('[backendAuthApi] network', e?.name, e?.message);
@@ -234,8 +270,10 @@ export async function getValidBackendAccessToken() {
 
 /**
  * Авторизований REST-виклик до KRAÏNA API (Bearer JWT + auto-refresh на 401).
+ * @param {{ timeoutMs?: number }} [opts]
  */
-export async function backendAuthFetch(method, path, body) {
+export async function backendAuthFetch(method, path, body, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? AUTH_FETCH_TIMEOUT_MS;
   const base = API_BASE_URL;
   if (!base) throw new ApiError(503, { error: 'API_UNAVAILABLE' }, 'API_UNAVAILABLE');
 
@@ -243,24 +281,33 @@ export async function backendAuthFetch(method, path, body) {
   if (!token) throw new ApiError(401, { error: 'UNAUTHORIZED' }, 'UNAUTHORIZED');
 
   const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
-  const opts = { method, headers };
+  const fetchOpts = { method, headers };
   if (body != null) {
     headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
+    fetchOpts.body = JSON.stringify(body);
   }
 
-  let res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
+  let res = await fetchWithNetworkRetry(`${base}${path}`, fetchOpts, timeoutMs);
   if (res.status === 401) {
     const refreshed = await useAuthStore.getState().refreshSession();
     if (refreshed) {
       token = useAuthStore.getState().accessToken;
       if (isBackendJwt(token)) {
         headers.Authorization = `Bearer ${token}`;
-        res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
+        res = await fetchWithNetworkRetry(`${base}${path}`, fetchOpts, timeoutMs);
       }
     }
   }
-  if (!res.ok) await parseApiError(res);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    logError('chat_api', `${method} ${path} failed: ${res.status}`, {
+      status: res.status,
+      errorCode: data?.error || data?.message,
+      method,
+      path,
+    });
+    throw new ApiError(res.status, data, data?.error || data?.message || res.statusText);
+  }
   if (res.status === 204) return null;
   const text = await res.text();
   if (!text) return null;
@@ -272,28 +319,44 @@ export async function backendAuthFetch(method, path, body) {
 }
 
 /** Multipart upload (voice, images) — не ставить Content-Type вручную. */
-export async function backendAuthUpload(path, formData) {
+export async function backendAuthUpload(path, formDataOrBuilder) {
   const base = API_BASE_URL;
   if (!base) throw new ApiError(503, { error: 'API_UNAVAILABLE' }, 'API_UNAVAILABLE');
 
   let token = await getValidBackendAccessToken();
   if (!token) throw new ApiError(401, { error: 'UNAUTHORIZED' }, 'UNAUTHORIZED');
 
-  const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
-  const opts = { method: 'POST', headers, body: formData };
+  const buildBody = () =>
+    typeof formDataOrBuilder === 'function' ? formDataOrBuilder() : formDataOrBuilder;
 
-  let res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
+  const uploadOnce = async (authToken) => {
+    const headers = { Accept: 'application/json', Authorization: `Bearer ${authToken}` };
+    return fetchWithNetworkRetry(
+      `${base}${path}`,
+      { method: 'POST', headers, body: buildBody() },
+      AUTH_FETCH_TIMEOUT_MS,
+    );
+  };
+
+  let res = await uploadOnce(token);
   if (res.status === 401) {
     const refreshed = await useAuthStore.getState().refreshSession();
     if (refreshed) {
       token = useAuthStore.getState().accessToken;
       if (isBackendJwt(token)) {
-        headers.Authorization = `Bearer ${token}`;
-        res = await fetchWithTimeout(`${base}${path}`, opts, AUTH_FETCH_TIMEOUT_MS);
+        res = await uploadOnce(token);
       }
     }
   }
-  if (!res.ok) await parseApiError(res);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    logError('chat_api', `UPLOAD ${path} failed: ${res.status}`, {
+      status: res.status,
+      errorCode: data?.error || data?.message,
+      path,
+    });
+    throw new ApiError(res.status, data, data?.error || data?.message || res.statusText);
+  }
   const text = await res.text();
   if (!text) return null;
   try {
@@ -305,4 +368,32 @@ export async function backendAuthUpload(path, formData) {
 
 export async function backendGetProfileMe() {
   return backendAuthFetch('GET', '/api/profile/me');
+}
+
+export async function backendPatchProfileMe(patch) {
+  return backendAuthFetch('PATCH', '/api/profile/me', patch);
+}
+
+export async function backendPostProfileAvatar(localUri, mimeType = '') {
+  const { normalizeLocalFileUri } = require('./feedMediaPersist');
+  const normalizedUri = normalizeLocalFileUri(localUri);
+  const mime = String(mimeType || '').toLowerCase();
+  const lower = String(normalizedUri || '').toLowerCase();
+  const isPng = mime.includes('png') || /\.png(\?|$)/i.test(lower);
+  const isWebp = mime.includes('webp') || /\.webp(\?|$)/i.test(lower);
+  const type = isPng ? 'image/png' : isWebp ? 'image/webp' : 'image/jpeg';
+  const ext = isPng ? 'png' : isWebp ? 'webp' : 'jpg';
+  return backendAuthUpload('/api/profile/me/avatar', () => {
+    const form = new FormData();
+    form.append('file', {
+      uri: normalizedUri,
+      type,
+      name: `avatar_${Date.now()}.${ext}`,
+    });
+    return form;
+  });
+}
+
+export async function backendDeleteProfileAvatar() {
+  return backendAuthFetch('DELETE', '/api/profile/me/avatar');
 }

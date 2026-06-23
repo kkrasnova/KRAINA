@@ -2,78 +2,703 @@
  * Пам’ятки згруповані лише всередині одного регіону (місто).
  * Генератор маршруту ніколи не змішує регіони.
  */
-const T1 = require('./assets/kling_20260405_IMAGE____________5495_1.png');
-const T2 = require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png');
-const T3 = require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png');
-const T4 = require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png');
-const T_MAIDAN_HOME = require('./assets/maidan-home-thumb.jpg');
-const T_KYIV = require('./assets/kyiv-main-hero.png');
+const T1 = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
+const T2 = require('./assets/screenshot_2026-04-05_15.52.15.webp');
+const T3 = require('./assets/screenshot_2026-04-05_15.55.36.webp');
+const T4 = require('./assets/screenshot_2026-04-05_15.59.46.webp');
+const T_MAIDAN_HOME = require('./assets/maidan-home-thumb.webp');
+const T_SOPHIA_HOME = require('./assets/sophia-cathedral-hero.webp');
+const T_LAVRA_HOME = require('./assets/lavra-panorama-dnipro.webp');
+const T_KHANENKO_HOME = require('./assets/khanenko-museum-facade.webp');
+const T_KHANENKO_ASIAN = require('./assets/khanenko-bellini-madonna.webp'); // Fallback: Asian art collection
+const T_KYIV = require('./assets/kyiv-main-hero.webp');
 const {
-  MAIDAN_AUDIO_SCRIPT_UK,
   MAIDAN_SHORT_INTRO_UK,
   MAIDAN_MINI_PREVIEW_UK,
   MAIDAN_INTRO_PAGE1_UK,
-  MAIDAN_INTRO_PAGE2_UK,
-  MAIDAN_INTRO_PAGE3_UK,
-  MAIDAN_INTRO_PAGE4_UK,
-  MAIDAN_INTRO_PAGE5_UK,
-  MAIDAN_INTRO_PAGE6_UK,
-  MAIDAN_INTRO_PAGE7_UK,
-  MAIDAN_INTRO_PAGE8_UK,
-  MAIDAN_INTRO_PAGE9_UK,
-  MAIDAN_INTRO_PAGE10_UK,
-  MAIDAN_INTRO_PAGE11_UK,
-  MAIDAN_INTRO_PAGE12_UK,
-  MAIDAN_PAGE2_ILLUSTRATION_LINK_UK,
-  MAIDAN_PAGE2_ILLUSTRATION_CAPTION_UK,
+  MAIDAN_INTRO_PAGE_BODIES_UK,
 } = require('./landmarkAudioScripts/maidan');
-const T_LIVIV = require('./assets/lviv-main-hero.png');
-const T_ODESA = require('./assets/odesa-main-hero.png');
-const T_KHARKIV = require('./assets/kharkiv-main-hero.png');
-const T_DNIPRO = require('./assets/dnipro-main-hero.png');
-const T_ZAPORIZHZHIA = require('./assets/zaporizhzhia-main-hero.png');
-const T_KRYVYI_RIH = require('./assets/kryvyi-rih-main-hero.png');
-const T_MARIUPOL = require('./assets/mariupol-main-hero.png');
-const T_MYKOLAIV = require('./assets/mykolaiv-main-hero.png');
-const T_VINNYTSIA = require('./assets/vinnytsia-main-hero.png');
-const T_CHERNIHIV = require('./assets/chernihiv-main-hero.png');
-const T_POLTAVA = require('./assets/poltava-main-hero.png');
-const T_CHERKASY = require('./assets/cherkasy-main-hero.png');
-const T_SUMY = require('./assets/sumy-main-hero.png');
-const T_ZHYTOMYR = require('./assets/zhytomyr-main-hero.png');
-const T_KHMELNYTSKYI = require('./assets/khmelnytskyi-main-hero.png');
-const T_RIVNE = require('./assets/rivne-main-hero.png');
-const T_IVANO_FRANKIVSK = require('./assets/ivano-frankivsk-main-hero.png');
-const T_TERNOPIL = require('./assets/ternopil-main-hero.png');
-const T_LUTSK = require('./assets/lutsk-main-hero.png');
-const T_UZHHOROD = require('./assets/uzhhorod-main-hero.png');
-const T_CHERNIVTSI = require('./assets/chernivtsi-main-hero.png');
-const T_KROPYVNYTSKYI = require('./assets/kropyvnytskyi-main-hero.png');
-const T_KREMENCHUK = require('./assets/kremenchuk-main-hero.png');
-const T_KRAMATORSK = require('./assets/kramatorsk-main-hero.png');
-const T_BERDYANSK = require('./assets/berdyansk-main-hero.png');
-const T_UMAN = require('./assets/uman-main-hero.png');
-const T_KAMIANETS_PODILSKYI = require('./assets/kamianets-podilskyi-main-hero.png');
-const T_MUKACHEVO = require('./assets/mukachevo-main-hero.png');
-const T_DROHOBYCH = require('./assets/drohobych-main-hero.png');
-const T_KONOTOP = require('./assets/konotop-main-hero.png');
-const T_NIZHYN = require('./assets/nizhyn-main-hero.png');
-const T_SLOVIANSK = require('./assets/sloviansk-main-hero.png');
-const T_BILA_TSERKVA = require('./assets/bila-tserkva-main-hero.png');
-const T_BROVARY = require('./assets/brovary-main-hero.png');
-const T_PARIS = require('./assets/paris-main-hero.png');
-const T_ROME = require('./assets/rome-main-hero.png');
-const T_BERLIN = require('./assets/berlin-main-hero.png');
-const T_WARSAW = require('./assets/warsaw-main-hero.png');
-const T_AMSTERDAM = require('./assets/amsterdam-main-hero.png');
-const T_WAALWIJK = require('./assets/waalwijk-main-hero.png');
-const T_DEN_BOSCH = require('./assets/den-bosch-main-hero.png');
-const T_VLIJMEN = require('./assets/vlijmen-main-hero.png');
-const T_BUCHAREST = require('./assets/bucharest-main-hero.png');
-const T_VILNIUS = require('./assets/vilnius-main-hero.png');
-const T_RIGA = require('./assets/riga-main-hero.png');
-const T_YEREVAN = require('./assets/yerevan-main-hero.png');
-const T_MADRID = require('./assets/madrid-main-hero.png');
+const {
+  SOPHIA_SHORT_INTRO_UK,
+  SOPHIA_MINI_PREVIEW_UK,
+  SOPHIA_INTRO_PAGE1_UK,
+  SOPHIA_INTRO_PAGE_BODIES_UK,
+  SOPHIA_INTRO_PAGE5_BEFORE_UK,
+  SOPHIA_INTRO_PAGE5_AFTER_UK,
+} = require('./landmarkAudioScripts/sophia');
+const {
+  LAVRA_SHORT_INTRO_UK,
+  LAVRA_MINI_PREVIEW_UK,
+  LAVRA_INTRO_PAGE1_UK,
+  LAVRA_INTRO_PAGE_BODIES_UK,
+} = require('./landmarkAudioScripts/lavra');
+const {
+  KHANENKO_SHORT_INTRO_UK,
+  KHANENKO_MINI_PREVIEW_UK,
+  KHANENKO_INTRO_PAGE1_UK,
+  KHANENKO_INTRO_PAGE_BODIES_UK,
+} = require('./landmarkAudioScripts/khanenko');
+const { buildLandmarkIntroStory } = require('./landmarkStoryBuilder');
+const { LANDMARK_INTRO_PAGE_MEDIA_TEMPLATE } = require('./landmarkIntroPageMediaTemplate');
+const { applyIntroStoryScaffoldToRegions } = require('./landmarkStoryScaffold');
+const T_LIVIV = require('./assets/lviv-main-hero.webp');
+const T_ODESA = require('./assets/odesa-main-hero.webp');
+const T_KHARKIV = require('./assets/kharkiv-main-hero.webp');
+const T_DNIPRO = require('./assets/dnipro-main-hero.webp');
+const T_ZAPORIZHZHIA = require('./assets/zaporizhzhia-main-hero.webp');
+const T_KRYVYI_RIH = require('./assets/kryvyi-rih-main-hero.webp');
+const T_MARIUPOL = require('./assets/mariupol-main-hero.webp');
+const T_MYKOLAIV = require('./assets/mykolaiv-main-hero.webp');
+const T_VINNYTSIA = require('./assets/vinnytsia-main-hero.webp');
+const T_CHERNIHIV = require('./assets/chernihiv-main-hero.webp');
+const T_POLTAVA = require('./assets/poltava-main-hero.webp');
+const T_CHERKASY = require('./assets/cherkasy-main-hero.webp');
+const T_SUMY = require('./assets/sumy-main-hero.webp');
+const T_ZHYTOMYR = require('./assets/zhytomyr-main-hero.webp');
+const T_KHMELNYTSKYI = require('./assets/khmelnytskyi-main-hero.webp');
+const T_RIVNE = require('./assets/rivne-main-hero.webp');
+const T_IVANO_FRANKIVSK = require('./assets/ivano-frankivsk-main-hero.webp');
+const T_TERNOPIL = require('./assets/ternopil-main-hero.webp');
+const T_LUTSK = require('./assets/lutsk-main-hero.webp');
+const T_UZHHOROD = require('./assets/uzhhorod-main-hero.webp');
+const T_CHERNIVTSI = require('./assets/chernivtsi-main-hero.webp');
+const T_KROPYVNYTSKYI = require('./assets/kropyvnytskyi-main-hero.webp');
+const T_KREMENCHUK = require('./assets/kremenchuk-main-hero.webp');
+const T_KRAMATORSK = require('./assets/kramatorsk-main-hero.webp');
+const T_BERDYANSK = require('./assets/berdyansk-main-hero.webp');
+const T_UMAN = require('./assets/uman-main-hero.webp');
+const T_KAMIANETS_PODILSKYI = require('./assets/kamianets-podilskyi-main-hero.webp');
+const T_MUKACHEVO = require('./assets/mukachevo-main-hero.webp');
+const T_DROHOBYCH = require('./assets/drohobych-main-hero.webp');
+const T_KONOTOP = require('./assets/konotop-main-hero.webp');
+const T_NIZHYN = require('./assets/nizhyn-main-hero.webp');
+const T_SLOVIANSK = require('./assets/sloviansk-main-hero.webp');
+const T_BILA_TSERKVA = require('./assets/bila-tserkva-main-hero.webp');
+const T_BROVARY = require('./assets/brovary-main-hero.webp');
+const T_PARIS = require('./assets/paris-main-hero.webp');
+const T_ROME = require('./assets/rome-main-hero.webp');
+const T_BERLIN = require('./assets/berlin-main-hero.webp');
+const T_WARSAW = require('./assets/warsaw-main-hero.webp');
+const T_AMSTERDAM = require('./assets/amsterdam-main-hero.webp');
+const T_WAALWIJK = require('./assets/waalwijk-main-hero.webp');
+const T_DEN_BOSCH = require('./assets/den-bosch-main-hero.webp');
+const T_VLIJMEN = require('./assets/vlijmen-main-hero.webp');
+const T_BUCHAREST = require('./assets/bucharest-main-hero.webp');
+const T_VILNIUS = require('./assets/vilnius-main-hero.webp');
+const T_RIGA = require('./assets/riga-main-hero.webp');
+const T_YEREVAN = require('./assets/yerevan-main-hero.webp');
+const T_MADRID = require('./assets/madrid-main-hero.webp');
+
+/** Ключі фото для 12 слайдів — ідентична структура як у шаблоні Майдану. */
+const MAIDAN_PAGE_MEDIA = LANDMARK_INTRO_PAGE_MEDIA_TEMPLATE;
+
+const MAIDAN_STORY = buildLandmarkIntroStory({
+  shortIntroUk: MAIDAN_SHORT_INTRO_UK,
+  shortIntroEn: 'A heart beating in unison with Ukraine',
+  miniPreviewUk: MAIDAN_MINI_PREVIEW_UK,
+  introPage1Uk: MAIDAN_INTRO_PAGE1_UK,
+  pageBodiesUk: MAIDAN_INTRO_PAGE_BODIES_UK,
+  pageMedia: MAIDAN_PAGE_MEDIA,
+  quiz: {
+    questionUk: 'Що стоїть на вершині Монументу Незалежності на Майдані?',
+    questionEn: 'What stands atop the Independence Monument on Maidan?',
+    options: [
+      { textUk: 'Оранта-Україна', textEn: 'Oranta-Ukraine', correct: true },
+      { textUk: 'Золотий Архангел Михаїл', textEn: 'Golden Archangel Michael', correct: false },
+      { textUk: 'Червона зірка', textEn: 'Red star', correct: false },
+    ],
+    multiHintUk: 'Погляньте на білу колону в центрі площі — там дівчина з калиновою гілкою.',
+    multiHintEn: 'Look at the white column in the square — a woman with a viburnum branch.',
+  },
+  ttsEnabled: true,
+});
+
+const SOPHIA_PAGE_MEDIA = [
+  { heroThumb: 'sophiaBellTowerSquare' },
+  {
+    compareBeforeThumb: 'sophiaHistoric1911',
+    compareAfterThumb: 'sophiaModernBaroque',
+  },
+  { heroThumb: 'sophiaInteriorOranta' },
+  { heroThumb: 'sophiaMosaicOranta' },
+  { heroThumb: 'sophiaMosaicEucharist' },
+  { heroThumb: 'sophiaInteriorOranta' },
+  { heroThumb: 'sophiaMosaicChristEmmanuel' },
+  { heroThumb: 'sophiaHistoric1911' },
+  { heroThumb: 'sophiaAerialComplex' },
+  { heroThumb: 'sophia' },
+  { heroThumb: 'sophiaBellTowerSquare' },
+];
+
+const SOPHIA_STORY = buildLandmarkIntroStory({
+  shortIntroUk: SOPHIA_SHORT_INTRO_UK,
+  shortIntroEn: 'The heart of ancient Kyiv — where Ukraine begins',
+  miniPreviewUk: SOPHIA_MINI_PREVIEW_UK,
+  introPage1Uk: SOPHIA_INTRO_PAGE1_UK,
+  pageBodiesUk: SOPHIA_INTRO_PAGE_BODIES_UK,
+  pageMedia: SOPHIA_PAGE_MEDIA,
+  quiz: {
+    questionUk: 'Скільки відтінків налічує палітра мозаїк Софійського собору?',
+    questionEn: 'How many shades does the mosaic palette of Saint Sophia Cathedral contain?',
+    options: [
+      { textUk: '77', textEn: '77', correct: false },
+      { textUk: '177', textEn: '177', correct: true },
+      { textUk: '277', textEn: '277', correct: false },
+    ],
+    multiHintUk: 'Підказка: додайте відтінки зеленого, золотого, синього та червоного зі слайду про мозаїки.',
+    multiHintEn: 'Hint: add up the green, gold, blue, and red shades from the mosaics slide.',
+  },
+  ttsEnabled: false,
+});
+
+if (Array.isArray(SOPHIA_STORY.introPagesUk) && SOPHIA_STORY.introPagesUk[0]) {
+  Object.assign(SOPHIA_STORY.introPagesUk[0], {
+    heroThumb: 'sophiaBellTowerSquare',
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.58,
+    heroHeightMax: 520,
+    heroStackGap: 22,
+    heroPosition: { left: '50%', top: '45%' },
+    heroFit: 'cover',
+  });
+  delete SOPHIA_STORY.introPagesUk[0].illustrationThumb;
+  delete SOPHIA_STORY.introPagesUk[0].compareBeforeThumb;
+  delete SOPHIA_STORY.introPagesUk[0].compareAfterThumb;
+  delete SOPHIA_STORY.introPagesUk[0].compareBeforePosition;
+  delete SOPHIA_STORY.introPagesUk[0].compareAfterPosition;
+  delete SOPHIA_STORY.introPagesUk[0].introCompareRounded;
+  delete SOPHIA_STORY.introPagesUk[0].compareHeroHeightRatio;
+  delete SOPHIA_STORY.introPagesUk[0].compareHeroHeightMax;
+  delete SOPHIA_STORY.introPagesUk[0].compareHeroTopInset;
+  delete SOPHIA_STORY.introPagesUk[0].introHeroBleedTop;
+}
+
+if (Array.isArray(SOPHIA_STORY.introPagesUk) && SOPHIA_STORY.introPagesUk[1]) {
+  Object.assign(SOPHIA_STORY.introPagesUk[1], {
+    introCompareRounded: true,
+    compareHeroTopInset: 22,
+    heroStackGap: 22,
+    compareHeroHeightRatio: 0.6,
+    compareHeroHeightMax: 540,
+    compareBeforePosition: { left: '50%', top: '42%' },
+    compareAfterPosition: { left: '50%', top: '42%' },
+  });
+  delete SOPHIA_STORY.introPagesUk[1].introHeroBleedTop;
+}
+
+if (Array.isArray(SOPHIA_STORY.introPagesUk) && SOPHIA_STORY.introPagesUk[2]) {
+  Object.assign(SOPHIA_STORY.introPagesUk[2], {
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.34,
+    heroHeightMax: 320,
+    heroFit: 'cover',
+    heroStackGap: 14,
+    heroPosition: { left: '50%', top: '45%' },
+  });
+}
+
+if (Array.isArray(SOPHIA_STORY.introPagesUk) && SOPHIA_STORY.introPagesUk[3]) {
+  Object.assign(SOPHIA_STORY.introPagesUk[3], {
+    body: SOPHIA_INTRO_PAGE5_BEFORE_UK,
+    bodyAfterHero: SOPHIA_INTRO_PAGE5_AFTER_UK,
+    introHeroAfterText: true,
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.5,
+    heroHeightMax: 460,
+    heroFit: 'cover',
+    heroStackGap: 4,
+    heroPosition: { left: '50%', top: '42%' },
+  });
+}
+
+if (Array.isArray(SOPHIA_STORY.introPagesUk) && SOPHIA_STORY.introPagesUk[4]) {
+  Object.assign(SOPHIA_STORY.introPagesUk[4], {
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.38,
+    heroHeightMax: 320,
+    secondaryHeroHeightRatio: 0.24,
+    secondaryHeroHeightMax: 200,
+    heroStackGap: 14,
+    secondaryStackGap: 12,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '42%' },
+    secondaryHeroPosition: { left: '50%', top: '40%' },
+  });
+}
+
+if (Array.isArray(SOPHIA_STORY.introPagesUk) && SOPHIA_STORY.introPagesUk[8]) {
+  Object.assign(SOPHIA_STORY.introPagesUk[8], {
+    heroThumb: 'sophiaAerialComplex',
+    introHeroAfterText: true,
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.44,
+    heroHeightMax: 380,
+    heroFit: 'cover',
+    heroStackGap: 14,
+  });
+  delete SOPHIA_STORY.introPagesUk[8].introNoHero;
+  delete SOPHIA_STORY.introPagesUk[8].secondaryHeroThumb;
+}
+
+const LAVRA_PAGE_MEDIA = [
+  { heroThumb: 'lavraGoldenDomes' },
+  { compareBeforeThumb: 'lavraAnthonyHermit', compareAfterThumb: 'lavraBrotherhoodMonastery' },
+  { heroThumb: 'lavraNearCaves' },
+  { heroThumb: 'lavraFarCaves', secondaryHeroThumb: 'lavraFarCavesRelics' },
+  {
+    heroThumb: 'lavraAssumptionCathedral',
+    secondaryHeroThumb: 'lavraAssumptionRuins',
+  },
+  { heroThumb: 'lavraBellTower' },
+  { heroThumb: 'lavraChronicles' },
+  { heroThumb: 'lavraFeudalEstates' },
+  {
+    heroThumb: 'lavraSovietClosure',
+    secondaryHeroThumb: 'lavraCathedralExplosion',
+  },
+  { heroThumb: 'lavraSecretNun' },
+  { heroThumb: 'lavraUnesco' },
+  { heroThumb: 'lavraModernReflection' },
+];
+
+const LAVRA_STORY = buildLandmarkIntroStory({
+  shortIntroUk: LAVRA_SHORT_INTRO_UK,
+  shortIntroEn: 'Golden domes over the Dnipro — where Ukrainian monasticism was born',
+  miniPreviewUk: LAVRA_MINI_PREVIEW_UK,
+  introPage1Uk: LAVRA_INTRO_PAGE1_UK,
+  pageBodiesUk: LAVRA_INTRO_PAGE_BODIES_UK,
+  pageMedia: LAVRA_PAGE_MEDIA,
+  quiz: {
+    questionUk: 'У якому році засновано Лавру?',
+    questionEn: 'In what year was the Lavra founded?',
+    options: [
+      { textUk: '988', textEn: '988', correct: false },
+      { textUk: '1051', textEn: '1051', correct: true },
+      { textUk: '1240', textEn: '1240', correct: false },
+    ],
+    multiHintUk: 'Пам’ятайте рік заснування — він згадується на другому слайді про ченця Антонія.',
+    multiHintEn: 'Recall the founding year — it appears on slide 2 about monk Anthony.',
+  },
+  ttsEnabled: true,
+});
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[11]) {
+  Object.assign(LAVRA_STORY.introPagesUk[11], {
+    heroThumb: 'lavraModernReflection',
+    introHeroInsetRounded: true,
+    introHeroBleedTop: false,
+    heroHeightRatio: 0.44,
+    heroHeightMax: 380,
+    heroPosition: { left: '50%', top: '40%' },
+    heroFit: 'cover',
+    heroStackGap: 22,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[10]) {
+  Object.assign(LAVRA_STORY.introPagesUk[10], {
+    heroThumb: 'lavraUnesco',
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.46,
+    heroHeightMax: 400,
+    heroPosition: { left: '58%', top: '38%' },
+    heroFit: 'cover',
+    heroStackGap: 28,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[9]) {
+  Object.assign(LAVRA_STORY.introPagesUk[9], {
+    heroThumb: 'lavraSecretNun',
+    introFactCard: true,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[8]) {
+  Object.assign(LAVRA_STORY.introPagesUk[8], {
+    heroThumb: 'lavraCathedralExplosion',
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.46,
+    heroHeightMax: 400,
+    heroPosition: { left: '50%', top: '42%' },
+    heroFit: 'cover',
+    heroStackGap: 28,
+  });
+  delete LAVRA_STORY.introPagesUk[8].secondaryHeroThumb;
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[7]) {
+  Object.assign(LAVRA_STORY.introPagesUk[7], {
+    heroThumb: 'lavraFeudalEstates',
+    introHeroAfterText: true,
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.4,
+    heroHeightMax: 320,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '50%' },
+    heroStackGap: 16,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[6]) {
+  Object.assign(LAVRA_STORY.introPagesUk[6], {
+    heroThumb: 'lavraChronicles',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.46,
+    heroHeightMax: 400,
+    heroPosition: { left: '50%', top: '45%' },
+    heroFit: 'cover',
+    heroStackGap: 0,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[5]) {
+  Object.assign(LAVRA_STORY.introPagesUk[5], {
+    heroThumb: 'lavraBellTower',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.52,
+    heroHeightMax: 480,
+    heroPosition: { left: '50%', top: '35%' },
+    heroFit: 'cover',
+    heroStackGap: 0,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[4]) {
+  Object.assign(LAVRA_STORY.introPagesUk[4], {
+    heroThumb: 'lavraAssumptionCathedral',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.44,
+    heroHeightMax: 380,
+    heroPosition: { left: '50%', top: '42%' },
+    heroStackGap: 0,
+    heroFit: 'cover',
+  });
+  delete LAVRA_STORY.introPagesUk[4].secondaryHeroThumb;
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[3]) {
+  Object.assign(LAVRA_STORY.introPagesUk[3], {
+    heroThumb: 'lavraFarCaves',
+    secondaryHeroThumb: 'lavraFarCavesRelics',
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.38,
+    heroHeightMax: 320,
+    heroPosition: { left: '42%', top: '50%' },
+    secondaryHeroHeightRatio: 0.3,
+    secondaryHeroHeightMax: 260,
+    secondaryHeroPosition: { left: '50%', top: '50%' },
+    heroStackGap: 16,
+    secondaryStackGap: 0,
+    heroFit: 'cover',
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[2]) {
+  Object.assign(LAVRA_STORY.introPagesUk[2], {
+    heroPosition: { left: '54%', top: '50%' },
+    heroFit: 'cover',
+    heroHeightRatio: 0.46,
+    heroHeightMax: 420,
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[1]) {
+  Object.assign(LAVRA_STORY.introPagesUk[1], {
+    compareBeforePosition: { left: '54%', top: '50%' },
+  });
+}
+
+if (Array.isArray(LAVRA_STORY.introPagesUk) && LAVRA_STORY.introPagesUk[0]) {
+  Object.assign(LAVRA_STORY.introPagesUk[0], {
+    heroThumb: 'lavraGoldenDomes',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.58,
+    heroHeightMax: 520,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '42%' },
+  });
+}
+
+const KHANENKO_PAGE_MEDIA = [
+  {
+    heroThumb: 'khanenkoBohdanPortrait',
+    secondaryHeroThumb: 'khanenkoVarvaraPortrait',
+    introHeroSideBySide: true,
+    illustrationThumb: 'khanenkoHanenkoMemoir',
+    illustrationLinkUk: 'Спогади Богдана Ханенка про історію колекції',
+    illustrationCaptionUk: 'З архіву музею',
+  },
+  { compareBeforeThumb: 'khanenkoHistoric', compareAfterThumb: 'khanenkoModern' },
+  {
+    heroThumb: 'khanenkoRubensBacchanalia',
+    secondaryHeroThumb: 'khanenkoBelliniMadonna',
+    illustrationThumb: 'khanenkoDavidHoche',
+    illustrationLinkUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    illustrationCaptionUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    introHeroSideBySide: true,
+    heroCaptionUk: 'Річард Ерлом, за композицією П.П. Рубенса, «Bacchanalia»',
+    heroCaptionEn: 'Richard Earlom, after P.P. Rubens, «Bacchanalia»',
+    secondaryHeroCaptionUk: 'Коло Джованні Белліні, «Madonna with Child»',
+    secondaryHeroCaptionEn: 'Circle of Giovanni Bellini, «Madonna with Child»',
+  },
+  { heroThumb: 'khanenkoVelazquez' },
+  { heroThumb: 'khanenkoAsianArt' },
+  {
+    heroThumb: 'khanenkoIconVirginChild',
+    secondaryHeroThumb: 'khanenkoIconSergiusBacchus',
+    tertiaryHeroThumb: 'khanenkoIconJohnBaptist',
+    introHeroSideBySide: true,
+    heroCaptionUk: 'Богородиця з немовлям, VI ст.',
+    heroCaptionEn: 'Virgin with Child, 6th c.',
+    secondaryHeroCaptionUk: 'Святі Сергій та Вакх, VII ст.',
+    secondaryHeroCaptionEn: 'Saints Sergius and Bacchus, 7th c.',
+    tertiaryHeroCaptionUk: 'Іоан Предтеча, VI ст.',
+    tertiaryHeroCaptionEn: 'John the Baptist, 6th c.',
+  },
+  { heroThumb: 'khanenkoSalon' },
+  { heroThumb: 'khanenkoVarvaraPortrait' },
+  { heroThumb: 'khanenkoLosses' },
+  { heroThumb: 'khanenkoWorldTour' },
+  { heroThumb: 'khanenkoStorage' },
+  { heroThumb: 'khanenkoClosing' },
+];
+
+const KHANENKO_STORY = buildLandmarkIntroStory({
+  shortIntroUk: KHANENKO_SHORT_INTRO_UK,
+  shortIntroEn: 'Rubens, Bellini, Byzantine icons of the 6th century — all in Kyiv',
+  miniPreviewUk: KHANENKO_MINI_PREVIEW_UK,
+  introPage1Uk: KHANENKO_INTRO_PAGE1_UK,
+  pageBodiesUk: KHANENKO_INTRO_PAGE_BODIES_UK,
+  pageMedia: KHANENKO_PAGE_MEDIA,
+  quiz: {
+    questionUk: 'Скільки предметів налічують фонди Музею Ханенків?',
+    questionEn: 'How many items are in the Khanenko Museum collection?',
+    options: [
+      { textUk: '5 000', textEn: '5,000', correct: false },
+      { textUk: '25 000', textEn: '25,000', correct: true },
+      { textUk: '100 000', textEn: '100,000', correct: false },
+    ],
+    multiHintUk:
+      'Пам’ятайте число зі слайду про фонди — воно згадується і на вступному, і на слайді «Цікавий факт».',
+    multiHintEn:
+      'Recall the number from the slide about the museum funds — it appears on the intro and the “Interesting fact” slide.',
+  },
+  ttsEnabled: true,
+});
+
+Object.assign(KHANENKO_STORY, {
+  homeHeroHeightRatio: 1,
+  homeHeroHeightMax: 9999,
+  homeHeroContentFit: 'cover',
+  homeHeroContentPosition: 'center',
+});
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[0]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[0], {
+    heroThumb: 'khanenkoBohdanPortrait',
+    secondaryHeroThumb: 'khanenkoVarvaraPortrait',
+    introHeroSideBySide: true,
+    introHeroInsetRounded: true,
+    heroStackGap: 22,
+    heroHeightRatio: 0.36,
+    heroHeightMax: 340,
+    heroFit: 'contain',
+    heroPosition: { left: '50%', top: '50%' },
+    secondaryHeroPosition: { left: '50%', top: '50%' },
+    heroCaptionUk: 'Богдан Ханенко, 1900-ті рр. З архіву НХМУ.',
+    heroCaptionEn: 'Bohdan Khanenko, 1900s. From the NHMU archive.',
+    secondaryHeroCaptionUk:
+      'Варвара Ханенко. Фоторепродукція портрета пензля О. Харламова, 1896 р. З архіву Музею Ханенків',
+    secondaryHeroCaptionEn:
+      'Varvara Khanenko. Photo reproduction of a portrait by O. Kharlamov, 1896. From the Khanenko Museum archive',
+    illustrationThumb: 'khanenkoHanenkoMemoir',
+    illustrationLinkUk: 'Спогади Богдана Ханенка про історію колекції',
+    illustrationLinkEn: 'Bohdan Khanenko’s memoir on the collection history',
+    illustrationCaptionUk: 'З архіву музею',
+    illustrationCaptionEn: 'From the museum archive',
+  });
+  delete KHANENKO_STORY.introPagesUk[0].compareBeforeThumb;
+  delete KHANENKO_STORY.introPagesUk[0].compareAfterThumb;
+  delete KHANENKO_STORY.introPagesUk[0].introCompareRounded;
+  delete KHANENKO_STORY.introPagesUk[0].compareHeroTopInset;
+  delete KHANENKO_STORY.introPagesUk[0].compareHeroHeightRatio;
+  delete KHANENKO_STORY.introPagesUk[0].compareHeroHeightMax;
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[2]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[2], {
+    heroThumb: 'khanenkoRubensBacchanalia',
+    secondaryHeroThumb: 'khanenkoBelliniMadonna',
+    illustrationThumb: 'khanenkoDavidHoche',
+    illustrationLinkUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    illustrationCaptionUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    introHeroSideBySide: true,
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.34,
+    heroHeightMax: 280,
+    heroFit: 'contain',
+    heroPosition: { left: '50%', top: '50%' },
+    heroStackGap: 22,
+    heroTextGap: 22,
+    secondaryHeroPosition: { left: '50%', top: '50%' },
+    heroCaptionUk: 'Річард Ерлом, за композицією П.П. Рубенса, «Bacchanalia»',
+    heroCaptionEn: 'Richard Earlom, after P.P. Rubens, «Bacchanalia»',
+    secondaryHeroCaptionUk: 'Коло Джованні Белліні, «Madonna with Child»',
+    secondaryHeroCaptionEn: 'Circle of Giovanni Bellini, «Madonna with Child»',
+  });
+  delete KHANENKO_STORY.introPagesUk[2].secondaryHeroHeightRatio;
+  delete KHANENKO_STORY.introPagesUk[2].secondaryHeroHeightMax;
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[3]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[3], {
+    heroThumb: 'khanenkoVelazquez',
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.46,
+    heroHeightMax: 380,
+    heroFit: 'contain',
+    heroPosition: { left: '50%', top: '50%' },
+    heroStackGap: 28,
+    heroCaptionUk: '«Інфанта Маргарита» — картина, яку довго вважали роботою Веласкеса',
+    heroCaptionEn: '«Infanta Margarita» — long attributed to Velázquez',
+  });
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[4]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[4], {
+    heroThumb: 'khanenkoAsianArt',
+    photoAsset: T_KHANENKO_ASIAN,
+    introHeroBleedTop: false,
+    introHeroInsetRounded: true,
+    heroHeightRatio: 0.42,
+    heroHeightMax: 360,
+    heroFit: 'contain',
+    heroPosition: { left: '50%', top: '50%' },
+    heroStackGap: 20,
+    heroCaptionUk: 'Будда Вайрочана. Експозиція мистецтва Азії',
+    heroCaptionEn: 'Buddha Vairochana. Asian art exhibition',
+  });
+  delete KHANENKO_STORY.introPagesUk[4].secondaryHeroThumb;
+  delete KHANENKO_STORY.introPagesUk[4].secondaryHeroHeightRatio;
+  delete KHANENKO_STORY.introPagesUk[4].secondaryHeroHeightMax;
+  delete KHANENKO_STORY.introPagesUk[4].secondaryStackGap;
+  delete KHANENKO_STORY.introPagesUk[4].secondaryHeroPosition;
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[5]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[5], {
+    heroThumb: 'khanenkoIconVirginChild',
+    secondaryHeroThumb: 'khanenkoIconSergiusBacchus',
+    tertiaryHeroThumb: 'khanenkoIconJohnBaptist',
+    introHeroSideBySide: true,
+    introHeroInsetRounded: true,
+    introHeroBleedTop: false,
+    heroHeightRatio: 0.38,
+    heroHeightMax: 300,
+    heroFit: 'contain',
+    heroPosition: { left: '50%', top: '50%' },
+    secondaryHeroPosition: { left: '50%', top: '50%' },
+    tertiaryHeroPosition: { left: '50%', top: '50%' },
+    heroStackGap: 10,
+    sideBySideCellGap: 2,
+    sideBySideRowPaddingHorizontal: 12,
+    sideBySideOuterFlex: 1.18,
+    sideBySideCenterFlex: 0.68,
+    sideBySideCenterOffsetTop: 34,
+    heroCaptionUk: 'Богородиця з немовлям, VI ст.',
+    heroCaptionEn: 'Virgin with Child, 6th c.',
+    secondaryHeroCaptionUk: 'Святі Сергій та Вакх, VII ст.',
+    secondaryHeroCaptionEn: 'Saints Sergius and Bacchus, 7th c.',
+    tertiaryHeroCaptionUk: 'Іоан Предтеча, VI ст.',
+    tertiaryHeroCaptionEn: 'John the Baptist, 6th c.',
+  });
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[1]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[1], {
+    compareBeforeThumb: 'khanenkoHistoric',
+    compareAfterThumb: 'khanenkoModern',
+    introHeroBleedTop: false,
+    heroStackGap: 22,
+    compareHeroTopInset: 32,
+    compareHeroHeightRatio: 0.36,
+    compareHeroHeightMax: 320,
+    introCompareRounded: true,
+    compareBeforePosition: { left: '50%', top: '42%' },
+    compareAfterPosition: { left: '50%', top: '42%' },
+  });
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[6]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[6], {
+    heroThumb: 'khanenkoSalon',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.42,
+    heroHeightMax: 320,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '42%' },
+    heroStackGap: 22,
+  });
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[8]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[8], {
+    heroThumb: 'khanenkoLosses',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.4,
+    heroHeightMax: 300,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '45%' },
+    heroStackGap: 22,
+  });
+  delete KHANENKO_STORY.introPagesUk[8].secondaryHeroThumb;
+  delete KHANENKO_STORY.introPagesUk[8].secondaryHeroHeightRatio;
+  delete KHANENKO_STORY.introPagesUk[8].secondaryHeroHeightMax;
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[9]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[9], {
+    heroThumb: 'khanenkoWorldTour',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.4,
+    heroHeightMax: 300,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '45%' },
+    heroStackGap: 22,
+  });
+}
+
+if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[10]) {
+  Object.assign(KHANENKO_STORY.introPagesUk[10], {
+    heroThumb: 'khanenkoStorage',
+    introHeroBleedTop: true,
+    introHeroInsetRounded: false,
+    heroHeightRatio: 0.4,
+    heroHeightMax: 300,
+    heroFit: 'cover',
+    heroPosition: { left: '50%', top: '45%' },
+    heroStackGap: 22,
+  });
+  delete KHANENKO_STORY.introPagesUk[10].introFactCard;
+}
 
 /** @typedef {{ id: string, titleUk: string, titleEn: string, lat: number, lng: number, minutes: number, free: boolean, thumb: number, descUk?: string, descEn?: string, distKm?: number, story?: object }} Landmark */
 
@@ -242,54 +867,13 @@ export const ROUTE_REGIONS = {
         lng: 30.5145,
         minutes: 45,
         free: false,
-        thumb: T1,
+        thumb: T_SOPHIA_HOME,
         distKm: 0.4,
         descUk:
           'Серце стародавнього Києва: мозаїки XI століття, тиша внутрішнього двору й дзвіниця з панорамою, від якої реально перехоплює подих.',
         descEn:
           'The heart of ancient Kyiv: 11th-century mosaics, calm inner yard, and a bell tower view that truly takes your breath away.',
-        story: {
-          builtAt: '1037',
-          shortIntroUk:
-            'Софія Київська — один із найдавніших храмів Русі, який пережив війни, пожежі та століття змін.',
-          shortIntroEn:
-            "Saint Sophia of Kyiv is one of Kyivan Rus' oldest temples that survived wars, fires, and centuries of change.",
-          quiz: {
-            questionUk: 'Яка частина Софії Київської входить до списку ЮНЕСКО?',
-            questionEn: "Which part of Saint Sophia's complex is listed by UNESCO?",
-            options: [
-              { textUk: 'Увесь соборний комплекс', textEn: 'The whole cathedral complex', correct: true },
-              { textUk: 'Лише дзвіниця', textEn: 'Only the bell tower', correct: false },
-              { textUk: 'Лише внутрішні фрески', textEn: 'Only the interior frescoes', correct: false },
-            ],
-            multiHintUk: 'Підказка: охороняється не один елемент, а ансамбль.',
-            multiHintEn: 'Hint: UNESCO protects the ensemble, not a single element.',
-          },
-          photoFact: {
-            bgUri: '',
-            titleUk: 'Цікавий факт',
-            titleEn: 'Fun fact',
-            bodyUk:
-              'У Софії Київській збереглася мозаїка Оранти XI століття. Кияни називають її «Нерушимою стіною» і вірять, що вона оберігає місто.',
-            bodyEn:
-              'Saint Sophia preserves the 11th-century Oranta mosaic. Locals call it the “Indestructible Wall” and believe it protects the city.',
-          },
-          beforeAfter: { oldUri: '', newUri: '' },
-          secondFact: {
-            titleUk: 'Ще один факт',
-            titleEn: 'One more fact',
-            bodyUk:
-              'На стінах собору виявлено сотні середньовічних графіті — це справжні “повідомлення” киян, залишені майже тисячу років тому.',
-            bodyEn:
-              'Hundreds of medieval graffiti were found on the cathedral walls — real messages left by Kyiv residents almost a thousand years ago.',
-          },
-          closingUk:
-            'Раджу піднятися на дзвіницю на заході сонця: Софійська площа і центр Києва виглядають звідти магічно.',
-          closingEn:
-            'Try climbing the bell tower at sunset: Saint Sophia Square and downtown Kyiv look magical from above.',
-          audioUri: '',
-          ttsEnabled: false,
-        },
+        story: SOPHIA_STORY,
       },
       {
         id: 'lavra',
@@ -299,10 +883,11 @@ export const ROUTE_REGIONS = {
         lng: 30.5562,
         minutes: 60,
         free: false,
-        thumb: T2,
+        thumb: T_LAVRA_HOME,
         distKm: 1.1,
         descUk: 'Монастирський комплекс із печерами та панорамою на Дніпро.',
         descEn: 'Monastery complex with caves and Dnipro river views.',
+        story: LAVRA_STORY,
       },
       {
         id: 'maidan',
@@ -316,91 +901,7 @@ export const ROUTE_REGIONS = {
         distKm: 0.2,
         descUk: 'Центральна площа столиці — події, фонтани та прогулянки.',
         descEn: 'Central square of the capital — fountains and city walks.',
-        story: {
-          shortIntroUk: MAIDAN_SHORT_INTRO_UK,
-          shortIntroEn: 'A heart beating in unison with Ukraine',
-          miniPreviewUk: MAIDAN_MINI_PREVIEW_UK,
-          miniPreviewEn: '',
-          introPage1Uk: MAIDAN_INTRO_PAGE1_UK,
-          introPagesUk: [
-            {
-              body: MAIDAN_INTRO_PAGE2_UK,
-              heroThumb: 'maidanKozyeBolotoMap',
-              heroHeightRatio: 0.4,
-              heroHeightMax: 340,
-              introHeroInsetRounded: true,
-              illustrationThumb: 'maidanWatermillIllustration',
-              illustrationLinkUk: MAIDAN_PAGE2_ILLUSTRATION_LINK_UK,
-              illustrationCaptionUk: MAIDAN_PAGE2_ILLUSTRATION_CAPTION_UK,
-            },
-            {
-              body: MAIDAN_INTRO_PAGE3_UK,
-              compareBeforeThumb: 'maidanHistoric',
-              compareAfterThumb: 'maidanModern',
-              compareHeroHeightRatio: 0.6,
-              compareHeroHeightMax: 540,
-              compareHeroTopInset: 22,
-            },
-            { body: MAIDAN_INTRO_PAGE4_UK, heroThumb: 'maidanGudovskyHistoric', introHeroBleedTop: true },
-            {
-              body: MAIDAN_INTRO_PAGE5_UK,
-              heroThumb: 'maidanHolovposhtamtTragedy',
-              introHeroBleedTop: true,
-              heroHeightRatio: 0.68,
-              heroHeightMax: 600,
-            },
-            {
-              body: MAIDAN_INTRO_PAGE6_UK,
-              heroThumb: 'maidanCityDumaPostcard',
-              secondaryHeroThumb: 'maidanKhreshchatykRuins',
-              introHeroBleedTop: true,
-            },
-            {
-              body: MAIDAN_INTRO_PAGE7_UK,
-              heroThumb: 'maidan',
-              introHeroInsetRounded: true,
-              heroHeightRatio: 0.62,
-              heroHeightMax: 560,
-            },
-            { body: MAIDAN_INTRO_PAGE8_UK, heroThumb: 'maidanLyadskiGates', heroHeightRatio: 0.46, heroHeightMax: 380 },
-            {
-              body: MAIDAN_INTRO_PAGE9_UK,
-              heroThumb: 'maidanZeroKilometerGlobe',
-              introHeroAfterText: true,
-              heroHeightRatio: 0.44,
-              heroHeightMax: 380,
-            },
-            {
-              body: MAIDAN_INTRO_PAGE10_UK,
-              heroThumb: 'maidanRevolutionGranite1990',
-              secondaryHeroThumb: 'maidanRevolutionGraniteCamp',
-              introHeroBleedTop: true,
-              heroHeightRatio: 0.44,
-              heroHeightMax: 380,
-            },
-            {
-              body: MAIDAN_INTRO_PAGE11_UK,
-              heroThumb: 'maidanOrangeRevolution2004',
-              introFactCard: true,
-            },
-            { body: MAIDAN_INTRO_PAGE12_UK, heroThumb: 'maidan' },
-          ],
-          quiz: {
-            questionUk: 'Що стоїть на вершині Монументу Незалежності на Майдані?',
-            questionEn: 'What stands atop the Independence Monument on Maidan?',
-            options: [
-              { textUk: 'Оранта-Україна', textEn: 'Oranta-Ukraine', correct: true },
-              { textUk: 'Золотий Архангел Михаїл', textEn: 'Golden Archangel Michael', correct: false },
-              { textUk: 'Червона зірка', textEn: 'Red star', correct: false },
-            ],
-            multiHintUk: 'Погляньте на білу колону в центрі площі — там дівчина з калиновою гілкою.',
-            multiHintEn: 'Look at the white column in the square — a woman with a viburnum branch.',
-          },
-          audioScriptUk: MAIDAN_AUDIO_SCRIPT_UK,
-          audioScriptEn: '',
-          ttsEnabled: true,
-          audioUri: '',
-        },
+        story: MAIDAN_STORY,
       },
       {
         id: 'motherland',
@@ -483,12 +984,13 @@ export const ROUTE_REGIONS = {
         lng: 30.516,
         minutes: 60,
         free: false,
-        thumb: T1,
+        thumb: T_KHANENKO_HOME,
         distKm: 0.9,
         descUk:
-          'Музей у колишньому особняку Ханенків із найбільшою в Україні колекцією європейського та азійського мистецтва.',
+          'Особняк на Терещенківській з однією з найбільших колекцій світового мистецтва в Україні — від візантійських ікон до японських гравюр.',
         descEn:
-          'Museum in the former Khanenko mansion with Ukraine’s largest European and Asian art collection.',
+          'A Tereshchenkivska mansion with one of Ukraine’s greatest art collections — from Byzantine icons to Japanese prints.',
+        story: KHANENKO_STORY,
       },
       {
         id: 'pokrovsky_monastery',
@@ -2344,6 +2846,8 @@ export const ROUTE_REGIONS = {
   },
 };
 
+applyIntroStoryScaffoldToRegions(ROUTE_REGIONS);
+
 /** Усі регіони з локальних даних, що належать Україні (міста й зони для головної / маршрутів). */
 export function collectRegionIdsForUkraine() {
   return Object.keys(ROUTE_REGIONS).filter(
@@ -2414,6 +2918,40 @@ export function listRouteCitiesForProfilePicker(language) {
 /**
  * Визначає регіон лише за текстом запиту (одне місто / зона).
  */
+function haversineKmSimple(a, b) {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+/** Найближче місто з каталогу за координатами (коли поле пошуку порожнє). */
+export function resolveRegionIdFromOrigin(origin) {
+  if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
+    return 'kyiv';
+  }
+  let bestId = 'kyiv';
+  let bestDist = Infinity;
+  for (const id of Object.keys(ROUTE_REGIONS)) {
+    const c = ROUTE_REGIONS[id]?.center;
+    if (!c || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) continue;
+    const d = haversineKmSimple(
+      { lat: origin.lat, lng: origin.lng },
+      { lat: c.latitude, lng: c.longitude },
+    );
+    if (d < bestDist) {
+      bestDist = d;
+      bestId = id;
+    }
+  }
+  return bestId;
+}
+
 export function resolveRegionIdFromQuery(query) {
   const q = (query || '').toLowerCase();
   if (
@@ -2460,6 +2998,17 @@ export function regionTitle(region, langIsUk) {
     .toLowerCase();
 
   const id = region?.id;
+  try {
+    const { regionTitleRow } = require('./regionTitlesI18n');
+    const generated = id && regionTitleRow(id);
+    if (generated) {
+      const { pickI18n } = require('./i18nBundle');
+      const t = pickI18n(lang, generated);
+      if (t) return t;
+    }
+  } catch {
+    /* optional generated bundle */
+  }
   const pack = id && REGION_TITLES_BY_LANG[id];
   const byLang = pack && (pack[lang] || pack.en);
   return byLang || region.titleEn || region.titleUk;

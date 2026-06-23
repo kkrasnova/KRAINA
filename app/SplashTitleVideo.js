@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useAndroidActivityReady, useStagedVideoPlayerMount, VideoRenderErrorBoundary } from './expoAvCompat';
 import { preloadSplashTitleVideo } from './splashTitleVideoAsset';
 
 function runOnPlayer(player, fn) {
@@ -12,7 +13,7 @@ function runOnPlayer(player, fn) {
   }
 }
 
-function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted }) {
+function SplashTitleVideoPlayerInner({ localUri, style, mountView = true, onReady, onPlaybackStarted }) {
   const readyNotifiedRef = useRef(false);
   const playbackStartedRef = useRef(false);
 
@@ -23,9 +24,9 @@ function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted })
   }, [onReady]);
 
   const notifyPlaybackStarted = useCallback(
-    (currentTime) => {
+    (currentTime = 0, force = false) => {
       if (playbackStartedRef.current) return;
-      if (currentTime < 0.04) return;
+      if (!force && currentTime < 0.04) return;
       playbackStartedRef.current = true;
       onPlaybackStarted?.();
       notifyReady();
@@ -50,7 +51,14 @@ function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted })
     });
   }, [player]);
 
+  const handleFirstFrameRender = useCallback(() => {
+    ensurePlaying();
+    notifyPlaybackStarted(1, true);
+  }, [ensurePlaying, notifyPlaybackStarted]);
+
   useEffect(() => {
+    if (!mountView) return undefined;
+
     ensurePlaying();
 
     const statusSub = player.addListener('statusChange', ({ status }) => {
@@ -61,7 +69,10 @@ function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted })
 
     const playingSub = player.addListener('playingChange', ({ isPlaying }) => {
       if (isPlaying) {
-        notifyPlaybackStarted(player.currentTime);
+        notifyPlaybackStarted(
+          player.currentTime,
+          Platform.OS === 'android',
+        );
       } else if (player.status === 'readyToPlay') {
         ensurePlaying();
       }
@@ -86,7 +97,11 @@ function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted })
       clearInterval(retryId);
       clearTimeout(stopRetryId);
     };
-  }, [player, ensurePlaying, notifyPlaybackStarted, notifyReady]);
+  }, [player, ensurePlaying, notifyPlaybackStarted, notifyReady, mountView]);
+
+  if (!mountView) {
+    return <View pointerEvents="none" style={style} />;
+  }
 
   return (
     <View pointerEvents="none" style={style}>
@@ -98,8 +113,28 @@ function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted })
         allowsFullscreen={false}
         useExoShutter={false}
         surfaceType={Platform.OS === 'android' ? 'textureView' : undefined}
+        onFirstFrameRender={handleFirstFrameRender}
       />
     </View>
+  );
+}
+
+function SplashTitleVideoPlayer({ localUri, style, mountView = true, onReady, onPlaybackStarted }) {
+  const handleBoundaryReady = useCallback(() => {
+    onReady?.();
+    onPlaybackStarted?.();
+  }, [onPlaybackStarted, onReady]);
+
+  return (
+    <VideoRenderErrorBoundary fallbackStyle={style} onFallback={handleBoundaryReady}>
+      <SplashTitleVideoPlayerInner
+        localUri={localUri}
+        style={style}
+        mountView={mountView}
+        onReady={onReady}
+        onPlaybackStarted={onPlaybackStarted}
+      />
+    </VideoRenderErrorBoundary>
   );
 }
 
@@ -107,19 +142,37 @@ function SplashTitleVideoPlayer({ localUri, style, onReady, onPlaybackStarted })
  * SplashTitleVideo — анімація лого KRAÏNA (скло/лінза по буквах).
  * Відтворення лише з локального file:// після Asset.downloadAsync.
  */
-export default function SplashTitleVideo({ style, onReady, onPlaybackStarted }) {
+export default function SplashTitleVideo({ style, onReady, onPlaybackStarted, enabled = true }) {
+  const activityReady = useAndroidActivityReady();
   const [localUri, setLocalUri] = useState(null);
+  const shouldRun = Boolean(enabled && localUri && activityReady);
+  const { mountPlayer, mountView } = useStagedVideoPlayerMount(shouldRun);
 
   useEffect(() => {
+    if (!enabled) {
+      onReady?.();
+      onPlaybackStarted?.();
+      return undefined;
+    }
     let cancelled = false;
 
     void (async () => {
       try {
         const uri = await preloadSplashTitleVideo();
-        if (!cancelled) setLocalUri(uri);
+        if (cancelled) return;
+        if (!uri) {
+          onReady?.();
+          onPlaybackStarted?.();
+          return;
+        }
+        setLocalUri(uri);
       } catch (error) {
         if (__DEV__) {
           console.warn('[SplashTitleVideo] preload failed:', error?.message ?? error);
+        }
+        if (!cancelled) {
+          onReady?.();
+          onPlaybackStarted?.();
         }
       }
     })();
@@ -127,9 +180,9 @@ export default function SplashTitleVideo({ style, onReady, onPlaybackStarted }) 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled, onPlaybackStarted, onReady]);
 
-  if (!localUri) {
+  if (!mountPlayer) {
     return <View pointerEvents="none" style={style} />;
   }
 
@@ -137,6 +190,7 @@ export default function SplashTitleVideo({ style, onReady, onPlaybackStarted }) 
     <SplashTitleVideoPlayer
       localUri={localUri}
       style={style}
+      mountView={mountView}
       onReady={onReady}
       onPlaybackStarted={onPlaybackStarted}
     />

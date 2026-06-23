@@ -96,16 +96,12 @@ export default function AppTopBar({
       return;
     }
     try {
-      const [inboxRows, requestRows] = await Promise.all([
-        messagesListThreads('inbox'),
-        messagesListThreads('requests'),
-      ]);
-      const rows = [...(Array.isArray(inboxRows) ? inboxRows : []), ...(Array.isArray(requestRows) ? requestRows : [])];
+      // Бейдж «нових повідомлень» рахує лише непрочитані в «Чати» (inbox).
+      // Заявки («Запити») мають окремий бейдж на вкладці «Запити», тому тут не враховуються.
+      const inboxRows = await messagesListThreads('inbox');
+      const rows = Array.isArray(inboxRows) ? inboxRows : [];
       const next = rows.reduce(
-        (acc, row) =>
-          acc +
-          Math.max(0, Number(row?.unread_count) || 0) +
-          (row?.pending_for_me ? 1 : 0),
+        (acc, row) => acc + Math.max(0, Number(row?.unread_count) || 0),
         0,
       );
       setUnreadCount(next);

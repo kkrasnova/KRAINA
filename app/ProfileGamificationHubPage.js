@@ -18,15 +18,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { useAuthStore } from './auth/authStore';
 import { getVisitLog } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
 import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
+import { getPhysicalVisitBonusXpTotal } from './physicalVisitRewards';
 import ProfileGameLevelCard from './ProfileGameLevelCard';
 import { brandFontSans, brandFontSansSemibold, brandFontHeadMedium } from './brandFont';
 
@@ -76,7 +77,7 @@ const AnimatedView = Animated.createAnimatedComponent(View);
 export default function ProfileGamificationHubPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [gamify, setGamify] = useState(() => computeGamificationFromVisits([]));
   const [pagerPage, setPagerPage] = useState(0);
   const [selectedTier, setSelectedTier] = useState(null);
@@ -143,11 +144,12 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
           }
         }
         try {
-          const [visitLog, quizBonusXp] = await Promise.all([
+          const [visitLog, quizBonusXp, physicalBonusXp] = await Promise.all([
             getVisitLog({ physicalOnly: true }),
             getLandmarkQuizBonusXpTotal(),
+            getPhysicalVisitBonusXpTotal(),
           ]);
-          if (!cancelled) setGamify(computeGamificationFromVisits(visitLog, quizBonusXp));
+          if (!cancelled) setGamify(computeGamificationFromVisits(visitLog, quizBonusXp + physicalBonusXp));
         } catch {
           if (!cancelled) setGamify(computeGamificationFromVisits([]));
         }
@@ -199,7 +201,7 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
     });
   }, [spinning, selectedTier, balance, rotAnim]);
 
-  const bottomPad = insets.bottom + lightTabBarExtraScrollPadding() + 20;
+  const bottomPad = lightTabBarScrollContentPadding(insets.bottom, 20);
 
   const loseFill = isLight ? 'rgba(100, 100, 100, 0.2)' : 'rgba(255,255,255,0.12)';
 
@@ -233,7 +235,6 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
         onBackPress={() => navigation.goBack()}
         replaceCenterTitle={pf(language, 'hubTitle')}
         hideSendButton
-        lightBarBackgroundColor={isLight ? '#FFFFFF' : undefined}
       />
 
       <View style={[styles.dotsWrap, { paddingTop: 10 }]}>

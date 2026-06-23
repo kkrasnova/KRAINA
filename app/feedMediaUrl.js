@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './auth/config';
+import { API_BASE_URL, normalizeBackendAssetUrl } from './auth/config';
 
 /**
  * Повний URL для медіа стрічки: відносні шляхи та URL з «чужим» хостом (localhost у БД)
@@ -7,7 +7,13 @@ import { API_BASE_URL } from './auth/config';
 export function resolveFeedMediaUrl(raw) {
   const s = String(raw || '').trim();
   if (!s) return '';
-  if (s.startsWith('file:') || s.startsWith('content:') || s.startsWith('asset')) {
+  if (
+    s.startsWith('file:') ||
+    s.startsWith('content:') ||
+    s.startsWith('ph:') ||
+    s.startsWith('assets-library:') ||
+    s.startsWith('asset')
+  ) {
     return s;
   }
   const base = API_BASE_URL.replace(/\/$/, '');
@@ -24,5 +30,25 @@ export function resolveFeedMediaUrl(raw) {
   } catch {
     /* ignore */
   }
+  if (/^https?:\/\//i.test(s)) {
+    return normalizeBackendAssetUrl(s);
+  }
   return s;
+}
+
+/** Перший непорожній URL медіа з API-поста або масиву шляхів. */
+export function pickFirstFeedMediaUrl(postOrUrls) {
+  let urls = [];
+  if (Array.isArray(postOrUrls)) {
+    urls = postOrUrls;
+  } else if (postOrUrls && typeof postOrUrls === 'object') {
+    const raw = postOrUrls.media_urls ?? postOrUrls.mediaUrls ?? postOrUrls.media_url;
+    if (Array.isArray(raw)) urls = raw;
+    else if (typeof raw === 'string' && raw.trim()) urls = [raw];
+  }
+  for (const item of urls) {
+    const resolved = resolveFeedMediaUrl(String(item || ''));
+    if (resolved) return resolved;
+  }
+  return '';
 }

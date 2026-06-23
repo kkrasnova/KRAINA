@@ -1,3 +1,5 @@
+import { normalizeBackendAssetUrl } from './auth/config';
+
 export function firstUrl(text) {
   const s = String(text || '');
   const m = s.match(/https?:\/\/[^\s]+/i);
@@ -30,7 +32,7 @@ export function mapBackendMessage(raw, language) {
         createdAt: new Date(raw.sent_at).getTime(),
         fromMe: raw.from_me,
         type: 'voice',
-        voiceUri: String(parsed.url),
+        voiceUri: normalizeBackendAssetUrl(String(parsed.url)),
         durationMs: Number(parsed.durationMs) || 0,
       };
     }
@@ -58,7 +60,7 @@ export function mapBackendMessage(raw, language) {
       createdAt: new Date(raw.sent_at).getTime(),
       fromMe: raw.from_me,
       type: 'image',
-      imageUri: url,
+      imageUri: normalizeBackendAssetUrl(url),
     };
   }
   if (url && isAudioUrl(url)) {
@@ -67,7 +69,7 @@ export function mapBackendMessage(raw, language) {
       createdAt: new Date(raw.sent_at).getTime(),
       fromMe: raw.from_me,
       type: 'voice',
-      voiceUri: url,
+      voiceUri: normalizeBackendAssetUrl(url),
       durationMs: 0,
     };
   }

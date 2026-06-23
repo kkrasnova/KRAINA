@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
+import { ttlGetItem, ttlSetItem } from './ttlCache';
 
 const STORAGE_KEY = '@kraina_saved_landmarks_v1';
 
@@ -21,14 +22,16 @@ export function landmarkSaveKey(countryId, regionId, landmarkId) {
  * @returns {Promise<Array<{ key: string, countryId: string, regionId: string, landmarkId: string, titleUk: string, titleEn: string, regionTitleUk: string, regionTitleEn: string, flag: string, savedAt: number }>>}
  */
 export async function getSavedLandmarks() {
-  const raw = await AsyncStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const j = JSON.parse(raw);
-    return Array.isArray(j) ? j : [];
-  } catch {
-    return [];
-  }
+  return ttlGetItem('saved_landmarks', 30000, async () => {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    try {
+      const j = JSON.parse(raw);
+      return Array.isArray(j) ? j : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 export async function isLandmarkSaved(countryId, regionId, landmarkId) {
@@ -68,6 +71,7 @@ export async function addSavedLandmark(entry) {
     ...list,
   ];
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  await ttlSetItem('saved_landmarks', next, 30000);
   emitSavedLandmarksChanged();
   return next;
 }
@@ -77,6 +81,7 @@ export async function removeSavedLandmark(countryId, regionId, landmarkId) {
   const list = await getSavedLandmarks();
   const next = list.filter((row) => row.key !== key);
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  await ttlSetItem('saved_landmarks', next, 30000);
   emitSavedLandmarksChanged();
   return next;
 }

@@ -4,13 +4,13 @@ import {
   Text,
   FlatList,
   Pressable,
-  Image,
   StyleSheet,
   useWindowDimensions,
   Platform,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { mt, mtHomeLocationsCount } from './mainPageI18n';
+import { mt, mtHomeLocationsCount, mtHomeSettlementsCount } from './mainPageI18n';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme } from './themeAccent';
 import { countryFlagSource } from './WavingCountryFlag';
@@ -19,7 +19,7 @@ const GAP = 12;
 /** Одна висота для всіх карток; фото — на всю площу, contain + градієнт лише знизу. */
 const CARD_H = 200;
 const CARD_SIDE_PAD = 24;
-const CARD_PEEK = 28;
+const CARD_PEEK = 16;
 const CARD_W_MAX = 332;
 const CARD_W_MIN = 248;
 
@@ -76,17 +76,8 @@ export default memo(function HomeCountryCarousel({
   const renderItem = useCallback(
     ({ item }) => {
       const selected = item.id === selectedCountryId;
-      const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-      const langBase = String(language || 'en').split(/[-_]/)[0].toLowerCase();
       const nPlaces = Number(item.cityCount) || 0;
-      const settlementsLine =
-        langUk
-          ? `${nPlaces} міст і сіл`
-          : langBase === 'pl'
-            ? `${nPlaces} miast i wioseł`
-            : langBase === 'de'
-              ? `${nPlaces} Städte & Dörfer`
-              : `${nPlaces} cities & towns`;
+      const settlementsLine = mtHomeSettlementsCount(language, nPlaces);
       const locationsLine = mtHomeLocationsCount(language, item.locationCount);
       const titleLine = item.countryLabel;
       const flagSrc = countryFlagSource(item.id);
@@ -110,10 +101,13 @@ export default memo(function HomeCountryCarousel({
         >
            <View style={styles.cardMedia} pointerEvents="none">
             {item.heroThumb ? (
-              <Image
+              <ExpoImage
                 source={item.heroThumb}
                 style={styles.heroImage}
-                resizeMode="cover"
+                contentFit="cover"
+                contentPosition="center"
+                cachePolicy="memory-disk"
+                transition={0}
               />
             ) : (
               <View style={styles.heroPlaceholder} />
@@ -140,10 +134,12 @@ export default memo(function HomeCountryCarousel({
                 </View>
               </View>
               {flagSrc ? (
-                <Image
+                <ExpoImage
                   source={flagSrc}
                   style={styles.countryFlagImg}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
                   accessibilityLabel={item.countryLabel}
                 />
               ) : (
@@ -204,7 +200,7 @@ export default memo(function HomeCountryCarousel({
         contentContainerStyle={{ paddingRight: 24, paddingVertical: 4 }}
         onMomentumScrollEnd={onScrollEnd}
         getItemLayout={getItemLayout}
-        removeClippedSubviews={Platform.OS === 'android'}
+        removeClippedSubviews={false}
         maxToRenderPerBatch={6}
         windowSize={3}
         initialNumToRender={4}

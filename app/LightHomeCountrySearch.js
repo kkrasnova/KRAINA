@@ -367,7 +367,7 @@ export default memo(function LightHomeCountrySearch({
       } catch {
         if (!cancelled) setProfileHits([]);
       }
-    }, 280);
+    }, 80);
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -538,9 +538,10 @@ export default memo(function LightHomeCountrySearch({
   const dismissPadPan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) =>
-        gesture.dy < -6 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.85,
+        gesture.dy < -10 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.2,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy < -18 || gesture.vy < -0.1) {
+        // Свідомий свайп вгору (а не легкий доторк) закриває пошук. Тап лишається.
+        if (gesture.dy < -32 || gesture.vy < -0.55) {
           onRequestDismissRef.current?.();
         }
       },
@@ -557,7 +558,10 @@ export default memo(function LightHomeCountrySearch({
       const vy = e.nativeEvent.velocity?.y ?? 0;
       const y = e.nativeEvent.contentOffset?.y ?? listScrollYRef.current;
       listScrollYRef.current = y;
-      if (y <= 2 && vy < -0.22) {
+      // Закриваємо пошук лише на свідомий сильний протяг вниз від самого верху.
+      // Раніше слабкий поріг (vy < -0.22) випадково викидав на головну під час
+      // звичайного скролу списку біля верху.
+      if (y <= 2 && vy < -0.9) {
         onRequestDismiss();
       }
     },

@@ -17,14 +17,14 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { getPostCaption, setPostCaption } from './profileStorage';
 import { hasFeedApiToken, feedUpdatePost } from './feedApi';
 import { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { errorToUserText } from './errorText';
-const PREVIEW = require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png');
+const PREVIEW = require('./assets/screenshot_2026-04-05_15.52.15.webp');
 
 export default function ProfileEditPublicationPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -32,7 +32,7 @@ export default function ProfileEditPublicationPage({ navigation, route }) {
   const postId = route?.params?.postId;
   const coverUrl = route?.params?.coverUrl;
   const [text, setText] = useState('');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -86,7 +86,7 @@ export default function ProfileEditPublicationPage({ navigation, route }) {
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 24,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 24),
         }}
         keyboardShouldPersistTaps="handled"
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}

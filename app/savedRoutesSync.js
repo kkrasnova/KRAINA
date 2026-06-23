@@ -1,9 +1,10 @@
-import { patchProfileMe } from './auth/endpoints';
+import { patchProfileMe, ensureProfileBackendSession } from './profileApi';
 import { useAuthStore } from './auth/authStore';
 import { getSavedRoutesRaw, replaceSavedRoutesRaw } from './profileStorage';
 import { enqueueOutbox } from './offline/outboxStore';
 import { registerOutboxHandler } from './offline/syncEngine';
 import { getIsOnline } from './offline/networkStatus';
+import { getSession } from './db';
 
 /**
  * Після GET /profile/me: якщо на сервері є збережені маршрути — записуємо локально;
@@ -24,6 +25,8 @@ export async function hydrateSavedRoutesFromProfileMe(profile) {
 
 /** Відправити поточний локальний JSON збережених маршрутів у профіль (потрібен access token). */
 export async function syncSavedRoutesToBackend() {
+  const localUser = (await getSession())?.user;
+  await ensureProfileBackendSession(localUser);
   const token = useAuthStore.getState().accessToken;
   if (!token) return;
   try {

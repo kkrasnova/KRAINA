@@ -20,11 +20,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { brandFontSans, brandFontSansSemibold } from './brandFont';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import {
   getProfileDisplayName,
   setProfileDisplayName,
@@ -43,13 +43,21 @@ import {
   clearProfileAvatarLocalUri,
 } from './profileStorage';
 import { useAuthStore } from './auth/authStore';
-import { patchProfileMe, postProfileAvatar, deleteProfileAvatar } from './auth/endpoints';
+import ProfileAvatarCircle, { resolveProfileAvatarUri } from './ProfileAvatarCircle';
+import { patchProfileMe, postProfileAvatar, deleteProfileAvatar, ensureProfileBackendSession } from './profileApi';
+import { applyServerProfileToLocal } from './profileMeSync';
 import { ApiError } from './auth/types';
+import { emitProfileMeUpdated } from './profileMeSync';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { listRouteCitiesForProfilePicker } from './routeRegionsData';
 import { APP_LANGUAGE_OPTIONS } from './appLanguageOptions';
+import { persistCapturedImage, normalizeLocalFileUri } from './feedMediaPersist';
+import { errorToUserText } from './errorText';
 
 const INPUT_BG_LIGHT = 'rgba(0,0,0,0.06)';
+const AVATAR_RING_SIZE = 100;
+const AVATAR_RING_BORDER = 3;
+const AVATAR_INNER_SIZE = AVATAR_RING_SIZE - AVATAR_RING_BORDER * 2;
 
 function parseBirthToDate(iso) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) return null;
@@ -186,13 +194,20 @@ export default function ProfileEditPage({ navigation, route }) {
   const [pickD, setPickD] = useState(15);
   const [showBirthPublic, setShowBirthPublic] = useState(false);
   const localeForUi = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [localAvatarUri, setLocalAvatarUri] = useState('');
 
   const profileMe = useAuthStore((s) => s.profileMe);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const avatarUrl = profileMe?.profile?.avatar_url || null;
-  const avatarDisplayUri = avatarUrl || localAvatarUri || user?.avatar || null;
+  const avatarDisplayUri = resolveProfileAvatarUri({
+    isOwnProfile: true,
+    accessToken,
+    profileAvatarUrlRaw: avatarUrl,
+    localAvatarUri,
+    userAvatar: user?.avatar,
+  });
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
@@ -255,72 +270,112 @@ export default function ProfileEditPage({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      let cancelled = false;
       void (async () => {
-        await useAuthStore.getState().hydrate();
-        if (!useAuthStore.getState().accessToken) {
-          await useAuthStore.getState().refreshSession().catch(() => {});
-        }
-      })();
-      load();
-      (async () => {
-        const token = useAuthStore.getState().accessToken;
-        if (token) {
-          try {
-            await useAuthStore.getState().loadProfileMe();
-            const p = useAuthStore.getState().profileMe?.profile;
-            if (p?.username) {
-              const handle = `@${String(p.username).replace(/^@/, '')}`;
-              setUsername(handle);
-              await setProfileUsername(String(p.username).replace(/^@/, ''));
-            }
-            if (p?.bio != null) setBio(String(p.bio));
-            if (p?.display_name != null && String(p.display_name).trim()) {
-              setName(String(p.display_name).trim());
-            }
-            if (p?.location_label != null && String(p.location_label).trim()) {
-              setCity(String(p.location_label).trim());
-            }
-            if (p?.birth_date) setBirthDate(String(p.birth_date).slice(0, 10));
-            if (p?.birth_date_public != null) setShowBirthPublic(Boolean(p.birth_date_public));
-          } catch {
-            /* */
+        const hasSession = await ensureProfileBackendSession(user);
+        if (cancelled) return;
+        await load();
+        if (!hasSession || cancelled) return;
+        try {
+          await useAuthStore.getState().loadProfileMe();
+          if (cancelled) return;
+          const p = useAuthStore.getState().profileMe?.profile;
+          if (!p) return;
+          if (p.username) {
+            const handle = `@${String(p.username).replace(/^@/, '')}`;
+            setUsername(handle);
+            await setProfileUsername(String(p.username).replace(/^@/, ''));
           }
+          if (p.bio != null) setBio(String(p.bio));
+          if (p.display_name != null && String(p.display_name).trim()) {
+            setName(String(p.display_name).trim());
+          }
+          if (p.location_label != null && String(p.location_label).trim()) {
+            setCity(String(p.location_label).trim());
+          }
+          if (p.birth_date) setBirthDate(String(p.birth_date).slice(0, 10));
+          if (p.birth_date_public != null) setShowBirthPublic(Boolean(p.birth_date_public));
+          await applyServerProfileToLocal(p);
+        } catch {
+          /* */
         }
       })();
-    }, [load]),
+      return () => {
+        cancelled = true;
+      };
+    }, [load, user]),
+  );
+
+  const applyAvatarFromAsset = useCallback(
+    async (asset) => {
+      if (!asset?.uri) return;
+      const mime = asset.mimeType || 'image/jpeg';
+      const persisted =
+        (await persistCapturedImage(asset.uri, { mimeType: mime })) ||
+        normalizeLocalFileUri(asset.uri);
+      if (!persisted) return;
+
+      await setProfileAvatarLocalUri(persisted);
+      setLocalAvatarUri(persisted);
+      emitProfileMeUpdated({ source: 'avatar_pick_local' });
+
+      const hasSession = await ensureProfileBackendSession(user);
+      if (!hasSession) {
+        Alert.alert('', pf(localeForUi, 'profileSyncLoginRequired'));
+        return;
+      }
+      setAvatarBusy(true);
+      try {
+        await postProfileAvatar(useAuthStore.getState().accessToken, persisted, mime);
+        await clearProfileAvatarLocalUri();
+        setLocalAvatarUri('');
+        await useAuthStore.getState().loadProfileMe();
+        const p = useAuthStore.getState().profileMe?.profile;
+        if (p) await applyServerProfileToLocal(p);
+        emitProfileMeUpdated({ source: 'avatar_upload' });
+      } catch (e) {
+        const msg = errorToUserText(e, localeForUi);
+        Alert.alert('', msg || pf(localeForUi, 'avatarUploadError'));
+      } finally {
+        setAvatarBusy(false);
+      }
+    },
+    [localeForUi, user],
   );
 
   const pickAvatar = useCallback(async () => {
+    if (avatarBusy) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
+    if (!perm.granted) {
+      Alert.alert('', pf(localeForUi, 'needGalleryPermission'));
+      return;
+    }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
       allowsEditing: true,
       aspect: [1, 1],
     });
-    if (res.canceled || !res.assets?.[0]?.uri) return;
-    const asset = res.assets[0];
-    const mime = asset.mimeType || 'image/jpeg';
-    const token = useAuthStore.getState().accessToken;
-    if (!token) {
-      await setProfileAvatarLocalUri(asset.uri);
-      setLocalAvatarUri(asset.uri);
+    if (res.canceled || !res.assets?.[0]) return;
+    await applyAvatarFromAsset(res.assets[0]);
+  }, [avatarBusy, applyAvatarFromAsset, localeForUi]);
+
+  const takeAvatarPhoto = useCallback(async () => {
+    if (avatarBusy) return;
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('', pf(localeForUi, 'needCameraPermission'));
       return;
     }
-    setAvatarBusy(true);
-    try {
-      await postProfileAvatar(token, asset.uri, mime);
-      await clearProfileAvatarLocalUri();
-      setLocalAvatarUri('');
-      await useAuthStore.getState().loadProfileMe();
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : e?.message || '';
-      Alert.alert('', msg || pf(localeForUi, 'avatarUploadError'));
-    } finally {
-      setAvatarBusy(false);
-    }
-  }, [localeForUi]);
+    const res = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (res.canceled || !res.assets?.[0]) return;
+    await applyAvatarFromAsset(res.assets[0]);
+  }, [avatarBusy, applyAvatarFromAsset, localeForUi]);
 
   const confirmRemoveAvatar = useCallback(() => {
     if (!avatarDisplayUri) return;
@@ -334,13 +389,18 @@ export default function ProfileEditPage({ navigation, route }) {
           try {
             await clearProfileAvatarLocalUri();
             setLocalAvatarUri('');
-            const token = useAuthStore.getState().accessToken;
-            if (token) {
-              await deleteProfileAvatar(token);
-              await useAuthStore.getState().loadProfileMe();
+            const hasSession = await ensureProfileBackendSession(user);
+            if (!hasSession) {
+              emitProfileMeUpdated({ source: 'avatar_remove_local' });
+              return;
             }
+            await deleteProfileAvatar(useAuthStore.getState().accessToken);
+            await useAuthStore.getState().loadProfileMe();
+            const p = useAuthStore.getState().profileMe?.profile;
+            if (p) await applyServerProfileToLocal(p);
+            emitProfileMeUpdated({ source: 'avatar_remove' });
           } catch (e) {
-            const msg = e instanceof ApiError ? e.message : e?.message || '';
+            const msg = errorToUserText(e, localeForUi);
             Alert.alert('', msg || pf(localeForUi, 'avatarUploadError'));
           } finally {
             setAvatarBusy(false);
@@ -348,7 +408,7 @@ export default function ProfileEditPage({ navigation, route }) {
         },
       },
     ]);
-  }, [localeForUi, avatarDisplayUri]);
+  }, [localeForUi, avatarDisplayUri, user]);
 
   const cityRows = useMemo(() => listRouteCitiesForProfilePicker(localeForUi), [localeForUi]);
   const filteredCityRows = useMemo(() => {
@@ -376,19 +436,39 @@ export default function ProfileEditPage({ navigation, route }) {
       const uRaw = String(rawValue || '').trim().replace(/^@/, '');
       if (uRaw.length > 0 && uRaw.length < 3) return;
       await setProfileUsername(uRaw);
-      const token = useAuthStore.getState().accessToken;
-      if (!token || uRaw.length < 3) return;
+      let hasSession = await ensureProfileBackendSession(user);
+      if (!hasSession || uRaw.length < 3) return;
       try {
-        await patchProfileMe(token, { username: uRaw });
+        await patchProfileMe(useAuthStore.getState().accessToken, { username: uRaw });
         await useAuthStore.getState().loadProfileMe();
         const saved = useAuthStore.getState().profileMe?.profile?.username;
         if (saved) setUsername(`@${String(saved).replace(/^@/, '')}`);
+        emitProfileMeUpdated({ source: 'username_edit' });
       } catch (e) {
-        const msg = e instanceof ApiError ? e.message : e?.message || '';
+        const isNetwork =
+          e instanceof ApiError && (e.status === 0 || String(e.message || '').toUpperCase() === 'NETWORK_ERROR');
+        if (isNetwork) {
+          hasSession = await ensureProfileBackendSession(user);
+          if (hasSession) {
+            try {
+              await patchProfileMe(useAuthStore.getState().accessToken, { username: uRaw });
+              await useAuthStore.getState().loadProfileMe();
+              const saved = useAuthStore.getState().profileMe?.profile?.username;
+              if (saved) setUsername(`@${String(saved).replace(/^@/, '')}`);
+              emitProfileMeUpdated({ source: 'username_edit' });
+              return;
+            } catch (retryErr) {
+              const msg = errorToUserText(retryErr, localeForUi);
+              if (msg) Alert.alert('', msg);
+              return;
+            }
+          }
+        }
+        const msg = errorToUserText(e, localeForUi);
         if (msg) Alert.alert('', msg);
       }
     },
-    [],
+    [localeForUi, user],
   );
 
   const onSave = async () => {
@@ -416,24 +496,41 @@ export default function ProfileEditPage({ navigation, route }) {
     await setProfileCity(city);
     await setProfileBirthDate(bd);
     await setProfileBirthPublic(showBirthPublic);
-    const token = useAuthStore.getState().accessToken;
-    if (token) {
+    const hasSession = await ensureProfileBackendSession(user);
+    if (hasSession) {
+      const patchBody = {
+        username: uRaw.length >= 3 ? uRaw : undefined,
+        bio: bio.trim() || null,
+        language: localeForUi,
+        display_name: name.trim() || null,
+        birth_date: bd || null,
+        birth_date_public: showBirthPublic,
+        location_label: city.trim() || null,
+      };
       try {
-        await patchProfileMe(token, {
-          username: uRaw.length >= 3 ? uRaw : undefined,
-          bio: bio.trim() || null,
-          language: localeForUi,
-          display_name: name.trim() || null,
-          birth_date: bd || null,
-          birth_date_public: showBirthPublic,
-          location_label: city.trim() || null,
-        });
+        try {
+          await patchProfileMe(useAuthStore.getState().accessToken, patchBody);
+        } catch (e) {
+          const isNetwork =
+            e instanceof ApiError && (e.status === 0 || String(e.message || '').toUpperCase() === 'NETWORK_ERROR');
+          if (isNetwork && (await ensureProfileBackendSession(user))) {
+            await patchProfileMe(useAuthStore.getState().accessToken, patchBody);
+          } else {
+            throw e;
+          }
+        }
         await useAuthStore.getState().loadProfileMe();
+        const p = useAuthStore.getState().profileMe?.profile;
+        if (p) await applyServerProfileToLocal(p);
+        emitProfileMeUpdated({ source: 'profile_edit' });
       } catch (e) {
-        const msg = e instanceof ApiError ? e.message : e?.message || '';
+        const msg = errorToUserText(e, localeForUi);
         Alert.alert('', msg || 'API');
         return;
       }
+    } else {
+      emitProfileMeUpdated({ source: 'profile_edit_local' });
+      Alert.alert('', pf(localeForUi, 'profileSyncLoginRequired'));
     }
     navigation.goBack();
   };
@@ -452,37 +549,57 @@ export default function ProfileEditPage({ navigation, route }) {
           flexGrow: 1,
           paddingHorizontal: 22,
           paddingTop: 4,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 32,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 32),
         }}
         keyboardShouldPersistTaps="handled"
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
       >
         <View style={[styles.sectionCard, { borderColor: cardBorder, backgroundColor: cardBg }]}>
           <View style={styles.avatarWrap}>
-            <View style={[styles.avatarRing, { borderColor: accent }]}>
-              {avatarDisplayUri ? (
-                <Image source={{ uri: avatarDisplayUri }} style={styles.avatarImg} resizeMode="cover" />
-              ) : (
-                <View style={[styles.avatar, !isLight && { backgroundColor: 'rgba(255,255,255,0.12)' }]} />
-              )}
-              {avatarBusy ? (
-                <View style={styles.avatarBusyOverlay}>
-                  <ActivityIndicator color={accent} />
-                </View>
-              ) : null}
+            <View style={styles.avatarRow}>
+              <View style={[styles.avatarRing, { borderColor: accent }]}>
+                <ProfileAvatarCircle uri={avatarDisplayUri} size={AVATAR_INNER_SIZE} isLight={isLight} />
+                {avatarBusy ? (
+                  <View style={styles.avatarBusyOverlay}>
+                    <ActivityIndicator color={accent} />
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.avatarActions}>
+                <Pressable
+                  onPress={() => void takeAvatarPhoto()}
+                  disabled={avatarBusy}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.avatarActionBtn,
+                    pressed && !avatarBusy && { opacity: 0.75 },
+                    avatarBusy && { opacity: 0.45 },
+                  ]}
+                  android_ripple={ripple}
+                  accessibilityRole="button"
+                  accessibilityLabel={pf(localeForUi, 'takeAvatarPhoto')}
+                >
+                  <Ionicons name="camera-outline" size={22} color={textMain} />
+                </Pressable>
+                <Pressable
+                  onPress={() => void pickAvatar()}
+                  disabled={avatarBusy}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.avatarActionBtn,
+                    pressed && !avatarBusy && { opacity: 0.75 },
+                    avatarBusy && { opacity: 0.45 },
+                  ]}
+                  android_ripple={ripple}
+                  accessibilityRole="button"
+                  accessibilityLabel={pf(localeForUi, 'pickAvatar')}
+                >
+                  <Ionicons name="images-outline" size={22} color={textMain} />
+                </Pressable>
+              </View>
             </View>
-            <Pressable
-              onPress={pickAvatar}
-              disabled={avatarBusy}
-              style={({ pressed }) => [pressed && { opacity: 0.85 }]}
-              android_ripple={ripple}
-            >
-              <Text style={[styles.changePhoto, { color: accent }, brandFontSansSemibold]}>
-                {pf(localeForUi, 'pickAvatar')}
-              </Text>
-            </Pressable>
             {avatarDisplayUri ? (
-              <Pressable onPress={confirmRemoveAvatar} disabled={avatarBusy} style={{ marginTop: 6 }}>
+              <Pressable onPress={confirmRemoveAvatar} disabled={avatarBusy} style={{ marginTop: 10 }}>
                 <Text style={[styles.changePhoto, { color: '#EB4335' }, brandFontSansSemibold]}>
                   {pf(localeForUi, 'removeAvatar')}
                 </Text>
@@ -858,13 +975,32 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   avatarWrap: { alignItems: 'center', marginTop: 4, marginBottom: 4 },
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 18,
+  },
+  avatarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  avatarActionBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarRing: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: AVATAR_RING_SIZE,
+    height: AVATAR_RING_SIZE,
+    borderRadius: AVATAR_RING_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
-    borderWidth: 3,
+    borderWidth: AVATAR_RING_BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatar: {
     width: 100,

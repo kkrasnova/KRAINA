@@ -1,3 +1,4 @@
+import { resolveAppTheme } from './themeStorage';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -31,7 +32,7 @@ import { APP_LANGUAGE_OPTIONS } from './appLanguageOptions';
 import { setAppLanguagePreference, getSession } from './db';
 import { emitAppLanguageChanged } from './appLanguageEvents';
 import { useAuthStore } from './auth/authStore';
-import { patchProfileMe } from './auth/endpoints';
+import { patchProfileMe } from './profileApi';
 import { getPrivacyContactEmail, getPrivacyPolicyUrl, getTermsOfServiceUrl } from './privacyLinks';
 import { privacyRequestMailBody, submitPrivacyUserRequest } from './privacyRequestApi';
 import { getPrivacyContentForLanguage } from './privacyContentI18n';
@@ -799,7 +800,7 @@ export function SettingsNotificationsPage({ navigation, route }) {
       user: route?.params?.user,
       language,
       ...(route?.params?.countryId ? { countryId: route.params.countryId } : {}),
-      appTheme: route?.params?.appTheme || 'dark',
+      appTheme: resolveAppTheme(route?.params?.appTheme),
     });
   }, [navigation, language, route?.params?.user, route?.params?.countryId, route?.params?.appTheme]);
 

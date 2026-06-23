@@ -34,6 +34,7 @@ import {
 } from './audioSession';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
+import { useAppTheme } from './useAppTheme';
 
 import { RenderProfiler } from './performanceMetrics';
 import { runAfterInteractions } from './runAfterInteractions';
@@ -289,7 +290,7 @@ export default function ChatThreadPage({ navigation, route }) {
   );
   const [peerUserId, setPeerUserId] = useState(route?.params?.peerUserId || '');
   const useMessageApi = route?.params?.useMessageApi === true;
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [thread, setThread] = useState(() =>
     initialCache?.messages?.length ? { messages: initialCache.messages } : null,
   );
@@ -362,8 +363,6 @@ export default function ChatThreadPage({ navigation, route }) {
   );
 
   const reload = useCallback(async () => {
-    const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
     if (useMessageApi) {
       try {
         const [inbox, requests] = await Promise.all([
@@ -472,7 +471,6 @@ export default function ChatThreadPage({ navigation, route }) {
     }, [user, threadId, langUk, useMessageApi, voiceRecorder]),
   );
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const bg = isLight ? IG_SCREEN_LIGHT : IG_SCREEN_DARK;

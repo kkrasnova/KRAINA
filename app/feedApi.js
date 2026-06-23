@@ -2,6 +2,7 @@ import { useAuthStore } from './auth/authStore';
 import { db, firebaseEnabled } from './firebaseConfig';
 import { ttlMemo, ttlInvalidate } from './ttlCache';
 import { backendAuthFetch, backendAuthUpload, hasBackendSession } from './backendAuthApi';
+import { normalizeLocalFileUri } from './feedMediaPersist';
 import { Platform } from 'react-native';
 
 // Стрічка/пости/сторіс працюють на РЕАЛЬНОМУ REST-бекенді (PostgreSQL) для справжніх
@@ -104,21 +105,38 @@ export async function ensureFeedApiReady(localUser) {
   }
 }
 
+/** Лайки/коментарі/репости — лише через PostgreSQL REST; Firebase не підходить для продакшен-акаунтів. */
+export async function ensureFeedSocialReady(localUser) {
+  await ensureFeedApiReady(localUser);
+  return hasBackendSession();
+}
+
 /** Підготувати FormData-файл для multipart-завантаження на бекенд. */
-function buildMediaFormFile(localUri) {
+function buildMediaFormFile(localUri, { forceAudio = false, mimeType = '' } = {}) {
   const lower = String(localUri || '').toLowerCase();
-  const isVideo = /\.(mp4|mov)(\?|$)/i.test(lower);
-  const isAudio = /\.(m4a|aac|mp3|wav|caf)(\?|$)/i.test(lower);
+  const mime = String(mimeType || '').toLowerCase();
+  const isVideo = !forceAudio && (mime.startsWith('video/') || /\.(mp4|mov)(\?|$)/i.test(lower));
+  const isAudio =
+    forceAudio || mime.startsWith('audio/') || /\.(m4a|aac|mp3|wav|caf)(\?|$)/i.test(lower);
+  const isCaf = mime.includes('caf') || /\.caf(\?|$)/i.test(lower);
+  const isPng = !isVideo && !isAudio && (mime.includes('png') || /\.png(\?|$)/i.test(lower));
+  const isWebp = !isVideo && !isAudio && (mime.includes('webp') || /\.webp(\?|$)/i.test(lower));
   const type = isVideo
     ? 'video/mp4'
     : isAudio
-      ? Platform.OS === 'ios'
-        ? 'audio/m4a'
-        : 'audio/mp4'
-      : 'image/jpeg';
-  const ext = isVideo ? 'mp4' : isAudio ? 'm4a' : 'jpg';
+      ? isCaf
+        ? 'audio/x-caf'
+        : Platform.OS === 'ios'
+          ? 'audio/m4a'
+          : 'audio/mp4'
+      : isPng
+        ? 'image/png'
+        : isWebp
+          ? 'image/webp'
+          : 'image/jpeg';
+  const ext = isVideo ? 'mp4' : isAudio ? (isCaf ? 'caf' : 'm4a') : isPng ? 'png' : isWebp ? 'webp' : 'jpg';
   return {
-    file: { uri: localUri, type, name: `feed_${Date.now()}.${ext}` },
+    file: { uri: normalizeLocalFileUri(localUri), type, name: `feed_${Date.now()}.${ext}` },
     media_kind: isVideo ? 'video' : isAudio ? 'audio' : 'image',
   };
 }
@@ -337,26 +355,48 @@ async function enrichWithAuthors(rows) {
 
 // ─────────────────────────────── Public API (backend-first) ───────────────────────────────
 
-export async function feedUploadMediaFromUri(localUri) {
+export async function feedUploadMediaFromUri(localUri, options = {}) {
   const uri = String(localUri || '').trim();
-  if (!uri) return null;
-  if (hasBackendSession()) {
-    const { file, media_kind } = buildMediaFormFile(uri);
-    const form = new FormData();
-    form.append('file', file);
-    const data = await backendAuthUpload(`${FEED}/upload`, form);
-    const url = data?.url || data?.media_url;
-    if (!url) throw new Error('upload_failed');
-    return { media_url: url, url: String(url), media_kind: data?.media_kind || media_kind };
+  if (!uri) {
+    if (__DEV__) console.warn('[feedApi] empty uri passed to feedUploadMediaFromUri');
+    return null;
   }
+  if (__DEV__) console.log('[feedApi] feedUploadMediaFromUri:', { uri: uri.substring(0, 50), backend: hasBackendSession() });
+  if (hasBackendSession()) {
+    const { media_kind } = buildMediaFormFile(uri, options);
+    try {
+      const data = await backendAuthUpload(`${FEED}/upload`, () => {
+        const { file } = buildMediaFormFile(uri, options);
+        const form = new FormData();
+        form.append('file', file);
+        return form;
+      });
+      const url = data?.url || data?.media_url;
+      if (!url) {
+        if (__DEV__) console.warn('[feedApi] upload response missing url:', data);
+        throw new Error('upload_failed');
+      }
+      if (__DEV__) console.log('[feedApi] media uploaded:', { url: url.substring(0, 50) });
+      return { media_url: url, url: String(url), media_kind: data?.media_kind || media_kind };
+    } catch (e) {
+      if (__DEV__) console.warn('[feedApi] upload error:', e?.message);
+      throw e;
+    }
+  }
+  if (__DEV__) console.log('[feedApi] using filesystem upload (no backend session)');
   const uploaded = await fsUploadMediaToStorage(uri);
   return uploaded ? { media_url: uploaded.url, url: uploaded.url, path: uploaded.path } : null;
 }
 
 export async function feedCreatePost(body) {
+  if (__DEV__) console.log('[feedApi] feedCreatePost called with:', { mediaUrlsCount: body?.media_urls?.length, visibility: body?.visibility });
   if (hasBackendSession()) {
     const media_urls = Array.isArray(body?.media_urls) ? body.media_urls.filter(Boolean) : [];
-    if (!media_urls.length) throw new Error('no_media');
+    if (__DEV__) console.log('[feedApi] filtered media_urls:', media_urls.length);
+    if (!media_urls.length) {
+      if (__DEV__) console.warn('[feedApi] no_media error');
+      throw new Error('no_media');
+    }
     const payload = {
       media_urls,
       content_text: body?.content_text ?? body?.content ?? null,
@@ -366,10 +406,13 @@ export async function feedCreatePost(body) {
       lng: body?.lng ?? null,
       route_plan: body?.route_plan ?? null,
     };
+    if (__DEV__) console.log('[feedApi] sending payload:', { ...payload, media_urls: `[${payload.media_urls.length} urls]` });
     const data = await backendAuthFetch('POST', `${FEED}/posts`, payload);
+    if (__DEV__) console.log('[feedApi] backend response:', { status: 'ok', hasPost: !!data?.post, id: data?.post?.id || data?.id });
     ttlInvalidate('feed:');
     return data?.post || data;
   }
+  if (__DEV__) console.log('[feedApi] using filesystem fallback (no backend session)');
   return fsCreatePost(body);
 }
 
@@ -506,7 +549,7 @@ export async function feedTogglePostRepost(postId, caption = '') {
     ttlInvalidate('feed:');
     return { reposted: Boolean(out?.reposted), reposts_count: Number(out?.reposts_count) || 0 };
   }
-  return { reposted: false, reposts_count: 0 };
+  throw new Error('invalid_post');
 }
 
 export async function feedToggleCommentLike(commentId) {
@@ -515,7 +558,7 @@ export async function feedToggleCommentLike(commentId) {
     const out = await backendAuthFetch('POST', `${FEED}/comments/${encodeURIComponent(String(commentId))}/like`);
     return { liked: Boolean(out?.liked), likes_count: Number(out?.likes_count) || 0 };
   }
-  return { liked: false, likes_count: 0 };
+  throw new Error('invalid_comment');
 }
 
 export async function feedTogglePostLike(postId) {
@@ -679,14 +722,25 @@ export async function feedCreateStoryFromUri(localUri, caption) {
   const uri = String(localUri || '').trim();
   if (!uri) throw new Error('upload_failed');
   if (hasBackendSession()) {
-    const { file } = buildMediaFormFile(uri);
-    const form = new FormData();
-    form.append('file', file);
-    if (caption != null) form.append('caption', String(caption));
-    const data = await backendAuthUpload(`${FEED}/stories`, form);
-    ttlInvalidate('feed:stories:');
-    return data?.story || data;
+    try {
+      const { file } = buildMediaFormFile(uri);
+      const form = new FormData();
+      form.append('file', file);
+      if (caption != null) form.append('caption', String(caption));
+      if (__DEV__) console.log('[feedApi] uploading story to backend');
+      const data = await backendAuthUpload(`${FEED}/stories`, form);
+      if (!data?.story && !data?.id) {
+        throw new Error('backend_no_story');
+      }
+      ttlInvalidate('feed:stories:');
+      if (__DEV__) console.log('[feedApi] story backend upload successful:', data?.story?.id || data?.id);
+      return data?.story || data;
+    } catch (e) {
+      if (__DEV__) console.warn('[feedApi] backend story upload failed:', e?.message);
+      throw e;
+    }
   }
+  if (__DEV__) console.log('[feedApi] using filesystem fallback for story (no backend session)');
   const uploaded = await fsUploadMediaToStorage(uri);
   if (!uploaded || !db) throw new Error('upload_failed');
   const { addDoc, collection, serverTimestamp } = require('firebase/firestore');
@@ -703,6 +757,7 @@ export async function feedCreateStoryFromUri(localUri, caption) {
   };
   const ref = await addDoc(collection(db, 'feedStories'), payload);
   ttlInvalidate('feed:stories:');
+  if (__DEV__) console.log('[feedApi] story firestore upload successful:', ref.id);
   return { id: ref.id, ...payload };
 }
 

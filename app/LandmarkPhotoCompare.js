@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { PanResponder, Platform, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, PanResponder, Platform, StyleSheet, Text, View } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 
 function normalizeCompareSource(asset, uri) {
@@ -7,6 +7,28 @@ function normalizeCompareSource(asset, uri) {
   const u = String(uri || '').trim();
   return u ? { uri: u } : null;
 }
+
+const CompareLayerImage = React.memo(function CompareLayerImage({
+  source,
+  height,
+  top = 0,
+  contentPosition,
+}) {
+  if (!source) return null;
+  return (
+    <ExpoImage
+      source={source}
+      style={[styles.fullLayerImage, { height, top }]}
+      contentFit="cover"
+      contentPosition={contentPosition}
+      cachePolicy="memory-disk"
+      transition={0}
+      allowDownscaling
+      recyclingKey={typeof source === 'number' ? String(source) : source.uri}
+      accessibilityIgnoresInvertColors
+    />
+  );
+});
 
 /**
  * Vertical compare:
@@ -18,82 +40,116 @@ export default function LandmarkPhotoCompare({
   afterUri,
   beforeSource,
   afterSource,
+  beforeContentPosition = 'center',
+  afterContentPosition = 'center',
   initialPosition = 0.5,
   containerHeight = 0,
   nestedInScroll = false,
   isLight = false,
   style,
   onDragStateChange,
+  onPhotoPress,
 }) {
-  const [layoutHeight, setLayoutHeight] = useState(0);
-  const [dividerY, setDividerY] = useState(0);
+  const layoutHeightRef = useRef(0);
   const dragStartRef = useRef(0);
   const hasDraggedRef = useRef(false);
   const dividerYRef = useRef(0);
+  const animatedDividerY = useRef(new Animated.Value(0)).current;
+  const [, forceLayoutTick] = React.useReducer((n) => n + 1, 0);
 
-  const effectiveHeight = layoutHeight > 0 ? layoutHeight : Math.max(1, Number(containerHeight) || 1);
-  dividerYRef.current = dividerY;
+  const effectiveHeight = Math.max(
+    1,
+    layoutHeightRef.current > 0 ? layoutHeightRef.current : Number(containerHeight) || 1,
+  );
 
   const clampY = (y, h = effectiveHeight) => {
     const max = Math.max(0, h);
     return Math.max(0, Math.min(max, y));
   };
 
+  const setDividerPosition = (y, h = effectiveHeight) => {
+    const next = clampY(y, h);
+    dividerYRef.current = next;
+    animatedDividerY.setValue(next);
+  };
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => Platform.OS === 'android',
         onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dy) > (nestedInScroll ? 10 : 6) && Math.abs(g.dy) > Math.abs(g.dx) * 0.9,
+          nestedInScroll
+            ? Math.abs(g.dy) > 2 || Math.abs(g.dx) > 2
+            : Math.abs(g.dy) > 1 || Math.abs(g.dx) > 1,
         onMoveShouldSetPanResponderCapture: (_, g) =>
-          Math.abs(g.dy) > (nestedInScroll ? 8 : 4) && Math.abs(g.dy) > Math.abs(g.dx) * 0.85,
+          Platform.OS === 'android' &&
+          (nestedInScroll
+            ? Math.abs(g.dy) > 2 || Math.abs(g.dx) > 2
+            : Math.abs(g.dy) > 1 || Math.abs(g.dx) > 1),
         onPanResponderGrant: () => {
+          hasDraggedRef.current = false;
           onDragStateChange?.(true);
-          const h = Math.max(layoutHeight, Number(containerHeight) || 0, 1);
+          const h = Math.max(layoutHeightRef.current, Number(containerHeight) || 0, 1);
           const current = dividerYRef.current;
           const start = current > 0 ? current : h * initialPosition;
           dragStartRef.current = clampY(start, h);
         },
         onPanResponderMove: (_, g) => {
-          hasDraggedRef.current = true;
-          setDividerY(clampY(dragStartRef.current + g.dy));
+          if (Math.abs(g.dy) > 3 || Math.abs(g.dx) > 3) {
+            hasDraggedRef.current = true;
+          }
+          const h = Math.max(layoutHeightRef.current, Number(containerHeight) || 0, 1);
+          setDividerPosition(dragStartRef.current + g.dy, h);
         },
         onPanResponderRelease: (_, g) => {
           onDragStateChange?.(false);
-          const h = effectiveHeight;
+          const h = Math.max(layoutHeightRef.current, Number(containerHeight) || 0, 1);
           const next = clampY(dragStartRef.current + g.dy, h);
+          if (
+            !hasDraggedRef.current &&
+            Math.abs(g.dy) < 10 &&
+            Math.abs(g.dx) < 10
+          ) {
+            onPhotoPress?.();
+            return;
+          }
           const edgeSnap = 18;
           if (next <= edgeSnap) {
-            setDividerY(0);
+            setDividerPosition(0, h);
             return;
           }
           if (next >= h - edgeSnap) {
-            setDividerY(h);
+            setDividerPosition(h, h);
             return;
           }
-          setDividerY(next);
+          setDividerPosition(next, h);
         },
         onPanResponderTerminate: () => {
           onDragStateChange?.(false);
         },
         onPanResponderTerminationRequest: () => false,
       }),
-    [initialPosition, layoutHeight, containerHeight, effectiveHeight, nestedInScroll, onDragStateChange],
+    [initialPosition, containerHeight, nestedInScroll, onDragStateChange, onPhotoPress],
   );
 
   const onLayout = (e) => {
     const nextH = Number(e?.nativeEvent?.layout?.height);
     if (!Number.isFinite(nextH) || nextH <= 0) return;
-    setLayoutHeight(nextH);
-    if (!hasDraggedRef.current) setDividerY(clampY(nextH * initialPosition, nextH));
+    layoutHeightRef.current = nextH;
+    if (!hasDraggedRef.current) {
+      setDividerPosition(nextH * initialPosition, nextH);
+    }
+    forceLayoutTick();
   };
 
-  const currentDividerY =
-    dividerY > 0 ? clampY(dividerY) : clampY(effectiveHeight * initialPosition);
-  const topHeight = Math.max(0, currentDividerY);
-  const bottomTop = Math.max(0, currentDividerY);
-  const bottomHeight = Math.max(0, effectiveHeight - bottomTop);
-  const lineTop = Math.max(0, Math.min(Math.max(0, effectiveHeight - 2), currentDividerY));
-  const knobTop = Math.max(0, Math.min(Math.max(0, effectiveHeight - 88), currentDividerY - 44));
+  useEffect(() => {
+    if (layoutHeightRef.current > 0 || !containerHeight) return;
+    const h = Math.max(1, Number(containerHeight) || 1);
+    if (!hasDraggedRef.current) {
+      setDividerPosition(h * initialPosition, h);
+    }
+  }, [containerHeight, initialPosition]);
 
   const topSource = normalizeCompareSource(afterSource, afterUri);
   const bottomSource = normalizeCompareSource(beforeSource, beforeUri);
@@ -104,10 +160,51 @@ export default function LandmarkPhotoCompare({
   const knobArrowColor = isLight ? '#0C2FA8' : '#E1FF00';
   const knobDividerColor = isLight ? 'rgba(12,47,168,0.55)' : 'rgba(225,255,0,0.78)';
 
-  const fullLayerStyle = useMemo(
-    () => ({ width: '100%', height: effectiveHeight }),
+  const topClipHeight = animatedDividerY;
+  const bottomClipTop = animatedDividerY;
+  const clipRanges = useMemo(
+    () => ({
+      inputRange: [0, effectiveHeight],
+      extrapolate: 'clamp',
+    }),
     [effectiveHeight],
   );
+  const bottomClipHeight = useMemo(
+    () =>
+      animatedDividerY.interpolate({
+        ...clipRanges,
+        outputRange: [effectiveHeight, 0],
+      }),
+    [animatedDividerY, clipRanges, effectiveHeight],
+  );
+  const bottomImageTop = useMemo(
+    () =>
+      animatedDividerY.interpolate({
+        ...clipRanges,
+        outputRange: [0, -effectiveHeight],
+      }),
+    [animatedDividerY, clipRanges, effectiveHeight],
+  );
+  const lineTop = useMemo(
+    () =>
+      animatedDividerY.interpolate({
+        ...clipRanges,
+        outputRange: [0, Math.max(0, effectiveHeight - 2)],
+      }),
+    [animatedDividerY, clipRanges, effectiveHeight],
+  );
+  const knobTop = useMemo(
+    () =>
+      animatedDividerY.interpolate({
+        ...clipRanges,
+        outputRange: [0, Math.max(0, effectiveHeight - 88)],
+      }),
+    [animatedDividerY, clipRanges, effectiveHeight],
+  );
+
+  const handleTouchStart = () => {
+    if (nestedInScroll) onDragStateChange?.(true);
+  };
 
   if (!topSource && !bottomSource) {
     return <View style={[styles.wrap, style, styles.emptyCompare]} onLayout={onLayout} />;
@@ -117,47 +214,49 @@ export default function LandmarkPhotoCompare({
     <View
       style={[styles.wrap, isLight && styles.wrapLight, style]}
       onLayout={onLayout}
+      onTouchStart={handleTouchStart}
+      collapsable={false}
       {...panResponder.panHandlers}
     >
-      {topSource && topHeight > 0 ? (
-        <View style={[styles.overlayClip, { top: 0, height: topHeight }]}>
-          <ExpoImage
+      {topSource ? (
+        <Animated.View style={[styles.overlayClip, { top: 0, height: topClipHeight }]}>
+          <CompareLayerImage
             source={topSource}
-            style={[styles.fullLayerImage, fullLayerStyle]}
-            contentFit="cover"
-            contentPosition="center"
-            cachePolicy="memory-disk"
-            transition={0}
-            allowDownscaling
-            accessibilityIgnoresInvertColors
+            height={effectiveHeight}
+            contentPosition={afterContentPosition}
           />
-        </View>
+        </Animated.View>
       ) : null}
 
-      {bottomSource && bottomHeight > 0 ? (
-        <View style={[styles.overlayClip, { top: bottomTop, height: bottomHeight }]}>
-          <ExpoImage
-            source={bottomSource}
-            style={[styles.fullLayerImage, fullLayerStyle, { top: -bottomTop }]}
-            contentFit="cover"
-            contentPosition="center"
-            cachePolicy="memory-disk"
-            transition={0}
-            allowDownscaling
-            accessibilityIgnoresInvertColors
-          />
-        </View>
+      {bottomSource ? (
+        <Animated.View
+          style={[styles.overlayClip, { top: bottomClipTop, height: bottomClipHeight }]}
+        >
+          <Animated.View style={[styles.fullLayerImage, { top: bottomImageTop }]}>
+            <CompareLayerImage
+              source={bottomSource}
+              height={effectiveHeight}
+              contentPosition={beforeContentPosition}
+            />
+          </Animated.View>
+        </Animated.View>
       ) : null}
 
-      <View style={[styles.line, { top: lineTop, backgroundColor: lineColor }]} pointerEvents="none" />
-      <View
-        style={[styles.knob, { top: knobTop, backgroundColor: knobBg, borderColor: knobBorder }]}
+      <Animated.View
+        style={[styles.line, { top: lineTop, backgroundColor: lineColor }]}
+        pointerEvents="none"
+      />
+      <Animated.View
+        style={[
+          styles.knob,
+          { top: knobTop, backgroundColor: knobBg, borderColor: knobBorder },
+        ]}
         pointerEvents="none"
       >
         <Text style={[styles.knobArrow, { color: knobArrowColor }]}>▲</Text>
         <View style={[styles.knobDivider, { backgroundColor: knobDividerColor }]} />
         <Text style={[styles.knobArrow, { color: knobArrowColor }]}>▼</Text>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -177,12 +276,6 @@ const styles = StyleSheet.create({
   emptyCompare: {
     backgroundColor: '#DDE0E8',
   },
-  baseImage: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-  },
   fullLayerImage: {
     position: 'absolute',
     left: 0,
@@ -193,14 +286,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    overflow: 'hidden',
-    zIndex: 1,
-  },
-  topClip: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
     overflow: 'hidden',
     zIndex: 1,
   },

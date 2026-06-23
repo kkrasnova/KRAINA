@@ -25,6 +25,7 @@ import {
   signInWithFacebookAccessToken,
   signInWithGoogleIdToken,
 } from '../db';
+import { hydrateSavedRoutesFromProfileMe } from '../savedRoutesSync';
 const KEY_ACCESS = 'kraina_backend_access_token';
 const KEY_REFRESH = 'kraina_backend_refresh_token';
 
@@ -161,7 +162,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
         set({
           accessToken: null,
-          refreshToken: null,
+          refreshToken: refresh,
           user: legacyUser,
           profileMe: legacyProfile,
           hydrated: true,
@@ -187,17 +188,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const prevIdentity = prevUser?.id != null ? String(prevUser.id) : prevUser?.email || '';
     const nextIdentity = user?.id != null ? String(user.id) : user?.email || '';
     const userChanged = !!prevIdentity && !!nextIdentity && prevIdentity !== nextIdentity;
-    if (userChanged) {
-      await clearProfileLocalCache();
-    }
-    await persistTokens(tokens.access_token, tokens.refresh_token);
+    
+    // ⚡ Встанавлюємо стан одразу (паралельно з SecureStore + cache clear)
     set({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       user,
       lastError: null,
     });
-    void get().loadProfileMe().catch(() => {});
+    
+    // ⚡ Асинхронні операції у фоні (не блокують стан)
+    void (async () => {
+      try {
+        const promises = [persistTokens(tokens.access_token, tokens.refresh_token)];
+        if (userChanged) promises.push(clearProfileLocalCache());
+        promises.push(get().loadProfileMe());
+        await Promise.all(promises);
+      } catch {
+        // Ignore background errors
+      }
+    })();
   },
 
   clearLocalSession: async () => {
@@ -216,29 +226,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ busy: true, lastError: null });
     try {
       const body = await backendLogin(email, password);
+      // ⚡ Встанавлюємо сесію одразу (критично для UX)
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-      try {
-        const userRaw = await loginUser({ email, password });
-        await saveLegacySession({
-          ...(userRaw as Record<string, unknown>),
-          id: body.user.id,
-          email: body.user.email || (userRaw as { email?: string }).email,
-          provider: 'email',
-        } as any);
-      } catch {
-        await saveLegacySession({
-          id: body.user.id,
-          email: body.user.email,
-          name: body.user.email.split('@')[0] || 'User',
-          role: body.user.role,
-          status: body.user.status,
-          provider: 'email',
-        } as any);
-      }
+      
+      // ⚡ Firebase + Legacy session sync у фоні (не блокує навігацію)
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          // Firebase sync — optional, не блокуємо
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+        }
+        
+        try {
+          const userRaw = await loginUser({ email, password });
+          await saveLegacySession({
+            ...(userRaw as Record<string, unknown>),
+            id: body.user.id,
+            email: body.user.email || (userRaw as { email?: string }).email,
+            provider: 'email',
+          } as any);
+        } catch {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: body.user.email.split('@')[0] || 'User',
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'email',
+          } as any);
+        }
+      })();
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'login_failed' });
@@ -260,48 +281,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         username: explicitUsername || undefined,
         display_name: trimmedDisplay || undefined,
       });
+      // ⚡ Встанавлюємо сесію одразу
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-      await get().loadProfileMe().catch(() => {});
-      const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
-      const profileDisplayName =
-        get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
-      try {
-        const userRaw = await registerUser({
-          email,
-          password,
-          name: profileDisplayName,
-        });
-        const merged = {
-          ...(userRaw as Record<string, unknown>),
-          accountUsername: profileUsername,
-          name: profileDisplayName,
-        };
-        await saveLegacySession(merged as any);
-        if (profileUsername) {
-          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
-          await setProfileUsername(profileUsername);
-          await setProfileDisplayName(profileDisplayName);
+      
+      // ⚡ Firebase + Profile + Legacy session у фоні (не блокує навігацію)
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
         }
-      } catch {
-        await saveLegacySession({
-          id: body.user.id,
-          email: body.user.email,
-          name: profileDisplayName,
-          accountUsername: profileUsername || undefined,
-          role: body.user.role,
-          status: body.user.status,
-          provider: 'email',
-        } as any);
-        if (profileUsername) {
-          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
-          await setProfileUsername(profileUsername);
-          await setProfileDisplayName(profileDisplayName);
+        
+        try {
+          await get().loadProfileMe();
+        } catch {
+          // OK if profile load fails
         }
-      }
+        
+        const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
+        const profileDisplayName =
+          get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
+        
+        try {
+          const userRaw = await registerUser({
+            email,
+            password,
+            name: profileDisplayName,
+          });
+          const merged = {
+            ...(userRaw as Record<string, unknown>),
+            accountUsername: profileUsername,
+            name: profileDisplayName,
+          };
+          await saveLegacySession(merged as any);
+          if (profileUsername) {
+            const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+            await setProfileUsername(profileUsername);
+            await setProfileDisplayName(profileDisplayName);
+          }
+        } catch {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: profileDisplayName,
+            accountUsername: profileUsername || undefined,
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'email',
+          } as any);
+          if (profileUsername) {
+            const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+            await setProfileUsername(profileUsername);
+            await setProfileDisplayName(profileDisplayName);
+          }
+        }
+      })();
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'register_failed' });
@@ -327,31 +364,41 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ busy: true, lastError: null });
     try {
       const body = await backendGoogle(id_token);
+      // ⚡ Встанавлюємо сесію одразу
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-      try {
-        const signed = await signInWithGoogleIdToken(id_token);
-        if ((signed as any)?.user) {
+      
+      // ⚡ Firebase + Legacy session у фоні
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+        }
+        
+        try {
+          const signed = await signInWithGoogleIdToken(id_token);
+          if ((signed as any)?.user) {
+            await saveLegacySession({
+              ...(signed as any).user,
+              id: body.user.id,
+              email: body.user.email || (signed as any).user?.email,
+              provider: 'google',
+            } as any);
+          }
+        } catch {
           await saveLegacySession({
-            ...(signed as any).user,
             id: body.user.id,
-            email: body.user.email || (signed as any).user?.email,
+            email: body.user.email,
+            name: body.user.email.split('@')[0] || 'User',
+            role: body.user.role,
+            status: body.user.status,
             provider: 'google',
           } as any);
         }
-      } catch {
-        await saveLegacySession({
-          id: body.user.id,
-          email: body.user.email,
-          name: body.user.email.split('@')[0] || 'User',
-          role: body.user.role,
-          status: body.user.status,
-          provider: 'google',
-        } as any);
-      }
+      })();
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'google_login_failed' });
@@ -365,29 +412,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ busy: true, lastError: null });
     try {
       const body = await backendFirebase(id_token);
+      // ⚡ Встанавлюємо сесію одразу
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-      const s = await getLegacySession();
-      if (s?.user) {
-        await saveLegacySession({
-          ...s.user,
-          id: body.user.id,
-          email: body.user.email || s.user.email,
-          provider: s.user.provider || 'email',
-        } as any);
-      } else {
-        await saveLegacySession({
-          id: body.user.id,
-          email: body.user.email,
-          name: body.user.email.split('@')[0] || 'User',
-          role: body.user.role,
-          status: body.user.status,
-          provider: 'email',
-        } as any);
-      }
+      
+      // ⚡ Firebase + Legacy session у фоні
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+        }
+        
+        const s = await getLegacySession();
+        if (s?.user) {
+          await saveLegacySession({
+            ...s.user,
+            id: body.user.id,
+            email: body.user.email || s.user.email,
+            provider: s.user.provider || 'email',
+          } as any);
+        } else {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: body.user.email.split('@')[0] || 'User',
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'email',
+          } as any);
+        }
+      })();
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'firebase_login_failed' });
@@ -525,15 +582,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       if (isBackendJwt(get().accessToken)) {
         const data = (await backendGetProfileMe()) as ProfileMeBody;
-        const { hydrateSavedRoutesFromProfileMe } = await import('../savedRoutesSync');
         await hydrateSavedRoutesFromProfileMe(data.profile);
         set({ profileMe: data, user: get().user, lastError: null, profileMeLoadedAt: Date.now() });
+        const { applyServerProfileToLocal, emitProfileMeUpdated } = await import('../profileMeSync');
+        await applyServerProfileToLocal(data.profile);
+        const { mergeBackendUserIntoLocalSession } = await import('../syncBackendSessionBridge');
+        await mergeBackendUserIntoLocalSession();
+        emitProfileMeUpdated({ source: 'loadProfileMe' });
         return;
       }
       const s = await getLegacySession();
       if (!s?.user) return;
       const data = buildProfileMe(s.user);
-      const { hydrateSavedRoutesFromProfileMe } = await import('../savedRoutesSync');
       await hydrateSavedRoutesFromProfileMe(data.profile);
       set({ profileMe: data, user: mapLegacyUserToDto(s.user), profileMeLoadedAt: Date.now() });
     } catch (err: unknown) {
@@ -544,7 +604,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  loadProfileMeIfStale: async (staleMs = 30000) => {
+  loadProfileMeIfStale: async (staleMs = 1000) => {
     const state = get();
     const elapsed = state.profileMeLoadedAt != null ? Date.now() - state.profileMeLoadedAt : Infinity;
     if (elapsed < staleMs && state.profileMe != null) {

@@ -1,3 +1,4 @@
+import { resolveAppTheme } from './themeStorage';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -10,6 +11,7 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +24,8 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { fc } from './feedComposerI18n';
 import { persistCapturedImage } from './feedMediaPersist';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
+import { useFocusEffect } from '@react-navigation/native';
+import { fetchDeviceGalleryPreview, resolveDeviceAssetUri } from './deviceGallerySync';
 
 const GRID_GAP = 4;
 const MAX_PICK = 10;
@@ -33,8 +37,10 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const user = route?.params?.user;
   const countryId = route?.params?.countryId;
-  const appTheme = route?.params?.appTheme || 'dark';
+  const appTheme = resolveAppTheme(route?.params?.appTheme);
   const isLight = appTheme === 'light';
+  const pickerMode = route?.params?.pickerMode === 'story' ? 'story' : 'post';
+  const maxPick = pickerMode === 'story' ? 1 : MAX_PICK;
   const publishVisibility = route?.params?.publishVisibility === 'public' ? 'public' : 'followers';
   const initialUris = Array.isArray(route?.params?.initialUris) ? route.params.initialUris.filter(Boolean) : [];
   const pickedLat =
@@ -86,41 +92,49 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
 
   const heroH = useMemo(() => Math.min(Math.round(width * 0.92), 420), [width]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status !== 'granted') {
-          if (!cancelled) {
-            setLoading(false);
-            Alert.alert('', fc(language, 'galleryDenied'));
-          }
-          return;
-        }
-        const page = await MediaLibrary.getAssetsAsync({
-          mediaType: [MediaLibrary.MediaType.photo, MediaLibrary.MediaType.video],
-          first: PAGE_SIZE,
-          sortBy: MediaLibrary.SortBy.creationTime,
-        });
-        if (!cancelled) setAssets(page.assets || []);
-      } catch {
-        if (!cancelled) setAssets([]);
-      } finally {
-        if (!cancelled) setLoading(false);
+  const loadGalleryAssets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await fetchDeviceGalleryPreview({ limit: PAGE_SIZE });
+      if (!result.granted) {
+        Alert.alert('', fc(language, 'galleryDenied'));
+        setAssets([]);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      const rows = [];
+      for (const item of result.items || []) {
+        rows.push({
+          id: item.id,
+          uri: item.thumbUri || item.uri,
+          mediaType: item.isVideo ? MediaLibrary.MediaType.video : MediaLibrary.MediaType.photo,
+          _fullUri: item.uri,
+        });
+      }
+      setAssets(rows);
+    } catch {
+      setAssets([]);
+    } finally {
+      setLoading(false);
+    }
   }, [language]);
+
+  useEffect(() => {
+    void loadGalleryAssets();
+  }, [loadGalleryAssets]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadGalleryAssets();
+    }, [loadGalleryAssets]),
+  );
 
   const initialUrisKey = useMemo(() => JSON.stringify(initialUris), [route?.params?.initialUris]);
   useEffect(() => {
     const list = Array.isArray(route?.params?.initialUris) ? route.params.initialUris.filter(Boolean) : [];
     const first = list[0];
-    if (!first) return;      setHeroUri(first);
-      setHeroIsVideo(/\.(mp4|mov|m4v)(\?|$)/i.test(String(first)));
+    if (!first) return;
+    setHeroUri(first);
+    setHeroIsVideo(/\.(mp4|mov|m4v)(\?|$)/i.test(String(first)));
   }, [initialUrisKey, route?.params?.initialUris]);
 
   const totalCount = pinnedUris.length + pickedIds.length + pickedExternalUris.length;
@@ -128,17 +142,88 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
 
   const toggleLibrary = useCallback(
     (asset) => {
+      if (pickerMode === 'story') {
+        setPickedExternalUris([]);
+      }
       setPickedIds((prev) => {
         const i = prev.indexOf(asset.id);
         if (i >= 0) return prev.filter((id) => id !== asset.id);
-        if (pinnedUris.length + prev.length >= MAX_PICK) return prev;
+        if (pickerMode === 'story') return [asset.id];
+        if (pinnedUris.length + prev.length + pickedExternalUris.length >= maxPick) return prev;
         return [...prev, asset.id];
       });
       setHeroUri(asset.uri);
       setHeroIsVideo(asset.mediaType === MediaLibrary.MediaType.video);
     },
-    [pinnedUris.length],
+    [pinnedUris.length, pickedExternalUris.length, pickerMode, maxPick],
   );
+
+  const openCameraFromPicker = useCallback(() => {
+    if (busy) return;
+    navigation.navigate('FeedCamera', {
+      ...shell,
+      publishVisibility,
+      cameraInitialMode: pickerMode === 'story' ? 'story' : 'post',
+    });
+  }, [busy, navigation, shell, publishVisibility, pickerMode]);
+
+  const pickWithSystemGallery = useCallback(async () => {
+    if (busy) return;
+    const remaining = Math.max(
+      0,
+      maxPick - (pinnedUris.length + pickedIds.length + pickedExternalUris.length),
+    );
+    if (remaining <= 0) {
+      Alert.alert('', fc(language, 'pickError'));
+      return;
+    }
+    try {
+      // iOS: системний PHPicker працює без дозволу на фотогалерею — не блокуємо
+      // запуск, інакше галерея «не відкривається» при обмеженому/відхиленому доступі.
+      // Android: дозвіл обов'язковий.
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted && Platform.OS !== 'ios') {
+        Alert.alert('', fc(language, 'galleryDenied'), [
+          { text: fc(language, 'openSettings'), onPress: () => Linking.openSettings().catch(() => {}) },
+          { text: fc(language, 'cancel'), style: 'cancel' },
+        ]);
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsMultipleSelection: pickerMode !== 'story',
+        quality: 0.92,
+        selectionLimit: remaining,
+        videoMaxDuration: 180,
+      });
+      if (res.canceled) return;
+      const fresh = (res.assets || [])
+        .map((a) => String(a?.uri || '').trim())
+        .filter(Boolean);
+      if (!fresh.length) return;
+      if (pickerMode === 'story') {
+        setPickedIds([]);
+        setPickedExternalUris(fresh.slice(0, 1));
+      } else {
+        setPickedExternalUris((prev) => {
+          const next = [...prev];
+          fresh.forEach((u) => {
+            if (!next.includes(u) && next.length < maxPick - pinnedUris.length - pickedIds.length) {
+              next.push(u);
+            }
+          });
+          return next.slice(0, maxPick - pinnedUris.length - pickedIds.length);
+        });
+      }
+      const first = fresh[0];
+      if (first) {
+        setHeroUri(first);
+        setHeroIsVideo(/\.(mp4|mov|m4v)(\?|$)/i.test(first));
+      }
+    } catch {
+      Alert.alert('', fc(language, 'pickError'));
+    }
+  }, [busy, pinnedUris.length, pickedIds.length, pickedExternalUris.length, pickerMode, maxPick, language]);
 
   const goNext = useCallback(async () => {
     if (!canNext || busy) return;
@@ -149,8 +234,10 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         const asset = assets.find((a) => a.id === id);
         if (!asset) continue;
         try {
-          const info = await MediaLibrary.getAssetInfoAsync(asset);
-          const u = info.localUri || info.uri || asset.uri;
+          const u =
+            asset._fullUri ||
+            (await resolveDeviceAssetUri(asset)) ||
+            asset.uri;
           if (u) {
             libParts.push({
               uri: u,
@@ -160,7 +247,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         } catch {
           if (asset.uri) {
             libParts.push({
-              uri: asset.uri,
+              uri: asset._fullUri || asset.uri,
               mimeType: asset.mediaType === MediaLibrary.MediaType.video ? 'video/mp4' : 'image/jpeg',
             });
           }
@@ -184,6 +271,13 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         Alert.alert('', fc(language, 'pickError'));
         return;
       }
+      if (pickerMode === 'story') {
+        navigation.replace('FeedStoryShare', {
+          ...shell,
+          uri: persisted[0],
+        });
+        return;
+      }
       navigation.navigate('FeedPostComposer', {
         ...shell,
         uris: persisted,
@@ -194,49 +288,19 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
     } finally {
       setBusy(false);
     }
-  }, [canNext, busy, pickedIds, pinnedUris, pickedExternalUris, assets, navigation, shell, publishVisibility, language]);
-
-  const pickWithSystemGallery = useCallback(async () => {
-    if (busy) return;
-    const remaining = Math.max(0, MAX_PICK - (pinnedUris.length + pickedIds.length + pickedExternalUris.length));
-    if (remaining <= 0) {
-      Alert.alert('', fc(language, 'pickError'));
-      return;
-    }
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('', fc(language, 'galleryDenied'));
-        return;
-      }
-      const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsMultipleSelection: true,
-        quality: 0.92,
-        selectionLimit: remaining,
-        videoMaxDuration: 180,
-      });
-      if (res.canceled) return;
-      const fresh = (res.assets || [])
-        .map((a) => String(a?.uri || '').trim())
-        .filter(Boolean);
-      if (!fresh.length) return;
-      setPickedExternalUris((prev) => {
-        const next = [...prev];
-        fresh.forEach((u) => {
-          if (!next.includes(u) && next.length < remaining + prev.length) next.push(u);
-        });
-        return next.slice(0, MAX_PICK - pinnedUris.length - pickedIds.length);
-      });
-      const first = fresh[0];
-      if (first) {
-        setHeroUri(first);
-        setHeroIsVideo(/\.(mp4|mov|m4v)(\?|$)/i.test(first));
-      }
-    } catch {
-      Alert.alert('', fc(language, 'pickError'));
-    }
-  }, [busy, pinnedUris.length, pickedIds.length, pickedExternalUris.length, language]);
+  }, [
+    canNext,
+    busy,
+    pickedIds,
+    pinnedUris,
+    pickedExternalUris,
+    assets,
+    navigation,
+    shell,
+    publishVisibility,
+    language,
+    pickerMode,
+  ]);
 
   const gridData = useMemo(() => [{ __cam: true, id: '__camera__' }, ...assets], [assets]);
 
@@ -250,7 +314,11 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
     if (item.__cam) {
       return (
         <Pressable
-          onPress={() => navigation.goBack()}
+          onPress={openCameraFromPicker}
+          disabled={busy}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={fc(language, 'openCamera')}
           style={[
             styles.thumbWrap,
             {
@@ -259,14 +327,18 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
               marginBottom: GRID_GAP,
               backgroundColor: camTileBg,
               borderColor: tileBorder,
+              opacity: busy ? 0.5 : 1,
             },
           ]}
         >
-          <Ionicons name="camera" size={28} color={textMain} />
+          <Ionicons name="camera-outline" size={28} color={textMain} />
         </Pressable>
       );
     }
     const selected = pickedIds.includes(item.id);
+    const orderNum = selected
+      ? pinnedUris.length + pickedExternalUris.length + pickedIds.indexOf(item.id) + 1
+      : null;
     return (
       <Pressable
         onPress={() => toggleLibrary(item)}
@@ -282,19 +354,11 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         ]}
       >
         <Image source={{ uri: item.uri }} style={styles.thumbImg} resizeMode="cover" />
-        <View
-          style={[
-            styles.badge,
-            {
-              backgroundColor: selected ? accent : 'rgba(0,0,0,0.55)',
-              borderColor: selected ? accent : 'rgba(255,255,255,0.35)',
-            },
-          ]}
-        >
-          <Text style={[styles.badgeTxt, { color: selected ? onAccentButtonText(isLight) : '#FFFFFF' }]}>
-            {selected ? '−' : '+'}
-          </Text>
-        </View>
+        {selected ? (
+          <View style={[styles.badge, { backgroundColor: accent, borderColor: accent }]}>
+            <Text style={[styles.badgeTxt, { color: onAccentButtonText(isLight) }]}>{orderNum}</Text>
+          </View>
+        ) : null}
       </Pressable>
     );
   };
@@ -305,26 +369,15 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         <Pressable style={[styles.iconBtn, isLight && styles.iconBtnLight]} onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="close" size={24} color={textMain} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: textMain }]}>{fc(language, 'publication')}</Text>
+        <Text style={[styles.headerTitle, { color: textMain }]}>
+          {fc(language, pickerMode === 'story' ? 'story' : 'publication')}
+        </Text>
         <Pressable onPress={goNext} disabled={!canNext || busy} hitSlop={12} style={{ minWidth: 56, alignItems: 'flex-end' }}>
           {busy ? (
             <ActivityIndicator color={accent} />
           ) : (
             <Text style={[styles.nextTxt, { color: canNext ? accent : textMuted }]}>{fc(language, 'next')}</Text>
           )}
-        </Pressable>
-      </View>
-
-      <View style={styles.externalPickRow}>
-        <Pressable
-          onPress={pickWithSystemGallery}
-          style={[styles.externalPickBtn, { borderColor: accent }]}
-          accessibilityRole="button"
-        >
-          <Ionicons name="images-outline" size={18} color={accent} />
-          <Text style={[styles.externalPickText, { color: accent }]}>
-            {fc(language, 'addFromGallery')}
-          </Text>
         </Pressable>
       </View>
 

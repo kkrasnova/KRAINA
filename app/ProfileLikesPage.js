@@ -18,8 +18,8 @@ import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
-import { getAppTheme } from './themeStorage';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { getSavedRoutes, KRAINA_SAVED_ROUTES_CHANGED } from './profileStorage';
 import ProfileSavedRouteCard from './ProfileSavedRouteCard';
@@ -69,7 +69,7 @@ export default function ProfileLikesPage({ navigation, route }) {
   const { width: winW } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [savedRoutes, setSavedRoutes] = useState([]);
   const [savedPlaces, setSavedPlaces] = useState([]);
   const [userCoords, setUserCoords] = useState(null);
@@ -224,7 +224,7 @@ export default function ProfileLikesPage({ navigation, route }) {
       <ScrollView
         style={[styles.scroll, styles.scrollTransparent]}
         contentContainerStyle={{
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 28,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 28),
         }}
         showsVerticalScrollIndicator={false}
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}

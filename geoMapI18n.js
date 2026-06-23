@@ -31,6 +31,12 @@ const STR = {
   navigate: { uk: 'Навігація', en: 'Navigate' },
   savedPlaces: { uk: 'Збережені', en: 'Saved' },
   noSaved: { uk: 'Немає збережених локацій', en: 'No saved locations' },
+  tapMapHint: { uk: 'Торкніться мапи, щоб додати точку', en: 'Tap the map to add a point' },
+  customPoint: { uk: 'Моя точка', en: 'Custom point' },
+  loadingCatalog: { uk: 'Завантаження локацій…', en: 'Loading locations…' },
+  openInMaps: { uk: 'Відкрити в Google Maps', en: 'Open in Google Maps' },
+  startWalk: { uk: 'Пішохідна навігація', en: 'Start walking' },
+  locatingPoint: { uk: 'Визначаємо позицію…', en: 'Locating…' },
 };
 
 fillBundleMissingLangs(STR);

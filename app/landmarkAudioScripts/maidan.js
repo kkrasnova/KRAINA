@@ -1,4 +1,8 @@
 /** Озвучка аудіогіда Майдану (UK). */
+import { stripIntroEmphasis } from '../landmarkTextUtils';
+
+export { stripIntroEmphasis };
+
 export const MAIDAN_SHORT_INTRO_UK = "Серце, що б'ється в унісон з Україною";
 
 /** Текст на першому екрані (картка перед «Детальніше»). */
@@ -7,11 +11,6 @@ export const MAIDAN_MINI_PREVIEW_UK =
 
 /** Перша сторінка повного тексту (до «А тепер перенесемося…»). */
 export const MAIDAN_INTRO_PAGE1_UK = `Вітаємо вас у самому серці України — на Майдані Незалежності. Зупиніться на мить. Подивіться під ноги, а потім закрийте очі й прислухайтеся. Ви стоїте в точці, де історія ніколи не зупинялася. Тут **кожен квадратний метр** бруківки пам'ятає кроки мільйонів людей, крики радості, сльози болю і запеклу боротьбу за свободу. Сьогодні це простора, світла площа з величними монументами та фонтанами. Але так було далеко не завжди.`;
-
-/** Прибирає **виділення** з тексту для TTS / аудіоскрипта. */
-export function stripIntroEmphasis(text) {
-  return String(text || '').replace(/\*\*([^*]+)\*\*/g, '$1');
-}
 
 /** Друга сторінка — «Козине болото» та водяний млин. */
 export const MAIDAN_INTRO_PAGE2_UK = `А тепер перенесемося на **триста років назад**. Уявіть, що навколо вас немає ні граніту, ні високих будівель, ні автівок. Замість цього — **дика, багниста низина**, поросла очеретом. До початку дев'ятнадцятого століття це місце офіційно і в побуті називали **«Козиним болотом»**. Сюди справді приводили випасати кіз жителі навколишніх **київських пагорбів**.
@@ -53,13 +52,30 @@ export const MAIDAN_INTRO_PAGE10_UK = `Але Майдан — це не про 
 /** Одинадцята сторінка — Помаранчева революція (картка поверх фото). */
 export const MAIDAN_INTRO_PAGE11_UK = `Друга — **Помаранчева революція 2004 року**. Майдан перетворився на океан помаранчевих прапорів, де сотні тисяч людей мирно, з піснями та посмішками, захистили своє право на чесні вибори.`;
 
-/** Дванадцята сторінка — Революція Гідності та завершення. */
-export const MAIDAN_INTRO_PAGE12_UK = `І третя, найважча — **Революція Гідності 2013-2014 років**. Тоді Майдан перетворився на справжню **козацьку січ** серед сучасного мегаполіса. Люди стояли місяцями в мороз, під кулями та світлошумовими гранатами, захищаючи європейське майбутнє своєї країни. На пагорбі поруч, де зараз пролягає **Алея Героїв Небесної Сотні**, найкращі сини та доньки України віддали свої життя за свободу. Сьогодні це місце тиші, молитви та глибокої шани.
+/** Дванадцята сторінка — Революція Гідності. */
+export const MAIDAN_INTRO_PAGE12_UK = `І третя, найважча — **Революція Гідності 2013-2014 років**. Тоді Майдан перетворився на справжню **козацьку січ** серед сучасного мегаполіса. Люди стояли місяцями в мороз, під кулями та світлошумовими гранатами, захищаючи європейське майбутнє своєї країни. На пагорбі поруч, де зараз пролягає **Алея Героїв Небесної Сотні**, найкращі сини та доньки України віддали свої життя за свободу. Сьогодні це місце тиші, молитви та глибокої шани.`;
 
-Сьогодні **Майдан Незалежності** — це місце, куди приходять і в дні найбільшої радості, і в дні найглибшої скорботи. Тут зустрічаються закохані, гуляють туристи, а іноземні лідери схиляють голови перед українською незламністю.
+/** Тринадцята сторінка — сучасний Майдан та завершення. */
+export const MAIDAN_INTRO_PAGE13_UK = `Сьогодні **Майдан Незалежності** — це місце, куди приходять і в дні найбільшої радості, і в дні найглибшої скорботи. Тут зустрічаються закохані, гуляють туристи, а іноземні лідери схиляють голови перед українською незламністю.
 
 Коли ви продовжите свою прогулянку Києвом, пам'ятайте: ви щойно торкнулися місця, де колись шуміли **млини** та **козячі болота**, але яке волею людей перетворилося на головний **форпост свободи** у Східній Європі.
 
 Дякуємо, що були з нами. Приємної подорожі Києвом!`;
 
-export const MAIDAN_AUDIO_SCRIPT_UK = `${stripIntroEmphasis(MAIDAN_INTRO_PAGE1_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE2_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE3_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE4_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE5_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE6_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE7_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE8_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE9_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE10_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE11_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE12_UK)}`;
+export const MAIDAN_AUDIO_SCRIPT_UK = `${stripIntroEmphasis(MAIDAN_INTRO_PAGE1_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE2_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE3_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE4_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE5_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE6_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE7_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE8_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE9_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE10_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE11_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE12_UK)}\n\n${stripIntroEmphasis(MAIDAN_INTRO_PAGE13_UK)}`;
+
+/** Тексти слайдів 2–13 для buildLandmarkIntroStory */
+export const MAIDAN_INTRO_PAGE_BODIES_UK = [
+  MAIDAN_INTRO_PAGE2_UK,
+  MAIDAN_INTRO_PAGE3_UK,
+  MAIDAN_INTRO_PAGE4_UK,
+  MAIDAN_INTRO_PAGE5_UK,
+  MAIDAN_INTRO_PAGE6_UK,
+  MAIDAN_INTRO_PAGE7_UK,
+  MAIDAN_INTRO_PAGE8_UK,
+  MAIDAN_INTRO_PAGE9_UK,
+  MAIDAN_INTRO_PAGE10_UK,
+  MAIDAN_INTRO_PAGE11_UK,
+  MAIDAN_INTRO_PAGE12_UK,
+  MAIDAN_INTRO_PAGE13_UK,
+];

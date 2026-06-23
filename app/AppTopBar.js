@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, memo } from 'react';
-import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
+import { View, Pressable, Text, StyleSheet, Platform, DeviceEventEmitter } from 'react-native';
 import { runAfterInteractions } from './runAfterInteractions';
 import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -8,6 +8,24 @@ import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import PddHeaderWordmark from './PddHeaderWordmark';
 import { brandFontHeadMedium, brandFontSansMedium } from './brandFont';
 import { hasMessageApiToken, messagesListThreads } from './messageApi';
+import { useAuthStore } from './auth/authStore';
+import {
+  chatsCacheKey,
+  hasChatsCache,
+  computeUnreadBadgeCount,
+  computeUnreadBadgeFromApiRows,
+  chatsLangUkFromUser,
+  writeChatsCache,
+  CHATS_CACHE_UPDATED,
+} from './chatsThreadsCache';
+import { mapInboxThreadRow } from './chatsDataPrefetch';
+import {
+  WS_EVENT_NEW_MESSAGE,
+  WS_EVENT_THREAD_UPDATED,
+  WS_EVENT_CONNECTED,
+  WS_EVENT_DISCONNECTED,
+  isWsConnected,
+} from './chatRealtime';
 
 export const APP_SCREEN_BG = '#000000';
 /** Світла шапка (макет Figma) */
@@ -28,6 +46,9 @@ const SIDE_SLOT_W = BAR_EDGE_INSET + SIDE_TOUCH_W;
 /** Темна тема: меню — вектор (PNG 11.png занадто дрібний для retina, виглядав «мильним»). */
 const LEFT_ICON_DARK = require('./assets/11.png');
 const MENU_ICON = LEFT_ICON_DARK;
+/** Як у `FeedPage` / шапці стрічки (історії та публікації). */
+const SEND_ICON_LIGHT = require('./assets/15.png');
+const SEND_ICON_DARK = require('./assets/11221.png');
 
 /**
  * Зліва/справа: Ionicons (чіткі на retina). Центр із showBrandLogo: слово KRAÏNA (брендовий шрифт + градієнт).
@@ -82,52 +103,98 @@ export default memo(function AppTopBar({
 
   const send = hideSendButton || rightSlot != null ? null : onSendPress || (() => {});
   const [unreadCount, setUnreadCount] = useState(0);
+  const authUser = useAuthStore((s) => s.user);
+
+  const readBadgeFromCache = useCallback(() => {
+    if (!send || !hasMessageApiToken() || !authUser) {
+      setUnreadCount(0);
+      return;
+    }
+    setUnreadCount(computeUnreadBadgeCount(authUser, chatsLangUkFromUser(authUser)));
+  }, [send, authUser]);
 
   const iconMenuDark = '#FFFFFF';
   const iconMenuLight = '#1E1E1E';
-  const planeSize = 24;
+  const sendIcon = isLight ? SEND_ICON_LIGHT : SEND_ICON_DARK;
   const menuSize = 26;
 
   const pressOverlay = ({ pressed }) =>
     Platform.OS === 'ios' && pressed ? styles.pressedIOS : null;
 
   const reloadUnread = useCallback(async () => {
-    if (!send || !hasMessageApiToken()) {
+    if (!send || !hasMessageApiToken() || !authUser) {
       setUnreadCount(0);
       return;
     }
+    const badgeLangUk = chatsLangUkFromUser(authUser);
+    readBadgeFromCache();
     try {
       const [inboxRows, requestRows] = await Promise.all([
-        messagesListThreads('inbox'),
-        messagesListThreads('requests'),
+        messagesListThreads('inbox', badgeLangUk),
+        messagesListThreads('requests', badgeLangUk),
       ]);
-      const rows = [...(Array.isArray(inboxRows) ? inboxRows : []), ...(Array.isArray(requestRows) ? requestRows : [])];
-      const next = rows.reduce(
-        (acc, row) =>
-          acc +
-          Math.max(0, Number(row?.unread_count) || 0) +
-          (row?.pending_for_me ? 1 : 0),
-        0,
-      );
-      setUnreadCount(next);
+      const inbox = Array.isArray(inboxRows) ? inboxRows : [];
+      const requests = Array.isArray(requestRows) ? requestRows : [];
+      setUnreadCount(computeUnreadBadgeFromApiRows(inbox, requests));
+      const mappedInbox = inbox.map((row) => mapInboxThreadRow(row));
+      const mappedRequests = requests.map((row) => mapInboxThreadRow(row));
+      const pendingCount = mappedRequests.filter((row) => row.pendingForMe).length;
+      writeChatsCache(chatsCacheKey(authUser, 'inbox', badgeLangUk), mappedInbox, pendingCount, {
+        user: authUser,
+        langUk: badgeLangUk,
+      });
+      writeChatsCache(chatsCacheKey(authUser, 'requests', badgeLangUk), mappedRequests, pendingCount, {
+        user: authUser,
+        langUk: badgeLangUk,
+      });
     } catch {
-      setUnreadCount(0);
+      readBadgeFromCache();
     }
-  }, [send]);
+  }, [send, readBadgeFromCache, authUser]);
 
   useEffect(() => {
     if (!send) return undefined;
+    readBadgeFromCache();
+    const subs = [
+      DeviceEventEmitter.addListener(CHATS_CACHE_UPDATED, readBadgeFromCache),
+      DeviceEventEmitter.addListener(WS_EVENT_NEW_MESSAGE, readBadgeFromCache),
+      DeviceEventEmitter.addListener(WS_EVENT_THREAD_UPDATED, readBadgeFromCache),
+      DeviceEventEmitter.addListener(WS_EVENT_CONNECTED, readBadgeFromCache),
+    ];
+    let timer = null;
+    const startFallbackPoll = () => {
+      if (timer) return;
+      timer = setInterval(() => {
+        if (!isWsConnected()) void reloadUnread();
+      }, 20000);
+    };
     const task = runAfterInteractions(() => {
+      if (!authUser) return;
+      const lk = chatsLangUkFromUser(authUser);
+      if (!hasChatsCache(chatsCacheKey(authUser, 'inbox', lk))) {
+        void reloadUnread();
+      }
+    });
+    if (!isWsConnected()) startFallbackPoll();
+    const onDisconnected = DeviceEventEmitter.addListener(WS_EVENT_DISCONNECTED, () => {
+      startFallbackPoll();
       void reloadUnread();
     });
-    const timer = setInterval(() => {
-      void reloadUnread();
-    }, 12000);
+    const onConnected = DeviceEventEmitter.addListener(WS_EVENT_CONNECTED, () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      readBadgeFromCache();
+    });
     return () => {
       task.cancel();
-      clearInterval(timer);
+      for (const sub of subs) sub.remove();
+      onDisconnected.remove();
+      onConnected.remove();
+      if (timer) clearInterval(timer);
     };
-  }, [reloadUnread, send]);
+  }, [reloadUnread, send, readBadgeFromCache, authUser]);
 
   const titleOnly =
     replaceCenterTitle != null && String(replaceCenterTitle).trim() !== ''
@@ -267,7 +334,7 @@ export default memo(function AppTopBar({
           ) : (
             <Pressable
               onPress={send}
-              hitSlop={{ top: 12, bottom: 12, left: 14, right: 8 }}
+              hitSlop={12}
               delayPressIn={0}
               delayPressOut={0}
               style={({ pressed }) => [styles.sendHit, pressOverlay({ pressed })]}
@@ -276,10 +343,12 @@ export default memo(function AppTopBar({
               accessibilityLabel="Messages"
             >
               <View style={styles.sendIconWrap}>
-                <Ionicons
-                  name="paper-plane-outline"
-                  size={planeSize}
-                  color={isLight ? iconMenuLight : iconMenuDark}
+                <ExpoImage
+                  source={sendIcon}
+                  style={styles.sendImg}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                  transition={0}
                 />
                 {unreadCount > 0 ? (
                   <View
@@ -374,6 +443,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sendImg: { width: 20, height: 18 },
   msgBadge: {
     position: 'absolute',
     top: -10,

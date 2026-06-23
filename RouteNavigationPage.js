@@ -44,7 +44,7 @@ export default function RouteNavigationPage({ navigation, route }) {
   const mapPolylineParam = route?.params?.mapPolyline;
   const mapRef = useRef(null);
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
-  const [navActive, setNavActive] = useState(false);
+  const [navActive, setNavActive] = useState(route?.params?.autoStartNav === true);
   const [userPos, setUserPos] = useState(null);
   const [roadPolyline, setRoadPolyline] = useState(
     Array.isArray(mapPolylineParam) && mapPolylineParam.length >= 2 ? mapPolylineParam : null,

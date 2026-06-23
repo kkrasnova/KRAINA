@@ -1054,21 +1054,15 @@ export default function LandmarkResultPage({ navigation, route }) {
       Alert.alert('', ls(language, 'paramMenuNeedLogin'));
       return;
     }
-    try {
-      navigation.navigate('FeedPostComposer', {
-        user: u,
-        language,
-        appTheme,
-        ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
-        uris: [],
-        ...(visitLat != null && visitLng != null
-          ? { pickedLat: visitLat, pickedLng: visitLng, pickedLabel: headerTitle }
-          : {}),
-      });
-    } catch (e) {
-      if (__DEV__) console.warn('[LandmarkResult] FeedPostComposer', e?.message);
-      Alert.alert('', ls(language, 'paramMenuNeedLogin'));
-    }
+    // Пряма публікація через камеру — без FeedPostComposer
+    navigation.navigate('FeedCamera', {
+      user: u,
+      language,
+      appTheme,
+      ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
+      publishVisibility: 'public',
+      cameraInitialMode: 'post',
+    });
   }, [
     closeParamsMenu,
     navigation,
@@ -1076,9 +1070,6 @@ export default function LandmarkResultPage({ navigation, route }) {
     language,
     appTheme,
     countryIdParam,
-    visitLat,
-    visitLng,
-    headerTitle,
   ]);
 
   const onParamSave = useCallback(async () => {

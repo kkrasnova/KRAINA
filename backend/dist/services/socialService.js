@@ -178,7 +178,8 @@ export async function followByUsername(followerId, targetUsername) {
         throw new HttpError(404, 'user_not_found');
     if (targetId === followerId)
         throw new HttpError(400, 'cannot_follow_self');
-    return insertFollowEdgeByIds(followerId, targetId);
+    const out = await insertFollowEdgeByIds(followerId, targetId);
+    return { ...out, user_id: targetId };
 }
 export async function followByUserId(followerId, targetUserId) {
     const targetId = String(targetUserId || '').trim();
@@ -189,7 +190,8 @@ export async function followByUserId(followerId, targetUserId) {
         throw new HttpError(404, 'user_not_found');
     if (targetId === followerId)
         throw new HttpError(400, 'cannot_follow_self');
-    return insertFollowEdgeByIds(followerId, targetId);
+    const out = await insertFollowEdgeByIds(followerId, targetId);
+    return { ...out, user_id: targetId };
 }
 export async function unfollowByUsername(followerId, targetUsername) {
     const targetId = await resolveUserIdByUsername(targetUsername);

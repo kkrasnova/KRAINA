@@ -91,6 +91,52 @@ function selfStoryRing(row, _viewerId, isLight) {
   return { borderWidth: 3, borderColor: bright ? ACCENT_LEMON : 'rgba(225, 255, 0, 0.45)' };
 }
 
+/** Локальні публікації (offline / поки вантажиться сервер) → форма тайлів сітки. */
+function mapLocalPosts(arr) {
+  return (Array.isArray(arr) ? arr : [])
+    .map((p) => {
+      const raw = p.uri || (Array.isArray(p.uris) && p.uris[0]) || '';
+      const u = resolveFeedMediaUrl(raw);
+      const nUris = Array.isArray(p.uris) ? p.uris.length : u ? 1 : 0;
+      return {
+        id: p.id,
+        uri: u,
+        isVideo: /\.(mp4|mov)(\?|$)/i.test(String(u)),
+        mediaCount: Math.max(nUris, u ? 1 : 0),
+      };
+    })
+    .filter((row) => row.uri);
+}
+
+/**
+ * Обчислення полів профілю (ім'я / місто / біо / дата народження) з пріоритетом серверних
+ * даних, із локальним сховищем як запасним варіантом. Викликається і у швидкому локальному
+ * проході, і після мережевого — тому однакова логіка завжди дає той самий результат.
+ */
+function computeIdentityFields(token, pm, locals) {
+  const { dispName, cityLocal, bioLocal, birthDateLocal, birthPublicLocal } = locals;
+  const name =
+    token && pm?.display_name != null && String(pm.display_name).trim()
+      ? String(pm.display_name).trim()
+      : dispName;
+  const city =
+    token && pm?.location_label != null && String(pm.location_label).trim()
+      ? String(pm.location_label).trim()
+      : cityLocal;
+  const bio =
+    token && pm?.bio != null && String(pm.bio).trim()
+      ? String(pm.bio).trim()
+      : String(bioLocal || '').trim();
+  const birthLocal = String(birthDateLocal || '').trim().slice(0, 10);
+  const birthIso =
+    token && pm?.birth_date && pm?.birth_date_public
+      ? String(pm.birth_date).slice(0, 10)
+      : birthPublicLocal && birthLocal
+        ? birthLocal
+        : null;
+  return { name, city, bio, birthIso };
+}
+
 export default function ProfilePage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
@@ -161,8 +207,61 @@ export default function ProfilePage({ navigation, route }) {
   const reload = useCallback(async (withSpinner = false) => {
     if (withSpinner) setRefreshing(true);
     try {
-      const t = await getAppTheme();
+      // ── Швидкий локальний прохід: усе з кешу/AsyncStorage паралельно, без мережі.
+      //    Дає перший кадр з реальними даними за <1 с (а не дефолтну «Мар'яну Розу»).
+      const [
+        t,
+        dispName,
+        cityLocal,
+        bioLocal,
+        birthDateLocal,
+        birthPublicLocal,
+        frLocal,
+        svLocal,
+        placesLocal,
+        avLocal,
+      ] = await Promise.all([
+        getAppTheme(),
+        getProfileDisplayName(user?.name || user?.email || "Мар'яна Роза"),
+        getProfileCity(),
+        getProfileBio(),
+        getProfileBirthDate(),
+        getProfileBirthPublic(),
+        getFriends(),
+        getSavedRoutes(),
+        getSavedLandmarks(),
+        getProfileAvatarLocalUri().catch(() => ''),
+      ]);
+      const locals = { dispName, cityLocal, bioLocal, birthDateLocal, birthPublicLocal };
+
       setAppTheme(t === 'light' ? 'light' : 'dark');
+      const cached = computeIdentityFields(
+        useAuthStore.getState().accessToken,
+        useAuthStore.getState().profileMe?.profile,
+        locals,
+      );
+      setName(cached.name);
+      setCity(cached.city);
+      setBioPreview(cached.bio);
+      setBirthIso(cached.birthIso);
+      setFriendsCount(Array.isArray(frLocal) ? frLocal.length : 0);
+      setSaved(Array.isArray(svLocal) ? svLocal : []);
+      setSavedPlaces(Array.isArray(placesLocal) ? placesLocal : []);
+      setLocalAvatarUri(avLocal || '');
+      try {
+        setGamify(computeGamificationFromVisits(await getVisitLog({ physicalOnly: true })));
+      } catch {
+        setGamify(computeGamificationFromVisits([]));
+      }
+      // Локальні публікації — лише якщо сітка ще порожня (щоб поллінг не блимав сервером↔локаллю).
+      try {
+        const localPosts = mapLocalPosts(effectiveUserId ? await getUserFeedPosts(effectiveUser) : []);
+        setGridPosts((prev) => (prev && prev.length ? prev : localPosts));
+      } catch {
+        /* */
+      }
+
+      // ── Мережевий прохід: сесія, профіль, друзі/заявки, серверні пости. Оновлює поверх локального.
       await useAuthStore.getState().hydrate();
       if (!useAuthStore.getState().accessToken) {
         await useAuthStore.getState().refreshSession().catch(() => {});
@@ -176,74 +275,24 @@ export default function ProfilePage({ navigation, route }) {
       }
       const token = useAuthStore.getState().accessToken;
       const pm = useAuthStore.getState().profileMe?.profile;
-      const n =
-        token && pm?.display_name != null && String(pm.display_name).trim()
-          ? String(pm.display_name).trim()
-          : await getProfileDisplayName(user?.name || user?.email || "Мар'яна Роза");
-      const c =
-        token && pm?.location_label != null && String(pm.location_label).trim()
-          ? String(pm.location_label).trim()
-          : await getProfileCity();
-      const bioRaw =
-        token && pm?.bio != null && String(pm.bio).trim()
-          ? String(pm.bio).trim()
-          : (await getProfileBio()).trim();
-      setBioPreview(bioRaw);
-      const birthLocal = (await getProfileBirthDate()).trim().slice(0, 10);
-      const birthPublicLocal = await getProfileBirthPublic();
-      const birthRaw =
-        token && pm?.birth_date && pm?.birth_date_public
-          ? String(pm.birth_date).slice(0, 10)
-          : birthPublicLocal && birthLocal
-            ? birthLocal
-            : null;
-      setBirthIso(birthRaw);
-      const fr = await getFriends();
-      let serverFriendsCount = fr.length;
-      let inv = [];
+      const fresh = computeIdentityFields(token, pm, locals);
+      setName(fresh.name);
+      setCity(fresh.city);
+      setBioPreview(fresh.bio);
+      setBirthIso(fresh.birthIso);
+
       if (hasSocialApi()) {
         try {
           const [mutuals, serverInv] = await Promise.all([
             socialListMutuals(),
             isOwnProfile ? socialListIncomingRequests() : Promise.resolve([]),
           ]);
-          if (Array.isArray(mutuals)) serverFriendsCount = mutuals.length;
-          inv = Array.isArray(serverInv) ? serverInv : [];
+          if (Array.isArray(mutuals)) setFriendsCount(mutuals.length);
+          setInviteCount(Array.isArray(serverInv) ? serverInv.length : 0);
         } catch {
-          inv = [];
+          /* keep last-known counts */
         }
       }
-      const [sv, places] = await Promise.all([getSavedRoutes(), getSavedLandmarks()]);
-      try {
-        const visitLog = await getVisitLog({ physicalOnly: true });
-        setGamify(computeGamificationFromVisits(visitLog));
-      } catch {
-        setGamify(computeGamificationFromVisits([]));
-      }
-      setName(n);
-      setCity(c);
-      setFriendsCount(serverFriendsCount);
-      setInviteCount(inv.length);
-      setSaved(Array.isArray(sv) ? sv : []);
-      setSavedPlaces(Array.isArray(places) ? places : []);
-      try {
-        const avLocal = await getProfileAvatarLocalUri();
-        setLocalAvatarUri(avLocal);
-      } catch {
-        setLocalAvatarUri('');
-      }
-
-      const mapLocalPosts = (arr) =>
-        (Array.isArray(arr) ? arr : []).map((p) => {
-          const u = p.uri || (Array.isArray(p.uris) && p.uris[0]) || '';
-          const nUris = Array.isArray(p.uris) ? p.uris.length : u ? 1 : 0;
-          return {
-            id: p.id,
-            uri: u,
-            isVideo: /\.(mp4|mov)(\?|$)/i.test(String(u)),
-            mediaCount: Math.max(nUris, u ? 1 : 0),
-          };
-        });
 
       if (hasFeedApiToken() && effectiveUserId) {
         try {
@@ -904,24 +953,17 @@ export default function ProfilePage({ navigation, route }) {
         ) : tab === 'routes' ? (
           <View style={styles.routeList}>
             {saved.length > 0 ? (
-              <>
-                {saved.map((item) => (
-                  <ProfileSavedRouteCard
-                    key={item.id}
-                    item={item}
-                    language={language}
-                    isLight={isLight}
-                    accent={accent}
-                    shell={shell}
-                    navigation={navigation}
-                  />
-                ))}
-                {accessToken && saved.length > 0 ? (
-                  <Text style={[styles.savedRoutesSyncNote, { color: textMuted }, brandFontSans]}>
-                    {pf(language, 'profileSavedRoutesSyncNote')}
-                  </Text>
-                ) : null}
-              </>
+              saved.map((item) => (
+                <ProfileSavedRouteCard
+                  key={item.id}
+                  item={item}
+                  language={language}
+                  isLight={isLight}
+                  accent={accent}
+                  shell={shell}
+                  navigation={navigation}
+                />
+              ))
             ) : savedPlaces.length === 0 ? (
               <View
                 style={[
@@ -1287,12 +1329,4 @@ const styles = StyleSheet.create({
   profilePlaceTag: { fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' },
   profilePlaceTitle: { fontSize: 15, lineHeight: 20, marginTop: 4 },
   profilePlaceMore: { fontSize: 13, marginTop: 8 },
-  savedRoutesSyncNote: {
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 8,
-    paddingHorizontal: 8,
-  },
 });

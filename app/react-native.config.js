@@ -29,5 +29,11 @@ module.exports = {
         },
       },
     },
+    // iOS CallKit only — Android build breaks under New Architecture (RNCallKeep).
+    'react-native-callkeep': {
+      platforms: {
+        android: null,
+      },
+    },
   },
 };

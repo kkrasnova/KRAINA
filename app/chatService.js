@@ -11,6 +11,75 @@ import { hasBackendSession } from './backendAuthApi';
 const STORAGE_PREFIX = '@kraina_messenger_v1_';
 const CLOUD_DOC = 'messengerState';
 
+// ─── Migration system ─────────────────────────────────────────────────────────
+// Bump this when a new migration is added. Each migration runs once per user.
+const MIGRATION_VERSION_KEY = '@kraina_messenger_migration_v2';
+const CURRENT_MIGRATION_VERSION = 2;
+
+/**
+ * Run any pending async-storage-level migrations.
+ * Call this once per app cold-start (e.g. from appBootstrap or App.js).
+ *
+ * Migration history:
+ *  v2 — Remove leftover demo/placeholder threads from old builds
+ */
+export async function runChatMigrations() {
+  try {
+    const storedVer = parseInt((await AsyncStorage.getItem(MIGRATION_VERSION_KEY)) || '0', 10);
+    if (storedVer >= CURRENT_MIGRATION_VERSION) return;
+
+    if (__DEV__) console.log('[chatService] running migrations', { from: storedVer, to: CURRENT_MIGRATION_VERSION });
+
+    // Migration to v2: strip demo threads from ALL user keys
+    if (storedVer < 2) {
+      await migrateStripDemoThreads();
+    }
+
+    await AsyncStorage.setItem(MIGRATION_VERSION_KEY, String(CURRENT_MIGRATION_VERSION));
+    if (__DEV__) console.log('[chatService] migrations complete');
+  } catch (e) {
+    if (__DEV__) console.warn('[chatService] migration error', e?.message);
+  }
+}
+
+/** Find all messenger state keys in AsyncStorage and strip demo threads from them. */
+async function migrateStripDemoThreads() {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const messengerKeys = allKeys.filter((k) => k.startsWith(STORAGE_PREFIX));
+    if (!messengerKeys.length) return;
+
+    if (__DEV__) console.log('[chatService] migrateStripDemoThreads: found', messengerKeys.length, 'state(s) to check');
+
+    let cleanedCount = 0;
+    for (const key of messengerKeys) {
+      try {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) continue;
+        const state = JSON.parse(raw);
+        if (!state || !Array.isArray(state.threads)) continue;
+
+        const before = state.threads.length;
+        state.threads = state.threads.filter((t) => !isDemoThread(t));
+        const removed = before - state.threads.length;
+        if (removed > 0) {
+          state.updatedAt = Date.now();
+          state.migratedFromV1 = true;
+          await AsyncStorage.setItem(key, JSON.stringify(state));
+          cleanedCount += removed;
+          if (__DEV__) console.log('[chatService] cleaned', removed, 'demo threads from', key);
+        }
+      } catch {
+        // skip corrupt entries
+      }
+    }
+
+    if (__DEV__) console.log('[chatService] migrateStripDemoThreads: total demo threads removed:', cleanedCount);
+  } catch (e) {
+    if (__DEV__) console.warn('[chatService] migrateStripDemoThreads error', e?.message);
+  }
+}
+
 function storageKey(userKey) {
   return `${STORAGE_PREFIX}${userKey}`;
 }

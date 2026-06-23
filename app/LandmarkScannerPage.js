@@ -26,9 +26,9 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { ls } from './landmarkScannerI18n';
 import { identifyLandmark } from './landmarkIdentify';
 import { parseCityFromSubtitle, inferVisitCategoryFromTitle } from './visitStatsStorage';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { getAppTheme, THEME_CHANGED_EVENT, resolveAppTheme } from './themeStorage';
 import { LANDMARK_SCANNER_CAPTURE_EVENT } from './homeTabPagerConstants';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { accentForTheme, ACCENT_LEMON } from './themeAccent';
 import { tryLoadExpoCamera } from './tryLoadExpoCamera';
 import { errorToUserText } from './errorText';
@@ -267,7 +267,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
   const pendingCaptureRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   const refreshCameraGate = useCallback(async () => {
     if (typeof getCameraPermissionsAsync !== 'function') return null;
@@ -529,7 +529,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
       <CornerFrame
         color={accent}
         topInset={insets.top}
-        bottomInset={insets.bottom + lightTabBarExtraScrollPadding()}
+        bottomInset={lightTabBarScrollContentPadding(insets.bottom)}
         busy={busy}
         captureDisabled={!ready}
         onCapturePress={() => {
@@ -540,7 +540,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
       {!busy && ready ? (
         <View
           pointerEvents="none"
-          style={[styles.scanHintWrap, { bottom: insets.bottom + lightTabBarExtraScrollPadding() + 12 }]}
+          style={[styles.scanHintWrap, { bottom: lightTabBarScrollContentPadding(insets.bottom, 12) }]}
         >
           <Text style={styles.scanHintText}>{ls(language, 'tapToScan')}</Text>
         </View>

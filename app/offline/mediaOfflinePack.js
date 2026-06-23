@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system';
 import { sha256 } from 'js-sha256';
-import { buildSnapshotFromRuntime } from '../adminLocationData';
 import { getIsOnline } from './networkStatus';
 import { mergeOfflineMediaMap, setOfflineBundleMeta } from './localCacheStore';
 
@@ -11,6 +10,7 @@ function uniq(arr) {
 }
 
 function collectMediaUris() {
+  const { buildSnapshotFromRuntime } = require('../adminLocationData');
   const snapshot = buildSnapshotFromRuntime();
   const uris = [];
   Object.values(snapshot.homeCountryHeroUris || {}).forEach((u) => uris.push(String(u || '').trim()));

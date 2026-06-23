@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ttlGetItem, ttlSetItem } from './ttlCache';
 import { inferLandmarkInterestTags } from './routePlannerCore';
+import { PHYSICAL_VISIT_RADIUS_KM, isWithinPhysicalVisitRadiusKm } from './landmarkProximity';
 
 const KEY_PREFIX = '@kraina_visit_log_v1';
 const MAX = 3000;
@@ -15,10 +17,9 @@ function getKey() {
 
 
 /**
- * Відкриття картки з пошуку рахується як візит лише якщо відстань до пам’ятки (км) відома і не більше цього порогу.
- * Сканер камери та «Історія» з маршруту (радіус у RouteNavigationPage) — окремі прапорці.
+ * Фізичний візит — лише в радіусі 50 м від пам’ятки (або сканер камери на місці).
  */
-export const VISIT_MAX_DISTANCE_KM = 2.5;
+export const VISIT_MAX_DISTANCE_KM = PHYSICAL_VISIT_RADIUS_KM;
 
 function migrateVisitPhysicalFlags(list) {
   const arr = Array.isArray(list) ? list : [];
@@ -40,11 +41,8 @@ function migrateVisitPhysicalFlags(list) {
 export function shouldRecordVisitFromLandmarkRoute(route) {
   const p = route && typeof route === 'object' ? route.params || {} : {};
   if (p.fromScanner === true) return true;
-  if (p.countAsPhysicalVisit === true) return true;
   const km = p.visitKm;
-  if (km != null && Number.isFinite(Number(km)) && Number(km) >= 0 && Number(km) <= VISIT_MAX_DISTANCE_KM) {
-    return true;
-  }
+  if (isWithinPhysicalVisitRadiusKm(km)) return true;
   return false;
 }
 
@@ -85,24 +83,27 @@ export function inferVisitCategoryFromTitle(title) {
 export async function getVisitLog(options = {}) {
   const physicalOnly = options.physicalOnly === true;
   const key = getKey();
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
-    const { out, changed } = migrateVisitPhysicalFlags(arr);
-    if (changed) {
-      try {
-        await AsyncStorage.setItem(key, JSON.stringify(out));
-      } catch {
-        /* ignore persist failure */
+  const list = await ttlGetItem(`visit_log:${key}`, 30000, async () => {
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      const { out, changed } = migrateVisitPhysicalFlags(arr);
+      if (changed) {
+        try {
+          await AsyncStorage.setItem(key, JSON.stringify(out));
+        } catch {
+          /* ignore persist failure */
+        }
       }
+      return out;
+    } catch {
+      return [];
     }
-    if (physicalOnly) return out.filter((v) => v && v.physicalVisit === true);
-    return out;
-  } catch {
-    return [];
-  }
+  });
+  if (physicalOnly) return list.filter((v) => v && v.physicalVisit === true);
+  return list;
 }
 
 /**
@@ -123,6 +124,7 @@ export async function recordLocationVisit(entry) {
   const prev = await getVisitLog();
   const next = [...prev, row].slice(-MAX);
   await AsyncStorage.setItem(getKey(), JSON.stringify(next));
+  await ttlSetItem(`visit_log:${getKey()}`, next, 30000);
 }
 
 /** Вікно часу для фільтра графіків (крім лінійного «30 днів»). */
@@ -205,17 +207,24 @@ export function aggregateCategoryPie(visits) {
 }
 
 export function topCitiesBar(visits, limit = 5) {
+  const ranked = topCitiesRanked(visits, limit);
+  return {
+    labels: ranked.map(({ city }) => (city.length > 10 ? `${city.slice(0, 9)}…` : city)),
+    data: ranked.map(({ count }) => count),
+  };
+}
+
+/** Повні назви міст і кількість візитів для рейтингу в профілі. */
+export function topCitiesRanked(visits, limit = 5) {
   const m = {};
   for (const v of visits) {
     const c = String(v.city || '—').trim() || '—';
     m[c] = (m[c] || 0) + 1;
   }
-  const pairs = Object.entries(m).sort((a, b) => b[1] - a[1]);
-  const top = pairs.slice(0, limit);
-  return {
-    labels: top.map(([c]) => (c.length > 10 ? `${c.slice(0, 9)}…` : c)),
-    data: top.map(([, n]) => n),
-  };
+  return Object.entries(m)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([city, count]) => ({ city, count }));
 }
 
 export function sumKmInVisits(visits) {

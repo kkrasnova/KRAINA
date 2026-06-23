@@ -30,7 +30,7 @@ const BG_BOTTOM = '#12121a';
 
 export default function ForceUpdateScreen({ gate, onRecheckResult }) {
   const insets = useSafeAreaInsets();
-  const [appTheme, setAppTheme] = useState('dark');
+  const [appTheme, setAppTheme] = useState(() => getAppThemeSync());
   const [lang, setLang] = useState('en');
   const [rechecking, setRechecking] = useState(false);
 

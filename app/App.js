@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, LogBox, Platform, DeviceEventEmitter } from 'react-native';
-import { useFonts, loadAsync as loadFontsAsync } from 'expo-font';
+import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer } from '@react-navigation/native';
@@ -8,6 +8,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { navigationRef, notifyNavStateChange } from './navigationRef';
 import LightBottomTabBar from './LightBottomTabBar';
+import AndroidEdgeBleed from './androidEdgeBleed';
 
 import FirstPage from './FirstPage';
 import SecondPage from './SecondPage';
@@ -17,18 +18,39 @@ import SelectCountryPage from './SelectCountryPage';
 import ChoosePlanPage from './ChoosePlanPage';
 import ForceUpdateScreen from './ForceUpdateScreen';
 import LazyScreen, { makeLazyLoader } from './LazyScreen';
-import { loadChatsPage, loadChatThreadPage, loadSettingsArchivePage } from './screenLoaders';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import {
+  loadChatsPage,
+  loadChatThreadPage,
+  loadSettingsArchivePage,
+  loadStartChatPage,
+  loadDiscoverPeoplePage,
+  loadProfileEditPage,
+  loadProfileFriendsPage,
+  loadProfileInvitesPage,
+  loadProfilePostDetailPage,
+  loadProfileCommentsPage,
+  loadProfileLikesPage,
+  loadProfileEditPublicationPage,
+  loadProfileGamificationHubPage,
+  loadSocialConnectionsPage,
+  loadSettingsPage,
+  loadFeedCameraPage,
+  loadFeedStoryViewerPage,
+  loadFeedPostComposerPage,
+  loadFeedStorySharePage,
+} from './screenLoaders';
+import { getAppTheme, getAppThemeSync, navThemeForAppTheme, screenBgForTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { effectiveThemeForContext } from './onboardingTheme';
 import { fetchAppVersionGate } from './fetchAppVersionGate';
 import { runAppBootstrap } from './appBootstrap';
 import { waitForSplashLogoPainted, notifySplashHidden } from './splashLogoGate';
-import { splashTitleVideoReady } from './splashTitleVideoAsset';
-import {
-  KRAINA_FONT_MAP_CRITICAL,
-  KRAINA_FONT_MAP_DEFERRED,
-} from './krainaFonts';
+import { KRAINA_FONT_MAP } from './krainaFonts';
 import { markEnd } from './performanceMetrics';
 import { configureBackgroundMusicFriendlyAudio } from './audioSession';
+import ChatToast, { showChatToast } from './inAppChatAlerts';
+import { WS_EVENT_NEW_MESSAGE, WS_EVENT_CONNECTED, WS_EVENT_DISCONNECTED, connectChatWebSocket, disconnectChatWebSocket, isWsConnected, getWsReconnectAttempts } from './chatRealtime';
+import { useAuthStore } from './auth/authStore';
+import { isBackendJwt } from './backendAuthApi';
 
 function scheduleIdleWork(fn) {
   if (typeof globalThis.requestIdleCallback === 'function') {
@@ -54,9 +76,7 @@ const AllCountriesLocationsPage = (p) => (
 const HomeCityPickerPage = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./HomeCityPickerPage'))} {...p} />
 );
-const SettingsPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./SettingsPage'))} {...p} />
-);
+const SettingsPage = (p) => <LazyScreen loader={loadSettingsPage} {...p} />;
 const SettingsStepsPage = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./SettingsStepsPage'))} {...p} />
 );
@@ -168,18 +188,10 @@ const ChatThreadPage = (p) => <LazyScreen loader={loadChatThreadPage} {...p} />;
 const CallPage = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./CallPage'))} {...p} />
 );
-const FeedCameraPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./FeedCameraPage'))} {...p} />
-);
-const FeedStorySharePage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./FeedStorySharePage'))} {...p} />
-);
-const FeedStoryViewerPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./FeedStoryViewerPage'))} {...p} />
-);
-const FeedPostComposerPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./FeedPostComposerPage'))} {...p} />
-);
+const FeedCameraPage = (p) => <LazyScreen loader={loadFeedCameraPage} {...p} />;
+const FeedStorySharePage = (p) => <LazyScreen loader={loadFeedStorySharePage} {...p} />;
+const FeedStoryViewerPage = (p) => <LazyScreen loader={loadFeedStoryViewerPage} {...p} />;
+const FeedPostComposerPage = (p) => <LazyScreen loader={loadFeedPostComposerPage} {...p} />;
 const FeedPostMediaPickerPage = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./FeedPostMediaPickerPage'))} {...p} />
 );
@@ -207,44 +219,26 @@ const LandmarkQuizPage = (p) => (
 const LandmarkNotFoundPage = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./LandmarkNotFoundPage'))} {...p} />
 );
-const ProfileEditPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileEditPage'))} {...p} />
-);
-const ProfileFriendsPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileFriendsPage'))} {...p} />
-);
-const StartChatPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./StartChatPage'))} {...p} />
-);
-const ProfileInvitesPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileInvitesPage'))} {...p} />
-);
-const ProfilePostDetailPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfilePostDetailPage'))} {...p} />
-);
-const ProfileCommentsPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileCommentsPage'))} {...p} />
-);
-const ProfileLikesPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileLikesPage'))} {...p} />
-);
-const ProfileEditPublicationPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileEditPublicationPage'))} {...p} />
-);
+const ProfileEditPage = (p) => <LazyScreen loader={loadProfileEditPage} {...p} />;
+const ProfileFriendsPage = (p) => <LazyScreen loader={loadProfileFriendsPage} {...p} />;
+const StartChatPage = (p) => <LazyScreen loader={loadStartChatPage} {...p} />;
+const ProfileInvitesPage = (p) => <LazyScreen loader={loadProfileInvitesPage} {...p} />;
+const ProfilePostDetailPage = (p) => <LazyScreen loader={loadProfilePostDetailPage} {...p} />;
+const ProfileCommentsPage = (p) => <LazyScreen loader={loadProfileCommentsPage} {...p} />;
+const ProfileLikesPage = (p) => <LazyScreen loader={loadProfileLikesPage} {...p} />;
+const ProfileEditPublicationPage = (p) => <LazyScreen loader={loadProfileEditPublicationPage} {...p} />;
 const DiscoverPeoplePage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./DiscoverPeoplePage'))} {...p} />
+  <LazyScreen loader={loadDiscoverPeoplePage} {...p} />
 );
 const SocialUserProfilePage = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./SocialUserProfilePage'))} {...p} />
 );
-const SocialConnectionsPage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./SocialConnectionsPage'))} {...p} />
-);
+const SocialConnectionsPage = (p) => <LazyScreen loader={loadSocialConnectionsPage} {...p} />;
 const ProfilePageComponent = (p) => (
   <LazyScreen loader={makeLazyLoader(() => require('./ProfilePage'))} {...p} />
 );
 const ProfileGamificationHubPageComponent = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./ProfileGamificationHubPage'))} {...p} />
+  <LazyScreen loader={loadProfileGamificationHubPage} {...p} />
 );
 const DevDBComponent = (p) => <LazyScreen loader={makeLazyLoader(() => require('./DevDB'))} {...p} />;
 const AdminPanelPage = (p) => (
@@ -269,6 +263,7 @@ LogBox.ignoreLogs([
 ]);
 
 void SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({ fade: false, duration: 0 });
 
 const Stack = createNativeStackNavigator();
 
@@ -294,9 +289,8 @@ const HOME_TAB_PAGER_OPTIONS = {
 };
 
 export default function App() {
-  /* Завантажуємо лише критичні шрифти (12 файлів) — інші 20+ підвантажаться в фоновому режимі після першого рендера.
-     FirstPage (сплеш) не використовує кастомні шрифти — показуємо сплеш негайно. */
-  const [fontsLoaded, fontError] = useFonts(KRAINA_FONT_MAP_CRITICAL);
+  /* Завантажуємо всі необхідні шрифти (12 файлів) — FirstPage (сплеш) не використовує кастомні шрифти, */
+  const [fontsLoaded, fontError] = useFonts(KRAINA_FONT_MAP);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [mainPageInitialParams, setMainPageInitialParams] = useState(null);
   const [savedLanguage, setSavedLanguage] = useState(null);
@@ -304,13 +298,16 @@ export default function App() {
   const [firstPageNextRoute, setFirstPageNextRoute] = useState(null);
   /** Параметри для `navigation.replace` після FirstPage (напр. SelectCountry з user + language). */
   const [firstPageNextParams, setFirstPageNextParams] = useState(null);
-  const [appTheme, setAppTheme] = useState('dark');
+  const [appTheme, setAppTheme] = useState(() => getAppThemeSync());
+  const [navRoute, setNavRoute] = useState({ routeName: 'FirstPage', routeParams: {} });
+  /** Debug: WebSocket connection state */
+  const [wsDebugConnected, setWsDebugConnected] = useState(false);
+  const [wsDebugReconnectAttempts, setWsDebugReconnectAttempts] = useState(0);
   /** Після нативного splash + кадру затемнення. */
   /** FirstPage монтується одразу за нативним сплешем — без гейту, щоб не було чорного кадру. */
   const contentReady = true;
-  /** Флаг готовності шрифтів для сторінок, які їх потребують. */
-  const [fontsDeferredReady, setFontsDeferredReady] = useState(false);
-  const deferredFontsStarted = useRef(false);
+  /** Флаг готовності шрифтів — завжди true, тому що всі шрифти завантажуються критично. */
+  const fontsDeferredReady = true;
   /** Якщо задано — показуємо екран примусового оновлення замість навігації */
   const [forceUpdateGate, setForceUpdateGate] = useState(null);
   /**
@@ -320,7 +317,6 @@ export default function App() {
    */
   useEffect(() => {
     void configureBackgroundMusicFriendlyAudio().catch(() => {});
-    void splashTitleVideoReady.catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -332,14 +328,17 @@ export default function App() {
         setAppTheme(storedTheme === 'light' ? 'light' : 'dark');
         if (cancelled) return;
         // Чекаємо, доки FirstPage намалює лого (він уже змонтований)
-        await waitForSplashLogoPainted(3000);
+        await waitForSplashLogoPainted(450);
         if (cancelled) return;
+        SplashScreen.setOptions({ fade: false, duration: 0 });
         await SplashScreen.hideAsync();
         notifySplashHidden();
         markEnd('first_screen');
       } catch {
         if (!cancelled) {
+          SplashScreen.setOptions({ fade: false, duration: 0 });
           await SplashScreen.hideAsync().catch(() => {});
+          notifySplashHidden();
           markEnd('first_screen');
         }
       }
@@ -349,29 +348,75 @@ export default function App() {
     };
   }, []);
 
-  /* Завантаження відкладених шрифтів (deferred) після перших двох кадрів.
-     Гарантовано завантажаться навіть якщо критичні шрифти вже в кеші (використовуємо ref). */
   useEffect(() => {
-    if (deferredFontsStarted.current) return;
-    deferredFontsStarted.current = true;
-    const cancel = scheduleIdleWork(() => {
-      void (async () => {
-        try {
-          await loadFontsAsync(KRAINA_FONT_MAP_DEFERRED);
-        } catch {
-          /* deferred fonts are non-critical */
-        }
-        setFontsDeferredReady(true);
-      })();
-    });
-    return cancel;
-  }, []);
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
+    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, () => {
+      setAppTheme(getAppThemeSync());
     });
     return () => sub.remove();
+  }, []);
+
+  // ─── In-app chat notification toast ──────────────────────────────────────
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(WS_EVENT_NEW_MESSAGE, (data) => {
+      if (!data?.threadId || !data?.message) return;
+      const route = navigationRef.isReady() ? navigationRef.getCurrentRoute() : null;
+      if (route?.name === 'ChatThread' && String(route?.params?.threadId) === String(data.threadId)) {
+        return;
+      }
+      const meId = useAuthStore.getState().user?.id;
+      if (meId && String(data.message.sender_id) === String(meId)) return;
+      const rawContent = String(data.message.content || '');
+      const preview = rawContent.length > 120 ? rawContent.slice(0, 120) + '…' : rawContent;
+      const senderName = String(data.message.sender_name || '');
+      showChatToast({
+        threadId: data.threadId,
+        senderName,
+        preview,
+        theme: appTheme,
+      });
+    });
+    return () => sub.remove();
+  }, [appTheme]);
+
+  // ─── Global WebSocket lifecycle (persistent across all screens) ──────────
+  useEffect(() => {
+    if (!bootstrapReady) return;
+
+    const state = useAuthStore.getState();
+    if (isBackendJwt(state.accessToken) && state.user?.id) {
+      connectChatWebSocket(String(state.user.id));
+    }
+
+    const unsub = useAuthStore.subscribe((nextState) => {
+      if (isBackendJwt(nextState.accessToken) && nextState.user?.id) {
+        connectChatWebSocket(String(nextState.user.id));
+      } else {
+        disconnectChatWebSocket();
+      }
+    });
+
+    return () => {
+      unsub();
+      disconnectChatWebSocket();
+    };
+  }, [bootstrapReady]);
+
+  // ─── WS debug indicator (dev only — tracks connection state, no polling) ──
+  useEffect(() => {
+    if (typeof __DEV__ === 'undefined' || !__DEV__) return;
+    const subs = [
+      DeviceEventEmitter.addListener(WS_EVENT_CONNECTED, () => {
+        setWsDebugConnected(true);
+        setWsDebugReconnectAttempts(0);
+      }),
+      DeviceEventEmitter.addListener(WS_EVENT_DISCONNECTED, () => {
+        setWsDebugConnected(false);
+        setWsDebugReconnectAttempts(getWsReconnectAttempts());
+      }),
+    ];
+    return () => {
+      for (const sub of subs) sub.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -449,11 +494,25 @@ export default function App() {
     })();
   }, []);
 
+  const syncNavRoute = React.useCallback(() => {
+    if (!navigationRef.isReady()) return;
+    const current = navigationRef.getCurrentRoute();
+    if (!current?.name) return;
+    setNavRoute({ routeName: current.name, routeParams: current.params || {} });
+  }, []);
+
+  const effectiveAppTheme = useMemo(
+    () => effectiveThemeForContext(appTheme, navRoute),
+    [appTheme, navRoute],
+  );
+  const screenBg = screenBgForTheme(effectiveAppTheme);
+  const navigationTheme = useMemo(() => navThemeForAppTheme(effectiveAppTheme), [effectiveAppTheme]);
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+    <View style={{ flex: 1, backgroundColor: screenBg }}>
       <SafeAreaProvider
         initialMetrics={initialWindowMetrics}
-        style={{ flex: 1, backgroundColor: '#000000' }}
+        style={{ flex: 1, backgroundColor: screenBg }}
       >
       {contentReady ? (
         forceUpdateGate ? (
@@ -461,25 +520,38 @@ export default function App() {
           ) : (
           <NavigationContainer
             ref={navigationRef}
+            theme={navigationTheme}
             onReady={() => {
+              syncNavRoute();
               notifyNavStateChange();
               markEnd('navigation_container_ready');
             }}
-            onStateChange={notifyNavStateChange}
+            onStateChange={() => {
+              syncNavRoute();
+              notifyNavStateChange();
+            }}
           >
             <View style={{ flex: 1 }}>
+              <AndroidEdgeBleed color={screenBg} />
+              <ChatToast />
               <Stack.Navigator
                 initialRouteName="FirstPage"
                 screenOptions={{
                   headerShown: false,
-                  contentStyle: { backgroundColor: '#000000' },
+                  contentStyle: { backgroundColor: screenBg },
                   animation: 'none',
                   freezeOnBlur: false,
+                  ...(Platform.OS === 'android'
+                    ? {
+                        statusBarTranslucent: true,
+                        navigationBarTranslucent: true,
+                      }
+                    : {}),
                   ...(Platform.OS === 'ios'
                     ? {
                         gestureEnabled: true,
                         fullScreenGestureEnabled: true,
-                        statusBarStyle: appTheme === 'light' ? 'dark' : 'light',
+                        statusBarStyle: effectiveAppTheme === 'light' ? 'dark' : 'light',
                       }
                     : {}),
                 }}
@@ -509,14 +581,27 @@ export default function App() {
                   />
                 )}
               </Stack.Screen>
-              <Stack.Screen name="SecondPage" component={SecondPage} />
+              <Stack.Screen
+                name="SecondPage"
+                component={SecondPage}
+                options={{
+                  contentStyle: { backgroundColor: '#000000' },
+                  ...(Platform.OS === 'android'
+                    ? {
+                        statusBarTranslucent: true,
+                        statusBarStyle: 'light',
+                        statusBarBackgroundColor: 'transparent',
+                      }
+                    : {}),
+                }}
+              />
               <Stack.Screen
                 name="OnboardingIntro"
                 component={OnboardingIntroPage}
                 options={{
                   gestureEnabled: false,
                   fullScreenGestureEnabled: false,
-                  contentStyle: { flex: 1, overflow: 'hidden' },
+                  contentStyle: { flex: 1, overflow: 'hidden', backgroundColor: '#000000' },
                   ...(Platform.OS === 'ios'
                     ? {
                         scrollEdgeEffects: {
@@ -546,17 +631,45 @@ export default function App() {
               <Stack.Screen
                 name="SelectCountry"
                 component={SelectCountryPage}
-                options={{ contentStyle: { backgroundColor: 'transparent' } }}
+                options={{
+                  ...(Platform.OS === 'android'
+                    ? {
+                        statusBarTranslucent: true,
+                        statusBarStyle: 'light',
+                        statusBarBackgroundColor: 'transparent',
+                      }
+                    : {}),
+                }}
               />
               <Stack.Screen
                 name="WalkReminderSetup"
                 component={WalkReminderSetupPage}
-                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
+                options={{
+                  headerShown: false,
+                  ...STACK_OVER_HOME_OPTIONS,
+                  ...(Platform.OS === 'android'
+                    ? {
+                        statusBarTranslucent: true,
+                        statusBarStyle: 'light',
+                        statusBarBackgroundColor: 'transparent',
+                      }
+                    : {}),
+                }}
               />
               <Stack.Screen
                 name="ChoosePlan"
                 component={ChoosePlanPage}
-                options={{ headerShown: false, ...STACK_OVER_HOME_OPTIONS }}
+                options={{
+                  headerShown: false,
+                  ...STACK_OVER_HOME_OPTIONS,
+                  ...(Platform.OS === 'android'
+                    ? {
+                        statusBarTranslucent: true,
+                        statusBarStyle: 'light',
+                        statusBarBackgroundColor: 'transparent',
+                      }
+                    : {}),
+                }}
               />
               <Stack.Screen
                 name="CancelSubscription"
@@ -654,8 +767,21 @@ export default function App() {
               <Stack.Screen name="AdminPanel" component={AdminPanelPage} options={{ headerShown: false }} />
               <Stack.Screen name="AdminSecurity" component={AdminSecurityPage} options={{ headerShown: false }} />
               <Stack.Screen name="OfflineOutbox" component={OfflineOutboxPage} options={{ headerShown: false }} />
-              <Stack.Screen name="Chats" component={ChatsPage} />
-              <Stack.Screen name="StartChat" component={StartChatPage} options={{ headerShown: false }} />
+              <Stack.Screen
+                name="Chats"
+                component={ChatsPage}
+                options={{
+                  contentStyle: { backgroundColor: appTheme === 'light' ? '#FFFFFF' : screenBg },
+                }}
+              />
+              <Stack.Screen
+                name="StartChat"
+                component={StartChatPage}
+                options={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: appTheme === 'light' ? '#FFFFFF' : screenBg },
+                }}
+              />
               <Stack.Screen name="ChatThread" component={ChatThreadPage} options={{ headerShown: false }} />
               <Stack.Screen name="Call" component={CallPage} options={{ headerShown: false }} />
               <Stack.Screen
@@ -699,7 +825,7 @@ export default function App() {
               />
               <Stack.Screen name="LandmarkQuiz" component={LandmarkQuizPage} options={{ headerShown: false }} />
               <Stack.Screen name="LandmarkNotFound" component={LandmarkNotFoundPage} options={{ headerShown: false }} />
-              <Stack.Screen name="DiscoverPeople" component={DiscoverPeoplePage} options={{ headerShown: false }} />
+              <Stack.Screen name="DiscoverPeople" component={DiscoverPeoplePage} options={{ headerShown: false, contentStyle: { backgroundColor: screenBg } }} />
               <Stack.Screen name="SocialUserProfile" component={SocialUserProfilePage} options={{ headerShown: false }} />
               <Stack.Screen name="SocialConnections" component={SocialConnectionsPage} options={{ headerShown: false }} />
               <Stack.Screen name="ProfileEdit" component={ProfileEditPage} />
@@ -723,7 +849,7 @@ export default function App() {
       ) : null}
       </SafeAreaProvider>
       {Platform.OS === 'android' ? (
-        <StatusBar style={appTheme === 'light' ? 'dark' : 'light'} />
+        <StatusBar style={effectiveAppTheme === 'light' ? 'dark' : 'light'} translucent />
       ) : null}
     </View>
   );

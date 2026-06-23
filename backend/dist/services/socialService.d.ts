@@ -6,9 +6,11 @@ export declare function insertFollowEdgeByIds(followerId: string, followingId: s
 export declare function deleteFollowEdgeByIds(followerId: string, followingId: string): Promise<void>;
 export declare function followByUsername(followerId: string, targetUsername: string): Promise<{
     pending: boolean;
+    user_id: string;
 }>;
 export declare function followByUserId(followerId: string, targetUserId: string): Promise<{
     pending: boolean;
+    user_id: string;
 }>;
 export declare function unfollowByUsername(followerId: string, targetUsername: string): Promise<void>;
 export declare function unfollowByUserId(followerId: string, targetUserId: string): Promise<void>;

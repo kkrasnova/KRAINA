@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Image, Platform, Animated, Easing } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+// import { Video, ResizeMode } from 'expo-av'; // Temporarily disabled due to expo-av compatibility
 import { useResponsive } from './useResponsive';
 
 const SPLASH_TITLE_VIDEO = require('./assets/Zoom Glass - Copy - Copy-Zoom 2-@720x-3.mp4');
@@ -109,6 +109,7 @@ export default function FirstPage({ navigation, route }) {
           },
         ]}
       >
+        {/* 
         <Video
           source={SPLASH_TITLE_VIDEO}
           style={StyleSheet.absoluteFill}
@@ -120,6 +121,7 @@ export default function FirstPage({ navigation, route }) {
           accessibilityLabel="KRAЇNA"
           accessibilityIgnoresInvertColors
         />
+        */}
       </View>
 
       <View
