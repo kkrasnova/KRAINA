@@ -1,4 +1,6 @@
-import { getRegion, landmarkTitle } from './routeRegionsData';
+import { getRegion } from './routeRegionsData';
+import { resolveCatalogLandmarkTitle } from './catalogDisplayI18n';
+import { appLangBase } from './appLang';
 
 /** @typedef {'landmark' | 'park' | 'museum' | 'cafe' | 'architecture' | 'secret'} InterestTag */
 
@@ -118,10 +120,10 @@ function resolveBudgetTier(opts) {
 }
 
 /** Якщо користувач «далеко» від усіх точок регіону (інша країна / емулятор), не рахуємо переліт у бюджет часу прогулянки. */
-const MAX_ORIGIN_KM_FOR_TIME_BUDGET = 100;
+export const MAX_ORIGIN_KM_FOR_ROUTE = 100;
 
 function minKmFromOriginToPool(origin, pool) {
-  if (!origin || !pool.length) return 0;
+  if (!origin || !pool.length) return Infinity;
   let min = Infinity;
   for (const lm of pool) {
     const d = haversineKm(origin, lm);
@@ -130,13 +132,129 @@ function minKmFromOriginToPool(origin, pool) {
   return min;
 }
 
+/** @param {{ lat: number, lng: number } | null | undefined} origin */
+export function isUserOriginNearRoute(origin, stopsOrLandmarks) {
+  if (!origin || !stopsOrLandmarks?.length) return false;
+  return minKmFromOriginToPool(origin, stopsOrLandmarks) <= MAX_ORIGIN_KM_FOR_ROUTE;
+}
+
+/** @param {{ lat: number, lng: number } | null | undefined} userOrigin */
+export function buildRouteCoordinates(userOrigin, stops) {
+  const coordinates = [];
+  if (isUserOriginNearRoute(userOrigin, stops)) {
+    coordinates.push({ latitude: userOrigin.lat, longitude: userOrigin.lng });
+  }
+  for (const s of stops) {
+    coordinates.push({ latitude: s.lat, longitude: s.lng });
+  }
+  return coordinates;
+}
+
+/** @param {{ lat: number, lng: number } | null | undefined} userOrigin */
+export function computeRouteTotalKm(userOrigin, stops) {
+  if (!stops.length) return 0;
+  let totalKm = 0;
+  if (isUserOriginNearRoute(userOrigin, stops)) {
+    totalKm += haversineKm(userOrigin, stops[0]);
+  }
+  for (let i = 1; i < stops.length; i += 1) {
+    totalKm += haversineKm(stops[i - 1], stops[i]);
+  }
+  return totalKm;
+}
+
+export function computeBearingDegrees(from, to) {
+  if (!from || !to) return 0;
+  const lat1 = toRad(from.latitude ?? from.lat);
+  const lat2 = toRad(to.latitude ?? to.lat);
+  const dLon = toRad((to.longitude ?? to.lng) - (from.longitude ?? from.lng));
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (Math.atan2(y, x) * (180 / Math.PI) + 360) % 360;
+}
+
+export function estimateMinutesForKm(km, transport = 'walk') {
+  if (!Number.isFinite(km) || km <= 0) return 0;
+  return Math.max(1, Math.round((km / speedKmh(transport)) * 60));
+}
+
+/**
+ * Сумарний час маршруту у хвилинах: дорога між сусідніми точками + час огляду
+ * кожної зупинки. anchor (геолокація поруч) додає дорогу до першої зупинки.
+ * @param {{ lat: number, lng: number } | null | undefined} anchor
+ * @param {Array<{ lat: number, lng: number }>} stops
+ * @param {number} speed км/год
+ * @param {(stop: any) => number} minutesOf хвилини огляду конкретної зупинки
+ */
+export function computeUsedMinutes(anchor, stops, speed, minutesOf) {
+  if (!Array.isArray(stops) || !stops.length) return 0;
+  let used = 0;
+  let prev = anchor || null;
+  for (const s of stops) {
+    if (prev) used += (haversineKm(prev, s) / speed) * 60;
+    used += minutesOf(s);
+    prev = s;
+  }
+  return used;
+}
+
+/**
+ * 2-opt оптимізація порядку зупинок (відкритий шлях). Прибирає «зигзаги» та
+ * самоперетини, скорочуючи сумарну дорогу — маршрут стає послідовним і логічним.
+ * Перша точка шляху лишається фіксованою: це або геолокація користувача (anchor),
+ * або найрелевантніша стартова локація. Решту зупинок переставляємо.
+ * @param {Array<{ lat: number, lng: number }>} stops
+ * @param {{ lat: number, lng: number } | null} [anchor] геолокація як нульова точка
+ * @returns {Array} новий масив зупинок в оптимізованому порядку
+ */
+export function optimizeStopOrder(stops, anchor = null) {
+  if (!Array.isArray(stops) || stops.length < 3) {
+    return Array.isArray(stops) ? [...stops] : [];
+  }
+  // Вузли шляху: [anchor?, ...stops]. Індекс 0 завжди фіксований.
+  const nodes = anchor ? [anchor, ...stops] : [...stops];
+  const FIXED = 1;
+  const dist = (a, b) => haversineKm(a, b);
+  let improved = true;
+  let guard = 0;
+  const MAX_PASSES = 12;
+  while (improved && guard < MAX_PASSES) {
+    improved = false;
+    guard += 1;
+    for (let i = FIXED; i < nodes.length - 1; i += 1) {
+      for (let k = i + 1; k < nodes.length; k += 1) {
+        const a = nodes[i - 1];
+        const b = nodes[i];
+        const c = nodes[k];
+        const d = k + 1 < nodes.length ? nodes[k + 1] : null; // хвіст відкритого шляху
+        const before = dist(a, b) + (d ? dist(c, d) : 0);
+        const after = dist(a, c) + (d ? dist(b, d) : 0);
+        if (after + 1e-9 < before) {
+          // Реверс сегмента [i..k].
+          let lo = i;
+          let hi = k;
+          while (lo < hi) {
+            const t = nodes[lo];
+            nodes[lo] = nodes[hi];
+            nodes[hi] = t;
+            lo += 1;
+            hi -= 1;
+          }
+          improved = true;
+        }
+      }
+    }
+  }
+  return anchor ? nodes.slice(1) : nodes;
+}
+
 /**
  * Будує маршрут лише в межах одного регіону.
  * @param {{ regionId: string, query: string, hours: number, transport: string, freeOnly?: boolean, budgetTier?: 'free'|'budget'|'medium'|'premium', interests?: { landmark?: boolean, park?: boolean, museum?: boolean, cafe?: boolean, architecture?: boolean, secret?: boolean }, variant?: number, language?: string, userOrigin?: { lat: number, lng: number } | null }} opts
  */
 export function buildRoutePlan(opts) {
   const region = getRegion(opts.regionId);
-  const langIsUk = (opts.language || 'uk').split(/[-_]/)[0].toLowerCase() !== 'en';
+  const lang = appLangBase(opts.language || 'en');
   const budgetTier = resolveBudgetTier(opts);
   const timeMult = budgetTier === 'premium' ? 1.12 : budgetTier === 'budget' ? 0.88 : 1;
   const effectiveFreeOnly = budgetTier === 'free';
@@ -169,10 +287,7 @@ export function buildRoutePlan(opts) {
   let usedTime = 0;
   /** Геолокація для оцінки тривалості лише якщо користувач у межах міста; інакше маршрут лишається в межах регіону, лінія на карті — від користувача. */
   /** @type {{ lat: number, lng: number } | null} */
-  let prevCoord =
-    userOrigin && minKmFromOriginToPool(userOrigin, pool) <= MAX_ORIGIN_KM_FOR_TIME_BUDGET
-      ? userOrigin
-      : null;
+  let prevCoord = isUserOriginNearRoute(userOrigin, pool) ? userOrigin : null;
 
   const tryAdd = (lm) => {
     const travelMin = prevCoord ? (haversineKm(prevCoord, lm) / speed) * 60 : 0;
@@ -225,28 +340,49 @@ export function buildRoutePlan(opts) {
     }
   }
 
-  let totalKm = 0;
-  if (userOrigin && stops[0]) {
-    totalKm += haversineKm(userOrigin, stops[0]);
-  }
-  for (let i = 1; i < stops.length; i += 1) {
-    totalKm += haversineKm(stops[i - 1], stops[i]);
+  // 2-opt: прибираємо зигзаги в порядку зупинок (старт фіксований).
+  const anchorForOpt = isUserOriginNearRoute(userOrigin, stops) ? userOrigin : null;
+  let finalStops = optimizeStopOrder(stops, anchorForOpt);
+
+  // Дозаповнення: коротший шлях вивільнив час — пробуємо додати ще локації.
+  const minutesOf = (s) => s.minutes;
+  let timeNow = computeUsedMinutes(anchorForOpt, finalStops, speed, minutesOf);
+  const usedIds = new Set(finalStops.map((s) => s.id));
+  const leftover = pool.filter((l) => !usedIds.has(l.id));
+  let progressed = true;
+  while (progressed && leftover.length) {
+    progressed = false;
+    const last = finalStops[finalStops.length - 1];
+    if (!last) break;
+    leftover.sort((a, b) => haversineKm(last, a) - haversineKm(last, b));
+    for (let i = 0; i < leftover.length; i += 1) {
+      const c = leftover[i];
+      const add = (haversineKm(last, c) / speed) * 60 + c.minutes;
+      if (timeNow + add <= budgetMin) {
+        finalStops.push(c);
+        timeNow += add;
+        usedIds.add(c.id);
+        leftover.splice(i, 1);
+        progressed = true;
+        break;
+      }
+    }
   }
 
-  const coordinates = [];
-  if (userOrigin) {
-    coordinates.push({ latitude: userOrigin.lat, longitude: userOrigin.lng });
-  }
-  for (const s of stops) {
-    coordinates.push({ latitude: s.lat, longitude: s.lng });
-  }
+  // Повторна оптимізація після дозаповнення + точний перерахунок часу.
+  finalStops = optimizeStopOrder(finalStops, anchorForOpt);
+  timeNow = computeUsedMinutes(anchorForOpt, finalStops, speed, minutesOf);
 
-  const stopsOut = stops.map((s, idx) => ({
+  const totalKm = computeRouteTotalKm(userOrigin, finalStops);
+  const coordinates = buildRouteCoordinates(userOrigin, finalStops);
+  const originNearRegion = isUserOriginNearRoute(userOrigin, finalStops.length ? finalStops : pool);
+
+  const stopsOut = finalStops.map((s, idx) => ({
     order: idx + 1,
     id: s.id,
     titleUk: s.titleUk,
     titleEn: s.titleEn,
-    title: landmarkTitle(s, langIsUk),
+    title: resolveCatalogLandmarkTitle(s, lang, { regionId: region.id, landmarkId: s.id }),
     lat: s.lat,
     lng: s.lng,
     minutes: s.minutes,
@@ -263,12 +399,13 @@ export function buildRoutePlan(opts) {
     stops: stopsOut,
     coordinates,
     totalKm,
-    totalMinutes: Math.round(usedTime),
+    totalMinutes: Math.round(timeNow),
     transport: opts.transport,
     freeOnly: effectiveFreeOnly,
     budgetTier,
     interests: opts.interests || null,
-    userOrigin,
+    userOrigin: originNearRegion ? userOrigin : null,
+    originNearRegion,
   };
 }
 

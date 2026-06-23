@@ -22,6 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ExpoAudio from 'expo-audio';
+import { CALL_AUDIO_MODE, configureBackgroundMusicFriendlyAudio } from './audioSession';
 import {
   callsGetStatus,
   callsInitiate,
@@ -31,6 +32,7 @@ import {
 } from './callApi';
 import { st } from './chatsI18n';
 import { useSyncedAppLanguage } from './useAppLanguage';
+import { errorToUserText } from './errorText';
 
 // LiveKit SDK — guarded import for when the native module isn't linked yet.
 let LiveKit = null;
@@ -235,6 +237,8 @@ function CallRoomContent({
 export default function CallPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
+  const langBase = language.split(/[-_]/)[0].toLowerCase() === 'uk' ? 'uk' : 'en';
+  const callErrorText = (err) => errorToUserText(err, langBase);
 
   const mode = route?.params?.mode || 'outgoing';
   const peerUserId = route?.params?.peerUserId || '';
@@ -261,8 +265,18 @@ export default function CallPage({ navigation, route }) {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      void configureBackgroundMusicFriendlyAudio().catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    if (callStatus !== 'active') return undefined;
+    void ExpoAudio.setAudioModeAsync({
+      ...CALL_AUDIO_MODE,
+      ...(Platform.OS === 'ios' ? { shouldPlayInBackground: true } : {}),
+    }).catch(() => {});
+    return undefined;
+  }, [callStatus]);
 
   // Initiate call on mount
   useEffect(() => {
@@ -270,12 +284,12 @@ export default function CallPage({ navigation, route }) {
     if (callStatus === 'outgoing' && !existingCallId) {
       void (async () => {
         try {
-          const res = await callsInitiate(peerUserId);
+          const res = await callsInitiate(peerUserId, { isVideo: isVideoParam });
           setCallId(res.call.id);
           setLivekitToken(res.token);
           setLivekitUrl(res.livekitUrl);
         } catch (e) {
-          Alert.alert('', e?.message || 'call_failed');
+          Alert.alert('', callErrorText(e));
           navigation.goBack();
         }
       })();
@@ -324,10 +338,10 @@ export default function CallPage({ navigation, route }) {
       setLivekitUrl(res.livekitUrl);
       setCallStatus('active');
     } catch (e) {
-      Alert.alert('', e?.message || 'accept_failed');
+      Alert.alert('', callErrorText(e));
       navigation.goBack();
     }
-  }, [callId, navigation]);
+  }, [callId, navigation, langBase]);
 
   const onDecline = useCallback(async () => {
     endedRef.current = true;
@@ -350,6 +364,7 @@ export default function CallPage({ navigation, route }) {
         /* ignore */
       }
     }
+    void configureBackgroundMusicFriendlyAudio().catch(() => {});
     navigation.goBack();
   }, [callId, navigation]);
 
@@ -367,10 +382,9 @@ export default function CallPage({ navigation, route }) {
     setIsSpeaker((prev) => !prev);
     try {
       await ExpoAudio.setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
+        ...CALL_AUDIO_MODE,
         ...(Platform.OS === 'ios'
-          ? { staysActiveInBackground: true }
+          ? { shouldPlayInBackground: true }
           : {}),
       });
     } catch {

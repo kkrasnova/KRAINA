@@ -2,17 +2,39 @@ import { Platform } from 'react-native';
 import { useAuthStore } from './auth/authStore';
 import { db } from './firebaseConfig';
 import { backendAuthFetch, backendAuthUpload, hasBackendSession } from './backendAuthApi';
+import { normalizeLocalFileUri } from './feedMediaPersist';
 import { getKrainaRestApiBase } from './krainaApiBase';
+
+const CHAT_FETCH_TIMEOUT_MS = 12000;
 
 export function hasMessageApiToken() {
   return hasBackendSession();
+}
+
+/** Спроба відновити JWT перед серверними чатами (Firebase / Google / email). */
+export async function ensureMessageApiReady(localUser) {
+  if (hasBackendSession()) {
+    if (__DEV__) console.log('[messageApi] already has backend session');
+    return true;
+  }
+  if (!useAuthStore.getState().hydrated) {
+    if (__DEV__) console.log('[messageApi] hydrating auth store before recovery');
+    await useAuthStore.getState().hydrate();
+  }
+  if (hasBackendSession()) {
+    if (__DEV__) console.log('[messageApi] session established after hydration');
+    return true;
+  }
+  const { ensureBackendSession } = require('./syncBackendSessionBridge');
+  if (__DEV__) console.log('[messageApi] calling ensureBackendSession');
+  return ensureBackendSession(localUser);
 }
 
 function currentUid() {
   return String(useAuthStore.getState().user?.id || '');
 }
 
-function formatPreview(content, langUk) {
+export function formatMessagePreview(content, langUk) {
   const text = String(content || '').trim();
   if (!text) return '';
   try {
@@ -37,11 +59,13 @@ function formatPreview(content, langUk) {
 export async function messagesListThreads(folder, langUk = true) {
   try {
     const f = folder === 'requests' ? 'requests' : 'inbox';
-    const data = await backendAuthFetch('GET', `/api/messages/threads?folder=${f}`);
+    const data = await backendAuthFetch('GET', `/api/messages/threads?folder=${f}`, null, {
+      timeoutMs: CHAT_FETCH_TIMEOUT_MS,
+    });
     const rows = Array.isArray(data?.threads) ? data.threads : [];
     return rows.map((row) => ({
       ...row,
-      last_content: formatPreview(row.last_content, langUk),
+      last_content: formatMessagePreview(row.last_content, langUk),
     }));
   } catch (e) {
     if (__DEV__) console.warn('[messageApi] listThreads', e?.message);
@@ -55,7 +79,9 @@ export async function messagesOpenThread({ peerUsername, peerUserId }) {
   if (peerUserId) body.peer_user_id = String(peerUserId);
   else if (peerUsername) body.peer_username = String(peerUsername).replace(/^@/, '').trim();
   else throw new Error('invalid_peer');
-  const data = await backendAuthFetch('POST', '/api/messages/threads/open', body);
+  const data = await backendAuthFetch('POST', '/api/messages/threads/open', body, {
+    timeoutMs: CHAT_FETCH_TIMEOUT_MS,
+  });
   if (!data?.id) throw new Error('thread_create_failed');
   return data;
 }
@@ -66,6 +92,8 @@ export async function messagesListMessages(threadId, limit = 80) {
   const data = await backendAuthFetch(
     'GET',
     `/api/messages/threads/${encodeURIComponent(String(threadId))}/messages?limit=${lim}`,
+    null,
+    { timeoutMs: CHAT_FETCH_TIMEOUT_MS },
   );
   return Array.isArray(data?.messages) ? data.messages : [];
 }
@@ -74,18 +102,33 @@ export async function messagesListMessages(threadId, limit = 80) {
 export async function messagesSendText(threadId, content) {
   const text = String(content || '').trim();
   if (!text) throw new Error('empty_message');
-  const data = await backendAuthFetch(
-    'POST',
-    `/api/messages/threads/${encodeURIComponent(String(threadId))}/messages`,
-    { content: text },
-  );
-  const fallbackId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  return data?.message || { id: fallbackId, sender_id: currentUid(), content: text };
+  if (!threadId) throw new Error('no_thread_id');
+  
+  if (__DEV__) console.log('[messageApi.messagesSendText] starting:', { threadId: threadId.substring(0, 10), textLen: text.length });
+  
+  try {
+    const data = await backendAuthFetch(
+      'POST',
+      `/api/messages/threads/${encodeURIComponent(String(threadId))}/messages`,
+      { content: text },
+      { timeoutMs: CHAT_FETCH_TIMEOUT_MS },
+    );
+    if (__DEV__) console.log('[messageApi.messagesSendText] backend response:', { messageId: data?.message?.id, ok: !!data?.message });
+    const fallbackId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    return data?.message || { id: fallbackId, sender_id: currentUid(), content: text };
+  } catch (err) {
+    if (__DEV__) console.error('[messageApi.messagesSendText] error:', err?.message, { threadId: threadId.substring(0, 10) });
+    throw err;
+  }
 }
-
 /** Позначити тред як прочитаний (REST API). */
 export async function messagesMarkRead(threadId) {
-  await backendAuthFetch('POST', `/api/messages/threads/${encodeURIComponent(String(threadId))}/read`);
+  await backendAuthFetch(
+    'POST',
+    `/api/messages/threads/${encodeURIComponent(String(threadId))}/read`,
+    null,
+    { timeoutMs: CHAT_FETCH_TIMEOUT_MS },
+  );
 }
 
 /** Прийняти запит на листування (REST API). */
@@ -106,15 +149,52 @@ export async function messagesClearThread(threadId) {
   return { ok: true };
 }
 
+/** Завантажити фото на бекенд (REST API). */
+export async function messagesUploadImage(localUri, mimeType = '') {
+  const uri = normalizeLocalFileUri(localUri);
+  if (!uri) throw new Error('empty_image');
+  const mime = String(mimeType || '').toLowerCase();
+  const lower = uri.toLowerCase();
+  const isPng = mime.includes('png') || /\.png(\?|$)/i.test(lower);
+  const isWebp = mime.includes('webp') || /\.webp(\?|$)/i.test(lower);
+  const isHeic = mime.includes('heic') || mime.includes('heif') || /\.heic|\.heif(\?|$)/i.test(lower);
+  const type = isPng ? 'image/png' : isWebp ? 'image/webp' : 'image/jpeg';
+  const ext = isPng ? 'png' : isWebp ? 'webp' : isHeic ? 'jpg' : 'jpg';
+  const data = await backendAuthUpload('/api/feed/upload', () => {
+    const formData = new FormData();
+    formData.append('file', {
+      uri,
+      type,
+      name: `chat_${Date.now()}.${ext}`,
+    });
+    return formData;
+  });
+  const url = data?.url || data?.media_url;
+  if (!url) throw new Error('upload_failed');
+  return String(url);
+}
+
+function normalizeUploadUri(uri) {
+  return normalizeLocalFileUri(uri);
+}
+
 /** Завантажити голосове на бекенд (REST API). */
 export async function messagesUploadVoice(localUri) {
-  const uri = String(localUri || '').trim();
+  const uri = normalizeUploadUri(localUri);
   if (!uri) throw new Error('empty_voice');
+  const lower = uri.toLowerCase();
+  const isCaf = /\.caf(\?|$)/i.test(lower);
+  const mime = isCaf
+    ? 'audio/x-caf'
+    : Platform.OS === 'ios'
+      ? 'audio/m4a'
+      : 'audio/mp4';
+  const ext = isCaf ? 'caf' : 'm4a';
   const formData = new FormData();
   formData.append('file', {
     uri,
-    type: Platform.OS === 'ios' ? 'audio/m4a' : 'audio/mp4',
-    name: `voice_${Date.now()}.m4a`,
+    type: mime,
+    name: `voice_${Date.now()}.${ext}`,
   });
   const data = await backendAuthUpload('/api/feed/upload', formData);
   const url = data?.url || data?.media_url;

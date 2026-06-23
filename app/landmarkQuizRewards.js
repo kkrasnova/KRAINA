@@ -29,6 +29,25 @@ export async function applyLandmarkQuizReward(landmarkQuizKey, won, xpOnWin) {
   return { already: false, xp: Math.round(xpOnWin) };
 }
 
+/** Чи вже отримано нагороду за вікторину цієї пам’ятки. */
+export async function getLandmarkQuizClaimedReward(landmarkQuizKey) {
+  const key = String(landmarkQuizKey || '').trim();
+  if (!key) return null;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return null;
+    const entry = map[key];
+    if (!entry?.claimed) return null;
+    return {
+      claimed: true,
+      xp: Number.isFinite(Number(entry.xp)) ? Math.max(0, Math.round(Number(entry.xp))) : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Сума XP з усіх пройдених вікторин (для майбутнього підключення до профілю). */
 export async function getLandmarkQuizBonusXpTotal() {
   try {

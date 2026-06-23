@@ -12,7 +12,8 @@ import {
   Dimensions,
   StatusBar,
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image as ExpoImage } from 'expo-image';
+import AuthHeroHeader from './AuthHeroHeader';
 import { runAfterInteractions } from './runAfterInteractions';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsive } from './useResponsive';
@@ -22,14 +23,13 @@ import LemonBannerGlow from './components/ui/LemonBannerGlow';
 import { setOnboardingSlidesSeenFlag } from './onboardingStorage';
 import { PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION } from './flowFlags';
 import { useAppLanguage } from './useAppLanguage';
-import AuthHeroHeader from './AuthHeroHeader';
 import {
   androidCopyPaddingTopFromHero,
-  androidHeroBannerExtraDownPx,
   androidHeroTextGapPx,
   authHeroBannerBottomY,
 } from './authHeroLayout';
 import OnboardingFinalAtlasHero from './OnboardingFinalAtlasHero';
+import OnboardingGlobe3D from './OnboardingGlobe3D';
 
 const ACCENT = '#E1FF00';
 const BODY = '#FAFAF6';
@@ -74,23 +74,23 @@ const ONBOARD_LEMON_GLOWS = [
 ];
 
 /** Фон слайду «Шукай цікаві пам’ятки» */
-const LANDMARKS_SEARCH_BG = require('./assets/Снимок экрана 2026-04-05 в 15.59.46.png');
+const LANDMARKS_SEARCH_BG = require('./assets/onboarding-landmarks-hero.webp');
 
 /** Горизонтальна смуга переходу фото → тінь (Rectangle 37). */
-const RECTANGLE_37 = require('./assets/Rectangle 37.png');
+const RECTANGLE_37 = require('./assets/image 37.webp');
 
 /**
  * Слайд «Скануй пам’ятку»: Frame 23 — верхні жовті кутники в PNG; нижні два — ScanHeroLemonCorners
  * поверх фото й тіні (той самий #E1FF00, 1.5).
  */
-const SCAN_SLIDE_HERO = require('./assets/Frame 23.png');
+const SCAN_SLIDE_HERO = require('./assets/onboarding-scan-hero.webp');
 
 /** Фото слайду «Шукай маршрути» (нічна карта / маршрут). */
-const ROUTE_FIND_ILLUSTRATION = require('./assets/Снимок экрана 2026-04-05 в 15.52.15.png');
+const ROUTE_FIND_ILLUSTRATION = require('./assets/onboarding-route-hero.webp');
 /** Ілюстрація слайду «Ділись своєю історією». */
-const SHARE_ROUTES_ILLUSTRATION = require('./assets/Снимок экрана 2026-04-05 в 15.55.36.png');
+const SHARE_ROUTES_ILLUSTRATION = require('./assets/onboarding-share-hero.webp');
 /** Фото слайду «Спілкуйся з друзями». */
-const FRIENDS_SLIDE_HERO = require('./assets/kling_20260405_IMAGE____________5495_1.png');
+const FRIENDS_SLIDE_HERO = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
 const SLIDES_UK = [
   {
     title: 'Шукай цікаві пам’ятки',
@@ -672,25 +672,23 @@ function ScanHeroLemonCorners({
 function DoubleRect37Strip({
   firstOpacity = 1,
   secondOpacity = 0.82,
-  androidResize = Platform.OS === 'android' || Platform.OS === 'ios',
 }) {
-  const resizeProps = androidResize ? { resizeMethod: 'resize' } : {};
   return (
     <>
-      <Image
+      <ExpoImage
         source={RECTANGLE_37}
         style={[styles.landmarksBottomFadeImage, { opacity: firstOpacity }]}
-        resizeMode="stretch"
-        {...resizeProps}
-        accessibilityIgnoresInvertColors
+        contentFit="fill"
+        cachePolicy="memory-disk"
+        transition={0}
         accessible={false}
       />
-      <Image
+      <ExpoImage
         source={RECTANGLE_37}
         style={[StyleSheet.absoluteFillObject, { opacity: secondOpacity }]}
-        resizeMode="stretch"
-        {...resizeProps}
-        accessibilityIgnoresInvertColors
+        contentFit="fill"
+        cachePolicy="memory-disk"
+        transition={0}
         accessible={false}
       />
     </>
@@ -756,7 +754,6 @@ export default function OnboardingIntroPage({ navigation, route }) {
   const skipCtaMaxWidth = Math.min(348, Math.round(screenW * 0.86));
   const leftAccentTitleSize = Math.min(26, Math.round(24 * r.scale));
   const leftAccentBodySize = Math.round(16 * r.scale);
-  const skipArrowSize = Math.round(18 * Math.min(r.scale, 1.15));
   /** Усі слайди з героєм: підйом фото (трохи нижче — ближче до смуги Rectangle 37 на переході). */
   const onboardHeroPhotoLiftUpPx = Math.round(Math.max(32, screenH * 0.044));
   const onboardCopyShiftDownPx = 0;
@@ -1076,15 +1073,15 @@ export default function OnboardingIntroPage({ navigation, route }) {
     Platform.OS === 'android' && lang === 'de' && isScanSlide
       ? -Math.round(Math.max(30, screenH * 0.018))
       : 0;
-  /** Android + en, слайд маршруту: додатковий підйом фото й лаймової лінії (translateY −). */
+  /** Android + en, слайд маршруту: легкий підйом фото й лаймової лінії (translateY −). */
   const androidEnRouteHeroExtraLiftPx =
     isAndroidEn && isRouteSlide
-      ? -Math.round(Math.max(36, screenH * 0.032))
+      ? -Math.round(Math.max(8, screenH * 0.009))
       : 0;
-  /** Android + en, слайд «поділитися»: фото й тінь трохи вище (translateY −). */
+  /** En, слайд «поділитися»: фото й лаймова лінія трохи нижче (+translateY). */
   const androidEnShareHeroExtraLiftPx =
     isAndroidEn && isShareSlide
-      ? -Math.round(Math.max(16, screenH * 0.016))
+      ? Math.round(Math.max(14, screenH * 0.016))
       : 0;
   /** Android + uk, слайд «поділитися»: фото й тінь трохи вище (translateY −). */
   const androidUkShareHeroExtraLiftPx =
@@ -1274,7 +1271,7 @@ export default function OnboardingIntroPage({ navigation, route }) {
   const friendsCopyOnlyExtraDownPx = Math.round(Math.max(8, screenH * 0.013));
   /** Останній слайд: колаж по хвилі; логотип і слоган — у футері над кнопкою. */
   const isFinalBrandSlide = step === TOTAL_STEPS - 1;
-  /** Кроки 0…4: єдиний герой з хвилястим низом і лимонною лінією (AuthHeroHeader). */
+  /** Кроки 0…4: фото + смуги Rectangle 37 (окремий рендер на кожному слайді). */
   const isHeroSlide =
     isLandmarksSlide ||
     isScanSlide ||
@@ -1351,29 +1348,26 @@ export default function OnboardingIntroPage({ navigation, route }) {
    */
   /** Зазор «фото / лаймова лінія → заголовок» на Android — лише через paddingTop (див. authHeroLayout). */
   const onboardHeroCopyNudgeDownPx = 0;
-  /** Android, усі герой-слайди: фото й лаймова лінія трохи нижче. */
-  const onboardHeroExtraLiftPx =
-    isHeroSlide && Platform.OS === 'android'
-      ? androidHeroBannerExtraDownPx(screenH)
-      : 0;
-  const onboardHeroTitleGapAfterWavePx =
-    isHeroSlide && Platform.OS === 'ios'
-      ? Math.round(Math.max(18, screenH * 0.02))
-      : 0;
   /**
-   * iPhone, кроки 0…4 і всі мови: фото й лаймова лінія трохи нижче на сторінці.
+   * Кроки 0…4 (усі мови): фото й лаймова лінія трохи нижче — однакові px на iOS і Android.
    */
-  const iosHeroSlideExtraDownPx = isLandmarksSlide && Platform.OS === 'ios'
-    ? Math.round(Math.max(42, screenH * 0.044))
-    : isScanSlide && Platform.OS === 'ios'
-      ? Math.round(Math.max(36, screenH * 0.036))
-      : (isRouteSlide || isShareSlide || isFriendsSlide) && Platform.OS === 'ios'
-        ? Math.round(Math.max(28, screenH * 0.032))
-        : 0;
+  const onboardHeroSlideExtraDownPx = isHeroSlide
+    ? isLandmarksSlide
+      ? Math.round(Math.max(42, screenH * 0.044))
+      : isScanSlide
+        ? Math.round(Math.max(36, screenH * 0.036))
+        : isRouteSlide || isShareSlide || isFriendsSlide
+          ? Math.round(Math.max(28, screenH * 0.032))
+          : 0
+    : 0;
+  const onboardHeroTitleGapAfterWavePx = isHeroSlide
+    ? Math.round(Math.max(18, screenH * 0.02))
+    : 0;
   const onboardHeroCombinedLiftPx =
-    onboardHeroExtraLiftPx +
-    iosHeroSlideExtraDownPx +
-    androidEnRouteHeroExtraLiftPx;
+    onboardHeroSlideExtraDownPx +
+    androidEnRouteHeroExtraLiftPx +
+    androidEnShareHeroExtraLiftPx +
+    androidEnFriendsHeroExtraDownPx;
   const onboardHeroCombinedTitleGapPx = onboardHeroTitleGapAfterWavePx;
   /** Запас між низом тексту й футером (крапки / CTA). */
   const overflowScrollReliefBottomPx = 8;
@@ -1561,6 +1555,14 @@ export default function OnboardingIntroPage({ navigation, route }) {
       48,
       Math.round((r.insets?.top ?? 0) * 0.65) + Math.round(screenH * 0.018),
     );
+  const finalGlobeSize = Math.round(Math.min(screenW * 0.62, screenH * 0.31));
+  const finalGlobeCenterX = Math.round(screenW / 2);
+  const finalGlobeExtraDownPx = Math.round(
+    Math.max(Platform.OS === 'ios' ? 46 : 30, screenH * 0.048),
+  );
+  const finalGlobeCenterY = Math.round(
+    finalAtlasBandTopOffset + finalAtlasHeroHeight * 0.76 + finalGlobeExtraDownPx,
+  );
   /** Фото пам’яток не заходить на зону тексту + CTA.
    *  topBleed — зона вгору; photoZoomScale — рівномірне збільшення (contain + clip). */
   const landmarksBgLayout = useMemo(() => {
@@ -1855,7 +1857,7 @@ export default function OnboardingIntroPage({ navigation, route }) {
    * Верхній padding зони копії = відступ до цієї межі + зазор, щоб текст не наїжджав на банер.
    */
   const overlayContentTopPad = r.insets.top + 8;
-  const onboardCopyBannerClearancePx = 0;
+  const onboardCopyBannerClearancePx = Math.round(Math.max(12, screenH * 0.014));
   const isAndroidHeroSlide = Platform.OS === 'android' && isHeroSlide;
   const ONBOARD_ANDROID_HERO_TEXT_GAP_PX = androidHeroTextGapPx(screenH);
   let onboardBannerBottomScreenY = null;
@@ -1865,8 +1867,6 @@ export default function OnboardingIntroPage({ navigation, route }) {
       topInset: onboardHeroTopInset,
       heroLiftPx: onboardHeroCombinedLiftPx,
     });
-  } else if (isFinalBrandSlide) {
-    onboardBannerBottomScreenY = null;
   }
   /** Компенсація від’ємного translateY на блоці копії (не змінює layout, але зсуває малюнок угору). */
   const scanCopyVisualUpCompensationPx = 0;
@@ -2072,10 +2072,7 @@ export default function OnboardingIntroPage({ navigation, route }) {
             },
           ]}
         >
-          <View style={styles.skipRow}>
-            <Text style={styles.skipText}>{skipWord}</Text>
-            <Ionicons name="arrow-forward" size={skipArrowSize} color="#101010" accessible={false} />
-          </View>
+          <Text style={styles.skipText}>{skipWord}</Text>
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -2133,10 +2130,7 @@ export default function OnboardingIntroPage({ navigation, route }) {
             },
           ]}
         >
-          <View style={styles.skipRow}>
-            <Text style={styles.skipText}>{continueWord}</Text>
-            <Ionicons name="arrow-forward" size={skipArrowSize} color="#101010" accessible={false} />
-          </View>
+          <Text style={styles.skipText}>{continueWord}</Text>
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -2150,6 +2144,9 @@ export default function OnboardingIntroPage({ navigation, route }) {
       ]}
       {...onboardingPanResponder.panHandlers}
     >
+      {Platform.OS === 'android' ? (
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      ) : null}
       {isFinalBrandSlide ? (
         <View
           pointerEvents="box-none"
@@ -2168,6 +2165,13 @@ export default function OnboardingIntroPage({ navigation, route }) {
               style={{ zIndex: 1 }}
             />
           </View>
+          <OnboardingGlobe3D
+            size={finalGlobeSize}
+            centerX={finalGlobeCenterX}
+            centerY={finalGlobeCenterY}
+            showPerson={false}
+            style={{ zIndex: 3 }}
+          />
         </View>
       ) : (
         <>
@@ -2180,20 +2184,23 @@ export default function OnboardingIntroPage({ navigation, route }) {
           />
           {onboardHeroSource ? (
             <AuthHeroHeader
+              key={`onboard-hero-${step}`}
               source={onboardHeroSource}
               height={onboardHeroHeight}
+              width={screenW}
               topInset={onboardHeroTopInset}
-              style={[
-                {
-                  position: 'absolute',
-                  left: 0,
-                  zIndex: 1,
-                  ...(onboardHeroCombinedLiftPx !== 0 && {
-                    transform: [{ translateY: onboardHeroCombinedLiftPx }],
-                  }),
-                },
-                onboardHeroTopInset > 0 ? { top: -onboardHeroTopInset } : { top: 0 },
-              ]}
+              imageContentPosition={isScanSlide ? 'center' : 'top'}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                width: screenW,
+                zIndex: 3,
+                top: onboardHeroTopInset > 0 ? -onboardHeroTopInset : 0,
+                ...(onboardHeroCombinedLiftPx !== 0
+                  ? { transform: [{ translateY: onboardHeroCombinedLiftPx }] }
+                  : {}),
+              }}
             />
           ) : (
             <LinearGradient
@@ -2221,6 +2228,9 @@ export default function OnboardingIntroPage({ navigation, route }) {
           isFinalBrandSlide && styles.overlayFinalBrand,
           !isFinalBrandSlide && styles.overlayWithFixedCopy,
           isHeroSlide && styles.overlayWithFixedCopyHeroBottom,
+          !isFinalBrandSlide &&
+            onboardPixelTuningMobile &&
+            styles.overlayHeroAndroidAboveHeroDecor,
           {
             paddingTop: r.insets.top + 8,
             paddingBottom: r.bottomPadding + onboardFooterExtraBottomPx,
@@ -2297,10 +2307,9 @@ export default function OnboardingIntroPage({ navigation, route }) {
                         {
                           fontSize: leftAccentTitleSize,
                           lineHeight: Math.round(leftAccentTitleSize * 1.22),
-                          marginTop: isAndroidHeroSlide
-                            ? 0
-                            : onboardPlTitleTopAfterHeroPx +
-                              onboardHeroCombinedTitleGapPx,
+                          marginTop:
+                            onboardPlTitleTopAfterHeroPx +
+                            onboardHeroCombinedTitleGapPx,
                         },
                         isAndroidItShareSlide && {
                           includeFontPadding: false,
@@ -2513,6 +2522,7 @@ const styles = StyleSheet.create({
     left: 0,
     backgroundColor: '#000000',
     zIndex: 0,
+    overflow: 'visible',
   },
   finalBrandHeroBand: {
     position: 'relative',
@@ -2764,12 +2774,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.22,
     shadowRadius: 10,
     elevation: 2,
-  },
-  skipRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 0,
   },
   skipText: {
     fontWeight: '600',

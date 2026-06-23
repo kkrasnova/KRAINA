@@ -17,4 +17,8 @@ fi
 
 bash ./scripts/ensure-metro.sh
 
+if [ "$#" -eq 0 ]; then
+  exec bash ./scripts/with-node20.sh npx react-native run-ios --simulator "iPhone 17 Pro"
+fi
+
 exec bash ./scripts/with-node20.sh npx react-native run-ios "$@"

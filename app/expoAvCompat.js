@@ -6,6 +6,7 @@ import React, { Component, useCallback, useEffect, useMemo, useRef, useState } f
 import { AppState, Image, Platform, StyleSheet, View } from 'react-native';
 import { createAudioPlayer, setAudioModeAsync as setExpoAudioModeAsync } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
 import { runAfterInteractions } from './runAfterInteractions';
 
 export const ResizeMode = {
@@ -36,8 +37,49 @@ function mapContentFit(resizeMode) {
   return 'contain';
 }
 
+function runOnPlayer(player, fn) {
+  try {
+    fn(player);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detach VideoView synchronously when inactive, but keep the native player mounted
+ * for two frames so useVideoPlayer cleanup cannot race TextureVideoView on Android.
+ */
+export function useStagedVideoPlayerMount(active) {
+  const [playerMounted, setPlayerMounted] = useState(active);
+
+  useEffect(() => {
+    if (active) {
+      setPlayerMounted(true);
+      return undefined;
+    }
+    if (!playerMounted) return undefined;
+
+    let innerId = null;
+    const outerId = requestAnimationFrame(() => {
+      innerId = requestAnimationFrame(() => {
+        setPlayerMounted(false);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outerId);
+      if (innerId != null) cancelAnimationFrame(innerId);
+    };
+  }, [active, playerMounted]);
+
+  return {
+    mountPlayer: active || playerMounted,
+    mountView: active,
+  };
+}
+
 /** Catches render-time expo-video failures when Android Activity is not ready yet. */
-class VideoRenderErrorBoundary extends Component {
+export class VideoRenderErrorBoundary extends Component {
   state = { hasError: false, retryKey: 0 };
 
   _retryTimer = null;
@@ -53,14 +95,18 @@ class VideoRenderErrorBoundary extends Component {
     const msg = String(error?.message || '');
     if (
       msg.includes('activity is no longer available') ||
-      msg.includes('Activity')
+      msg.includes('Activity') ||
+      msg.includes('already released')
     ) {
+      this.props.onFallback?.();
       this._retryTimer = setTimeout(() => {
         this.setState((prev) => ({
           hasError: false,
           retryKey: prev.retryKey + 1,
         }));
       }, 400);
+    } else {
+      this.props.onFallback?.();
     }
   }
 
@@ -80,7 +126,7 @@ class VideoRenderErrorBoundary extends Component {
   }
 }
 
-function useAndroidActivityReady() {
+export function useAndroidActivityReady() {
   const [ready, setReady] = useState(Platform.OS !== 'android');
 
   useEffect(() => {
@@ -134,6 +180,7 @@ function VideoPlayerInner({
   isLooping = false,
   isMuted = false,
   useNativeControls = true,
+  mountView = true,
   onError,
   onReadyForDisplay,
   onFirstFrameRender,
@@ -143,24 +190,29 @@ function VideoPlayerInner({
   const player = useVideoPlayer(videoSource, (playerInstance) => {
     playerInstance.loop = isLooping;
     playerInstance.muted = isMuted;
+    playerInstance.audioMixingMode = 'mixWithOthers';
   });
   const readyToPlayRef = useRef(false);
 
   useEffect(() => {
-    player.loop = isLooping;
+    runOnPlayer(player, (playerInstance) => {
+      playerInstance.loop = isLooping;
+    });
   }, [player, isLooping]);
 
   useEffect(() => {
-    player.muted = isMuted;
+    runOnPlayer(player, (playerInstance) => {
+      playerInstance.muted = isMuted;
+    });
   }, [player, isMuted]);
 
   useEffect(() => {
     if (!shouldPlay) {
-      player.pause();
+      runOnPlayer(player, (playerInstance) => playerInstance.pause());
       return;
     }
     if (readyToPlayRef.current) {
-      player.play();
+      runOnPlayer(player, (playerInstance) => playerInstance.play());
     }
   }, [player, shouldPlay]);
 
@@ -170,7 +222,7 @@ function VideoPlayerInner({
       if (status === 'readyToPlay') {
         readyToPlayRef.current = true;
         if (shouldPlay) {
-          player.play();
+          runOnPlayer(player, (playerInstance) => playerInstance.play());
         }
         onReadyForDisplay?.();
       }
@@ -180,6 +232,10 @@ function VideoPlayerInner({
     });
     return () => subscription.remove();
   }, [player, onError, onReadyForDisplay, onFirstFrameRender, shouldPlay]);
+
+  if (!mountView) {
+    return style ? <View style={style} /> : null;
+  }
 
   return (
     <VideoView
@@ -216,6 +272,7 @@ export function Video({
   const videoSource = useMemo(() => normalizeVideoSource(source), [source]);
   const activityReady = useAndroidActivityReady();
   const canMountPlayer = immediateMount || activityReady;
+  const { mountPlayer, mountView } = useStagedVideoPlayerMount(Boolean(videoSource && canMountPlayer));
   const [firstFrameReady, setFirstFrameReady] = useState(!showPoster);
   const posterTimerRef = useRef(null);
 
@@ -239,7 +296,7 @@ export function Video({
     onFirstFrameRender?.();
   }, [onFirstFrameRender]);
 
-  if (!videoSource || !canMountPlayer) {
+  if (!videoSource || !mountPlayer) {
     return null;
   }
 
@@ -255,6 +312,7 @@ export function Video({
         isLooping={isLooping}
         isMuted={isMuted}
         useNativeControls={useNativeControls}
+        mountView={mountView}
         onError={onError}
         onReadyForDisplay={onReadyForDisplay}
         onFirstFrameRender={showPoster ? internalOnFirstFrame : onFirstFrameRender}
@@ -314,7 +372,11 @@ class CompatSound {
 export const Audio = {
   setAudioModeAsync(mode = {}) {
     return setExpoAudioModeAsync({
-      playsInSilentMode: mode.playsInSilentModeIOS ?? mode.playsInSilentMode ?? false,
+      ...APP_PLAYBACK_AUDIO_MODE,
+      playsInSilentMode:
+        mode.playsInSilentModeIOS ?? mode.playsInSilentMode ?? APP_PLAYBACK_AUDIO_MODE.playsInSilentMode,
+      interruptionMode: mode.interruptionMode ?? APP_PLAYBACK_AUDIO_MODE.interruptionMode,
+      allowsRecording: mode.allowsRecording ?? APP_PLAYBACK_AUDIO_MODE.allowsRecording,
     });
   },
   Sound: {

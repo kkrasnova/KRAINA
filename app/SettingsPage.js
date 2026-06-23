@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useEffect, useCallback, memo, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,19 +8,19 @@ import {
   Switch,
   Alert,
   Platform,
-  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
+import AppTopBar, { LIGHT_BAR_BG } from './AppTopBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { accentForTheme } from './themeAccent';
 import { resetToLanguageSelect } from './authNavigation';
-import { getAppTheme, setAppTheme as persistAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { setAppTheme as persistAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { mt } from './mainPageI18n';
 import { st } from './settingsI18n';
-import { shellPush } from './shellNavigate';
-import { prefetchGeoStatus } from './SettingsSubScreens';
+import { prefetchGeoStatus, prefetchNotificationPrefs } from './SettingsSubScreens';
 import { prefetchArchiveBundle } from './screenLoaders';
 
 const FAST_PRESS = { delayPressIn: 0, delayPressOut: 0 };
@@ -36,8 +36,10 @@ const FIGMA_LOGOUT_RED = '#EB4335';
 /** PP Pangram Sans у макеті ≈ −1% від 14px */
 const FIGMA_LSP = -0.14;
 const SettingsRow = memo(function SettingsRow({ icon, label, onPress, right, isLight }) {
-  const iconColor = isLight ? FIGMA_ICON_MUTED : ROW_ICON_DARK;
+  const accent = accentForTheme(isLight);
+  const iconColor = isLight ? accent : ACCENT;
   const labelColor = isLight ? FIGMA_TEXT : '#FFFFFF';
+  const chevronColor = isLight ? FIGMA_ICON_MUTED : 'rgba(255, 255, 255, 0.72)';
   const borderColor = isLight ? 'rgba(30, 30, 30, 0.1)' : BORDER_DARK;
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const pressedBg = isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)';
@@ -62,7 +64,11 @@ const SettingsRow = memo(function SettingsRow({ icon, label, onPress, right, isL
       >
         {label}
       </Text>
-      {right != null ? <View style={styles.rowRight}>{right}</View> : null}
+      {right != null ? (
+        <View style={styles.rowRight}>{right}</View>
+      ) : (
+        <Ionicons name="chevron-forward" size={20} color={chevronColor} />
+      )}
     </Pressable>
   );
 });
@@ -70,87 +76,79 @@ const SettingsRow = memo(function SettingsRow({ icon, label, onPress, right, isL
 export default function SettingsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const user = route?.params?.user || {};
+  const countryId = route?.params?.countryId;
   const language = useSyncedAppLanguage(route, 'uk');
-  const routeTheme = route?.params?.appTheme === 'light' ? 'light' : 'dark';
-  const [appTheme, setAppTheme] = useState(routeTheme);
+  const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme);
 
-  useEffect(() => {
-    if (route?.params?.appTheme) {
-      setAppTheme(routeTheme);
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [route?.params?.appTheme, routeTheme]);
+  const shellParams = useMemo(
+    () => ({
+      user,
+      language,
+      appTheme,
+      ...(countryId != null ? { countryId } : {}),
+    }),
+    [user, language, appTheme, countryId],
+  );
 
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => sub.remove();
-  }, []);
+  const pushScreen = useCallback(
+    (name, extra = {}) => {
+      navigation.push(name, { ...shellParams, ...extra });
+    },
+    [navigation, shellParams],
+  );
 
   useEffect(() => {
     void prefetchGeoStatus();
+    void prefetchNotificationPrefs();
     void prefetchArchiveBundle();
   }, []);
 
   const onThemeSwitch = async (nextLight) => {
     const next = nextLight ? 'light' : 'dark';
-    setAppTheme(next);
     await persistAppTheme(next);
   };
 
   const goLanguage = useCallback(() => {
-    shellPush('SettingsLanguage', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('SettingsLanguage');
+  }, [pushScreen]);
 
   const goGeo = useCallback(() => {
     void prefetchGeoStatus();
-    shellPush('SettingsGeo', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('SettingsGeo');
+  }, [pushScreen]);
 
   const goNotifications = useCallback(() => {
-    shellPush('SettingsNotifications', {}, appTheme);
-  }, [appTheme]);
+    void prefetchNotificationPrefs();
+    pushScreen('SettingsNotifications');
+  }, [pushScreen]);
 
   const goWalkReminder = useCallback(() => {
-    shellPush('WalkReminderSetup', { fromOnboarding: false }, appTheme);
-  }, [appTheme]);
-
-  const goSteps = useCallback(() => {
-    shellPush('SettingsSteps', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('WalkReminderSetup', { fromOnboarding: false });
+  }, [pushScreen]);
 
   const goPrivacy = useCallback(() => {
-    shellPush('SettingsPrivacy', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('SettingsPrivacy');
+  }, [pushScreen]);
 
   const goHelp = useCallback(() => {
-    shellPush('SettingsHelp', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('SettingsHelp');
+  }, [pushScreen]);
 
   const goAbout = useCallback(() => {
-    shellPush('SettingsAbout', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('SettingsAbout');
+  }, [pushScreen]);
 
   const goAdminPanel = useCallback(() => {
-    shellPush('AdminPanel', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('AdminPanel');
+  }, [pushScreen]);
 
   const goSubscription = useCallback(() => {
-    shellPush('ChoosePlan', { fromSettings: true }, appTheme);
-  }, [appTheme]);
+    pushScreen('ChoosePlan', { fromSettings: true });
+  }, [pushScreen]);
 
   const goCancelSubscription = useCallback(() => {
-    shellPush('ChoosePlan', { fromSettings: true, openCancelSubscription: true }, appTheme);
-  }, [appTheme]);
+    pushScreen('CancelSubscription');
+  }, [pushScreen]);
 
   const signOut = useCallback(() => {
     Alert.alert('', mt(language, 'signOutPrompt'), [
@@ -165,11 +163,9 @@ export default function SettingsPage({ navigation, route }) {
 
   const goArchive = useCallback(() => {
     void prefetchArchiveBundle();
-    shellPush('SettingsArchive', {}, appTheme);
-  }, [appTheme]);
+    pushScreen('SettingsArchive');
+  }, [pushScreen]);
 
-  const light = appTheme === 'light';
-  const screenBg = light ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const isAdminUser = user?.role === 'admin' || user?.isAdmin === true;
 
   const rows = (
@@ -210,12 +206,6 @@ export default function SettingsPage({ navigation, route }) {
         icon="alarm-outline"
         label={st(language, 'walkReminderRow')}
         onPress={goWalkReminder}
-        isLight={light}
-      />
-      <SettingsRow
-        icon="footsteps-outline"
-        label={st(language, 'stepsSyncTitle')}
-        onPress={goSteps}
         isLight={light}
       />
       <SettingsRow
@@ -261,7 +251,7 @@ export default function SettingsPage({ navigation, route }) {
         <Ionicons
           name="sunny-outline"
           size={22}
-          color={light ? FIGMA_ICON_MUTED : ROW_ICON_DARK}
+          color={light ? accentForTheme(true) : ACCENT}
           style={styles.rowIcon}
         />
         <Text

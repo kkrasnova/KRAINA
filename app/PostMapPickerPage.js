@@ -1,3 +1,4 @@
+import { resolveAppTheme } from './themeStorage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -34,7 +35,7 @@ export default function PostMapPickerPage({ navigation, route }) {
   const initialLat = route.params?.initialLat ?? 50.45;
   const initialLng = route.params?.initialLng ?? 30.5233;
   const pickerMode = route.params?.pickerMode === 'city' ? 'city' : 'map';
-  const isLight = (route.params?.appTheme || 'dark') === 'light';
+  const isLight = (resolveAppTheme(route.params?.appTheme)) === 'light';
 
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;

@@ -19,7 +19,11 @@ import { landmarkTitle, regionTitle } from './routeRegionsData';
 import { landmarkMatchesHomeCategory } from './homeLandmarkCategories';
 import { mt, mtHomePlaceLine } from './mainPageI18n';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
-import { haversineKm } from './geoDistance';
+import {
+  resolveHomeLandmarkDistKm,
+  resolveHomeLandmarkThumbSource,
+} from './homeLandmarkDisplay';
+import { HERO_THUMB_MAP } from './krainaHeroThumbs';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import {
   getSavedLandmarks,
@@ -33,6 +37,97 @@ const BORDER_DARK = '#2A2A2A';
 const BORDER_LIGHT = 'rgba(30,30,30,0.08)';
 const MUTED_DARK = '#9A9A9A';
 const MUTED_LIGHT = '#5C5C5C';
+
+function LandmarkCard({
+  lm,
+  line,
+  desc,
+  isSaved,
+  isLight,
+  accent,
+  cardBg,
+  cardBorder,
+  textMain,
+  textMuted,
+  langUk,
+  language,
+  ripple,
+  regionFlag,
+  onOpen,
+  onToggleSave,
+}) {
+  const [thumbSource, setThumbSource] = useState(() => resolveHomeLandmarkThumbSource(lm));
+
+  useEffect(() => {
+    setThumbSource(resolveHomeLandmarkThumbSource(lm));
+  }, [lm]);
+
+  return (
+    <Pressable
+      style={[styles.locCard, { backgroundColor: cardBg, borderColor: cardBorder }]}
+      onPress={onOpen}
+      android_ripple={ripple}
+      accessibilityRole="button"
+      accessibilityLabel={landmarkTitle(lm, langUk)}
+    >
+      <View style={styles.locThumbCol}>
+        <Image
+          source={thumbSource}
+          style={styles.locThumbImg}
+          resizeMode="cover"
+          onError={() => setThumbSource(HERO_THUMB_MAP.t1)}
+        />
+      </View>
+      <View style={styles.locBody}>
+        <View style={styles.locBodyTop}>
+          <View style={styles.locTopRow}>
+            <Text style={[styles.locMeta, { color: textMain }]} numberOfLines={1}>
+              {regionFlag} {line}
+            </Text>
+            <Pressable
+              style={[
+                styles.saveCircle,
+                {
+                  borderColor: isLight ? 'rgba(2, 18, 235, 0.45)' : 'rgba(225,255,0,0.45)',
+                  backgroundColor: isSaved
+                    ? isLight
+                      ? 'rgba(2, 18, 235, 0.12)'
+                      : 'rgba(225, 255, 0, 0.14)'
+                    : 'transparent',
+                },
+              ]}
+              onPress={onToggleSave}
+              android_ripple={ripple}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSaved }}
+              accessibilityLabel={
+                isSaved ? mt(language, 'homeRemoveSavedLandmarkA11y') : mt(language, 'homeSaveLandmarkA11y')
+              }
+            >
+              <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={18} color={accent} />
+            </Pressable>
+          </View>
+          <Text style={[styles.locTitle, { color: textMain }]} numberOfLines={2} ellipsizeMode="tail">
+            {landmarkTitle(lm, langUk)}
+          </Text>
+          <Text style={[styles.locDesc, { color: textMuted }]} numberOfLines={3} ellipsizeMode="tail">
+            {desc}
+          </Text>
+        </View>
+        <Pressable
+          style={[styles.detailsBtn, { backgroundColor: accent }]}
+          onPress={onOpen}
+          android_ripple={rippleOnDarkSurface}
+        >
+          <Text style={[styles.detailsBtnText, { color: onAccentButtonText(isLight) }]}>
+            {mt(language, 'homeDetails')}
+          </Text>
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+}
 
 export default function HomeExploreSection({
   user,
@@ -200,7 +295,13 @@ export default function HomeExploreSection({
   const filteredLandmarks = useMemo(() => {
     if (!activeRegion) return [];
     const all = activeRegion.landmarks || [];
-    return all.filter((lm) => landmarkMatchesHomeCategory(lm.id, categoryId));
+    return all
+      .filter((lm) => landmarkMatchesHomeCategory(lm.id, categoryId))
+      .sort((a, b) => {
+        const da = typeof a.distKm === 'number' && Number.isFinite(a.distKm) ? a.distKm : 999;
+        const db = typeof b.distKm === 'number' && Number.isFinite(b.distKm) ? b.distKm : 999;
+        return da - db;
+      });
   }, [activeRegion, categoryId]);
 
   if (!countryId || !regions.length || !activeRegion) return null;
@@ -259,104 +360,31 @@ export default function HomeExploreSection({
         <Text style={[styles.emptyCat, { color: textMuted }]}>{mt(language, 'homeNoCategoryResults')}</Text>
       ) : (
         filteredLandmarks.map((lm) => {
-          const live =
-            userCoords != null &&
-            lm.lat != null &&
-            lm.lng != null &&
-            Number.isFinite(Number(lm.lat)) &&
-            Number.isFinite(Number(lm.lng))
-              ? haversineKm(userCoords.lat, userCoords.lng, Number(lm.lat), Number(lm.lng))
-              : null;
-          const dist =
-            live != null && Number.isFinite(live)
-              ? Math.round(live * 10) / 10
-              : typeof lm.distKm === 'number' && Number.isFinite(lm.distKm)
-                ? lm.distKm
-                : 0.5;
+          const dist = resolveHomeLandmarkDistKm(userCoords, lm, activeRegion);
           const line = mtHomePlaceLine(language, regionTitle(activeRegion, langUk), dist);
           const desc = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
           const saveKey = landmarkSaveKey(countryId, activeRegion.id, lm.id);
           const isSaved = savedKeySet.has(saveKey);
           return (
-            <Pressable
+            <LandmarkCard
               key={lm.id}
-              style={[styles.locCard, { backgroundColor: cardBg, borderColor: cardBorder }]}
-              onPress={() => openLandmark(lm, activeRegion)}
-              android_ripple={ripple}
-              accessibilityRole="button"
-              accessibilityLabel={landmarkTitle(lm, langUk)}
-            >
-              <View style={styles.locThumbCol}>
-                <Image
-                  source={
-                    lm.thumb && typeof lm.thumb === 'object' && typeof lm.thumb.uri === 'string'
-                      ? { uri: resolveOfflineUriSync(lm.thumb.uri) }
-                      : lm.thumb
-                  }
-                  style={styles.locThumbImg}
-                  resizeMode="cover"
-                />
-              </View>
-              <View style={styles.locBody}>
-                <View style={styles.locBodyTop}>
-                  <View style={styles.locTopRow}>
-                    <Text style={[styles.locMeta, { color: textMain }]} numberOfLines={1}>
-                      {activeRegion.flag} {line}
-                    </Text>
-                    <Pressable
-                      style={[
-                        styles.saveCircle,
-                        {
-                          borderColor: isLight ? 'rgba(2, 18, 235, 0.45)' : 'rgba(225,255,0,0.45)',
-                          backgroundColor: isSaved
-                            ? isLight
-                              ? 'rgba(2, 18, 235, 0.12)'
-                              : 'rgba(225, 255, 0, 0.14)'
-                            : 'transparent',
-                        },
-                      ]}
-                      onPress={() => onToggleSaveLandmark(lm, activeRegion)}
-                      android_ripple={ripple}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: isSaved }}
-                      accessibilityLabel={
-                        isSaved ? mt(language, 'homeRemoveSavedLandmarkA11y') : mt(language, 'homeSaveLandmarkA11y')
-                      }
-                    >
-                      <Ionicons
-                        name={isSaved ? 'bookmark' : 'bookmark-outline'}
-                        size={18}
-                        color={accent}
-                      />
-                    </Pressable>
-                  </View>
-                  <Text
-                    style={[styles.locTitle, { color: textMain }]}
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                  >
-                    {landmarkTitle(lm, langUk)}
-                  </Text>
-                  <Text
-                    style={[styles.locDesc, { color: textMuted }]}
-                    numberOfLines={3}
-                    ellipsizeMode="tail"
-                  >
-                    {desc}
-                  </Text>
-                </View>
-                <Pressable
-                  style={[styles.detailsBtn, { backgroundColor: accent }]}
-                  onPress={() => openLandmark(lm, activeRegion)}
-                  android_ripple={rippleOnDarkSurface}
-                >
-                  <Text style={[styles.detailsBtnText, { color: onAccentButtonText(isLight) }]}>
-                    {mt(language, 'homeDetails')}
-                  </Text>
-                </Pressable>
-              </View>
-            </Pressable>
+              lm={lm}
+              line={line}
+              desc={desc}
+              isSaved={isSaved}
+              isLight={isLight}
+              accent={accent}
+              cardBg={cardBg}
+              cardBorder={cardBorder}
+              textMain={textMain}
+              textMuted={textMuted}
+              langUk={langUk}
+              language={language}
+              ripple={ripple}
+              regionFlag={activeRegion.flag}
+              onOpen={() => openLandmark(lm, activeRegion)}
+              onToggleSave={() => onToggleSaveLandmark(lm, activeRegion)}
+            />
           );
         })
       )}

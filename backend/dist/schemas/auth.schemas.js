@@ -21,6 +21,9 @@ export const loginSchema = z.object({
 export const googleSchema = z.object({
     id_token: z.string().min(1),
 });
+export const firebaseSchema = z.object({
+    id_token: z.string().min(1),
+});
 export const appleSchema = z.object({
     identity_token: z.string().min(1),
     user: z
@@ -28,6 +31,9 @@ export const appleSchema = z.object({
         name: z.string().optional(),
     })
         .optional(),
+});
+export const facebookSchema = z.object({
+    access_token: z.string().min(1),
 });
 export const refreshSchema = z.object({
     refresh_token: z.string().min(1),

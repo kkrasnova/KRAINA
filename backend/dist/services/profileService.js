@@ -12,10 +12,41 @@ function sanitizeLikeFragment(s) {
 }
 export async function searchProfilesForViewer(viewerId, q, limit = 24) {
     const raw = sanitizeLikeFragment(String(q || '').replace(/^@/, '')).slice(0, 80);
-    if (raw.length < 1)
-        return [];
-    const namePattern = `%${raw}%`;
     const lim = Math.min(40, Math.max(1, limit));
+    // Empty query → "browse people": return real, recently-joined public profiles
+    // so Discover is populated with actual registered users (not Firestore-only).
+    if (raw.length < 1) {
+        const browse = await pool.query(`SELECT p.user_id::text AS user_id,
+              p.username,
+              p.display_name,
+              p.avatar_url,
+              p.bio,
+              p.is_public,
+              EXISTS (
+                SELECT 1 FROM follows f
+                WHERE f.follower_id = $1::uuid AND f.following_id = p.user_id
+              ) AS is_following
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       WHERE u.status <> 'deleted'
+         AND ($1::uuid IS NULL OR p.user_id <> $1::uuid)
+         AND p.username IS NOT NULL AND trim(p.username) <> ''
+         AND COALESCE(p.is_public, true) = true
+       ORDER BY u.created_at DESC NULLS LAST, p.username ASC
+       LIMIT $2`, [viewerId, lim]);
+        return browse.rows.map((row) => ({
+            user_id: String(row.user_id),
+            username: String(row.username),
+            display_name: row.display_name == null || String(row.display_name).trim() === ''
+                ? null
+                : String(row.display_name).trim(),
+            avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+            bio: row.bio == null ? null : String(row.bio),
+            is_following: Boolean(row.is_following),
+            is_public: row.is_public == null ? true : Boolean(row.is_public),
+        }));
+    }
+    const namePattern = `%${raw}%`;
     const r = await pool.query(`SELECT p.user_id::text AS user_id,
             p.username,
             p.display_name,
@@ -123,6 +154,17 @@ function normalizeSavedRoutePlans(rowVal) {
     }
     return [];
 }
+/** Лічильники з таблиці `follows` — не з кешованих колонок profiles (уникає розсинхрону). */
+async function loadLiveSocialCounts(userId) {
+    const r = await pool.query(`SELECT
+       (SELECT COUNT(*)::int FROM follows WHERE following_id = $1::uuid) AS followers_count,
+       (SELECT COUNT(*)::int FROM follows WHERE follower_id = $1::uuid) AS following_count`, [userId]);
+    const row = r.rows[0];
+    return {
+        followers_count: Number(row?.followers_count || 0),
+        following_count: Number(row?.following_count || 0),
+    };
+}
 function mapProfileRow(row) {
     return {
         id: String(row.id),
@@ -167,7 +209,9 @@ export async function getProfileMe(userId) {
     if (!pr.rowCount) {
         throw new HttpError(404, 'profile_not_found');
     }
-    const profile = mapProfileRow(pr.rows[0]);
+    const profileBase = mapProfileRow(pr.rows[0]);
+    const liveCounts = await loadLiveSocialCounts(userId);
+    const profile = { ...profileBase, ...liveCounts };
     const subscription = await loadActiveSubscription(userId);
     const usage = await loadUsage(userId);
     return { profile, subscription, usage };
@@ -369,6 +413,7 @@ export async function getPublicProfileByUsername(username, viewerUserId) {
     const birthDate = pgDateToIso(row.birth_date);
     const isOwnerViewer = Boolean(viewerUserId && viewerUserId === ownerId);
     const showBirthToViewer = isOwnerViewer || Boolean(row.birth_date_public);
+    const liveCounts = await loadLiveSocialCounts(ownerId);
     return {
         username: String(row.username),
         avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
@@ -383,8 +428,8 @@ export async function getPublicProfileByUsername(username, viewerUserId) {
         xp_points: Number.isFinite(Number(row.xp_points)) ? Number(row.xp_points) : 0,
         locations_visited: Number(row.locations_visited),
         routes_created: Number(row.routes_created),
-        followers_count: Number(row.followers_count),
-        following_count: Number(row.following_count),
+        followers_count: liveCounts.followers_count,
+        following_count: liveCounts.following_count,
         user_id: ownerId,
         is_following: isFollowing,
         is_public: isPublic,

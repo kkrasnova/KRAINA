@@ -94,7 +94,7 @@ router.post('/follow', authenticateToken, withIdempotency, async (req, res, next
     const parsed = followBodySchema.safeParse(req.body);
     if (!parsed.success) throw new HttpError(400, 'invalid_body');
     const out = await followByUsername(me, parsed.data.username.replace(/^@/, ''));
-    res.status(200).json({ ok: true, pending: out.pending });
+    res.status(200).json({ ok: true, pending: out.pending, user_id: out.user_id });
   } catch (e) {
     next(e);
   }
@@ -107,7 +107,7 @@ router.post('/follow/by-id', authenticateToken, withIdempotency, async (req, res
     const userId = String(req.body?.user_id || '').trim();
     if (!userId) throw new HttpError(400, 'invalid_body');
     const out = await followByUserId(me, userId);
-    res.status(200).json({ ok: true, pending: out.pending });
+    res.status(200).json({ ok: true, pending: out.pending, user_id: out.user_id });
   } catch (e) {
     next(e);
   }

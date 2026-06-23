@@ -8,7 +8,6 @@ import {
   ScrollView,
   FlatList,
   Pressable,
-  Image,
   Platform,
   Alert,
   Share,
@@ -18,13 +17,16 @@ import {
   ActivityIndicator,
   DeviceEventEmitter,
   useWindowDimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 
 import { Video, ResizeMode } from './expoAvCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import PddHeaderWordmark from './PddHeaderWordmark';
+import { useAppTheme } from './useAppTheme';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
@@ -32,16 +34,19 @@ import { RenderProfiler, markEnd } from './performanceMetrics';
 import { ft } from './feedI18n';
 import { pf } from './profileI18n';
 import { routeRegionTitle } from './routePlanTitles';
-import { getUserFeedPosts, getLatestUserStory } from './feedLocalStorage';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { getUserFeedPosts, getLatestUserStory, removeUserFeedPost, getFeedPostBackendId } from './feedLocalStorage';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
+import { brandFontHeadMedium } from './brandFont';
 import {
   hasFeedApiToken,
-  feedListFriendsPosts,
-  feedListWorldPosts,
-  feedListStoriesTray,
+  ensureFeedApiReady,
+  ensureFeedSocialReady,
   feedTogglePostLike,
+  feedTogglePostRepost,
+  feedToggleCommentLike,
+  feedDeletePostComment,
   feedListPostComments,
   feedAddPostComment,
 } from './feedApi';
@@ -49,28 +54,143 @@ import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { hydrateRoutePlan } from './profileStorage';
 import { hasMessageApiToken, messagesOpenThread, messagesSendText, socialListMutuals } from './messageApi';
 import { useAuthStore } from './auth/authStore';
-import { emitFeedMediaUpdated, KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
-
+import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
+import { KRAINA_PROFILE_ME_UPDATED } from './profileMeSync';
+import ProfileAvatarCircle, { useViewerProfileAvatarUri } from './ProfileAvatarCircle';
+import { KRAINA_PROFILE_AVATAR_CHANGED } from './profileStorage';
+import {
+  storyAvatarRingStyle,
+  shouldShowStoryInFeedTray,
+  STORY_TRAY_AVATAR_INNER,
+  STORY_TRAY_AVATAR_WRAP,
+} from './storyTrayUtils';
+import { useDeviceGallerySync } from './useDeviceGallerySync';
+import { prefetchDiscoverBundle, prefetchFeedBundle } from './screenLoaders';
+import { prefetchChatsForUser } from './chatsDataPrefetch';
+import { isNavigableSocialUsername } from './socialFollowSyncEvents';
+import {
+  feedCacheKey,
+  readFeedMainCache,
+  writeFeedMainCache,
+  clearFeedMainCache,
+  patchFeedMainPostStats,
+  seedFeedMainCacheIfMissing,
+  fetchFeedMainPayload,
+  FEED_MAIN_CACHE_UPDATED,
+  FEED_MAIN_CACHE_TTL,
+} from './feedMainCache';
+import { errorToUserText } from './errorText';
+import { hasBackendSession } from './backendAuthApi';
+import { isLocalFeedPostId, isServerFeedPostId, resolveBackendFeedPostId, isLocalFeedPostShadowedByApi, retrySyncLocalFeedPost, waitForFeedPostSync } from './feedPostSyncBridge';
 const CARD_LIGHT = '#FFFFFF';
 const CARD_DARK = '#141414';
 
-const AVATAR = require('./assets/person-12.png');
-
-function storyAvatarRingStyle(story, viewerId, isLight) {
-  if (!story) return { borderWidth: 0 };
-  const own = viewerId && String(story.user_id) === String(viewerId);
-  const bright = own ? (Number(story.view_count) || 0) === 0 : !story.seen_by_viewer;
-  if (isLight) {
-    return {
-      borderWidth: 3,
-      borderColor: bright ? ACCENT_BLUE : 'rgba(2, 18, 235, 0.38)',
-    };
-  }
-  return {
-    borderWidth: 3,
-    borderColor: bright ? ACCENT_LEMON : 'rgba(225, 255, 0, 0.45)',
-  };
+function formatFeedPostAge(ms, language) {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
+  const diff = Date.now() - ms;
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return langUk ? 'щойно' : 'just now';
+  if (h < 24) return `${h} ${pf(language, 'hoursAgo')}`;
+  const d = Math.floor(h / 24);
+  return `${d} ${langUk ? 'дн. назад' : 'd ago'}`;
 }
+
+const FEED_EMPTY_FRIENDS_PHOTOS = [
+  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.webp'),
+  require('./assets/carousel/photo-1615119449152-d94284eafa45.webp'),
+  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.webp'),
+];
+
+const FEED_EMPTY_WORLD_PHOTOS = [
+  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.webp'),
+  require('./assets/carousel/photo-1518684079-3c830dcef090.webp'),
+  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.webp'),
+];
+
+function FeedEmptyPlaceholder({
+  segment,
+  language,
+  isLight,
+  textMain,
+  textMuted,
+  accent,
+  onAccentTxt,
+  onCreate,
+  onFindFriends,
+  ripple,
+}) {
+  const photos = segment === 'world' ? FEED_EMPTY_WORLD_PHOTOS : FEED_EMPTY_FRIENDS_PHOTOS;
+  const photoBorder = isLight ? '#FFFFFF' : 'rgba(255, 255, 255, 0.16)';
+  const photoShadow = isLight ? '#0212EB' : '#000000';
+  const headline =
+    segment === 'world' ? ft(language, 'feedWorldEmptyHeadline') : ft(language, 'feedFriendsEmptyHeadline');
+  const hintText = segment === 'world' ? ft(language, 'worldHint') : ft(language, 'friendsHint');
+  const ctaLabel =
+    segment === 'world' ? ft(language, 'feedWorldEmptyCta') : ft(language, 'feedFriendsEmptyCta');
+  const onCta = segment === 'world' ? onCreate : onFindFriends;
+  const ctaIcon = segment === 'world' ? 'camera-outline' : 'people-outline';
+
+  return (
+    <View style={styles.feedEmptyWrap}>
+      <View style={styles.feedEmptyStage}>
+        <View style={styles.feedEmptyPhotoRow} pointerEvents="none">
+          {photos.map((source, idx) => {
+            const center = idx === 1;
+            return (
+              <ExpoImage
+                key={`feed-empty-${segment}-${String(idx)}`}
+                source={source}
+                style={[
+                  styles.feedEmptyPhoto,
+                  center ? styles.feedEmptyPhotoCenter : null,
+                  {
+                    borderColor: photoBorder,
+                    transform: [{ rotate: idx === 0 ? '-10deg' : idx === 2 ? '10deg' : '0deg' }],
+                    marginLeft: idx === 0 ? 0 : -26,
+                    zIndex: center ? 3 : idx === 0 ? 1 : 2,
+                    opacity: center ? 1 : 0.88,
+                    ...(Platform.OS === 'ios'
+                      ? {
+                          shadowColor: photoShadow,
+                          shadowOffset: { width: 0, height: center ? 10 : 6 },
+                          shadowOpacity: isLight ? 0.18 : 0.35,
+                          shadowRadius: center ? 16 : 10,
+                        }
+                      : { elevation: center ? 6 : 3 }),
+                  },
+                ]}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+              />
+            );
+          })}
+        </View>
+
+        <Text style={[styles.feedEmptyTitle, brandFontHeadMedium, { color: textMain }]} numberOfLines={2}>
+          {headline}
+        </Text>
+        <Text style={[styles.feedEmptyHint, { color: textMuted }]}>{hintText}</Text>
+      </View>
+
+      {onCta ? (
+        <Pressable
+          onPress={onCta}
+          style={({ pressed }) => [
+            styles.feedEmptyCta,
+            { backgroundColor: accent, opacity: pressed ? 0.92 : 1 },
+          ]}
+          android_ripple={ripple}
+        >
+          <Ionicons name={ctaIcon} size={22} color={onAccentTxt} />
+          <Text style={[styles.feedEmptyCtaTxt, { color: onAccentTxt }]}>{ctaLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 
 const MemoFeedHeader = React.memo(function MemoFeedHeader({ appTheme, insetsTop, onAdd, onMessages }) {
   const isLight = appTheme === 'light';
@@ -79,6 +199,7 @@ const MemoFeedHeader = React.memo(function MemoFeedHeader({ appTheme, insetsTop,
     : require('./assets/11221.png');
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const iconColor = isLight ? '#1E1E1E' : '#FFFFFF';
+  const addCircleBorder = isLight ? 'rgba(30,30,30,0.18)' : 'rgba(255,255,255,0.35)';
 
   return (
     <View
@@ -87,7 +208,6 @@ const MemoFeedHeader = React.memo(function MemoFeedHeader({ appTheme, insetsTop,
         {
           paddingTop: insetsTop,
           backgroundColor: isLight ? LIGHT_BAR_BG : APP_SCREEN_BG,
-          borderBottomColor: isLight ? 'rgba(30, 30, 30, 0.1)' : 'rgba(255, 255, 255, 0.08)',
         },
       ]}
     >
@@ -96,19 +216,19 @@ const MemoFeedHeader = React.memo(function MemoFeedHeader({ appTheme, insetsTop,
           <Pressable
             onPress={onAdd}
             hitSlop={12}
-            style={({ pressed }) => [
-              styles.addCircle,
-              { borderColor: isLight ? '#000000' : '#FFFFFF', borderWidth: 1.5 },
-              pressed && styles.pressedIOS,
-            ]}
+            style={({ pressed }) => [styles.addHit, pressed && styles.pressedIOS]}
             android_ripple={ripple}
             accessibilityRole="button"
             accessibilityLabel="Add"
           >
-            <Ionicons name="add" size={22} color={iconColor} />
+            <View style={[styles.addCircleBtn, { borderColor: addCircleBorder }]}>
+              <Ionicons name="add" size={22} color={iconColor} />
+            </View>
           </Pressable>
         </View>
-        <View style={styles.feedHeaderCenter} pointerEvents="none" />
+        <View style={styles.feedHeaderCenter} pointerEvents="none">
+          <PddHeaderWordmark isLight={isLight} fontSize={isLight ? 20 : 21} />
+        </View>
         <View style={[styles.feedHeaderSide, styles.feedHeaderSideRight]}>
           <Pressable
             onPress={onMessages}
@@ -118,7 +238,7 @@ const MemoFeedHeader = React.memo(function MemoFeedHeader({ appTheme, insetsTop,
             accessibilityRole="button"
             accessibilityLabel="Messages"
           >
-            <Image source={sendIcon} style={styles.sendImg} resizeMode="contain" accessibilityIgnoresInvertColors />
+            <ExpoImage source={sendIcon} style={styles.sendImg} contentFit="contain" cachePolicy="memory-disk" transition={0} />
           </Pressable>
         </View>
       </View>
@@ -134,10 +254,12 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
   const slideStyle = useMemo(() => [styles.postImage, { width: slideW }], [slideW]);
   if (!media.length) {
     return (
-      <Image
+      <ExpoImage
         source={post?.isUri ? { uri: post?.image } : post?.image}
         style={slideStyle}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={0}
       />
     );
   }
@@ -153,7 +275,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
         shouldPlay={false}
       />
     ) : (
-      <Image source={{ uri: one }} style={slideStyle} resizeMode="cover" />
+      <ExpoImage source={{ uri: one }} style={slideStyle} contentFit="cover" cachePolicy="memory-disk" transition={0} />
     );
   }
   return (
@@ -186,7 +308,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
               shouldPlay={false}
             />
           ) : (
-            <Image source={{ uri: u }} style={slideStyle} resizeMode="cover" />
+            <ExpoImage source={{ uri: u }} style={slideStyle} contentFit="cover" cachePolicy="memory-disk" transition={0} />
           );
         }}
       />
@@ -203,53 +325,80 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
   );
 });
 
-export default function FeedPage({ navigation, route }) {
+export default function FeedPage({ navigation, route, isTabActive = true }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const { appTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
   const [segment, setSegment] = useState('friends');
+  const user = route?.params?.user;
+  const userKey = String(user?.id || user?.email || '');
+  const mainCacheKey = feedCacheKey(user);
   const [userPosts, setUserPosts] = useState([]);
   const [userStory, setUserStory] = useState(null);
-  const [apiFriendsPosts, setApiFriendsPosts] = useState(null);
-  const [apiWorldPosts, setApiWorldPosts] = useState(null);
-  const [trayStories, setTrayStories] = useState([]);
-  const feedApiCache = useRef({});
-  const FEED_API_CACHE_TTL = 120000;
-  const FEED_CACHE_KEY = 'feed_main';
+  const [apiFriendsPosts, setApiFriendsPosts] = useState(() => {
+    seedFeedMainCacheIfMissing(mainCacheKey);
+    return readFeedMainCache(mainCacheKey)?.fp ?? null;
+  });
+  const [apiWorldPosts, setApiWorldPosts] = useState(() => {
+    seedFeedMainCacheIfMissing(mainCacheKey);
+    return readFeedMainCache(mainCacheKey)?.wp ?? null;
+  });
+  const [trayStories, setTrayStories] = useState(() => {
+    seedFeedMainCacheIfMissing(mainCacheKey);
+    return readFeedMainCache(mainCacheKey)?.st ?? [];
+  });
   const [postLikeMap, setPostLikeMap] = useState({});
   const [postLikeCountMap, setPostLikeCountMap] = useState({});
+  const [postRepostMap, setPostRepostMap] = useState({});
+  const [postRepostCountMap, setPostRepostCountMap] = useState({});
   const [postCommentCountMap, setPostCommentCountMap] = useState({});
   const [commentModalPost, setCommentModalPost] = useState(null);
   const [commentList, setCommentList] = useState([]);
+  const [commentLikeMap, setCommentLikeMap] = useState({});
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [actionBusyMap, setActionBusyMap] = useState({});
 
-  const user = route?.params?.user;
+  const profileMeDisplayName = useAuthStore((s) => {
+    const dn = s.profileMe?.profile?.display_name;
+    return dn != null && String(dn).trim() ? String(dn).trim() : '';
+  });
   const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
   const viewerUserId = profileMeUserId ? String(profileMeUserId) : String(user?.id || '');
+  const viewerAvatarUri = useViewerProfileAvatarUri(user);
 
-  /** При події оновлення медіа (новий пост, лайк, коментар) — чистимо кеш, щоб стрічка оновилася при наступному фокусі. */
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, () => {
-      if (__DEV__) console.log('[Cache] FeedPage media updated — cache cleared');
-      feedApiCache.current = {};
-    });
-    return () => sub.remove();
-  }, []);
+  const { latest: deviceGalleryLatest, items: deviceGalleryItems } = useDeviceGallerySync({
+    enabled: isTabActive && !!viewerUserId,
+    limit: 12,
+  });
 
   const fetchApiFeed = useCallback(async () => {
-    if (!hasFeedApiToken()) return null;
-    try {
-      const [fp, wp, st] = await Promise.all([
-        feedListFriendsPosts(50),
-        feedListWorldPosts(50),
-        feedListStoriesTray(),
-      ]);
-      return { fp: Array.isArray(fp) ? fp : [], wp: Array.isArray(wp) ? wp : [], st: Array.isArray(st) ? st : [] };
-    } catch {
-      return null;
-    }
-  }, []);
+    const viewerId = profileMeUserId ? String(profileMeUserId) : String(user?.id || '');
+    return fetchFeedMainPayload(user, viewerId);
+  }, [profileMeUserId, user?.id, user?.firebaseUid, user?.email]);
+
+  const pruneShadowedLocalPosts = useCallback(
+    async (apiPosts) => {
+      if (!user || !viewerUserId || !Array.isArray(apiPosts)) return;
+      try {
+        const locals = await getUserFeedPosts(user);
+        await Promise.all(
+          locals
+            .filter(
+              (local) =>
+                isLocalFeedPostId(local.id) &&
+                isLocalFeedPostShadowedByApi(local, apiPosts, viewerUserId),
+            )
+            .map((local) => removeUserFeedPost(user, local.id)),
+        );
+        const nextLocals = await getUserFeedPosts(user);
+        setUserPosts(nextLocals);
+      } catch {
+        /* */
+      }
+    },
+    [user, viewerUserId],
+  );
 
   /** Застосувати результат API-запиту до стейтів. */
   const applyApiResult = useCallback((apiResult) => {
@@ -262,79 +411,190 @@ export default function FeedPage({ navigation, route }) {
     setApiFriendsPosts(apiResult.fp);
     setApiWorldPosts(apiResult.wp);
     setTrayStories(apiResult.st);
-  }, []);
+    void pruneShadowedLocalPosts(apiResult.fp);
+  }, [pruneShadowedLocalPosts]);
+
+  /** При події оновлення медіа — повний refetch лише для нових постів/історій. */
+  useEffect(() => {
+    const subMedia = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
+      if (payload?.postId && !payload?.kind) return;
+      if (__DEV__) console.log('[Cache] FeedPage media updated — cache cleared');
+
+      if (payload?.kind === 'post' && payload?.post && !payload?.synced) {
+        const local = payload.post;
+        const authorId = String(payload.userId || profileMeUserId || user?.id || '');
+        const visibility = payload?.visibility === 'public' ? 'public' : 'followers';
+        const optimistic = {
+          id: String(local.id),
+          user_id: authorId,
+          username: profileMeDisplayName || user?.name || user?.email?.split('@')[0] || '',
+          content_text: local.caption || '',
+          media_urls: (Array.isArray(local.uris) ? local.uris : local.uri ? [local.uri] : []).filter(Boolean),
+          visibility,
+          place_label: local.place || '',
+          lat: local.lat ?? null,
+          lng: local.lng ?? null,
+          route_plan: local.route_plan || null,
+          likes_count: 0,
+          comments_count: 0,
+          reposts_count: 0,
+          liked_by_viewer: false,
+          reposted_by_viewer: false,
+          created_at: new Date(local.createdAt || Date.now()).toISOString(),
+        };
+        const insertOptimistic = (prev) => {
+          const list = Array.isArray(prev) ? prev : [];
+          if (list.some((p) => String(p.id) === String(local.id))) return list;
+          return [optimistic, ...list];
+        };
+        // Always show the freshly published post in the viewer's own friends
+        // feed, and additionally in the world feed when it's public — so it
+        // appears immediately regardless of which tab the user is on.
+        setApiFriendsPosts(insertOptimistic);
+        if (visibility === 'public') {
+          setApiWorldPosts(insertOptimistic);
+        }
+      }
+
+      if (payload?.synced && payload?.localPostId && payload?.postId) {
+        const localId = String(payload.localPostId);
+        const backendId = String(payload.postId);
+        const replaceId = (prev) => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map((p) => (String(p.id) === localId ? { ...p, id: backendId } : p));
+        };
+        setApiFriendsPosts(replaceId);
+        setApiWorldPosts(replaceId);
+      }
+
+      clearFeedMainCache(mainCacheKey);
+      void (async () => {
+        if (!user?.id && !user?.firebaseUid && !user?.email) return;
+        const [posts, story] = await Promise.all([getUserFeedPosts(user), getLatestUserStory(user)]);
+        setUserPosts(posts);
+        setUserStory(story);
+        await ensureFeedApiReady(user);
+        const apiResult = await fetchApiFeed();
+        if (apiResult) {
+          applyApiResult(apiResult);
+          writeFeedMainCache(mainCacheKey, apiResult);
+        }
+      })();
+    });
+    const subAvatar = DeviceEventEmitter.addListener(KRAINA_PROFILE_AVATAR_CHANGED, () => {
+      clearFeedMainCache(mainCacheKey);
+    });
+    const subProfile = DeviceEventEmitter.addListener(KRAINA_PROFILE_ME_UPDATED, () => {
+      clearFeedMainCache(mainCacheKey);
+      void useAuthStore.getState().loadProfileMeIfStale(0);
+    });
+    const subCache = DeviceEventEmitter.addListener(FEED_MAIN_CACHE_UPDATED, ({ key }) => {
+      if (key !== mainCacheKey) return;
+      const cached = readFeedMainCache(mainCacheKey);
+      if (cached) applyApiResult(cached);
+    });
+    return () => {
+      subMedia.remove();
+      subAvatar.remove();
+      subProfile.remove();
+      subCache.remove();
+    };
+  }, [user, mainCacheKey, fetchApiFeed, applyApiResult, profileMeUserId, profileMeDisplayName, user?.id, user?.name, user?.email]);
+
+  const [feedVisibleEpoch, setFeedVisibleEpoch] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      (async () => {
+      if (!isTabActive) return undefined;
+      setFeedVisibleEpoch((n) => n + 1);
+      return undefined;
+    }, [isTabActive]),
+  );
+
+  useEffect(() => {
+    if (!isTabActive || feedVisibleEpoch === 0) return undefined;
+    let cancelled = false;
+    (async () => {
         if (!user?.id && !user?.firebaseUid && !user?.email) return;
-        const [posts, story] = await Promise.all([getUserFeedPosts(user), getLatestUserStory(user)]);
-        if (!cancelled) {
-          setUserPosts(posts);
-          setUserStory(story);
-        }
 
-        // Кеш для API-даних (friends + world + stories tray)
-        const cached = feedApiCache.current[FEED_CACHE_KEY];
-        const cacheFresh = cached && Date.now() - cached.at < FEED_API_CACHE_TTL;
+        const cached = readFeedMainCache(mainCacheKey);
+        const cacheFresh = cached && Date.now() - cached.at < FEED_MAIN_CACHE_TTL;
 
-        // Fresh cache → використати, без API-запиту
-        if (!cancelled && cacheFresh) {
-          if (__DEV__) console.log(`[Cache] FeedPage HIT fresh age=${Date.now() - cached.at}ms`);
-          applyApiResult(cached.data);
-          markEnd('feed_interactive');
-          return;
-        }
-
-        // Stale cache → показати негайно, фонова ревалідація
         if (!cancelled && cached) {
-          if (__DEV__) console.log(`[Cache] FeedPage STALE hit age=${Date.now() - cached.at}ms — background revalidation`);
-          applyApiResult(cached.data);
+          applyApiResult(cached);
           markEnd('feed_interactive');
+          if (cacheFresh) {
+            if (__DEV__) console.log(`[Cache] FeedPage HIT fresh age=${Date.now() - cached.at}ms`);
+            void Promise.all([getUserFeedPosts(user), getLatestUserStory(user)]).then(([posts, story]) => {
+              if (!cancelled) {
+                setUserPosts(posts);
+                setUserStory(story);
+              }
+            });
+            return;
+          }
+          if (__DEV__) console.log(`[Cache] FeedPage STALE hit age=${Date.now() - cached.at}ms — background revalidation`);
         } else if (__DEV__ && !cancelled) {
           console.log(`[Cache] FeedPage MISS`);
         }
 
+        const localPromise = Promise.all([getUserFeedPosts(user), getLatestUserStory(user)]).then(
+          ([posts, story]) => {
+            if (!cancelled) {
+              setUserPosts(posts);
+              setUserStory(story);
+            }
+          },
+        );
+
+        if (cancelled) return;
+
+        await ensureFeedApiReady(user);
+        if (cancelled) return;
+        if (useAuthStore.getState().accessToken) {
+          try {
+            await useAuthStore.getState().loadProfileMeIfStale();
+          } catch {
+            /* */
+          }
+        }
         if (cancelled) return;
 
         const apiResult = await fetchApiFeed();
         if (cancelled) return;
 
         if (apiResult) {
-          feedApiCache.current[FEED_CACHE_KEY] = { at: Date.now(), data: apiResult };
+          writeFeedMainCache(mainCacheKey, apiResult);
           applyApiResult(apiResult);
           if (__DEV__) console.log(`[Cache] FeedPage refreshed from API`);
         } else if (!cached) {
-          // No cache and API failed — set null
           applyApiResult(null);
         }
+        await localPromise;
         markEnd('feed_interactive');
       })();
-      return () => {
-        cancelled = true;
-      };
-    }, [user?.id, user?.firebaseUid, user?.email, fetchApiFeed, applyApiResult]),
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
     return () => {
       cancelled = true;
-      sub.remove();
     };
-  }, []);
+  }, [feedVisibleEpoch, isTabActive, user?.id, user?.firebaseUid, user?.email, mainCacheKey, fetchApiFeed, applyApiResult]);
 
-  const isLight = appTheme === 'light';
+  useEffect(() => {
+    if (!isTabActive) return undefined;
+    const subSession = DeviceEventEmitter.addListener('kraina_backend_session_merged_v1', () => {
+      setFeedVisibleEpoch((n) => n + 1);
+    });
+    return () => subSession.remove();
+  }, [isTabActive]);
+
+  useEffect(() => {
+    if (!isTabActive) return;
+    setFeedVisibleEpoch((n) => n + 1);
+    prefetchFeedBundle(user);
+  }, [isTabActive, user?.id, user?.firebaseUid, user?.email]);
+
   const accent = accentForTheme(isLight);
-  const bg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
+  const onAccentTxt = onAccentButtonText(isLight);
+  const bg = screenBg;
   const textMain = isLight ? '#1E1E1E' : 'rgba(255,255,255,0.9)';
   const textMuted = isLight ? '#5C5C5C' : '#9A9A9A';
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
@@ -353,7 +613,9 @@ export default function FeedPage({ navigation, route }) {
     const displayName =
       user?.name || (user?.email ? String(user.email).split('@')[0] : '') || ft(language, 'me');
     const mapApi = (p) => {
-      const mediaUrls = Array.isArray(p.media_urls) ? p.media_urls.filter(Boolean).map(String) : [];
+      const mediaUrls = Array.isArray(p.media_urls)
+        ? p.media_urls.filter(Boolean).map((u) => resolveFeedMediaUrl(String(u)))
+        : [];
       const url = mediaUrls[0] || '';
       const isVid = /\.(mp4|mov)(\?|$)/i.test(String(url));
       return {
@@ -361,66 +623,311 @@ export default function FeedPage({ navigation, route }) {
         authorUserId: p.user_id ? String(p.user_id) : '',
         scope: p.visibility === 'public' ? 'world' : 'friends',
         name: p.username || '—',
-        place: p.place_label || '—',
+        place: (p.place_label && String(p.place_label).trim()) || '',
         image: url,
         media_urls: mediaUrls,
         isUri: true,
         isVideo: isVid,
-        avatarUrl: p.avatar_url || null,
+        avatarUrl: p.avatar_url ? resolveFeedMediaUrl(String(p.avatar_url)) : null,
         caption: p.content_text || '',
         route_plan: p.route_plan || null,
         lat: p.lat != null ? Number(p.lat) : null,
         lng: p.lng != null ? Number(p.lng) : null,
         likedByViewer: Boolean(p.liked_by_viewer),
+        repostedByViewer: Boolean(p.reposted_by_viewer),
         likesCount: Number(p.likes_count) || 0,
+        repostsCount: Number(p.reposts_count) || 0,
         commentsCount: Number(p.comments_count) || 0,
+        createdAtMs: p.created_at ? new Date(String(p.created_at)).getTime() : 0,
       };
-    };
+  };
+  const mapLocal = (p) => ({
+    id: p.id,
+    authorUserId: viewerUserId || '',
+    scope:
+      p.scope === 'world' || p.visibility === 'public' ? 'world' : 'friends',
+    name: displayName,
+    place: (p.place && String(p.place).trim()) || '',
+    image: p.uris?.[0] || p.uri,
+    media_urls: Array.isArray(p.uris) && p.uris.length ? p.uris : p.uri ? [p.uri] : [],
+    isUri: true,
+    isVideo: /\.(mp4|mov)(\?|$)/i.test(String(p.uris?.[0] || p.uri || '')),
+    avatarUrl: viewerAvatarUri || null,
+    caption: p.caption || '',
+    route_plan: p.route_plan || null,
+    lat: p.lat != null ? Number(p.lat) : null,
+    lng: p.lng != null ? Number(p.lng) : null,
+    likedByViewer: false,
+    likesCount: 0,
+    commentsCount: 0,
+    createdAtMs: p.createdAt ? Number(p.createdAt) : Date.now(),
+  });
     const apiList = segment === 'world' ? apiWorldPosts : apiFriendsPosts;
-    if (apiList && apiList.length) {
-      return apiList.map(mapApi);
+
+    if (hasFeedApiToken()) {
+      if (!Array.isArray(apiList)) return [];
+      const mapped = apiList.map(mapApi);
+      if (segment === 'world') return mapped;
+      // For friends segment: always add unsynced local posts on top of API posts
+      const apiIds = new Set(mapped.map((p) => String(p.id)));
+      const localExtras = userPosts
+        .filter(
+          (p) =>
+            isLocalFeedPostId(p.id) &&
+            !apiIds.has(String(p.id)) &&
+            !isLocalFeedPostShadowedByApi(p, apiList, viewerUserId),
+        )
+        .map(mapLocal);
+      return localExtras.length ? [...localExtras, ...mapped] : mapped;
     }
-    const local = userPosts.map((p) => ({
-      id: p.id,
-      scope: 'friends',
-      name: displayName,
-      place: p.place || '—',
-      image: p.uris?.[0] || p.uri,
-      media_urls: Array.isArray(p.uris) && p.uris.length ? p.uris : p.uri ? [p.uri] : [],
-      isUri: true,
-      isVideo: /\.(mp4|mov)(\?|$)/i.test(String(p.uris?.[0] || p.uri || '')),
-      avatarUrl: null,
-      caption: p.caption || '',
-      route_plan: p.route_plan || null,
-      lat: p.lat != null ? Number(p.lat) : null,
-      lng: p.lng != null ? Number(p.lng) : null,
-      likedByViewer: false,
-      likesCount: 0,
-      commentsCount: 0,
-    }));
-    return local;
-  }, [userPosts, segment, user, language, apiFriendsPosts, apiWorldPosts]);
+
+    if (apiList && apiList.length) {
+      const mapped = apiList.map(mapApi);
+      if (segment === 'world') return mapped;
+      const apiIds = new Set(mapped.map((p) => String(p.id)));
+      const localExtras = userPosts
+        .filter(
+          (p) =>
+            !apiIds.has(String(p.id)) && !isLocalFeedPostShadowedByApi(p, apiList, viewerUserId),
+        )
+        .map(mapLocal);
+      return localExtras.length ? [...mapped, ...localExtras] : mapped;
+    }
+    return userPosts.map(mapLocal);
+  }, [
+    userPosts,
+    segment,
+    userKey,
+    user?.name,
+    user?.email,
+    language,
+    apiFriendsPosts,
+    apiWorldPosts,
+    viewerAvatarUri,
+    viewerUserId,
+  ]);
+
+  const feedReady = !hasFeedApiToken() || (segment === 'world' ? apiWorldPosts : apiFriendsPosts) !== null;
+  const showFeedEmpty = posts.length === 0 && feedReady;
+
+  const syncCountMapsFromPosts = useCallback((sourcePosts) => {
+    setPostLikeMap((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== sourcePosts.length;
+      sourcePosts.forEach((p) => {
+        const id = String(p.id);
+        const v = prev[id] != null ? prev[id] : !!p.likedByViewer;
+        next[id] = v;
+        if (prev[id] !== v) changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setPostLikeCountMap((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== sourcePosts.length;
+      sourcePosts.forEach((p) => {
+        const id = String(p.id);
+        const v = Number.isFinite(Number(prev[id])) ? Number(prev[id]) : Number(p.likesCount) || 0;
+        next[id] = v;
+        if (prev[id] !== v) changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setPostRepostMap((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== sourcePosts.length;
+      sourcePosts.forEach((p) => {
+        const id = String(p.id);
+        const v = prev[id] != null ? prev[id] : !!p.repostedByViewer;
+        next[id] = v;
+        if (prev[id] !== v) changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setPostRepostCountMap((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== sourcePosts.length;
+      sourcePosts.forEach((p) => {
+        const id = String(p.id);
+        const v = Number.isFinite(Number(prev[id])) ? Number(prev[id]) : Number(p.repostsCount) || 0;
+        next[id] = v;
+        if (prev[id] !== v) changed = true;
+      });
+      return changed ? next : prev;
+    });
+    setPostCommentCountMap((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== sourcePosts.length;
+      sourcePosts.forEach((p) => {
+        const id = String(p.id);
+        const v = Number.isFinite(Number(prev[id])) ? Number(prev[id]) : Number(p.commentsCount) || 0;
+        next[id] = v;
+        if (prev[id] !== v) changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
 
   useEffect(() => {
-    const nextLike = {};
-    const nextLikeCount = {};
-    const nextCommentCount = {};
-    posts.forEach((p) => {
-      const id = String(p.id);
-      nextLike[id] = postLikeMap[id] != null ? postLikeMap[id] : !!p.likedByViewer;
-      nextLikeCount[id] = Number.isFinite(Number(postLikeCountMap[id]))
-        ? Number(postLikeCountMap[id])
-        : Number(p.likesCount) || 0;
-      nextCommentCount[id] = Number.isFinite(Number(postCommentCountMap[id]))
-        ? Number(postCommentCountMap[id])
-        : Number(p.commentsCount) || 0;
-    });
-    setPostLikeMap(nextLike);
-    setPostLikeCountMap(nextLikeCount);
-    setPostCommentCountMap(nextCommentCount);
-  }, [posts]);
+    syncCountMapsFromPosts(posts);
+  }, [posts, syncCountMapsFromPosts]);
 
-  const openChats = () => navigation.navigate('Chats', shell);
+  const remapFeedPostId = useCallback((localId, backendId) => {
+    const lid = String(localId || '');
+    const bid = String(backendId || '');
+    if (!lid || !bid || lid === bid) return;
+    const replaceInList = (list) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((p) => (String(p.id) === lid ? { ...p, id: bid } : p));
+    };
+    setApiFriendsPosts((fp) => replaceInList(fp));
+    setApiWorldPosts((wp) => replaceInList(wp));
+    const migrateMap = (setter) => {
+      setter((prev) => {
+        if (prev[lid] == null && prev[bid] == null) return prev;
+        const next = { ...prev };
+        if (next[lid] != null) {
+          next[bid] = next[lid];
+          delete next[lid];
+        }
+        return next;
+      });
+    };
+    migrateMap(setPostLikeMap);
+    migrateMap(setPostLikeCountMap);
+    migrateMap(setPostRepostMap);
+    migrateMap(setPostRepostCountMap);
+    migrateMap(setPostCommentCountMap);
+  }, []);
+
+  const inferPostVisibility = useCallback(
+    (postId, postScope) => {
+      if (postScope === 'world') return 'public';
+      const id = String(postId || '');
+      if (apiWorldPosts?.some((p) => String(p.id) === id)) return 'public';
+      return 'followers';
+    },
+    [apiWorldPosts],
+  );
+
+  const unsyncedLocalSig = useMemo(
+    () =>
+      posts
+        .filter((p) => isLocalFeedPostId(p.id))
+        .map((p) => `${String(p.id)}:${p.scope || ''}`)
+        .join('|'),
+    [posts],
+  );
+
+  useEffect(() => {
+    if (!user?.id && !user?.firebaseUid && !user?.email) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureFeedApiReady(user);
+      } catch {
+        return;
+      }
+      if (cancelled || !hasFeedApiToken()) return;
+      for (const post of posts) {
+        if (!isLocalFeedPostId(post.id)) continue;
+        const lid = String(post.id);
+        const mapped = await getFeedPostBackendId(user, lid);
+        if (mapped) {
+          remapFeedPostId(lid, mapped);
+          continue;
+        }
+        const visibility = inferPostVisibility(lid, post.scope);
+        const backendId = await retrySyncLocalFeedPost(user, lid, { visibility });
+        if (cancelled) return;
+        if (backendId) remapFeedPostId(lid, backendId);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [unsyncedLocalSig, user, posts, inferPostVisibility, remapFeedPostId]);
+
+  const patchPostInFeedLists = useCallback(
+    (postId, stats) => {
+      const pid = String(postId || '');
+      if (!pid) return;
+      const patchList = (list) => {
+        if (!Array.isArray(list)) return list;
+        let touched = false;
+        const next = list.map((p) => {
+          if (String(p.id) !== pid) return p;
+          touched = true;
+          return {
+            ...p,
+            ...(stats.likes_count != null ? { likes_count: stats.likes_count } : {}),
+            ...(stats.liked_by_viewer != null ? { liked_by_viewer: stats.liked_by_viewer } : {}),
+            ...(stats.comments_count != null ? { comments_count: stats.comments_count } : {}),
+            ...(stats.reposts_count != null ? { reposts_count: stats.reposts_count } : {}),
+            ...(stats.reposted_by_viewer != null ? { reposted_by_viewer: stats.reposted_by_viewer } : {}),
+          };
+        });
+        return touched ? next : list;
+      };
+      setApiFriendsPosts((fp) => patchList(fp));
+      setApiWorldPosts((wp) => patchList(wp));
+      patchFeedMainPostStats(mainCacheKey, pid, stats);
+    },
+    [mainCacheKey],
+  );
+
+  const guardFeedInteraction = useCallback(
+    async (postId, postScope) => {
+      if (!user?.id && !user?.firebaseUid && !user?.email) {
+        Alert.alert('', ft(language, 'feedNeedLogin'));
+        return null;
+      }
+      let resolvedId = await resolveBackendFeedPostId(postId, { user });
+      if (postId && isLocalFeedPostId(postId) && !isServerFeedPostId(resolvedId)) {
+        await waitForFeedPostSync(postId, 45000);
+        resolvedId = await resolveBackendFeedPostId(postId, { user });
+      }
+      if (postId && isLocalFeedPostId(postId) && !isServerFeedPostId(resolvedId)) {
+        try {
+          await ensureFeedSocialReady(user);
+          if (!hasBackendSession()) {
+            Alert.alert('', ft(language, 'feedServerRequired'));
+            return null;
+          }
+          const visibility = inferPostVisibility(postId, postScope);
+          const backendId = await retrySyncLocalFeedPost(user, postId, { visibility });
+          if (backendId) {
+            remapFeedPostId(postId, backendId);
+            resolvedId = backendId;
+          }
+        } catch (e) {
+          Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+          return null;
+        }
+        if (!isServerFeedPostId(resolvedId)) {
+          Alert.alert('', ft(language, 'feedLocalPostAction'));
+          return null;
+        }
+      }
+      try {
+        await ensureFeedSocialReady(user);
+      } catch (e) {
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+        return null;
+      }
+      if (!hasBackendSession()) {
+        Alert.alert('', ft(language, 'feedServerRequired'));
+        return null;
+      }
+      return resolvedId || null;
+    },
+    [user, language, inferPostVisibility, remapFeedPostId],
+  );
+
+  const openChats = useCallback(() => {
+    prefetchChatsForUser(user, language.split(/[-_]/)[0].toLowerCase() === 'uk');
+    navigation.navigate('Chats', shell);
+  }, [navigation, shell, user, language]);
   const openCreate = useCallback(
     () =>
       navigation.navigate('FeedCamera', {
@@ -431,6 +938,16 @@ export default function FeedPage({ navigation, route }) {
     [navigation, shell, segment],
   );
 
+  const openFindFriends = useCallback(() => {
+    prefetchDiscoverBundle();
+    navigation.navigate('DiscoverPeople', shell);
+  }, [navigation, shell]);
+
+  useEffect(() => {
+    if (!isTabActive) return;
+    prefetchDiscoverBundle();
+  }, [isTabActive]);
+
   const openStoryForUser = useCallback(
     (row) => {
       if (!row?.user_id) return;
@@ -440,30 +957,34 @@ export default function FeedPage({ navigation, route }) {
         appTheme: appTheme === 'light' ? 'light' : 'dark',
         ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
         userId: String(row.user_id),
-        storyId: row.id,
         authorUsername: row.username || '',
-        authorAvatarUrl: row.avatar_url || null,
+        authorAvatarUrl: row.avatar_url ? resolveFeedMediaUrl(String(row.avatar_url)) : viewerAvatarUri || null,
         ...(row.display_name && String(row.display_name).trim()
           ? { authorDisplayName: String(row.display_name).trim() }
           : {}),
       });
     },
-    [navigation, user, language, appTheme, route?.params?.countryId],
+    [navigation, user, language, appTheme, route?.params?.countryId, viewerAvatarUri],
   );
 
   const openLocalStories = useCallback(() => {
-      const localViewerId = viewerUserId || String(user?.id || '');
-      if (!localViewerId) return;
+    const localViewerId = viewerUserId || String(user?.id || '');
+    if (!localViewerId) return;
     navigation.navigate('FeedStoryViewer', {
       user,
       language,
       appTheme: appTheme === 'light' ? 'light' : 'dark',
       ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-        userId: localViewerId,
+      userId: localViewerId,
       useLocalStories: true,
-      ...(user?.name && String(user.name).trim() ? { authorDisplayName: String(user.name).trim() } : {}),
+      ...(profileMeDisplayName
+        ? { authorDisplayName: profileMeDisplayName }
+        : user?.name && String(user.name).trim()
+          ? { authorDisplayName: String(user.name).trim() }
+          : {}),
+      ...(viewerAvatarUri ? { authorAvatarUrl: viewerAvatarUri } : {}),
     });
-  }, [navigation, user, language, appTheme, route?.params?.countryId, viewerUserId]);
+  }, [navigation, user, language, appTheme, route?.params?.countryId, viewerUserId, viewerAvatarUri, profileMeDisplayName]);
 
   const openPostRoute = useCallback(
     (post) => {
@@ -524,56 +1045,183 @@ export default function FeedPage({ navigation, route }) {
 
   const toggleLike = useCallback(async (post) => {
     const id = String(post?.id || '');
-    if (!id) return;
-    const prevLiked = !!postLikeMap[id];
-    const prevCount = Number(postLikeCountMap[id]) || 0;
-    const optimistic = prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
-    setPostLikeMap((m) => ({ ...m, [id]: !prevLiked }));
-    setPostLikeCountMap((m) => ({ ...m, [id]: optimistic }));
+    if (!id || actionBusyMap[id]) return;
+    setActionBusyMap((m) => ({ ...m, [id]: true }));
     try {
-      const out = await feedTogglePostLike(id);
-      setPostLikeMap((m) => ({ ...m, [id]: !!out.liked }));
-      setPostLikeCountMap((m) => ({ ...m, [id]: Number(out.likes_count) || 0 }));
-      emitFeedMediaUpdated({ postId: id });
-    } catch {
-      setPostLikeMap((m) => ({ ...m, [id]: prevLiked }));
-      setPostLikeCountMap((m) => ({ ...m, [id]: prevCount }));
+      const resolvedId = await guardFeedInteraction(id, post.scope);
+      if (!resolvedId) return;
+      if (resolvedId !== id) remapFeedPostId(id, resolvedId);
+      const prevLiked = !!postLikeMap[id] || !!postLikeMap[resolvedId];
+      const prevCount = Number(postLikeCountMap[id] ?? postLikeCountMap[resolvedId]) || 0;
+      const optimistic = prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
+      setPostLikeMap((m) => ({ ...m, [id]: !prevLiked, [resolvedId]: !prevLiked }));
+      setPostLikeCountMap((m) => ({ ...m, [id]: optimistic, [resolvedId]: optimistic }));
+      try {
+        const out = await feedTogglePostLike(resolvedId);
+        setPostLikeMap((m) => ({ ...m, [id]: !!out.liked, [resolvedId]: !!out.liked }));
+        setPostLikeCountMap((m) => ({ ...m, [id]: Number(out.likes_count) || 0, [resolvedId]: Number(out.likes_count) || 0 }));
+        patchPostInFeedLists(resolvedId, {
+          liked_by_viewer: !!out.liked,
+          likes_count: Number(out.likes_count) || 0,
+        });
+      } catch (e) {
+        setPostLikeMap((m) => ({ ...m, [id]: prevLiked, [resolvedId]: prevLiked }));
+        setPostLikeCountMap((m) => ({ ...m, [id]: prevCount, [resolvedId]: prevCount }));
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      }
+    } finally {
+      setActionBusyMap((m) => ({ ...m, [id]: false }));
     }
-  }, [postLikeMap, postLikeCountMap]);
+  }, [postLikeMap, postLikeCountMap, guardFeedInteraction, patchPostInFeedLists, remapFeedPostId, actionBusyMap, language]);
+
+  const toggleRepost = useCallback(async (post) => {
+    const id = String(post?.id || '');
+    if (!id || actionBusyMap[id]) return;
+    setActionBusyMap((m) => ({ ...m, [id]: true }));
+    try {
+      const resolvedId = await guardFeedInteraction(id, post.scope);
+      if (!resolvedId) return;
+      if (resolvedId !== id) remapFeedPostId(id, resolvedId);
+      const prevReposted = !!postRepostMap[id] || !!postRepostMap[resolvedId];
+      const prevCount = Number(postRepostCountMap[id] ?? postRepostCountMap[resolvedId]) || 0;
+      const optimistic = prevReposted ? Math.max(0, prevCount - 1) : prevCount + 1;
+      setPostRepostMap((m) => ({ ...m, [id]: !prevReposted, [resolvedId]: !prevReposted }));
+      setPostRepostCountMap((m) => ({ ...m, [id]: optimistic, [resolvedId]: optimistic }));
+      try {
+        const out = await feedTogglePostRepost(resolvedId);
+        setPostRepostMap((m) => ({ ...m, [id]: !!out.reposted, [resolvedId]: !!out.reposted }));
+        setPostRepostCountMap((m) => ({ ...m, [id]: Number(out.reposts_count) || 0, [resolvedId]: Number(out.reposts_count) || 0 }));
+        patchPostInFeedLists(resolvedId, {
+          reposted_by_viewer: !!out.reposted,
+          reposts_count: Number(out.reposts_count) || 0,
+        });
+      } catch (e) {
+        setPostRepostMap((m) => ({ ...m, [id]: prevReposted, [resolvedId]: prevReposted }));
+        setPostRepostCountMap((m) => ({ ...m, [id]: prevCount, [resolvedId]: prevCount }));
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      }
+    } finally {
+      setActionBusyMap((m) => ({ ...m, [id]: false }));
+    }
+  }, [postRepostMap, postRepostCountMap, guardFeedInteraction, patchPostInFeedLists, remapFeedPostId, actionBusyMap, language]);
 
   const openComments = useCallback(async (post) => {
     const id = String(post?.id || '');
-    if (!id) return;
+    if (!id || actionBusyMap[id]) return;
+    setActionBusyMap((m) => ({ ...m, [id]: true }));
     setCommentModalPost(post);
     setCommentList([]);
+    setCommentLikeMap({});
     setCommentBusy(true);
     try {
-      const list = await feedListPostComments(id, 120);
+      const resolvedId = await guardFeedInteraction(id, post.scope);
+      if (!resolvedId) {
+        setCommentModalPost(null);
+        return;
+      }
+      if (resolvedId !== id) remapFeedPostId(id, resolvedId);
+      setCommentModalPost({ ...post, id: resolvedId });
+      const list = await feedListPostComments(resolvedId, 120);
       setCommentList(Array.isArray(list) ? list : []);
-    } catch {
+      const likeMap = {};
+      (Array.isArray(list) ? list : []).forEach((c) => {
+        const cid = String(c.id);
+        likeMap[cid] = !!c.liked_by_viewer;
+      });
+      setCommentLikeMap(likeMap);
+    } catch (e) {
       setCommentList([]);
+      setCommentModalPost(null);
+      Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
     } finally {
       setCommentBusy(false);
+      setActionBusyMap((m) => ({ ...m, [id]: false }));
     }
-  }, []);
+  }, [guardFeedInteraction, remapFeedPostId, actionBusyMap, language]);
+
+  const toggleCommentLike = useCallback(async (comment) => {
+    const cid = String(comment?.id || '');
+    if (!cid) return;
+    const resolvedId = await guardFeedInteraction(commentModalPost?.id, commentModalPost?.scope);
+    if (!resolvedId) return;
+    const prevLiked = !!commentLikeMap[cid];
+    setCommentLikeMap((m) => ({ ...m, [cid]: !prevLiked }));
+    try {
+      const out = await feedToggleCommentLike(cid);
+      setCommentLikeMap((m) => ({ ...m, [cid]: !!out.liked }));
+      setCommentList((prev) =>
+        prev.map((c) =>
+          String(c.id) === cid
+            ? { ...c, liked_by_viewer: !!out.liked, likes_count: Number(out.likes_count) || 0 }
+            : c,
+        ),
+      );
+    } catch (e) {
+      setCommentLikeMap((m) => ({ ...m, [cid]: prevLiked }));
+      Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+    }
+  }, [commentLikeMap, commentModalPost?.id, guardFeedInteraction, language]);
+
+  const deleteComment = useCallback(async (comment) => {
+    const cid = String(comment?.id || '');
+    if (!cid) return;
+    const postId = String(commentModalPost?.id || '');
+    Alert.alert(
+      ft(language, 'deleteCommentTitle'),
+      ft(language, 'deleteCommentConfirm'),
+      [
+        { text: pf(language, 'cancel'), style: 'cancel' },
+        {
+          text: pf(language, 'delete'),
+          style: 'destructive',
+          onPress: async () => {
+            setCommentBusy(true);
+            try {
+              await feedDeletePostComment(postId, cid);
+              setCommentList((prev) => prev.filter((c) => String(c.id) !== cid));
+              setPostCommentCountMap((m) => ({
+                ...m,
+                [postId]: Math.max(0, (Number(m[postId]) || 0) - 1),
+              }));
+              const nextCount = Math.max(0, (Number(postCommentCountMap[postId]) || 0) - 1);
+              patchPostInFeedLists(postId, { comments_count: nextCount });
+            } catch (e) {
+              Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+            } finally {
+              setCommentBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [commentModalPost?.id, language, postCommentCountMap, patchPostInFeedLists]);
 
   const sendComment = useCallback(async () => {
     const postId = String(commentModalPost?.id || '');
     const text = String(commentText || '').trim();
     if (!postId || !text || commentBusy) return;
+    const resolvedId = await guardFeedInteraction(postId, commentModalPost?.scope);
+    if (!resolvedId) return;
     setCommentBusy(true);
     try {
-      const row = await feedAddPostComment(postId, text);
+      const row = await feedAddPostComment(resolvedId, text);
       setCommentList((prev) => [...prev, row]);
       setCommentText('');
-      setPostCommentCountMap((m) => ({ ...m, [postId]: (Number(m[postId]) || 0) + 1 }));
-      emitFeedMediaUpdated({ postId });
-    } catch {
-      /* */
+      const nextCount = (Number(postCommentCountMap[postId]) || 0) + 1;
+      setPostCommentCountMap((m) => ({ ...m, [postId]: nextCount }));
+      patchPostInFeedLists(postId, { comments_count: nextCount });
+    } catch (e) {
+      Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
     } finally {
       setCommentBusy(false);
     }
-  }, [commentModalPost?.id, commentText, commentBusy]);
+  }, [commentModalPost?.id, commentText, commentBusy, guardFeedInteraction, postCommentCountMap, patchPostInFeedLists, language]);
+
+  const sharePost = useCallback((post) => {
+    const link = Array.isArray(post.media_urls) && post.media_urls[0] ? String(post.media_urls[0]) : String(post.image || '');
+    const body = [post.name, post.caption || post.place || ''].filter(Boolean).join(': ');
+    Share.share({ message: [body, link].filter(Boolean).join('\n') }).catch(() => {});
+  }, []);
 
   const sendPostToFriend = useCallback(async (post, asRoute = false) => {
     if (!hasMessageApiToken()) {
@@ -581,7 +1229,7 @@ export default function FeedPage({ navigation, route }) {
       return;
     }
     const friends = await socialListMutuals();
-    const rows = Array.isArray(friends) ? friends.slice(0, 8) : [];
+    const rows = (Array.isArray(friends) ? friends : []).filter((u) => isNavigableSocialUsername(u.username)).slice(0, 8);
     if (!rows.length) {
       Alert.alert('', ft(language, 'postNoFriendsToShare'));
       return;
@@ -591,7 +1239,7 @@ export default function FeedPage({ navigation, route }) {
       title,
       '',
       rows.map((u) => ({
-        text: `@${u.username || 'user'}`,
+        text: `@${u.username}`,
         onPress: async () => {
           try {
             const meta = await messagesOpenThread({ peerUserId: String(u.user_id || u.id || '') });
@@ -611,23 +1259,39 @@ export default function FeedPage({ navigation, route }) {
   }, [language]);
 
   const trayStoriesFiltered = useMemo(
-    () =>
-      trayStories.filter(
-        (s) => String(s.user_id) === viewerUserId || !s.seen_by_viewer,
-      ),
-    [trayStories, viewerUserId],
+    () => trayStories.filter((s) => shouldShowStoryInFeedTray(s)),
+    [trayStories],
   );
 
   const storyItems = useMemo(() => {
     const rows = [{ type: 'add', key: 'add' }];
+    const devicePreview = deviceGalleryLatest?.thumbUri || deviceGalleryLatest?.uri || '';
+    if (devicePreview) {
+      rows[0] = { type: 'add', key: 'add', devicePreviewUri: devicePreview };
+    }
     if (userStory?.uri && !trayStoriesFiltered.some((s) => String(s.user_id) === viewerUserId)) {
-      rows.push({ type: 'local', key: 'local', uri: userStory.uri });
+      rows.push({ type: 'local', key: 'local', uri: userStory.uri, has_unviewed: true, story_count: 1 });
+    } else if (
+      devicePreview &&
+      !userStory?.uri &&
+      !trayStoriesFiltered.some((s) => String(s.user_id) === viewerUserId)
+    ) {
+      rows.push({
+        type: 'local',
+        key: 'device_preview',
+        uri: devicePreview,
+        has_unviewed: true,
+        story_count: deviceGalleryItems.length || 1,
+        fromDeviceGallery: true,
+      });
     }
     trayStoriesFiltered.forEach((s) => {
       rows.push({ ...s, type: 'tray', key: s.id });
     });
     return rows;
-  }, [userStory, trayStoriesFiltered, viewerUserId]);
+  }, [userStory, trayStoriesFiltered, viewerUserId, deviceGalleryLatest, deviceGalleryItems.length]);
+
+  const tabBottomPad = lightTabBarScrollContentPadding(insets.bottom, 24);
 
   return (
     <View style={[styles.screen, { backgroundColor: bg }]}>
@@ -646,7 +1310,7 @@ export default function FeedPage({ navigation, route }) {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingBottom: insets.bottom + 24 + lightTabBarExtraScrollPadding(),
+            paddingBottom: tabBottomPad,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -654,7 +1318,6 @@ export default function FeedPage({ navigation, route }) {
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
         ListHeaderComponent={
           <>
-        <Text style={[styles.sectionTitle, { color: textMain }]}>{ft(language, 'stories')}</Text>
         <FlatList
           horizontal
           data={storyItems}
@@ -678,6 +1341,18 @@ export default function FeedPage({ navigation, route }) {
                   accessibilityRole="button"
                   accessibilityLabel={ft(language, 'createStory')}
                 >
+                  {item.devicePreviewUri ? (
+                    <ExpoImage
+                      source={{ uri: item.devicePreviewUri }}
+                      style={StyleSheet.absoluteFill}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={0}
+                    />
+                  ) : null}
+                  {item.devicePreviewUri ? (
+                    <View style={styles.storyCreateDim} pointerEvents="none" />
+                  ) : null}
                   <View style={[styles.storyCreateBorder, { borderColor: accent }]} />
                   <Ionicons name="add" size={32} color={accent} />
                 </Pressable>
@@ -687,46 +1362,66 @@ export default function FeedPage({ navigation, route }) {
               return (
                 <Pressable
                   style={({ pressed }) => [styles.storyCard, pressed && { opacity: 0.88 }]}
-                  onPress={openLocalStories}
+                  onPress={item.fromDeviceGallery ? openCreate : openLocalStories}
                 >
-                  <Image source={{ uri: item.uri }} style={styles.storyImage} resizeMode="cover" />
+                  <ExpoImage source={{ uri: item.uri }} style={styles.storyImage} contentFit="cover" cachePolicy="memory-disk" transition={0} />
                   <View
                     style={[
                       styles.storyAvatarWrap,
-                      storyAvatarRingStyle(
-                        {
-                          user_id: user?.id,
-                          view_count: 0,
-                          seen_by_viewer: false,
-                        },
-                        user?.id,
+                      storyAvatarRingStyle({
+                        hasStories: true,
+                        hasUnviewed: item.has_unviewed !== false,
                         isLight,
-                      ),
+                      }),
                     ]}
                   >
-                    <Image source={AVATAR} style={styles.storyAvatar} resizeMode="cover" />
+                    <ProfileAvatarCircle uri={viewerAvatarUri} size={STORY_TRAY_AVATAR_INNER} isLight={isLight} />
                   </View>
                 </Pressable>
               );
             }
             const row = item;
             if (item.type !== 'tray') return null;
+            const storyCount = Number(row.story_count) || 1;
             return (
               <Pressable
                 style={({ pressed }) => [styles.storyCard, pressed && { opacity: 0.85 }]}
                 onPress={() => openStoryForUser(row)}
               >
-                <Image
+                <ExpoImage
                   source={{ uri: resolveFeedMediaUrl(row.media_url) }}
                   style={styles.storyImage}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
                 />
-                <View style={[styles.storyAvatarWrap, storyAvatarRingStyle(row, user?.id, isLight)]}>
-                  {row.avatar_url ? (
-                    <Image source={{ uri: row.avatar_url }} style={styles.storyAvatar} resizeMode="cover" />
-                  ) : (
-                    <Image source={AVATAR} style={styles.storyAvatar} resizeMode="cover" />
-                  )}
+                {storyCount > 1 ? (
+                  <View style={[styles.storyCountBadge, { backgroundColor: accent }]}>
+                    <Text style={[styles.storyCountBadgeTxt, { color: onAccentTxt }]}>{storyCount}</Text>
+                  </View>
+                ) : null}
+                <View
+                  style={[
+                    styles.storyAvatarWrap,
+                    storyAvatarRingStyle({
+                      hasStories: true,
+                      hasUnviewed: row.has_unviewed !== false,
+                      isLight,
+                    }),
+                  ]}
+                >
+                  <ProfileAvatarCircle
+                    uri={
+                      String(row.user_id) === viewerUserId
+                        ? viewerAvatarUri ||
+                          (row.avatar_url ? resolveFeedMediaUrl(String(row.avatar_url)) : '')
+                        : row.avatar_url
+                          ? resolveFeedMediaUrl(String(row.avatar_url))
+                          : ''
+                    }
+                    size={STORY_TRAY_AVATAR_INNER}
+                    isLight={isLight}
+                  />
                 </View>
               </Pressable>
             );
@@ -796,129 +1491,283 @@ export default function FeedPage({ navigation, route }) {
         </View>
           </>
         }
-        renderItem={({ item: post }) => (
+        ListEmptyComponent={
+          showFeedEmpty ? (
+            <FeedEmptyPlaceholder
+              segment={segment}
+              language={language}
+              isLight={isLight}
+              textMain={textMain}
+              textMuted={textMuted}
+              accent={accent}
+              onAccentTxt={onAccentTxt}
+              onCreate={openCreate}
+              onFindFriends={openFindFriends}
+              ripple={ripple}
+            />
+          ) : null
+        }
+        renderItem={({ item: post }) => {
+          const routeTitle = post.route_plan ? routeRegionTitle(language, post.route_plan) : '';
+          const placeLine = routeTitle
+            ? `${ft(language, 'routeLine')}: ${routeTitle}`
+            : String(post.place || '').trim();
+          const captionLine = post.caption
+            ? post.caption
+            : placeLine
+              ? `${ft(language, 'feedWasToday')} ${placeLine}…`
+              : '';
+          const timeLabel = formatFeedPostAge(post.createdAtMs, language);
+          return (
           <View
             style={[
               styles.postCard,
               {
                 backgroundColor: isLight ? CARD_LIGHT : CARD_DARK,
-                borderColor: isLight ? 'rgba(30,30,30,0.06)' : '#2A2A2A',
+                borderColor: isLight ? 'rgba(30,30,30,0.06)' : 'rgba(255,255,255,0.06)',
               },
             ]}
           >
             <View style={styles.postHead}>
-              {post.avatarUrl ? (
-                <Image source={{ uri: post.avatarUrl }} style={styles.postAvatar} />
-              ) : (
-                <Image source={AVATAR} style={styles.postAvatar} />
-              )}
+              <ProfileAvatarCircle
+                uri={
+                  (post.authorUserId && post.authorUserId === viewerUserId && viewerAvatarUri) ||
+                  post.avatarUrl ||
+                  ''
+                }
+                size={36}
+                isLight={isLight}
+                style={styles.postAvatar}
+              />
               <View style={styles.postHeadText}>
                 <Text style={[styles.postName, { color: textMain }]}>{post.name}</Text>
-                <Text style={[styles.postPlace, { color: textMuted }]} numberOfLines={2}>
-                  {post.route_plan?.regionTitleUk || post.route_plan?.regionTitleEn
-                    ? `${ft(language, 'routeLine')}: ${routeRegionTitle(language, post.route_plan)}`
-                    : post.place}
-                </Text>
+                {placeLine ? (
+                  <Text style={[styles.postPlace, { color: textMuted }]} numberOfLines={2}>
+                    {placeLine}
+                  </Text>
+                ) : null}
               </View>
               <Pressable hitSlop={8} style={({ pressed }) => pressed && styles.pressedIOS}>
                 <Ionicons name="ellipsis-vertical" size={18} color={textMuted} />
               </Pressable>
             </View>
             <MemoPostMediaCarousel post={post} accent={accent} />
+            {isLocalFeedPostId(post.id) ? (
+              <View style={[styles.postSyncBanner, { backgroundColor: isLight ? 'rgba(2,18,235,0.06)' : 'rgba(255,255,255,0.06)' }]}>
+                {actionBusyMap[String(post.id)] ? (
+                  <ActivityIndicator size="small" color={accent} style={{ marginRight: 8 }} />
+                ) : (
+                  <Ionicons name="cloud-upload-outline" size={14} color={accent} style={{ marginRight: 6 }} />
+                )}
+                <Text style={[styles.postSyncBannerTxt, { color: textMuted }]}>
+                  {actionBusyMap[String(post.id)]
+                    ? ft(language, 'feedSyncingPost')
+                    : ft(language, 'feedPostPublishing')}
+                </Text>
+              </View>
+            ) : null}
+            <View style={[styles.postActionsDivider, { backgroundColor: isLight ? 'rgba(30,30,30,0.06)' : 'rgba(255,255,255,0.08)' }]} />
             <View style={styles.postActions}>
               <View style={styles.postActionsLeft}>
-                <Pressable onPress={() => toggleLike(post)} style={styles.actionPress}>
-                  <Ionicons
-                    name={postLikeMap[String(post.id)] ? 'heart' : 'heart-outline'}
-                    size={22}
-                    color={postLikeMap[String(post.id)] ? '#FF4D6A' : textMain}
-                    style={styles.actionIcon}
-                  />
-                  <Text style={[styles.actionCount, { color: textMuted }]}>
-                    {Number(postLikeCountMap[String(post.id)]) || 0}
-                  </Text>
+                <Pressable
+                  onPress={() => toggleLike(post)}
+                  disabled={!!actionBusyMap[String(post.id)]}
+                  style={({ pressed }) => [styles.actionPress, pressed && styles.actionPressActive]}
+                  hitSlop={6}
+                >
+                  {actionBusyMap[String(post.id)] ? (
+                    <ActivityIndicator size="small" color={accent} style={styles.actionIcon} />
+                  ) : (
+                    <Ionicons
+                      name={postLikeMap[String(post.id)] ? 'heart' : 'heart-outline'}
+                      size={24}
+                      color={postLikeMap[String(post.id)] ? '#FF4D6A' : textMain}
+                      style={styles.actionIcon}
+                    />
+                  )}
+                  {(Number(postLikeCountMap[String(post.id)]) || 0) > 0 ? (
+                    <Text style={[styles.actionCount, { color: textMuted }]}>
+                      {Number(postLikeCountMap[String(post.id)]) || 0}
+                    </Text>
+                  ) : null}
                 </Pressable>
-                <Pressable onPress={() => openComments(post)} style={styles.actionPress}>
-                  <Ionicons name="chatbubble-outline" size={20} color={textMain} style={styles.actionIcon} />
-                  <Text style={[styles.actionCount, { color: textMuted }]}>
-                    {Number(postCommentCountMap[String(post.id)]) || 0}
-                  </Text>
+                <Pressable
+                  onPress={() => openComments(post)}
+                  disabled={!!actionBusyMap[String(post.id)]}
+                  style={({ pressed }) => [styles.actionPress, pressed && styles.actionPressActive]}
+                  hitSlop={6}
+                >
+                  <Ionicons name="chatbubble-outline" size={22} color={textMain} style={styles.actionIcon} />
+                  {(Number(postCommentCountMap[String(post.id)]) || 0) > 0 ? (
+                    <Text style={[styles.actionCount, { color: textMuted }]}>
+                      {Number(postCommentCountMap[String(post.id)]) || 0}
+                    </Text>
+                  ) : null}
                 </Pressable>
-                <Pressable onPress={() => sendPostToFriend(post, false)} style={styles.actionPress}>
-                  <Ionicons name="paper-plane-outline" size={20} color={textMain} />
+                <Pressable
+                  onPress={() => sharePost(post)}
+                  style={({ pressed }) => [styles.actionPress, pressed && styles.actionPressActive]}
+                  hitSlop={6}
+                >
+                  <Ionicons name="paper-plane-outline" size={21} color={textMain} style={styles.actionIcon} />
                 </Pressable>
               </View>
               <View style={styles.postActionsRight}>
                 <Pressable
-                  onPress={() => sendPostToFriend(post, true)}
+                  onPress={() => openPostRoute(post)}
                   style={({ pressed }) => [
                     styles.routeBtn,
-                    post.route_plan ? styles.routeBtnLight : styles.routeBtnDark,
+                    isLight ? styles.routeBtnLight : styles.routeBtnFeedDark,
                     { opacity: pressed ? 0.88 : 1 },
                   ]}
                 >
                   <Text
                     style={[
                       styles.routeBtnText,
-                      post.route_plan ? styles.routeBtnTextOnLight : styles.routeBtnTextOnDark,
+                      isLight ? styles.routeBtnTextOnLight : styles.routeBtnTextFeedDark,
                     ]}
                   >
-                    {ft(language, 'routeToFriend')}
+                    {ft(language, 'route')}
                   </Text>
                   <Ionicons
-                    name="arrow-forward"
+                    name="return-down-back-outline"
                     size={16}
-                    color={post.route_plan ? '#1E1E1E' : '#FFFFFF'}
+                    color={isLight ? '#1E1E1E' : '#1E1E1E'}
                   />
+                </Pressable>
+                <Pressable
+                  onPress={() => Alert.alert('', ft(language, 'feedBookmarkSoon'))}
+                  style={({ pressed }) => [styles.bookmarkBtn, pressed && styles.actionPressActive]}
+                  hitSlop={8}
+                >
+                  <Ionicons name="bookmark-outline" size={22} color={textMain} />
                 </Pressable>
               </View>
             </View>
-            {post.caption ? (
-              <Text style={[styles.postCaption, { color: textMain }]} numberOfLines={6}>
-                <Text style={styles.postCaptionAuthor}>{post.name}: </Text>
-                {post.caption}
-              </Text>
+            {captionLine || timeLabel ? (
+              <View style={styles.postCaptionWrap}>
+                {captionLine ? (
+                  <Text style={[styles.postCaption, { color: textMain }]} numberOfLines={3}>
+                    <Text style={styles.postCaptionAuthor}>{post.name} </Text>
+                    {captionLine}
+                  </Text>
+                ) : null}
+                {timeLabel ? (
+                  <Text style={[styles.postTime, { color: textMuted }]}>{timeLabel}</Text>
+                ) : null}
+              </View>
             ) : null}
           </View>
-        )}
+          );
+        }}
       />
       </RenderProfiler>
       <Modal visible={!!commentModalPost} transparent animationType="slide" onRequestClose={() => setCommentModalPost(null)}>
-        <View style={styles.commentsModalBg}>
-          <View style={[styles.commentsModalCard, { backgroundColor: isLight ? '#FFFFFF' : '#1A1A1A' }]}>
-            <Text style={[styles.commentsModalTitle, { color: textMain }]}>{ft(language, 'postCommentsTitle')}</Text>
-            {commentBusy && !commentList.length ? (
-              <ActivityIndicator color={accent} style={{ marginVertical: 16 }} />
+        <KeyboardAvoidingView
+          style={styles.commentsModalBg}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable style={styles.commentsModalBackdrop} onPress={() => setCommentModalPost(null)} />
+          <View
+            style={[
+              styles.commentsModalCard,
+              {
+                backgroundColor: isLight ? '#FFFFFF' : '#1A1A1A',
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            <View style={styles.commentsModalHandle} />
+            <View style={styles.commentsModalHeader}>
+              <ProfileAvatarCircle
+                uri={commentModalPost?.avatarUrl || viewerAvatarUri || ''}
+                size={32}
+                isLight={isLight}
+              />
+              <Text style={[styles.commentsModalTitle, { color: textMain }]}>{ft(language, 'postCommentsTitle')}</Text>
+              <Pressable onPress={() => setCommentModalPost(null)} hitSlop={12} style={styles.commentsModalCloseBtn}>
+                <Ionicons name="close" size={22} color={textMuted} />
+              </Pressable>
+            </View>
+            {commentBusy ? (
+              <View style={styles.commentsLoadingWrap}>
+                <ActivityIndicator color={accent} />
+                <Text style={[styles.commentsLoadingTxt, { color: textMuted }]}>{ft(language, 'feedSyncingPost')}</Text>
+              </View>
             ) : (
-              <ScrollView style={{ maxHeight: 260 }}>
-                {commentList.map((c) => (
-                  <View key={String(c.id)} style={styles.commentRow}>
-                    <Text style={[styles.commentAuthor, { color: textMain }]}>@{c.username || 'user'}</Text>
-                    <Text style={[styles.commentText, { color: textMuted }]}>{c.content}</Text>
-                  </View>
-                ))}
+              <ScrollView style={styles.commentsScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                {!commentList.length ? (
+                  <Text style={[styles.commentsEmpty, { color: textMuted }]}>{ft(language, 'postCommentsEmpty')}</Text>
+                ) : null}
+                {commentList.map((c) => {
+                  const cid = String(c.id);
+                  const liked = !!commentLikeMap[cid];
+                  return (
+                    <View key={cid} style={[styles.commentRow, { borderBottomColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)' }]}>
+                      <ProfileAvatarCircle
+                        uri={c.avatar_url ? resolveFeedMediaUrl(String(c.avatar_url)) : ''}
+                        size={30}
+                        isLight={isLight}
+                        style={styles.commentAvatar}
+                      />
+                      <View style={styles.commentBody}>
+                        <View style={styles.commentHead}>
+                          <Text style={[styles.commentAuthor, { color: textMain }]} numberOfLines={1}>
+                            @{c.username || 'user'}
+                          </Text>
+                          <View style={styles.commentHeadActions}>
+                            {(viewerUserId === String(c.user_id || '') ||
+                              viewerUserId === String(commentModalPost?.authorUserId || '')) ? (
+                              <Pressable onPress={() => deleteComment(c)} hitSlop={10} style={styles.commentDeleteBtn}>
+                                <Ionicons name="trash-outline" size={14} color={textMuted} />
+                              </Pressable>
+                            ) : null}
+                            <Pressable onPress={() => toggleCommentLike(c)} hitSlop={8} style={styles.commentLikeBtn}>
+                              <Ionicons
+                                name={liked ? 'heart' : 'heart-outline'}
+                                size={14}
+                                color={liked ? '#FF4D6A' : textMuted}
+                              />
+                              {(Number(c.likes_count) || 0) > 0 ? (
+                                <Text style={[styles.commentLikeCount, { color: textMuted }]}>
+                                  {Number(c.likes_count) || 0}
+                                </Text>
+                              ) : null}
+                            </Pressable>
+                          </View>
+                        </View>
+                        <Text style={[styles.commentText, { color: textMain }]}>{c.content}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
               </ScrollView>
             )}
-            <View style={styles.commentComposer}>
+            <View style={[styles.commentComposer, { backgroundColor: isLight ? '#F4F4F0' : '#242424' }]}>
               <TextInput
                 value={commentText}
                 onChangeText={setCommentText}
                 placeholder={ft(language, 'postCommentPlaceholder')}
                 placeholderTextColor={textMuted}
-                style={[
-                  styles.commentInput,
-                  { color: textMain, borderColor: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.18)' },
-                ]}
+                style={[styles.commentInput, { color: textMain }]}
+                multiline
+                maxLength={500}
               />
-              <Pressable onPress={sendComment} style={[styles.commentSend, { backgroundColor: accent }]}>
-                <Text style={{ color: onAccentButtonText(isLight), fontWeight: '700' }}>{ft(language, 'storySend')}</Text>
+              <Pressable
+                onPress={sendComment}
+                disabled={!String(commentText || '').trim() || commentBusy}
+                style={[
+                  styles.commentSend,
+                  {
+                    backgroundColor: String(commentText || '').trim() ? accent : isLight ? '#D8D8D0' : '#333',
+                  },
+                ]}
+              >
+                <Ionicons name="send" size={18} color={String(commentText || '').trim() ? onAccentButtonText(isLight) : textMuted} />
               </Pressable>
             </View>
-            <Pressable onPress={() => setCommentModalPost(null)} style={styles.commentClose}>
-              <Text style={{ color: textMuted }}>{ft(language, 'storyClose')}</Text>
-            </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -926,9 +1775,7 @@ export default function FeedPage({ navigation, route }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  feedHeaderWrap: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
+  feedHeaderWrap: {},
   feedHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -951,10 +1798,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 22,
   },
-  addCircle: {
+  addHit: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addCircleBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -967,7 +1821,7 @@ const styles = StyleSheet.create({
   sendImg: { width: 20, height: 18 },
   pressedIOS: { opacity: 0.65 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 18, paddingTop: 16 },
+  scrollContent: { paddingHorizontal: 18, paddingTop: 12 },
   feedTabsBleed: {
     marginHorizontal: -18,
     marginTop: 10,
@@ -1004,13 +1858,71 @@ const styles = StyleSheet.create({
     height: 3,
     opacity: 0,
   },
+  feedEmptyWrap: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 28,
+    paddingBottom: 32,
+  },
+  feedEmptyStage: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  feedEmptyPhotoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 118,
+    marginBottom: 26,
+    paddingHorizontal: 8,
+  },
+  feedEmptyPhoto: {
+    width: 74,
+    height: 98,
+    borderRadius: 16,
+    borderWidth: 2.5,
+  },
+  feedEmptyPhotoCenter: {
+    width: 84,
+    height: 108,
+    borderRadius: 18,
+  },
+  feedEmptyTitle: {
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    maxWidth: 320,
+    marginBottom: 12,
+  },
+  feedEmptyHint: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 320,
+    opacity: 0.88,
+  },
+  feedEmptyCta: {
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    minHeight: 52,
+    borderRadius: 16,
+    paddingHorizontal: 22,
+    paddingVertical: Platform.OS === 'ios' ? 14 : 12,
+  },
+  feedEmptyCtaTxt: { fontSize: 16, fontWeight: '800' },
   hint: { fontSize: 12, lineHeight: 17, marginTop: 8, marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
   postsSectionTitle: {
     marginTop: 2,
     marginBottom: 8,
   },
-  storiesRow: { gap: 12, paddingBottom: 8, paddingRight: 8 },
+  storiesRow: { gap: 12, paddingBottom: 12, paddingRight: 8, marginBottom: 4 },
   storyCard: {
     width: 96,
     height: 152,
@@ -1038,20 +1950,36 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     opacity: 0.6,
   },
+  storyCreateDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
   storyImage: { width: '100%', height: '100%' },
   storyAvatarWrap: {
     position: 'absolute',
     top: 8,
     left: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+    width: STORY_TRAY_AVATAR_WRAP,
+    height: STORY_TRAY_AVATAR_WRAP,
+    borderRadius: STORY_TRAY_AVATAR_WRAP / 2,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#444',
   },
   storyAvatar: { width: '100%', height: '100%' },
+  storyCountBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyCountBadgeTxt: { fontSize: 11, fontWeight: '800' },
   postCard: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1098,68 +2026,173 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  postActionsLeft: { flexDirection: 'row', alignItems: 'center' },
+  postActionsDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 12,
+  },
+  postSyncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  postSyncBannerTxt: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  postActionsLeft: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   postActionsRight: { flexDirection: 'row', alignItems: 'center' },
-  actionPress: { flexDirection: 'row', alignItems: 'center', marginRight: 10 },
-  actionCount: { fontSize: 12, marginLeft: 4, marginRight: 4 },
-  actionIcon: { marginRight: 14 },
+  actionPress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+  },
+  actionPressActive: { opacity: 0.65 },
+  actionCount: { fontSize: 13, fontWeight: '600', marginLeft: 2, minWidth: 14 },
+  actionIcon: { marginRight: 0 },
   routeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     borderRadius: 999,
-    marginLeft: 8,
-  },
-  routeBtnDark: {
-    backgroundColor: '#0F1F4A',
   },
   routeBtnLight: {
     backgroundColor: '#F2F2EA',
   },
-  routeBtnText: { fontSize: 12, fontWeight: '600' },
-  routeBtnTextOnDark: { color: '#FFFFFF' },
+  routeBtnFeedDark: {
+    backgroundColor: '#FFFFFF',
+  },
+  routeBtnText: { fontSize: 13, fontWeight: '700' },
   routeBtnTextOnLight: { color: '#1E1E1E' },
-  postCaption: {
+  routeBtnTextFeedDark: { color: '#1E1E1E' },
+  bookmarkBtn: {
+    marginLeft: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  postCaptionWrap: {
     paddingHorizontal: 12,
-    paddingBottom: 12,
-    fontSize: 13,
-    lineHeight: 18,
+    paddingBottom: 14,
+  },
+  postCaption: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  postTime: {
+    fontSize: 12,
+    marginTop: 6,
+    lineHeight: 16,
   },
   postCaptionAuthor: { fontWeight: '700' },
   commentsModalBg: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
-  commentsModalCard: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 14,
-    paddingBottom: 24,
+  commentsModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  commentsModalTitle: { fontSize: 17, fontWeight: '800', marginBottom: 8 },
-  commentRow: { paddingVertical: 7 },
-  commentAuthor: { fontSize: 13, fontWeight: '700' },
-  commentText: { fontSize: 13, marginTop: 2 },
-  commentComposer: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
+  commentsModalCard: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingTop: 8,
+    paddingHorizontal: 16,
+    maxHeight: '78%',
+  },
+  commentsModalHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(128,128,128,0.45)',
+    marginBottom: 12,
+  },
+  commentsModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  commentsModalTitle: { flex: 1, fontSize: 17, fontWeight: '800' },
+  commentsModalCloseBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentsLoadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    gap: 10,
+  },
+  commentsLoadingTxt: { fontSize: 13 },
+  commentsScroll: { maxHeight: 300, marginBottom: 10 },
+  commentsEmpty: {
+    textAlign: 'center',
+    fontSize: 14,
+    paddingVertical: 24,
+    lineHeight: 20,
+  },
+  commentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  commentAvatar: { marginRight: 10, marginTop: 2 },
+  commentBody: { flex: 1 },
+  commentHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  commentAuthor: { fontSize: 13, fontWeight: '700', flex: 1 },
+  commentHeadActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  commentDeleteBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  commentLikeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingLeft: 8,
+  },
+  commentLikeCount: { fontSize: 11, marginLeft: 2 },
+  commentText: { fontSize: 14, lineHeight: 20, marginTop: 3, paddingRight: 8 },
+  commentComposer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
   commentInput: {
     flex: 1,
-    minHeight: 40,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    minHeight: 36,
+    maxHeight: 96,
+    fontSize: 15,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
   },
   commentSend: {
-    minHeight: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'center',
   },
-  commentClose: { alignItems: 'center', marginTop: 12 },
 });

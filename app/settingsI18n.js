@@ -73,8 +73,8 @@ const S = {
     hy: 'Պահվածս',
   },
   archive: {
-    uk: 'Архів публікацій',
-    en: 'Post archive',
+    uk: 'Архів',
+    en: 'Archive',
     pl: 'Archiwum',
     nl: 'Archief',
     es: 'Archivo',
@@ -107,8 +107,8 @@ const S = {
     hy: 'Ծանուցումներ',
   },
   walkReminderRow: {
-    uk: 'Щоденне нагадування прогулятися',
-    en: 'Daily walk reminder',
+    uk: 'Прогулянка та кроки',
+    en: 'Walk & steps',
   },
   walkReminderScreenTitle: {
     uk: 'Прогулянка',
@@ -119,12 +119,32 @@ const S = {
     en: 'Keep moving every day',
   },
   walkReminderHeroBody: {
-    uk: 'Увімкніть нагадування — у зручний час нагадаємо вийти на прогулянку чи дослідити місто.',
-    en: 'Turn on a reminder — we will nudge you at the time you pick to walk or explore.',
+    uk: 'Увімкніть нагадування та синхронізацію кроків — нагадаємо про прогулянку й покажемо активність у профілі.',
+    en: 'Turn on reminders and step sync — we will nudge you to walk and show your activity in profile.',
   },
   walkReminderToggle: {
     uk: 'Щоденне нагадування',
     en: 'Daily reminder',
+  },
+  walkReminderStepsHint: {
+    uk: 'Денні кроки з Apple Health або Health Connect — у вкладці «Статистика» профілю.',
+    en: 'Daily steps from Apple Health or Health Connect — on your profile Statistics tab.',
+  },
+  walkReminderLegalPrefix: {
+    uk: 'Увімкнення нагадувань або синхронізації кроків означає згоду з ',
+    en: 'Enabling reminders or step sync means you agree to our ',
+  },
+  walkReminderLegalPrivacyLink: {
+    uk: 'політикою конфіденційності',
+    en: 'Privacy Policy',
+  },
+  walkReminderLegalJoin: {
+    uk: ' та ',
+    en: ' and ',
+  },
+  walkReminderLegalTermsLink: {
+    uk: 'умовами використання',
+    en: 'Terms of Use',
   },
   walkReminderTimeLabel: {
     uk: 'Час нагадування',
@@ -169,6 +189,10 @@ const S = {
   walkReminderPermissionDenied: {
     uk: 'Дозвіл на сповіщення не надано — нагадування не буде. Увімкніть у системних налаштуваннях.',
     en: 'Notifications permission denied — reminders will not fire. Enable them in system settings.',
+  },
+  walkReminderUnavailable: {
+    uk: 'Нагадування недоступні в цій збірці. Зберігаємо налаштування — сповіщення запрацюють у повній версії застосунку.',
+    en: 'Reminders are unavailable in this build. Your preference is saved — notifications will work in the full app build.',
   },
   walkReminderNotifTitle: {
     uk: 'Час прогулятися',
@@ -352,80 +376,202 @@ const S = {
   notifHeroTitle: {
     uk: 'Керуйте сповіщеннями',
     en: 'Stay in control',
+    pl: 'Zarządzaj powiadomieniami',
+    de: 'Benachrichtigungen verwalten',
   },
   notifHeroSubtitle: {
     uk: 'Нагадування про чати, стрічку та маршрути — усе в одному місці. Системні дозволи змінюються в налаштуваннях телефона.',
     en: 'Chats, feed, and route reminders in one place. OS-level alerts are changed in your phone settings.',
+    pl: 'Czaty, kanał i przypomnienia o trasach w jednym miejscu. Alerty systemowe zmienisz w ustawieniach telefonu.',
+    de: 'Chats, Feed und Routenerinnerungen an einem Ort. Systembenachrichtigungen änderst du in den Telefoneinstellungen.',
   },
   notifSectionTypes: {
     uk: 'Типи сповіщень',
     en: 'Notification types',
+    pl: 'Rodzaje powiadomień',
+    de: 'Benachrichtigungsarten',
   },
   /** Секція головного перемикача (як на екрані гео). */
   notifSectionMain: {
     uk: 'Загальне',
     en: 'General',
+    pl: 'Ogólne',
+    de: 'Allgemein',
   },
   /** Секція системних налаштувань ОС. */
   notifSectionSystem: {
     uk: 'Система',
     en: 'System',
+    pl: 'System',
+    de: 'System',
   },
   notifMasterTitle: {
     uk: 'Усі сповіщення KRAÏNA',
     en: 'All KRAÏNA notifications',
+    pl: 'Wszystkie powiadomienia KRAÏNA',
+    de: 'Alle KRAÏNA-Benachrichtigungen',
   },
   notifMasterSubtitle: {
     uk: 'Вимкніть, щоб прибрати внутрішні нагадування в застосунку.',
     en: 'Turn off to silence in-app reminders.',
+    pl: 'Wyłącz, aby wyciszyć przypomnienia w aplikacji.',
+    de: 'Deaktivieren, um In-App-Erinnerungen stummzuschalten.',
   },
   notifCatMessagesTitle: {
     uk: 'Повідомлення та чати',
     en: 'Messages & chats',
+    pl: 'Wiadomości i czaty',
+    de: 'Nachrichten & Chats',
   },
   notifCatMessagesDesc: {
     uk: 'Нові повідомлення та відповіді в чатах.',
     en: 'New messages and replies in chats.',
+    pl: 'Nowe wiadomości i odpowiedzi na czatach.',
+    de: 'Neue Nachrichten und Antworten in Chats.',
+  },
+  notifMessagesScreenTitle: {
+    uk: 'Сповіщення чатів',
+    en: 'Chat notifications',
+    pl: 'Powiadomienia czatu',
+    de: 'Chat-Benachrichtigungen',
+  },
+  notifMessagesScreenDesc: {
+    uk: 'Керуйте сповіщеннями про нові повідомлення та відповіді в чатах. Налаштування зберігаються на цьому пристрої.',
+    en: 'Manage notifications for new messages and replies in chats. Preferences are saved on this device.',
+    pl: 'Zarządzaj powiadomieniami o nowych wiadomościach i odpowiedziach na czatach. Preferencje są zapisywane na tym urządzeniu.',
+    de: 'Verwalte Benachrichtigungen für neue Nachrichten und Antworten in Chats. Einstellungen werden auf diesem Gerät gespeichert.',
+  },
+  notifMessagesPushNote: {
+    uk: 'Push-сповіщення надсилаються через сервер, коли ви не в застосунку. Потрібен Expo Push Access Token на бекенді.',
+    en: 'Push notifications are sent via the server when you are not in the app. Requires an Expo Push Access Token on the backend.',
+    pl: 'Powiadomienia push są wysyłane przez serwer, gdy nie ma Cię w aplikacji. Wymaga tokena Expo Push Access Token na backendzie.',
+    de: 'Push-Benachrichtigungen werden über den Server gesendet, wenn du nicht in der App bist. Erfordert ein Expo Push Access Token auf dem Backend.',
   },
   notifCatFeedTitle: {
     uk: 'Стрічка та історії',
     en: 'Feed & stories',
+    pl: 'Kanał i historie',
+    de: 'Feed & Storys',
   },
   notifCatFeedDesc: {
     uk: 'Оновлення стрічки, історії друзів (коли з’явиться push).',
     en: 'Feed updates and friends’ stories (when push is available).',
+    pl: 'Aktualizacje kanału i historie znajomych (gdy push będzie dostępny).',
+    de: 'Feed-Updates und Storys von Freunden (sobald Push verfügbar ist).',
+  },
+  notifFeedScreenTitle: {
+    uk: 'Сповіщення стрічки',
+    en: 'Feed notifications',
+    pl: 'Powiadomienia kanału',
+    de: 'Feed-Benachrichtigungen',
+  },
+  notifFeedScreenDesc: {
+    uk: 'Керуйте сповіщеннями про оновлення стрічки та історії друзів. Налаштування зберігаються на цьому пристрої.',
+    en: 'Manage notifications for feed updates and friends’ stories. Preferences are saved on this device.',
+    pl: 'Zarządzaj powiadomieniami o aktualizacjach kanału i historiach znajomych. Preferencje są zapisywane na tym urządzeniu.',
+    de: 'Verwalte Benachrichtigungen für Feed-Updates und Storys von Freunden. Einstellungen werden auf diesem Gerät gespeichert.',
   },
   notifCatRoutesTitle: {
     uk: 'Маршрути та нагадування',
     en: 'Routes & reminders',
+    pl: 'Trasy i przypomnienia',
+    de: 'Routen & Erinnerungen',
   },
   notifCatRoutesDesc: {
     uk: 'Нагадування про збережені маршрути та поїздки.',
     en: 'Reminders about saved routes and trips.',
+    pl: 'Przypomnienia o zapisanych trasach i podróżach.',
+    de: 'Erinnerungen an gespeicherte Routen und Reisen.',
+  },
+  notifRoutesScreenTitle: {
+    uk: 'Сповіщення маршрутів',
+    en: 'Route notifications',
+    pl: 'Powiadomienia tras',
+    de: 'Routen-Benachrichtigungen',
+  },
+  notifRoutesScreenDesc: {
+    uk: 'Керуйте сповіщеннями про збережені маршрути та нагадування про поїздки. Налаштування зберігаються на цьому пристрої.',
+    en: 'Manage notifications for saved routes and trip reminders. Preferences are saved on this device.',
+    pl: 'Zarządzaj powiadomieniami o zapisanych trasach i przypomnieniach o podróżach. Preferencje są zapisywane na tym urządzeniu.',
+    de: 'Verwalte Benachrichtigungen für gespeicherte Routen und Reiseerinnerungen. Einstellungen werden auf diesem Gerät gespeichert.',
+  },
+  notifRoutesPushNote: {
+    uk: 'Push-сповіщення про маршрути будуть доступні після налаштування серверної інтеграції (через Expo Push).',
+    en: 'Push notifications for routes will be available once server integration is set up (via Expo Push).',
+    pl: 'Powiadomienia push o trasach będą dostępne po skonfigurowaniu integracji serwerowej (przez Expo Push).',
+    de: 'Push-Benachrichtigungen für Routen sind verfügbar, sobald die Server-Integration (via Expo Push) eingerichtet ist.',
   },
   notifCatProductTitle: {
     uk: 'Новини та поради',
     en: 'Tips & product news',
+    pl: 'Porady i nowości',
+    de: 'Tipps & Produktneuigkeiten',
   },
   notifCatProductDesc: {
     uk: 'Рідкі корисні оновлення про функції (без спаму).',
     en: 'Occasional useful updates about features (no spam).',
+    pl: 'Okazjonalne przydatne aktualizacje o funkcjach (bez spamu).',
+    de: 'Gelegentliche nützliche Updates über Funktionen (kein Spam).',
+  },
+  notifProductScreenTitle: {
+    uk: 'Сповіщення новин',
+    en: 'News notifications',
+    pl: 'Powiadomienia o nowościach',
+    de: 'Neuigkeiten-Benachrichtigungen',
+  },
+  notifProductScreenDesc: {
+    uk: 'Керуйте сповіщеннями про новини застосунку та корисні поради. Налаштування зберігаються на цьому пристрої.',
+    en: 'Manage notifications for app news and helpful tips. Preferences are saved on this device.',
+    pl: 'Zarządzaj powiadomieniami o nowościach w aplikacji i przydatnych poradach. Preferencje są zapisywane na tym urządzeniu.',
+    de: 'Verwalte Benachrichtigungen für App-Neuigkeiten und hilfreiche Tipps. Einstellungen werden auf diesem Gerät gespeichert.',
+  },
+  notifSectionSound: {
+    uk: 'Звук',
+    en: 'Sound',
+    pl: 'Dźwięk',
+    de: 'Ton',
+  },
+  notifSoundMasterTitle: {
+    uk: 'Звук для всіх сповіщень',
+    en: 'Sound for all notifications',
+    pl: 'Dźwięk dla wszystkich powiadomień',
+    de: 'Ton für alle Benachrichtigungen',
+  },
+  notifSoundMasterSubtitle: {
+    uk: 'Увімкніть — звук застосовується до всіх типів одразу. Окремі можна вимкнути нижче.',
+    en: 'When on, sound applies to all types at once. Turn off individual categories below.',
+    pl: 'Po włączeniu dźwięk dotyczy wszystkich typów naraz. Poniżej możesz wyłączyć poszczególne kategorie.',
+    de: 'Wenn aktiviert, gilt der Ton für alle Arten gleichzeitig. Einzelne Kategorien können unten deaktiviert werden.',
+  },
+  notifSoundCatSubtitle: {
+    uk: 'Звук для цього типу',
+    en: 'Sound for this type',
+    pl: 'Dźwięk dla tego typu',
+    de: 'Ton für diesen Typ',
   },
   notifSystemTitle: {
     uk: 'Системні сповіщення',
     en: 'System notifications',
+    pl: 'Powiadomienia systemowe',
+    de: 'Systembenachrichtigungen',
   },
   notifSystemDesc: {
     uk: 'Банери, звук і значок на екрані блокування керуються iOS / Android.',
     en: 'Banners, sounds, and lock screen are controlled by iOS / Android.',
+    pl: 'Banery, dźwięki i ekran blokady są kontrolowane przez iOS / Android.',
+    de: 'Banner, Töne und Sperrbildschirm werden von iOS / Android gesteuert.',
   },
   notifSystemButton: {
     uk: 'Відкрити налаштування системи',
     en: 'Open system notification settings',
+    pl: 'Otwórz ustawienia systemowe powiadomień',
+    de: 'System-Benachrichtigungseinstellungen öffnen',
   },
   notifFooterHint: {
     uk: 'Налаштування зберігаються на цьому пристрої.',
     en: 'Preferences are saved on this device.',
+    pl: 'Preferencje są zapisywane na tym urządzeniu.',
+    de: 'Einstellungen werden auf diesem Gerät gespeichert.',
   },
   subPrivacyBody: {
     uk: 'Ми дбаємо про ваші дані. Детальні правила обробки даних будуть опубліковані тут пізніше. Зараз застосунок зберігає лише необхідний мінімум для роботи облікового запису та функцій, які ви використовуєте.',
@@ -527,6 +673,22 @@ const S = {
   privacyExportAlertBody: {
     uk: 'Ми обробимо запит у розумний строк. Відкрийте пошту з темою листа — або надішліть лист вручну на адресу нижче.',
     en: 'We will process your request within a reasonable time. Open your mail app with the subject filled in — or send manually to the address below.',
+  },
+  privacyExportSuccessTitle: {
+    uk: 'Запит надіслано',
+    en: 'Request sent',
+  },
+  privacyExportSuccessBody: {
+    uk: 'Ми отримали ваш запит на копію даних і обробимо його у розумний строк. Відповідь надішлемо на email вашого акаунта.',
+    en: 'We received your data export request and will process it within a reasonable time. We will reply to your account email.',
+  },
+  privacyDeleteSuccessTitle: {
+    uk: 'Запит надіслано',
+    en: 'Request sent',
+  },
+  privacyDeleteSuccessBody: {
+    uk: 'Ми отримали запит на видалення акаунта. Команда підтримки зв’яжеться з вами на email, з якого ви реєструвалися.',
+    en: 'We received your account deletion request. Support will contact you at the email you used to register.',
   },
   privacyOpenMailApp: {
     uk: 'Відкрити пошту',
@@ -662,12 +824,12 @@ const S = {
     en: 'Open chats',
   },
   helpOpenFaq: {
-    uk: 'Поширені питання (веб)',
-    en: 'FAQ (web)',
+    uk: 'Сайт KRAÏNA',
+    en: 'KRAÏNA website',
   },
   helpOpenDocs: {
-    uk: 'Документація (веб)',
-    en: 'Help docs (web)',
+    uk: 'Як користуватися',
+    en: 'How to use the app',
   },
   helpEmailSupport: {
     uk: 'Написати в підтримку',

@@ -15,6 +15,7 @@ import {
   removeThread,
   sendTextMessage,
 } from '../services/messageService.js';
+import { registerExpoPushToken, removeExpoPushToken } from '../services/chatPushService.js';
 
 const router = Router();
 
@@ -113,6 +114,38 @@ router.delete('/threads/:threadId', authenticateToken, async (req, res, next) =>
     const me = req.authUser?.id;
     if (!me) throw new HttpError(401, 'token_invalid');
     await removeThread(req.params.threadId, me);
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/messages/push-token — зареєструвати Expo Push Token для сповіщень про нові повідомлення.
+ */
+router.post('/push-token', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.authUser?.id;
+    if (!me) throw new HttpError(401, 'token_invalid');
+    const { expo_push_token } = req.body as { expo_push_token?: string };
+    if (!expo_push_token || typeof expo_push_token !== 'string') {
+      throw new HttpError(400, 'expo_push_token_required');
+    }
+    await registerExpoPushToken(me, expo_push_token);
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * DELETE /api/messages/push-token — видалити Expo Push Token (при logout).
+ */
+router.delete('/push-token', authenticateToken, async (req, res, next) => {
+  try {
+    const me = req.authUser?.id;
+    if (!me) throw new HttpError(401, 'token_invalid');
+    await removeExpoPushToken(me);
     res.status(200).json({ ok: true });
   } catch (e) {
     next(e);

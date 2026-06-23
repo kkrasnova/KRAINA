@@ -27,9 +27,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { getAppTheme } from './themeStorage';
+import {
+  APP_PLAYBACK_AUDIO_MODE,
+  configureBackgroundMusicFriendlyAudio,
+  VOICE_RECORDING_AUDIO_MODE,
+} from './audioSession';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
+import { useAppTheme } from './useAppTheme';
 
 import { RenderProfiler } from './performanceMetrics';
 import { runAfterInteractions } from './runAfterInteractions';
@@ -55,6 +60,7 @@ import {
   messagesDeleteThread,
   messagesUploadVoice,
 } from './messageApi';
+import { initChatPushNotifications, teardownChatPushNotifications } from './chatPushService';
 import { feedUploadMediaFromUri } from './feedApi';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { getRegion } from './routeRegionsData';
@@ -282,8 +288,9 @@ export default function ChatThreadPage({ navigation, route }) {
   const [peerAvatarUrl, setPeerAvatarUrl] = useState(
     route?.params?.peerAvatarUrl || initialCache?.peerAvatarUrl || '',
   );
+  const [peerUserId, setPeerUserId] = useState(route?.params?.peerUserId || '');
   const useMessageApi = route?.params?.useMessageApi === true;
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [thread, setThread] = useState(() =>
     initialCache?.messages?.length ? { messages: initialCache.messages } : null,
   );
@@ -356,8 +363,6 @@ export default function ChatThreadPage({ navigation, route }) {
   );
 
   const reload = useCallback(async () => {
-    const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
     if (useMessageApi) {
       try {
         const [inbox, requests] = await Promise.all([
@@ -375,6 +380,7 @@ export default function ChatThreadPage({ navigation, route }) {
         if (meta) {
           nextPending = !!meta.pending_for_me;
           setPendingForMe(nextPending);
+          if (meta.peer_user_id) setPeerUserId(String(meta.peer_user_id));
           peerSnapshot = applyPeerMeta(
             {
               setPeerDisplayName,
@@ -450,18 +456,9 @@ export default function ChatThreadPage({ navigation, route }) {
         try {
           /** Запитуємо дозвіл мікрофона ЗАВЧАСНО — щоб системний діалог
            *  не з'являвся під час утримування кнопки запису. */
-          const { granted } = await requestRecordingPermissionsAsync();
-          if (!granted) {
-            if (__DEV__) console.warn('[ChatThread] mic permission denied');
-            return;
-          }
-          await setAudioModeAsync({
-            allowsRecording: true,
-            playsInSilentMode: true,
-          });
-          await voiceRecorder.prepareToRecordAsync();
+          await requestRecordingPermissionsAsync();
         } catch (e) {
-          if (__DEV__) console.warn('[ChatThread] recorder prepare', e?.message);
+          if (__DEV__) console.warn('[ChatThread] mic permission', e?.message);
         }
       })();
       if (useMessageApi) {
@@ -474,7 +471,6 @@ export default function ChatThreadPage({ navigation, route }) {
     }, [user, threadId, langUk, useMessageApi, voiceRecorder]),
   );
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const bg = isLight ? IG_SCREEN_LIGHT : IG_SCREEN_DARK;
@@ -499,6 +495,21 @@ export default function ChatThreadPage({ navigation, route }) {
     }
     prevMessageCount.current = messages.length;
   }, [messages.length, scrollEnd]);
+
+  useEffect(() => {
+    if (useMessageApi && threadId) {
+      initChatPushNotifications((tId) => {
+        navigation.navigate('ChatThread', {
+          ...shell,
+          threadId: tId,
+          useMessageApi: true,
+        });
+      }).catch(() => {});
+    }
+    return () => {
+      teardownChatPushNotifications();
+    };
+  }, [useMessageApi, threadId]);
 
   useEffect(
     () => () => {
@@ -547,10 +558,7 @@ export default function ChatThreadPage({ navigation, route }) {
       if (!src) return;
       const durationSec = Math.max(1, (Number(durationMs) || 0) / 1000);
       try {
-        await setAudioModeAsync({
-          allowsRecording: false,
-          playsInSilentMode: true,
-        });
+        await setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE);
         const player = ensureVoicePlayer();
         const rate = voiceRatesRef.current[messageId] || 1;
 
@@ -773,6 +781,10 @@ export default function ChatThreadPage({ navigation, route }) {
   const onSend = async () => {
     const t = draft.trim();
     if (!t || sending) return;
+    if (!useMessageApi) {
+      Alert.alert('', st(language, 'needBackendLogin'));
+      return;
+    }
     setDraft('');
     const optimisticId = `opt_${Date.now()}`;
     const optimistic = {
@@ -893,7 +905,6 @@ export default function ChatThreadPage({ navigation, route }) {
                 }
               >
             <Text style={styles.routeBtnText}>{st(language, 'routeCta')}</Text>
-            <Ionicons name="arrow-forward" size={18} color="#1E1E1E" style={{ marginLeft: 8 }} />
               </Pressable>
             </View>
           </View>
@@ -987,10 +998,7 @@ export default function ChatThreadPage({ navigation, route }) {
     if (recordingBusyRef.current || voiceUploadingRef.current || voiceRecordingRef.current) return;
     recordingBusyRef.current = true;
     try {
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      });
+      await setAudioModeAsync(VOICE_RECORDING_AUDIO_MODE);
       try {
         await voiceRecorder.prepareToRecordAsync();
       } catch {
@@ -1048,10 +1056,12 @@ export default function ChatThreadPage({ navigation, route }) {
         .finally(() => {
           voiceUploadingRef.current = false;
           setVoiceUploading(false);
-          void voiceRecorder.prepareToRecordAsync().catch(() => {});
+          void configureBackgroundMusicFriendlyAudio().catch(() => {});
         });
     } catch (e) {
       Alert.alert('', errorToUserText(e, language));
+    } finally {
+      void configureBackgroundMusicFriendlyAudio().catch(() => {});
     }
   }, [
     voiceRecorder,
@@ -1209,13 +1219,13 @@ export default function ChatThreadPage({ navigation, route }) {
             {peerDisplayName}
           </Text>
         </Pressable>
-        {useMessageApi && route?.params?.peerUserId ? (
+        {useMessageApi && peerUserId ? (
           <>
             <Pressable
               onPress={() =>
                 navigation.navigate('Call', {
                   mode: 'outgoing',
-                  peerUserId: route.params.peerUserId,
+                  peerUserId,
                   peerDisplayName,
                   peerAvatarUrl,
                   user,
@@ -1232,7 +1242,7 @@ export default function ChatThreadPage({ navigation, route }) {
                 navigation.navigate('Call', {
                   mode: 'outgoing',
                   isVideo: true,
-                  peerUserId: route.params.peerUserId,
+                  peerUserId,
                   peerDisplayName,
                   peerAvatarUrl,
                   user,

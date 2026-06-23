@@ -1,26 +1,41 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { FlashList } from '@shopify/flash-list';
-import { View, Text, StyleSheet, TextInput, Pressable, Alert, Image, RefreshControl } from 'react-native';
+import { View, StyleSheet, Alert, RefreshControl, DeviceEventEmitter, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
-
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { st } from './chatsI18n';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { getFriends, setFriends } from './profileStorage';
-import { ensureThreadForPeer } from './chatService';
 import { hasMessageApiToken, messagesOpenThread, socialListMutuals } from './messageApi';
-import { socialListIncomingRequests, socialAcceptRequest, socialDeclineRequest } from './socialApi';
+import {
+  socialSearchProfiles,
+  socialFollowUsername,
+  socialUnfollowUsername,
+} from './socialApi';
+import {
+  KRAINA_SOCIAL_FOLLOW_CHANGED,
+  KRAINA_SOCIAL_GRAPH_CHANGED,
+  socialFollowMatches,
+  isNavigableSocialUsername,
+} from './socialFollowSyncEvents';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme } from './themeAccent';
 import { errorToUserText } from './errorText';
+import { readMutualsCache } from './chatsDataPrefetch';
+import { peerDisplayNameFromMeta, peerUsernameFromMeta } from './chatPeerDisplay';
 import {
-  peerDisplayNameFromMeta,
-  peerUsernameFromMeta,
-} from './chatPeerDisplay';
+  SocialPeopleSearchBar,
+  SocialListActionBtn,
+  SocialPersonRow,
+  SocialPeopleEmptyState,
+  socialPeopleListColors,
+  socialPersonDisplayName,
+} from './socialPeopleListUi';
 
 export default function ProfileFriendsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -30,14 +45,18 @@ export default function ProfileFriendsPage({ navigation, route }) {
   const [q, setQ] = useState('');
   const [list, setList] = useState([]);
   const [mutuals, setMutuals] = useState(null);
-  const [incoming, setIncoming] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [searchHits, setSearchHits] = useState([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [followBusyMap, setFollowBusyMap] = useState({});
+  const [followMap, setFollowMap] = useState({});
+  const searchDebounceRef = useRef(null);
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
-  const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
+  const { textMain, muted, border } = socialPeopleListColors(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const shell = {
@@ -50,29 +69,48 @@ export default function ProfileFriendsPage({ navigation, route }) {
   const reload = useCallback(async (withSpinner = false) => {
     if (withSpinner) setRefreshing(true);
     try {
-      const [t, friends] = await Promise.all([getAppTheme(), getFriends()]);
-    setAppTheme(t === 'light' ? 'light' : 'dark');
-    setList(friends);
-    if (hasMessageApiToken()) {
-      try {
-        const [m, inc] = await Promise.all([
-          socialListMutuals(),
-          socialListIncomingRequests(),
-        ]);
-        setMutuals(Array.isArray(m) ? m : []);
-        setIncoming(Array.isArray(inc) ? inc : []);
-      } catch {
-        setMutuals([]);
-        setIncoming([]);
+      const friends = getFriends();
+      const t = getAppTheme();
+      setAppTheme(t === 'light' ? 'light' : 'dark');
+      setList(Array.isArray(friends) ? friends : []);
+
+      if (hasMessageApiToken()) {
+        const cachedMutuals = readMutualsCache(shell.user);
+        if (Array.isArray(cachedMutuals) && cachedMutuals.length) {
+          setMutuals(cachedMutuals);
+        } else {
+          setMutuals([]);
+        }
+
+        const timeout = 1000;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        try {
+          const m = await Promise.race([
+            socialListMutuals(),
+            new Promise((_, reject) => {
+              controller.signal.addEventListener('abort', () => {
+                reject(new Error('timeout_1s'));
+              });
+            }),
+          ]);
+          clearTimeout(timeoutId);
+          if (Array.isArray(m) && m.length) setMutuals(m);
+        } catch (e) {
+          clearTimeout(timeoutId);
+          if (__DEV__) console.log('[ProfileFriendsPage] backend load timeout/error:', e?.message);
+          if (!Array.isArray(cachedMutuals) || !cachedMutuals.length) {
+            setMutuals([]);
+          }
+        }
+      } else {
+        setMutuals(null);
       }
-    } else {
-      setMutuals(null);
-      setIncoming([]);
+    } finally {
+      if (withSpinner) setRefreshing(false);
     }
-  } finally {
-    if (withSpinner) setRefreshing(false);
-  }
-  }, []);
+  }, [shell.user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -80,51 +118,143 @@ export default function ProfileFriendsPage({ navigation, route }) {
     }, [reload]),
   );
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_FOLLOW_CHANGED, (payload) => {
+      const userId = String(payload?.user_id || '');
+      const isFollowing = !!payload?.is_following;
+      if (userId) {
+        setFollowMap((m) => ({ ...m, [userId]: isFollowing }));
+      }
+      setSearchHits((prev) =>
+        prev.map((row) =>
+          socialFollowMatches(payload, row.username, row.user_id)
+            ? { ...row, is_following: isFollowing }
+            : row,
+        ),
+      );
+      void reload();
+    });
+    return () => sub.remove();
+  }, [reload]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_GRAPH_CHANGED, () => {
+      void reload();
+    });
+    return () => sub.remove();
+  }, [reload]);
+
   const displayList = useMemo(() => {
-    if (mutuals != null && mutuals.length > 0) {
-      return mutuals.map((u) => ({
-        id: u.user_id,
-        name: u.username?.startsWith('@') ? u.username : `@${u.username}`,
-        backendUserId: u.user_id,
-        avatarUrl: u.avatar_url,
-      }));
+    if (mutuals != null && Array.isArray(mutuals) && mutuals.length > 0) {
+      return mutuals
+        .filter((u) => u.username && isNavigableSocialUsername(u.username))
+        .map((u) => ({
+          id: String(u.user_id || u.id || ''),
+          name: socialPersonDisplayName(u),
+          username: u.username,
+          display_name: u.display_name,
+          backendUserId: u.user_id || u.id,
+          avatarUrl: u.avatar_url || u.avatar,
+        }));
     }
-    return list;
+    if (Array.isArray(list) && list.length > 0) {
+      return list
+        .filter((x) => {
+          const raw = String(x?.username || x?.name || '').replace(/^@/, '').trim();
+          return raw && isNavigableSocialUsername(raw);
+        })
+        .map((x) => ({
+          id: String(x.id || x.backendUserId || ''),
+          name: socialPersonDisplayName(x),
+          username: x.username,
+          display_name: x.display_name,
+          backendUserId: x.backendUserId || x.id,
+          avatarUrl: x.avatarUrl || x.avatar,
+        }));
+    }
+    return [];
   }, [mutuals, list]);
 
-  const filtered = useMemo(() => {
+  const filteredLocal = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return displayList;
-    return displayList.filter((x) => x.name.toLowerCase().includes(s));
+    return displayList.filter((x) => {
+      const name = String(x.name || '').toLowerCase();
+      const username = String(x.username || '').toLowerCase();
+      return name.includes(s) || username.includes(s);
+    });
   }, [displayList, q]);
 
-  const onAcceptRequest = async (userId) => {
-    try {
-      await socialAcceptRequest(userId);
-      setIncoming((prev) => prev.filter((r) => r.user_id !== userId));
-      reload();
-    } catch (e) {
-      Alert.alert('', errorToUserText(e, language));
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const raw = q.trim().replace(/^@/, '');
+    if (raw.length < 1) {
+      setSearchHits([]);
+      setSearchBusy(false);
+      return;
     }
-  };
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchBusy(true);
+      try {
+        const rows = await socialSearchProfiles(raw, 24);
+        setSearchHits(Array.isArray(rows) ? rows : []);
+      } catch {
+        setSearchHits([]);
+      } finally {
+        setSearchBusy(false);
+      }
+    }, 80);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [q]);
 
-  const onDeclineRequest = async (userId) => {
-    try {
-      await socialDeclineRequest(userId);
-      setIncoming((prev) => prev.filter((r) => r.user_id !== userId));
-    } catch (e) {
-      Alert.alert('', errorToUserText(e, language));
+  const filtered = useMemo(() => {
+    const s = q.trim();
+    if (!s) return displayList;
+    const localIds = new Set(
+      filteredLocal.map((x) => String(x.backendUserId || x.id || '')),
+    );
+    const fromSearch = searchHits
+      .filter((u) => !localIds.has(String(u.user_id)))
+      .map((u) => ({
+        id: String(u.user_id),
+        name: socialPersonDisplayName(u),
+        username: u.username,
+        display_name: u.display_name,
+        backendUserId: u.user_id,
+        avatarUrl: u.avatar_url,
+        fromGlobalSearch: true,
+        isFollowing: followMap[String(u.user_id)] !== undefined
+          ? followMap[String(u.user_id)]
+          : !!u.is_following,
+      }));
+    return [...filteredLocal, ...fromSearch];
+  }, [q, displayList, filteredLocal, searchHits, followMap]);
+
+  const removeFriend = async (item) => {
+    const id = item.id;
+    const username = String(item.username || '').replace(/^@/, '').trim();
+    if (item.backendUserId && username) {
+      try {
+        await socialUnfollowUsername(username, { user_id: item.backendUserId });
+        void reload();
+      } catch (e) {
+        Alert.alert('', errorToUserText(e, language));
+      }
+      return;
     }
-  };
-
-  const removeFriend = async (id) => {
     const next = list.filter((x) => x.id !== id);
     setList(next);
     await setFriends(next);
   };
 
   const openChatWithFriend = async (item) => {
-    if (item.backendUserId && hasMessageApiToken()) {
+    if (!hasMessageApiToken()) {
+      Alert.alert('', st(language, 'needBackendLogin'));
+      return;
+    }
+    if (item.backendUserId) {
       try {
         const meta = await messagesOpenThread({ peerUserId: item.backendUserId });
         navigation.navigate('ChatThread', {
@@ -134,28 +264,14 @@ export default function ProfileFriendsPage({ navigation, route }) {
           peerDisplayName: peerDisplayNameFromMeta(meta) || item.name,
           peerUsername: peerUsernameFromMeta(meta),
           peerAvatarUrl: item.avatarUrl || meta.peer_avatar_url || '',
+          peerUserId: String(meta.peer_user_id || item.backendUserId),
           useMessageApi: true,
           pendingForMe: !!meta.pending_for_me,
         });
       } catch (e) {
         Alert.alert('', errorToUserText(e, language));
       }
-      return;
     }
-    const th = await ensureThreadForPeer(
-      route?.params?.user,
-      `friend_${item.id}`,
-      item.name,
-      langUk,
-    );
-    navigation.navigate('ChatThread', {
-      ...shell,
-      threadId: th.id,
-      peerName: item.name,
-      peerDisplayName: item.name,
-      peerUsername: item.username ? `@${String(item.username).replace(/^@/, '')}` : item.name,
-      peerAvatarUrl: item.avatarUrl || '',
-    });
   };
 
   const openFriendProfile = useCallback(
@@ -163,14 +279,94 @@ export default function ProfileFriendsPage({ navigation, route }) {
       const raw = String(item?.name || item?.username || '').trim();
       const unameFromName = raw.startsWith('@') ? raw.slice(1) : raw;
       const username = String(item?.username || unameFromName || '').replace(/^@/, '').trim();
-      if (!username) return;
+      if (!username || !isNavigableSocialUsername(username)) return;
       navigation.push('SocialUserProfile', {
         ...shell,
         username,
+        preloadedProfile: item,
       });
     },
     [navigation, shell],
   );
+
+  const handleFollowSearch = useCallback(
+    async (item) => {
+      const userId = String(item.backendUserId || item.id || '');
+      const username = String(item.username || '').replace(/^@/, '').trim();
+      if (!userId || !username || followBusyMap[userId]) return;
+      const currentFollow = followMap[userId] !== undefined ? followMap[userId] : !!item.isFollowing;
+      setFollowBusyMap((m) => ({ ...m, [userId]: true }));
+      setFollowMap((m) => ({ ...m, [userId]: !currentFollow }));
+      try {
+        const followOpts = { user_id: userId };
+        if (currentFollow) await socialUnfollowUsername(username, followOpts);
+        else await socialFollowUsername(username, followOpts);
+      } catch (e) {
+        setFollowMap((m) => ({ ...m, [userId]: currentFollow }));
+        Alert.alert('', errorToUserText(e, language));
+      } finally {
+        setFollowBusyMap((m) => ({ ...m, [userId]: false }));
+      }
+    },
+    [followBusyMap, followMap, language],
+  );
+
+  const openStartChat = useCallback(() => {
+    navigation.navigate('StartChat', shell);
+  }, [navigation, shell]);
+
+  const openManageFriends = useCallback(() => {
+    navigation.navigate('ProfileFriends', shell);
+  }, [navigation, shell]);
+
+  const headerRight = forChatPick ? (
+    <Pressable
+      onPress={openManageFriends}
+      hitSlop={12}
+      style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, padding: 4 }]}
+      accessibilityRole="button"
+      accessibilityLabel={langUk ? 'Керувати друзями' : 'Manage friends'}
+    >
+      <Ionicons name="create-outline" size={24} color={isLight ? '#1E1E1E' : '#FFFFFF'} />
+    </Pressable>
+  ) : (
+    <Pressable
+      onPress={openStartChat}
+      hitSlop={12}
+      style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, padding: 4 }]}
+      accessibilityRole="button"
+      accessibilityLabel={st(language, 'startChatTitle')}
+    >
+      <Ionicons name="paper-plane-outline" size={22} color={isLight ? '#1E1E1E' : '#FFFFFF'} />
+    </Pressable>
+  );
+
+  const listEmpty = useMemo(() => {
+    if (q.trim() && !searchBusy && filtered.length === 0) {
+      return (
+        <SocialPeopleEmptyState
+          icon="search-outline"
+          title={langUk ? 'Нікого не знайдено' : 'No people found'}
+          isLight={isLight}
+          textMain={textMain}
+          muted={muted}
+        />
+      );
+    }
+    if (!q.trim() && displayList.length === 0) {
+      return (
+        <SocialPeopleEmptyState
+          icon="people-outline"
+          title={langUk ? 'Поки немає друзів' : 'No friends yet'}
+          subtitle={langUk ? 'Знайдіть людей і додайте їх у друзі' : 'Find people and add them as friends'}
+          isLight={isLight}
+          textMain={textMain}
+          muted={muted}
+        />
+      );
+    }
+    return null;
+  }, [q, searchBusy, filtered.length, displayList.length, langUk, isLight, textMain, muted]);
 
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
@@ -178,34 +374,28 @@ export default function ProfileFriendsPage({ navigation, route }) {
         appTheme={appTheme}
         leftMode="back"
         onBackPress={() => navigation.goBack()}
-        centerSubtitle={pf(language, 'friendsTitle')}
+        showBrandLogo={forChatPick}
+        replaceCenterTitle={forChatPick ? null : pf(language, 'friendsTitle')}
+        rightSlot={headerRight}
         hideSendButton
       />
-      <View
-        style={[
-          styles.searchWrap,
-          {
-            borderColor: accent,
-            backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)',
-          },
-        ]}
-      >
-        <TextInput
-          value={q}
-          onChangeText={setQ}
-          placeholder={pf(language, 'search')}
-          placeholderTextColor={isLight ? '#888' : '#777'}
-          style={[styles.searchInput, { color: textMain }]}
-        />
-        <Ionicons name="search-outline" size={22} color={accent} />
-      </View>
+      <SocialPeopleSearchBar
+        value={q}
+        onChangeText={setQ}
+        placeholder={pf(language, 'search')}
+        isLight={isLight}
+        accent={accent}
+        textMain={textMain}
+        muted={muted}
+        searchBusy={searchBusy}
+      />
       <FlashList
         data={filtered}
         keyExtractor={(item) => item.id}
         estimatedItemSize={72}
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 20,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 20),
         }}
         refreshControl={
           <RefreshControl
@@ -214,117 +404,68 @@ export default function ProfileFriendsPage({ navigation, route }) {
             tintColor={accent}
           />
         }
-        ListHeaderComponent={
-          <>
-            {incoming.length > 0 ? (
-              <View style={{ marginBottom: 8 }}>
-                <Text style={[styles.sectionTitle, { color: accent }]}>
-                  {langUk ? 'Запити в друзі' : 'Friend requests'} ({incoming.length})
-                </Text>
-                {incoming.map((r) => (
-                  <View
-                    key={r.user_id}
-                    style={[
-                      styles.row,
-                      { borderBottomColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' },
-                    ]}
-                  >
-                    <View style={styles.rowMain}>
-                      {r.avatar_url ? (
-                        <Image source={{ uri: r.avatar_url }} style={styles.avatar} />
-                      ) : (
-                        <View
-                          style={[
-                            styles.avatar,
-                            { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' },
-                          ]}
-                        />
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Pressable onPress={() => openFriendProfile(r)} style={{ alignSelf: 'flex-start' }}>
-                          <Text style={[styles.name, { color: textMain }]}>
-                            {r.display_name || r.username}
-                          </Text>
-                        </Pressable>
-                        <Text style={{ color: isLight ? '#888' : '#777', fontSize: 13 }}>
-                          @{r.username}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.actions}>
-                      <Pressable
-                        style={({ pressed }) => [styles.iconBtn, { backgroundColor: '#34A853' }, pressed && { opacity: 0.85 }]}
-                        android_ripple={ripple}
-                        onPress={() => onAcceptRequest(r.user_id)}
-                      >
-                        <Ionicons name="checkmark" size={20} color="#FFF" />
-                      </Pressable>
-                      <Pressable
-                        style={({ pressed }) => [styles.iconBtn, styles.delBtn, pressed && { opacity: 0.85 }]}
-                        android_ripple={ripple}
-                        onPress={() => onDeclineRequest(r.user_id)}
-                      >
-                        <Ionicons name="close" size={18} color="#FFF" />
-                      </Pressable>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-            {incoming.length > 0 && filtered.length > 0 ? (
-              <View style={{ marginBottom: 4 }}>
-                <Text style={[styles.sectionTitle, { color: accent }]}>
-                  {langUk ? 'Друзі' : 'Friends'} ({filtered.length})
-                </Text>
-              </View>
-            ) : null}
-          </>
-        }
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.row,
-              { borderBottomColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' },
-            ]}
-          >
-            <Pressable
-              style={styles.rowMain}
-              onPress={() => (forChatPick ? openChatWithFriend(item) : openFriendProfile(item))}
-            >
-              {item.avatarUrl && item.avatarUrl.startsWith('http') ? (
-                <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View
-                  style={[
-                    styles.avatar,
-                    { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' },
-                  ]}
+        ListEmptyComponent={listEmpty}
+        renderItem={({ item, index }) => {
+          const isLast = index === filtered.length - 1;
+          const showActions = !forChatPick;
+          const rowPress = forChatPick
+            ? () => openChatWithFriend(item)
+            : undefined;
+
+          let actions = null;
+          if (showActions) {
+            if (item.fromGlobalSearch) {
+              const userId = String(item.backendUserId || item.id || '');
+              const isFollowed =
+                followMap[userId] !== undefined ? followMap[userId] : !!item.isFollowing;
+              actions = (
+                <SocialListActionBtn
+                  icon={isFollowed ? 'checkmark' : 'add'}
+                  onPress={() => handleFollowSearch(item)}
+                  disabled={!!followBusyMap[userId]}
+                  ripple={ripple}
+                  isLight={isLight}
+                  accessibilityLabel={isFollowed ? pf(language, 'following') : pf(language, 'follow')}
                 />
-              )}
-              <Text style={[styles.name, { color: textMain }]}>{item.name}</Text>
-            </Pressable>
-            <View style={styles.actions}>
-              <Pressable
-                style={({ pressed }) => [styles.iconBtn, styles.msgBtn, pressed && { opacity: 0.85 }]}
-                android_ripple={ripple}
-                onPress={() =>
-                  forChatPick ? openChatWithFriend(item) : navigation.navigate('Chats', shell)
-                }
-              >
-                <Ionicons name="paper-plane" size={16} color="#FFF" />
-              </Pressable>
-              {!item.backendUserId ? (
-                <Pressable
-                  style={({ pressed }) => [styles.iconBtn, styles.delBtn, pressed && { opacity: 0.85 }]}
-                  android_ripple={ripple}
-                  onPress={() => removeFriend(item.id)}
-                >
-                  <Ionicons name="close" size={18} color="#FFF" />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        )}
+              );
+            } else {
+              actions = (
+                <>
+                  <SocialListActionBtn
+                    icon="paper-plane"
+                    onPress={() => openChatWithFriend(item)}
+                    ripple={ripple}
+                    isLight={isLight}
+                    accessibilityLabel={st(language, 'startChatTitle')}
+                  />
+                  <SocialListActionBtn
+                    icon="close"
+                    variant="danger"
+                    onPress={() => removeFriend(item)}
+                    ripple={ripple}
+                    isLight={isLight}
+                    accessibilityLabel={langUk ? 'Видалити' : 'Remove'}
+                  />
+                </>
+              );
+            }
+          }
+
+          return (
+            <SocialPersonRow
+              avatarUrl={item.avatarUrl}
+              displayName={item.name}
+              onPress={rowPress}
+              onPressName={() => openFriendProfile(item)}
+              actions={actions}
+              isLight={isLight}
+              textMain={textMain}
+              border={border}
+              isLast={isLast}
+              ripple={ripple}
+            />
+          );
+        }}
       />
     </View>
   );
@@ -332,46 +473,4 @@ export default function ProfileFriendsPage({ navigation, route }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  searchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginTop: 12,
-    marginBottom: 8,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  searchInput: { flex: 1, fontSize: 16 },
-  sectionTitle: { fontSize: 15, fontWeight: '600', marginBottom: 4, marginTop: 8 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  rowMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: 0,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
-  name: { flex: 1, fontSize: 16 },
-  actions: { flexDirection: 'row', gap: 10 },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  msgBtn: { backgroundColor: '#1E1E1E' },
-  delBtn: { backgroundColor: '#EB4335' },
 });

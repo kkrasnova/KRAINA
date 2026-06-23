@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { Animated, Platform, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { useAndroidActivityReady, useStagedVideoPlayerMount, VideoRenderErrorBoundary } from './expoAvCompat';
+import { preloadSplashTitleVideo } from './splashTitleVideoAsset';
 
 function runOnPlayer(player, fn) {
   try {
@@ -11,90 +13,186 @@ function runOnPlayer(player, fn) {
   }
 }
 
-/**
- * SplashTitleVideo — показує анімацію лого KRAINA.
- *
- * Використовуємо нативний loop (`loop: true`) — на Android це ExoPlayer
- * REPEAT_MODE_ONE, який робить seamless loop без переініціалізації декодера.
- *
- * Раніше був manual cross-fade loop (fade out → seek(0) → play → fade in),
- * але seek(0) на Android може спричиняти мікролаги через скидання буфера.
- */
-export default function SplashTitleVideo({ source, style }) {
-  const startedRef = useRef(false);
-  const firstFrameRef = useRef(false);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+function SplashTitleVideoPlayerInner({ localUri, style, mountView = true, onReady, onPlaybackStarted }) {
+  const readyNotifiedRef = useRef(false);
+  const playbackStartedRef = useRef(false);
 
-  const player = useVideoPlayer(source, (instance) => {
-    instance.muted = true;
+  const notifyReady = useCallback(() => {
+    if (readyNotifiedRef.current) return;
+    readyNotifiedRef.current = true;
+    onReady?.();
+  }, [onReady]);
+
+  const notifyPlaybackStarted = useCallback(
+    (currentTime = 0, force = false) => {
+      if (playbackStartedRef.current) return;
+      if (!force && currentTime < 0.04) return;
+      playbackStartedRef.current = true;
+      onPlaybackStarted?.();
+      notifyReady();
+    },
+    [notifyReady, onPlaybackStarted],
+  );
+
+  const player = useVideoPlayer(localUri, (instance) => {
     instance.loop = true;
+    instance.muted = true;
+    instance.timeUpdateEventInterval = 0.08;
+    if (Platform.OS === 'ios') {
+      instance.audioMixingMode = 'mixWithOthers';
+    }
   });
 
-  /**
-   * Починаємо відтворення як тільки readyToPlay.
-   * Але fade-in чекає на onFirstFrameRender — щоб на Android (TextureView)
-   * перший кадр вже був відрендерений до початку анімації.
-   *
-   * Fallback: якщо onFirstFrameRender не спрацював за 500ms після readyToPlay,
-   * починаємо fade-in в будь-якому разі (захист від дивних девайсів/версій expo-video).
-   */
-  useEffect(() => {
-    let fallbackTimer = null;
-    const sub = player.addListener('statusChange', ({ status }) => {
-      if (status !== 'readyToPlay' || startedRef.current) return;
-      startedRef.current = true;
-      runOnPlayer(player, (p) => p.play());
-      // Fallback: fade-in навіть без onFirstFrameRender через 500ms
-      fallbackTimer = setTimeout(() => {
-        if (!firstFrameRef.current) {
-          firstFrameRef.current = true;
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        }
-      }, 500);
+  const ensurePlaying = useCallback(() => {
+    runOnPlayer(player, (p) => {
+      if (p.status === 'readyToPlay' && !p.playing) {
+        p.play();
+      }
     });
-    return () => {
-      sub.remove();
-      if (fallbackTimer != null) clearTimeout(fallbackTimer);
-    };
-  }, [player, fadeAnim]);
+  }, [player]);
 
-  /** Коли перший кадр реально відрендерився — починаємо fade-in. */
-  const handleFirstFrame = useCallback(() => {
-    if (firstFrameRef.current) return;
-    firstFrameRef.current = true;
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 150,
-      useNativeDriver: true,
-    }).start();
-  }, [fadeAnim]);
+  const handleFirstFrameRender = useCallback(() => {
+    ensurePlaying();
+    notifyPlaybackStarted(1, true);
+  }, [ensurePlaying, notifyPlaybackStarted]);
+
+  useEffect(() => {
+    if (!mountView) return undefined;
+
+    ensurePlaying();
+
+    const statusSub = player.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay') {
+        ensurePlaying();
+      }
+    });
+
+    const playingSub = player.addListener('playingChange', ({ isPlaying }) => {
+      if (isPlaying) {
+        notifyPlaybackStarted(
+          player.currentTime,
+          Platform.OS === 'android',
+        );
+      } else if (player.status === 'readyToPlay') {
+        ensurePlaying();
+      }
+    });
+
+    const timeSub = player.addListener('timeUpdate', ({ currentTime }) => {
+      notifyPlaybackStarted(currentTime);
+    });
+
+    const playToEndSub = player.addListener('playToEnd', () => {
+      runOnPlayer(player, (p) => p.replay());
+    });
+
+    const retryId = setInterval(ensurePlaying, 200);
+    const stopRetryId = setTimeout(() => clearInterval(retryId), 5000);
+
+    return () => {
+      statusSub.remove();
+      playingSub.remove();
+      timeSub.remove();
+      playToEndSub.remove();
+      clearInterval(retryId);
+      clearTimeout(stopRetryId);
+    };
+  }, [player, ensurePlaying, notifyPlaybackStarted, notifyReady, mountView]);
+
+  if (!mountView) {
+    return <View pointerEvents="none" style={style} />;
+  }
 
   return (
     <View pointerEvents="none" style={style}>
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            opacity: fadeAnim,
-            backgroundColor: 'transparent',
-          },
-        ]}
-      >
-        <VideoView
-          style={StyleSheet.absoluteFill}
-          player={player}
-          nativeControls={false}
-          contentFit="contain"
-          allowsFullscreen={false}
-          useExoShutter={false}
-          surfaceType={Platform.OS === 'android' ? 'textureView' : undefined}
-          onFirstFrameRender={handleFirstFrame}
-        />
-      </Animated.View>
+      <VideoView
+        style={StyleSheet.absoluteFill}
+        player={player}
+        nativeControls={false}
+        contentFit="contain"
+        allowsFullscreen={false}
+        useExoShutter={false}
+        surfaceType={Platform.OS === 'android' ? 'textureView' : undefined}
+        onFirstFrameRender={handleFirstFrameRender}
+      />
     </View>
+  );
+}
+
+function SplashTitleVideoPlayer({ localUri, style, mountView = true, onReady, onPlaybackStarted }) {
+  const handleBoundaryReady = useCallback(() => {
+    onReady?.();
+    onPlaybackStarted?.();
+  }, [onPlaybackStarted, onReady]);
+
+  return (
+    <VideoRenderErrorBoundary fallbackStyle={style} onFallback={handleBoundaryReady}>
+      <SplashTitleVideoPlayerInner
+        localUri={localUri}
+        style={style}
+        mountView={mountView}
+        onReady={onReady}
+        onPlaybackStarted={onPlaybackStarted}
+      />
+    </VideoRenderErrorBoundary>
+  );
+}
+
+/**
+ * SplashTitleVideo — анімація лого KRAÏNA (скло/лінза по буквах).
+ * Відтворення лише з локального file:// після Asset.downloadAsync.
+ */
+export default function SplashTitleVideo({ style, onReady, onPlaybackStarted, enabled = true }) {
+  const activityReady = useAndroidActivityReady();
+  const [localUri, setLocalUri] = useState(null);
+  const shouldRun = Boolean(enabled && localUri && activityReady);
+  const { mountPlayer, mountView } = useStagedVideoPlayerMount(shouldRun);
+
+  useEffect(() => {
+    if (!enabled) {
+      onReady?.();
+      onPlaybackStarted?.();
+      return undefined;
+    }
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const uri = await preloadSplashTitleVideo();
+        if (cancelled) return;
+        if (!uri) {
+          onReady?.();
+          onPlaybackStarted?.();
+          return;
+        }
+        setLocalUri(uri);
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('[SplashTitleVideo] preload failed:', error?.message ?? error);
+        }
+        if (!cancelled) {
+          onReady?.();
+          onPlaybackStarted?.();
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, onPlaybackStarted, onReady]);
+
+  if (!mountPlayer) {
+    return <View pointerEvents="none" style={style} />;
+  }
+
+  return (
+    <SplashTitleVideoPlayer
+      localUri={localUri}
+      style={style}
+      mountView={mountView}
+      onReady={onReady}
+      onPlaybackStarted={onPlaybackStarted}
+    />
   );
 }

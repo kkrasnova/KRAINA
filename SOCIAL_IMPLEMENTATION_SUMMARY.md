@@ -221,7 +221,7 @@
 
 - 🐛 Bug Reports: GitHub Issues
 - 💬 Питання: Developer Discord
-- 📧 Email: dev@kraina.app
+- 📧 Email: support@kraina.world
 
 
 

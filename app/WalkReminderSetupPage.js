@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,23 +10,43 @@ import {
   Switch,
   Modal,
   DeviceEventEmitter,
+  AppState,
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
+import { brandFontHeadBold, brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
+import { useResponsive } from './useResponsive';
 import { st } from './settingsI18n';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { getSubscriptionState } from './subscriptionStorage';
-import { accentForTheme, onAccentButtonText } from './themeAccent';
-import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import Lemon3DButton from './Lemon3DButton';
+import * as WebBrowser from 'expo-web-browser';
+import { getPrivacyPolicyUrl, getTermsOfServiceUrl } from './privacyLinks';
+import {
+  settingsCleanPalette,
+  SettingsCleanHero,
+  SettingsCleanSwitchRow,
+  SettingsCleanPressRow,
+  SettingsCleanFootnote,
+  SettingsCleanLegalNote,
+} from './settingsCleanUi';
 import { getWalkReminderPrefs, setWalkReminderPrefs, WALK_REMINDER_CHANGED } from './walkReminderStorage';
+import { getStepSyncEnabled, setStepSyncEnabled, KRAINA_STEP_SYNC_CHANGED } from './stepSyncStorage';
+import {
+  requestStepsAccessOutcome,
+  isStepsPlatformSupported,
+  resetIosHealthSession,
+} from './healthSteps';
 import {
   cancelScheduledWalkReminderOnly,
+  getWalkReminderNotificationPermissionStatus,
+  isWalkReminderNotificationsAvailable,
+  openWalkReminderNotificationSettings,
   requestWalkReminderNotificationPermission,
   syncWalkReminderScheduleFromStorage,
 } from './walkReminderSync';
@@ -44,38 +64,49 @@ function pad2(n) {
 
 export default function WalkReminderSetupPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  const r = useResponsive();
   const language = useSyncedAppLanguage(route, 'uk');
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const fromOnboarding = route?.params?.fromOnboarding === true;
 
-  const [appTheme, setAppTheme] = useState(() =>
-    route?.params?.appTheme === 'light' ? 'light' : 'dark',
-  );
+  const { savedAppTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
   const [enabled, setEnabled] = useState(false);
   const [hour, setHour] = useState(18);
   const [minute, setMinute] = useState(30);
   const [showIosPicker, setShowIosPicker] = useState(false);
   const [showAndroidPicker, setShowAndroidPicker] = useState(false);
   const [androidPick, setAndroidPick] = useState({ hour: 18, minute: 30 });
+  const [finishing, setFinishing] = useState(false);
+  const [toggleBusy, setToggleBusy] = useState(false);
+  const [stepsEnabled, setStepsEnabled] = useState(false);
+  const [stepsToggleBusy, setStepsToggleBusy] = useState(false);
+  const pendingEnableRef = useRef(false);
+  const pendingStepsEnableRef = useRef(false);
+  const enabledRef = useRef(enabled);
+  const stepsEnabledRef = useRef(stepsEnabled);
+  const hourRef = useRef(hour);
+  const minuteRef = useRef(minute);
+  enabledRef.current = enabled;
+  stepsEnabledRef.current = stepsEnabled;
+  hourRef.current = hour;
+  minuteRef.current = minute;
 
-  const isLight = appTheme === 'light';
-  const accent = accentForTheme(isLight);
-  const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
-  const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
-  const textMuted = isLight ? '#6B6B6B' : 'rgba(255,255,255,0.68)';
-  const cardBg = isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)';
-  const cardBorder = isLight ? 'rgba(2, 18, 235, 0.12)' : 'rgba(255,255,255,0.1)';
+  const palette = settingsCleanPalette(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
-
+  const accent = palette.accent;
+  const textMain = palette.textMain;
+  const textMuted = palette.textMuted;
+  const modalBg = isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)';
+  const modalBorder = isLight ? 'rgba(2, 18, 235, 0.12)' : 'rgba(255,255,255,0.1)';
   const shell = useMemo(
     () => ({
       user,
       language,
       ...(countryId != null ? { countryId } : {}),
-      appTheme,
+      appTheme: savedAppTheme,
     }),
-    [user, language, countryId, appTheme],
+    [user, language, countryId, savedAppTheme],
   );
 
   const loadPrefs = useCallback(async () => {
@@ -83,22 +114,72 @@ export default function WalkReminderSetupPage({ navigation, route }) {
     setEnabled(!!p.enabled);
     setHour(p.hour);
     setMinute(p.minute);
-    const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
+    setStepsEnabled(await getStepSyncEnabled());
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      void loadPrefs();
-    }, [loadPrefs]),
-  );
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => sub.remove();
+  const openIosHealth = useCallback(async () => {
+    const healthUrl = 'x-apple-health://';
+    try {
+      if (await Linking.canOpenURL(healthUrl)) {
+        await Linking.openURL(healthUrl);
+        return;
+      }
+    } catch {
+      /* */
+    }
+    Linking.openSettings();
   }, []);
+
+  const showStepsDeniedAlert = useCallback(() => {
+    pendingStepsEnableRef.current = true;
+    const sys = st(language, 'notifSystemButton');
+    if (Platform.OS === 'android') {
+      void (async () => {
+        try {
+          const hc = require('react-native-health-connect');
+          hc.openHealthConnectSettings();
+        } catch {
+          Linking.openSettings().catch(() => {});
+        }
+      })();
+      Alert.alert('', st(language, 'stepsSyncDenied'), [
+        {
+          text: st(language, 'stepsSyncOpenHc'),
+          onPress: () => {
+            try {
+              const hc = require('react-native-health-connect');
+              hc.openHealthConnectSettings();
+            } catch {
+              /* */
+            }
+          },
+        },
+        { text: sys, onPress: () => void Linking.openSettings().catch(() => {}) },
+        { text: 'OK', style: 'cancel' },
+      ]);
+      return;
+    }
+    void openIosHealth();
+    Alert.alert('', st(language, 'stepsSyncDenied'), [
+      { text: st(language, 'stepsSyncOpenHealth'), onPress: () => void openIosHealth() },
+      { text: sys, onPress: () => void Linking.openSettings().catch(() => {}) },
+      { text: 'OK', style: 'cancel' },
+    ]);
+  }, [language, openIosHealth]);
+
+  const permissionDeniedAlert = useCallback(() => {
+    pendingEnableRef.current = true;
+    void openWalkReminderNotificationSettings();
+    Alert.alert('', st(language, 'walkReminderPermissionDenied'), [
+      {
+        text: st(language, 'notifSystemButton'),
+        onPress: () => {
+          void openWalkReminderNotificationSettings();
+        },
+      },
+      { text: 'OK', style: 'cancel' },
+    ]);
+  }, [language]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(WALK_REMINDER_CHANGED, () => {
@@ -106,6 +187,13 @@ export default function WalkReminderSetupPage({ navigation, route }) {
     });
     return () => sub.remove();
   }, [loadPrefs]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_STEP_SYNC_CHANGED, () => {
+      void getStepSyncEnabled().then(setStepsEnabled);
+    });
+    return () => sub.remove();
+  }, []);
 
   const timeValue = useMemo(() => new Date(2000, 0, 1, hour, minute, 0, 0), [hour, minute]);
 
@@ -117,28 +205,62 @@ export default function WalkReminderSetupPage({ navigation, route }) {
     [language],
   );
 
+  const buttonMinHeight = Math.max(48, Math.round(48 * r.scale));
+  const footerBottomPad = Math.max(insets.bottom, 12) + 10;
+  const scrollBottomPad = fromOnboarding
+    ? buttonMinHeight + footerBottomPad + 24 + 88
+    : footerBottomPad + 28;
+
+  const openHttp = useCallback(async (url) => {
+    if (!url) {
+      Alert.alert(st(language, 'privacyUrlMissingTitle'), st(language, 'privacyUrlMissingBody'));
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      try {
+        await Linking.openURL(url);
+      } catch {
+        Alert.alert(st(language, 'privacyUrlMissingTitle'), st(language, 'privacyUrlMissingBody'));
+      }
+    }
+  }, [language]);
+
+  const openPrivacyPolicy = useCallback(() => {
+    const url = getPrivacyPolicyUrl();
+    if (url) void openHttp(url);
+    else navigation.navigate('SettingsLegalDoc', { ...shell, legalDoc: 'privacy' });
+  }, [navigation, openHttp, shell]);
+
+  const openTermsOfUse = useCallback(() => {
+    const url = getTermsOfServiceUrl();
+    if (url) void openHttp(url);
+    else navigation.navigate('SettingsLegalDoc', { ...shell, legalDoc: 'terms' });
+  }, [navigation, openHttp, shell]);
+
+  const openHc = useCallback(() => {
+    if (Platform.OS !== 'android') return;
+    try {
+      const hc = require('react-native-health-connect');
+      hc.openHealthConnectSettings();
+    } catch {
+      Linking.openSettings().catch(() => {});
+    }
+  }, []);
+
   const finishToApp = useCallback(async () => {
     const sub = await getSubscriptionState(user);
-    const t = await getAppTheme();
-    const payload = { user, language, countryId, appTheme: t };
+    const payload = { user, language, countryId, appTheme: savedAppTheme };
     if (sub.needsPlanChoice) {
-      navigation.replace('ChoosePlan', payload);
+      navigation.replace('ChoosePlan', {
+        ...payload,
+        ...(fromOnboarding ? { fromOnboarding: true } : {}),
+      });
     } else {
       navigation.replace('HomeTabPager', { ...payload, tabIndex: 0, routeFinderExtras: {} });
     }
-  }, [navigation, user, language, countryId]);
-
-  const permissionDeniedAlert = useCallback(() => {
-    Alert.alert('', st(language, 'walkReminderPermissionDenied'), [
-      {
-        text: st(language, 'notifSystemButton'),
-        onPress: () => {
-          Linking.openSettings().catch(() => {});
-        },
-      },
-      { text: 'OK', style: 'cancel' },
-    ]);
-  }, [language]);
+  }, [navigation, user, language, countryId, savedAppTheme, fromOnboarding]);
 
   const applyAndSync = useCallback(
     async (nextEnabled, nextHour, nextMinute) => {
@@ -169,44 +291,176 @@ export default function WalkReminderSetupPage({ navigation, route }) {
       }
       return 'ok';
     },
-    [language, notifCopy, permissionDeniedAlert],
+    [notifCopy, permissionDeniedAlert],
   );
 
-  const onContinue = useCallback(async () => {
-    await applyAndSync(enabled, hour, minute);
-    if (fromOnboarding) {
-      await finishToApp();
-    } else {
-      navigation.goBack();
+  const tryCompletePendingEnable = useCallback(async () => {
+    if (!pendingEnableRef.current) return false;
+    const status = await getWalkReminderNotificationPermissionStatus();
+    if (!status.granted) return false;
+    pendingEnableRef.current = false;
+    const h = hourRef.current;
+    const m = minuteRef.current;
+    await setWalkReminderPrefs({ enabled: true, hour: h, minute: m });
+    const r = await syncWalkReminderScheduleFromStorage(notifCopy);
+    if (r === 'ok') {
+      setEnabled(true);
+      return true;
     }
-  }, [applyAndSync, enabled, hour, minute, fromOnboarding, finishToApp, navigation]);
+    await setWalkReminderPrefs({ enabled: false, hour: h, minute: m });
+    await cancelScheduledWalkReminderOnly();
+    setEnabled(false);
+    return false;
+  }, [notifCopy]);
 
-  /** Увімкнення / вимкнення одразу зберігає prefs і оновлює системний розклад (не лише після «Зберегти»). */
+  const tryCompletePendingStepsEnable = useCallback(async () => {
+    if (!pendingStepsEnableRef.current || stepsToggleBusy) return false;
+    setStepsToggleBusy(true);
+    try {
+      const outcome = await requestStepsAccessOutcome();
+      if (outcome !== 'ok') return false;
+      pendingStepsEnableRef.current = false;
+      await setStepSyncEnabled(true);
+      setStepsEnabled(true);
+      return true;
+    } finally {
+      setStepsToggleBusy(false);
+    }
+  }, [stepsToggleBusy]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadPrefs();
+      void tryCompletePendingEnable();
+      void tryCompletePendingStepsEnable();
+    }, [loadPrefs, tryCompletePendingEnable, tryCompletePendingStepsEnable]),
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void tryCompletePendingEnable();
+        void tryCompletePendingStepsEnable();
+      }
+    });
+    return () => sub.remove();
+  }, [tryCompletePendingEnable, tryCompletePendingStepsEnable]);
+
+  const onContinue = useCallback(async () => {
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      await applyAndSync(enabledRef.current, hourRef.current, minuteRef.current);
+    } catch (e) {
+      if (__DEV__) console.warn('[WalkReminder] continue sync', e?.message);
+    } finally {
+      try {
+        if (fromOnboarding) {
+          await finishToApp();
+        } else {
+          navigation.goBack();
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[WalkReminder] continue navigate', e?.message);
+      } finally {
+        setFinishing(false);
+      }
+    }
+  }, [applyAndSync, fromOnboarding, finishToApp, navigation, finishing]);
+
+  const onSkip = useCallback(async () => {
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      await finishToApp();
+    } finally {
+      setFinishing(false);
+    }
+  }, [finishToApp, finishing]);
+
+  /** Увімкнення / вимкнення одразу зберігає prefs і оновлює системний розклад (не лише після «Далі»). */
   const onEnabledChange = useCallback(
     async (next) => {
+      if (toggleBusy) return;
       if (!next) {
+        pendingEnableRef.current = false;
         setEnabled(false);
-        await applyAndSync(false, hour, minute);
+        setToggleBusy(true);
+        try {
+          await applyAndSync(false, hourRef.current, minuteRef.current);
+        } finally {
+          setToggleBusy(false);
+        }
         return;
       }
-      const r = await applyAndSync(true, hour, minute);
-      setEnabled(r === 'ok');
+      if (!isWalkReminderNotificationsAvailable()) {
+        Alert.alert('', st(language, 'walkReminderUnavailable'));
+        setEnabled(false);
+        return;
+      }
+      setEnabled(true);
+      setToggleBusy(true);
+      try {
+        const r = await applyAndSync(true, hourRef.current, minuteRef.current);
+        setEnabled(r === 'ok');
+      } finally {
+        setToggleBusy(false);
+      }
     },
-    [applyAndSync, hour, minute],
+    [applyAndSync, language, toggleBusy],
+  );
+
+  const onStepsEnabledChange = useCallback(
+    async (next) => {
+      if (stepsToggleBusy) return;
+      if (!isStepsPlatformSupported()) return;
+      if (!next) {
+        pendingStepsEnableRef.current = false;
+        setStepsEnabled(false);
+        await setStepSyncEnabled(false);
+        resetIosHealthSession();
+        return;
+      }
+      setStepsEnabled(true);
+      setStepsToggleBusy(true);
+      try {
+        const outcome = await requestStepsAccessOutcome();
+        if (outcome === 'ok') {
+          await setStepSyncEnabled(true);
+          setStepsEnabled(true);
+          return;
+        }
+        await setStepSyncEnabled(false);
+        setStepsEnabled(false);
+        if (outcome === 'hc_unavailable') {
+          Alert.alert('', st(language, 'stepsSyncHcUnavailable'));
+        } else {
+          showStepsDeniedAlert();
+        }
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (msg.includes('health_connect') || msg.includes('SDK')) {
+          Alert.alert('', st(language, 'stepsSyncHcUnavailable'));
+        } else {
+          showStepsDeniedAlert();
+        }
+        await setStepSyncEnabled(false);
+        setStepsEnabled(false);
+      } finally {
+        setStepsToggleBusy(false);
+      }
+    },
+    [language, showStepsDeniedAlert, stepsToggleBusy],
   );
 
   const closeIosPickerAndSync = useCallback(async () => {
     setShowIosPicker(false);
-    await applyAndSync(enabled, hour, minute);
-  }, [applyAndSync, enabled, hour, minute]);
-
-  const onSkip = useCallback(async () => {
-    await setWalkReminderPrefs({ enabled: false });
-    await cancelScheduledWalkReminderOnly();
-    setEnabled(false);
-    if (fromOnboarding) await finishToApp();
-    else navigation.goBack();
-  }, [fromOnboarding, finishToApp, navigation]);
+    if (enabledRef.current) {
+      await applyAndSync(true, hourRef.current, minuteRef.current);
+    } else {
+      await setWalkReminderPrefs({ hour: hourRef.current, minute: minuteRef.current });
+    }
+  }, [applyAndSync]);
 
   const onTimeChange = (event, date) => {
     if (event?.type === 'dismissed') return;
@@ -225,16 +479,23 @@ export default function WalkReminderSetupPage({ navigation, route }) {
     setShowAndroidPicker(false);
   }, []);
 
-  const applyAndroidTimeModal = useCallback(() => {
-    setHour(androidPick.hour);
-    setMinute(androidPick.minute);
+  const applyAndroidTimeModal = useCallback(async () => {
+    const nextHour = androidPick.hour;
+    const nextMinute = androidPick.minute;
+    setHour(nextHour);
+    setMinute(nextMinute);
     setShowAndroidPicker(false);
-  }, [androidPick.hour, androidPick.minute]);
+    if (enabledRef.current) {
+      await applyAndSync(true, nextHour, nextMinute);
+    } else {
+      await setWalkReminderPrefs({ hour: nextHour, minute: nextMinute });
+    }
+  }, [androidPick.hour, androidPick.minute, applyAndSync]);
 
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
       <AppTopBar
-        appTheme={appTheme}
+        appTheme={savedAppTheme}
         leftMode={fromOnboarding ? 'menu' : 'back'}
         leftSlot={
           fromOnboarding ? (
@@ -252,94 +513,148 @@ export default function WalkReminderSetupPage({ navigation, route }) {
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingTop: 8,
-          paddingBottom: insets.bottom + 32,
+          paddingBottom: scrollBottomPad,
         }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
       >
-        <LinearGradient
-          colors={
-            isLight
-              ? ['rgba(2,18,235,0.12)', 'rgba(2,18,235,0.02)']
-              : ['rgba(225,255,0,0.18)', 'rgba(225,255,0,0.04)']
-          }
-          style={[styles.hero, { borderColor: cardBorder }]}>
-          <View style={[styles.heroIcon, { borderColor: accent }]}>
-            <Ionicons name="footsteps" size={32} color={accent} />
-          </View>
-          <Text style={[styles.heroTitle, brandFontHeadMedium, { color: textMain }]}>
-            {st(language, 'walkReminderHeroTitle')}
-          </Text>
-          <Text style={[styles.heroBody, brandFontSans, { color: textMuted }]}>{st(language, 'walkReminderHeroBody')}</Text>
-        </LinearGradient>
+        <SettingsCleanHero
+          palette={palette}
+          icon={null}
+          title={st(language, 'walkReminderHeroTitle')}
+          titleStyle={brandFontHeadBold}
+          subtitle={st(language, 'walkReminderHeroBody')}
+          subtitleStyle={brandFontSans}
+        />
 
-        <View style={[styles.card, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-          <View style={styles.rowBetween}>
-            <Text style={[styles.rowLabel, brandFontSansSemibold, { color: textMain }]}>
-              {st(language, 'walkReminderToggle')}
-            </Text>
-            <Switch
-              value={enabled}
-              onValueChange={(v) => {
-                void onEnabledChange(v);
-              }}
-              trackColor={{ false: isLight ? '#D4D4D4' : '#3A3A3E', true: isLight ? 'rgba(2,18,235,0.45)' : 'rgba(225,255,0,0.45)' }}
-              thumbColor={enabled ? accent : isLight ? '#F0F0F0' : '#888'}
+        <SettingsCleanSwitchRow
+          palette={palette}
+          icon="alarm-outline"
+          title={st(language, 'walkReminderToggle')}
+          titleStyle={brandFontSansSemibold}
+          value={enabled}
+          disabled={toggleBusy || finishing}
+          onValueChange={(v) => {
+            void onEnabledChange(v);
+          }}
+          isLast={!enabled}
+        />
+
+        {enabled ? (
+          <>
+            <SettingsCleanPressRow
+              palette={palette}
+              icon="time-outline"
+              title={`${pad2(hour)}:${pad2(minute)}`}
+              titleStyle={[styles.timeRowTitle, brandFontHeadMedium]}
+              subtitle={st(language, 'walkReminderTimeLabel')}
+              subtitleStyle={brandFontSans}
+              onPress={() => (Platform.OS === 'ios' ? setShowIosPicker(true) : openAndroidTimeModal())}
+              ripple={ripple}
+              isLast
             />
-          </View>
-          {enabled ? (
-            <>
-              <View style={[styles.divider, { backgroundColor: cardBorder }]} />
-              <Text style={[styles.timeLabel, brandFontSansSemibold, { color: textMuted }]}>
-                {st(language, 'walkReminderTimeLabel')}
-              </Text>
-              <Pressable
-                onPress={() => (Platform.OS === 'ios' ? setShowIosPicker(true) : openAndroidTimeModal())}
-                android_ripple={ripple}
-                style={({ pressed }) => [
-                  styles.timeBtn,
-                  { borderColor: accent, backgroundColor: isLight ? 'rgba(2,18,235,0.06)' : 'rgba(225,255,0,0.08)' },
-                  pressed && { opacity: 0.9 },
-                ]}>
-                <Ionicons name="time-outline" size={22} color={accent} style={{ marginRight: 10 }} />
-                <Text style={[styles.timeTxt, brandFontHeadMedium, { color: textMain }]}>
-                  {pad2(hour)}:{pad2(minute)}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color={accent} style={{ marginLeft: 8 }} />
-              </Pressable>
-              <Text style={[styles.timeHint, brandFontSans, { color: textMuted }]}>{st(language, 'walkReminderTimeHint')}</Text>
-            </>
-          ) : null}
-        </View>
-
-        <Pressable
-          onPress={onContinue}
-          android_ripple={ripple}
-          style={({ pressed }) => [
-            styles.primaryCta,
-            { backgroundColor: accent, opacity: pressed ? 0.9 : 1 },
-          ]}>
-          <Text style={[styles.primaryCtaTxt, brandFontSansSemibold, { color: onAccentButtonText(isLight) }]}>
-            {fromOnboarding ? st(language, 'walkReminderContinue') : st(language, 'walkReminderSave')}
-          </Text>
-          <Ionicons name="arrow-forward" size={20} color={onAccentButtonText(isLight)} style={{ marginLeft: 8 }} />
-        </Pressable>
-
-        {fromOnboarding ? (
-          <Pressable
-            onPress={onSkip}
-            hitSlop={14}
-            style={({ pressed }) => [styles.textSkip, pressed && { opacity: 0.75 }]}
-          >
-            <Text style={[styles.textSkipTxt, brandFontSans, { color: textMuted }]}>{st(language, 'walkReminderSkip')}</Text>
-          </Pressable>
+            <SettingsCleanFootnote palette={palette} style={brandFontSans}>
+              {st(language, 'walkReminderTimeHint')}
+            </SettingsCleanFootnote>
+          </>
         ) : null}
+
+        {isStepsPlatformSupported() ? (
+          <>
+            <SettingsCleanSwitchRow
+              palette={palette}
+              icon="pulse-outline"
+              title={st(language, 'stepsSyncToggle')}
+              titleStyle={brandFontSansSemibold}
+              value={stepsEnabled}
+              disabled={stepsToggleBusy || finishing}
+              onValueChange={(v) => {
+                void onStepsEnabledChange(v);
+              }}
+              isLast={Platform.OS !== 'android' && Platform.OS !== 'ios'}
+              spaced
+            />
+            {Platform.OS === 'android' ? (
+              <SettingsCleanPressRow
+                palette={palette}
+                icon="open-outline"
+                title={st(language, 'stepsSyncOpenHc')}
+                titleStyle={brandFontSansSemibold}
+                onPress={openHc}
+                disabled={stepsToggleBusy || finishing}
+                ripple={ripple}
+                isLast={Platform.OS !== 'ios'}
+                spaced
+              />
+            ) : Platform.OS === 'ios' ? (
+              <SettingsCleanPressRow
+                palette={palette}
+                icon="heart-outline"
+                title={st(language, 'stepsSyncOpenHealth')}
+                titleStyle={brandFontSansSemibold}
+                onPress={() => void openIosHealth()}
+                disabled={stepsToggleBusy || finishing}
+                ripple={ripple}
+                isLast
+                spaced
+              />
+            ) : null}
+            <SettingsCleanFootnote palette={palette} style={brandFontSans}>
+              {st(language, 'walkReminderStepsHint')}
+            </SettingsCleanFootnote>
+          </>
+        ) : null}
+
+        <SettingsCleanLegalNote
+          palette={palette}
+          style={brandFontSans}
+          prefix={st(language, 'walkReminderLegalPrefix')}
+          privacyLabel={st(language, 'walkReminderLegalPrivacyLink')}
+          join={st(language, 'walkReminderLegalJoin')}
+          termsLabel={st(language, 'walkReminderLegalTermsLink')}
+          onPrivacyPress={openPrivacyPolicy}
+          onTermsPress={openTermsOfUse}
+        />
       </ScrollView>
+      {fromOnboarding ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.footerOverlay, { paddingBottom: footerBottomPad, paddingHorizontal: 20 }]}
+        >
+          <View style={styles.footerInner}>
+            <Lemon3DButton
+              label={st(language, 'walkReminderContinue')}
+              onPress={onContinue}
+              disabled={finishing}
+              loading={finishing}
+              minHeight={buttonMinHeight}
+              textStyle={{
+                fontSize: Math.max(16, r.buttonFontSize),
+                fontWeight: '600',
+                letterSpacing: 0.3,
+              }}
+              accessibilityLabel={st(language, 'walkReminderContinue')}
+            />
+            <Pressable
+              onPress={() => void onSkip()}
+              hitSlop={14}
+              disabled={finishing}
+              style={({ pressed }) => [styles.textSkip, pressed && { opacity: 0.75 }]}
+            >
+              <Text style={[styles.textSkipTxt, brandFontSans, { color: textMuted }]}>
+                {st(language, 'walkReminderSkip')}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {Platform.OS === 'ios' && DateTimePickerIos ? (
         <Modal transparent animationType="fade" visible={showIosPicker} onRequestClose={() => setShowIosPicker(false)}>
           <View style={styles.modalRoot}>
             <Pressable style={styles.modalBackdrop} onPress={() => void closeIosPickerAndSync()} />
-            <View style={[styles.modalSheet, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+            <View style={[styles.modalSheet, { backgroundColor: modalBg, borderColor: modalBorder }]}>
               <View style={styles.modalBar}>
                 <Pressable onPress={() => void closeIosPickerAndSync()} hitSlop={12}>
                   <Text style={[styles.modalDone, { color: accent }]}>{st(language, 'walkReminderPickerDone')}</Text>
@@ -363,7 +678,7 @@ export default function WalkReminderSetupPage({ navigation, route }) {
         <Modal transparent animationType="fade" visible={showAndroidPicker} onRequestClose={closeAndroidTimeModal}>
           <View style={styles.modalRoot}>
             <Pressable style={styles.modalBackdrop} onPress={closeAndroidTimeModal} />
-            <View style={[styles.modalSheet, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+            <View style={[styles.modalSheet, { backgroundColor: modalBg, borderColor: modalBorder }]}>
               <View style={[styles.modalBar, styles.modalBarBetween]}>
                 <Pressable onPress={closeAndroidTimeModal} hitSlop={12}>
                   <Text style={[styles.modalDone, { color: textMuted }]}>{st(language, 'walkReminderPickerCancel')}</Text>
@@ -426,71 +741,32 @@ export default function WalkReminderSetupPage({ navigation, route }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scroll: { flex: 1 },
-  hero: {
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 22,
-    marginBottom: 20,
-    alignItems: 'center',
+  timeRowTitle: {
+    fontSize: 24,
+    letterSpacing: 0.5,
   },
-  heroIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
+  footerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
   },
-  heroTitle: {
-    fontSize: 22,
-    lineHeight: 28,
-    textAlign: 'center',
-    marginBottom: 10,
+  footerInner: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    paddingHorizontal: 22,
   },
-  heroBody: {
+  textSkip: {
+    alignSelf: 'center',
+    marginTop: 14,
+    paddingVertical: 8,
+  },
+  textSkipTxt: {
     fontSize: 15,
-    lineHeight: 22,
     textAlign: 'center',
-    maxWidth: 340,
   },
-  card: {
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 18,
-    marginBottom: 22,
-  },
-  rowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  rowLabel: { fontSize: 16, flex: 1 },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 16 },
-  timeLabel: { fontSize: 12, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 10 },
-  timeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-  },
-  timeTxt: { fontSize: 28, letterSpacing: 1 },
-  timeHint: { fontSize: 13, lineHeight: 18, marginTop: 10 },
-  primaryCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 18,
-    marginBottom: 12,
-  },
-  primaryCtaTxt: { fontSize: 17 },
-  textSkip: { alignSelf: 'center', paddingVertical: 10 },
-  textSkipTxt: { fontSize: 15, textDecorationLine: 'underline' },
   modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',

@@ -34,10 +34,7 @@ import {
 import ChatsPage from './ChatsPage';
 import ChatThreadPage from './ChatThreadPage';
 import FeedCameraPage from './FeedCameraPage';
-import FeedStorySharePage from './FeedStorySharePage';
 import FeedStoryViewerPage from './FeedStoryViewerPage';
-import FeedPostComposerPage from './FeedPostComposerPage';
-import FeedPostMediaPickerPage from './FeedPostMediaPickerPage';
 import PostMapPickerPage from './PostMapPickerPage';
 import ExploreMapPage from './ExploreMapPage';
 import RouteResultsPage from './RouteResultsPage';
@@ -351,7 +348,6 @@ export default function App() {
                   ...(Platform.OS === 'ios' ? { presentation: 'fullScreenModal' } : {}),
                 }}
               />
-              <Stack.Screen name="FeedStoryShare" component={FeedStorySharePage} options={{ headerShown: false }} />
               <Stack.Screen
                 name="FeedStoryViewer"
                 component={FeedStoryViewerPage}
@@ -360,12 +356,6 @@ export default function App() {
                   ...(Platform.OS === 'ios' ? { presentation: 'fullScreenModal' } : {}),
                 }}
               />
-              <Stack.Screen
-                name="FeedPostMediaPicker"
-                component={FeedPostMediaPickerPage}
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen name="FeedPostComposer" component={FeedPostComposerPage} options={{ headerShown: false }} />
               <Stack.Screen name="PostMapPicker" component={PostMapPickerPage} options={{ headerShown: false }} />
               <Stack.Screen name="ExploreMap" component={ExploreMapPage} />
               <Stack.Screen name="RouteResults" component={RouteResultsPage} />

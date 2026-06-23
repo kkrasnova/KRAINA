@@ -10,6 +10,7 @@ import {
   HOME_REGION_IDS_BY_COUNTRY_ID,
   HOME_COUNTRY_HERO_REFS,
   HOME_COUNTRY_HERO_URIS,
+  invalidateHomeExploreCache,
 } from './homeExploreData';
 import { HERO_THUMB_MAP, heroThumbRefFromImageSource, isValidHeroThumbRef } from './krainaHeroThumbs';
 import { normalizeLandmarkStory } from './landmarkStorySchema';
@@ -94,7 +95,14 @@ export function buildSnapshotFromRuntime() {
   return { homeCountryOrder, homeRegionIdsByCountry, regions, homeCountryHeroRefs, homeCountryHeroUris };
 }
 
-const DEFAULT_LOCATION_SNAPSHOT_JSON = JSON.stringify(buildSnapshotFromRuntime());
+let defaultLocationSnapshotJson = null;
+
+function getDefaultLocationSnapshotJson() {
+  if (!defaultLocationSnapshotJson) {
+    defaultLocationSnapshotJson = JSON.stringify(buildSnapshotFromRuntime());
+  }
+  return defaultLocationSnapshotJson;
+}
 
 function applySnapshot(data) {
   if (!data || typeof data !== 'object') return;
@@ -185,13 +193,19 @@ function applySnapshot(data) {
       };
     }
   }
+  invalidateHomeExploreCache();
 }
 
 export async function loadAdminLocationBundleOnStartup() {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) {
+      invalidateHomeExploreCache();
+      DeviceEventEmitter.emit(KRAINA_ADMIN_LOCATION_EVENT);
+      return;
+    }
     applySnapshot(JSON.parse(raw));
+    DeviceEventEmitter.emit(KRAINA_ADMIN_LOCATION_EVENT);
   } catch {
     /* ignore */
   }
@@ -209,6 +223,6 @@ export async function resetAdminLocationsToDefaults() {
   } catch {
     /* ignore */
   }
-  applySnapshot(JSON.parse(DEFAULT_LOCATION_SNAPSHOT_JSON));
+  applySnapshot(JSON.parse(getDefaultLocationSnapshotJson()));
   DeviceEventEmitter.emit(KRAINA_ADMIN_LOCATION_EVENT);
 }

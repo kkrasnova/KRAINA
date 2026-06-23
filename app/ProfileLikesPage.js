@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Image,
   Platform,
   Alert,
   DeviceEventEmitter,
@@ -19,16 +18,24 @@ import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
-import { getAppTheme } from './themeStorage';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { getSavedRoutes, KRAINA_SAVED_ROUTES_CHANGED } from './profileStorage';
 import ProfileSavedRouteCard from './ProfileSavedRouteCard';
-import { getSavedLandmarks, KRAINA_SAVED_LANDMARKS_CHANGED } from './savedLandmarksStorage';
+import { getSavedLandmarks, KRAINA_SAVED_LANDMARKS_CHANGED, toggleSavedLandmark } from './savedLandmarksStorage';
 import { resolveSavedLandmarkRow } from './savedLandmarksResolve';
-import { landmarkTitle, regionTitle } from './routeRegionsData';
-import { landmarkResultExtrasFromResolvedLandmark } from './homeLandmarkResultParams';
-import { dominantVisitCategoryFromLandmark } from './visitStatsStorage';
+import { regionTitle } from './routeRegionsData';
+import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
+import { resolveHomeLandmarkDistKm } from './homeLandmarkDisplay';
+import HomeLandmarkCard, {
+  HOME_LANDMARK_CARD_DARK,
+  HOME_LANDMARK_CARD_BORDER_DARK,
+  HOME_LANDMARK_CARD_BORDER_LIGHT,
+  HOME_LANDMARK_CARD_MUTED_DARK,
+  HOME_LANDMARK_CARD_MUTED_LIGHT,
+} from './HomeLandmarkCard';
+import { runAfterInteractions } from './runAfterInteractions';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
@@ -62,9 +69,10 @@ export default function ProfileLikesPage({ navigation, route }) {
   const { width: winW } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [savedRoutes, setSavedRoutes] = useState([]);
   const [savedPlaces, setSavedPlaces] = useState([]);
+  const [userCoords, setUserCoords] = useState(null);
 
   const shell = useMemo(
     () => ({
@@ -103,6 +111,29 @@ export default function ProfileLikesPage({ navigation, route }) {
     };
   }, [reload]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const task = runAfterInteractions(async () => {
+      try {
+        const Location = require('expo-location');
+        const existing = await Location.getForegroundPermissionsAsync();
+        if (existing.status !== 'granted') return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!cancelled) {
+          setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      cancelled = true;
+      task?.cancel?.();
+    };
+  }, []);
+
   const openMap = useCallback(() => {
     navigation.navigate(HOME_TAB_ROUTE, {
       ...shell,
@@ -119,35 +150,36 @@ export default function ProfileLikesPage({ navigation, route }) {
         return;
       }
       const { lm, region } = resolved;
-      const title = landmarkTitle(lm, langUk);
-      const cityName = regionTitle(region, langUk);
-      const extract = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
-      const rawAudio = typeof lm?.story?.audioUri === 'string' ? lm.story.audioUri.trim() : '';
-      const audioGuideUrl = /^https?:\/\//i.test(rawAudio) ? rawAudio : undefined;
-      const dist = lm?.distKm;
-      const visitKm = dist != null && Number.isFinite(Number(dist)) ? Number(dist) : undefined;
-      navigation.navigate('LandmarkResult', {
-        language,
-        appTheme,
-        ...landmarkResultExtrasFromResolvedLandmark({
+      navigation.navigate(
+        'LandmarkResult',
+        buildLandmarkResultParamsFromHomeLandmark({
           lm,
           region,
           countryId: row.countryId,
           language,
+          appTheme,
           user: route?.params?.user,
         }),
-        subtitle: `${region.flag} ${cityName}`,
-        extract,
-        source: 'sourceDemo',
-        startPhase: 'full',
-        visitCity: cityName,
-        visitCategory: dominantVisitCategoryFromLandmark(lm),
-        ...(visitKm != null ? { visitKm } : {}),
-        ...(row.countryId ? { countryId: row.countryId } : {}),
-        ...(audioGuideUrl ? { audioGuideUrl } : {}),
-      });
+      );
     },
-    [navigation, language, appTheme, langUk, route?.params?.user],
+    [navigation, language, appTheme, route?.params?.user],
+  );
+
+  const onToggleSaveSavedPlace = useCallback(
+    (row) => {
+      if (!row?.countryId || !row?.regionId || !row?.landmarkId) return;
+      void toggleSavedLandmark({
+        countryId: row.countryId,
+        regionId: row.regionId,
+        landmarkId: row.landmarkId,
+        titleUk: row.titleUk || '',
+        titleEn: row.titleEn || '',
+        regionTitleUk: row.regionTitleUk || '',
+        regionTitleEn: row.regionTitleEn || '',
+        flag: typeof row.flag === 'string' ? row.flag : '',
+      }).then(() => reload());
+    },
+    [reload],
   );
 
   const isLight = appTheme === 'light';
@@ -158,6 +190,9 @@ export default function ProfileLikesPage({ navigation, route }) {
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const sectionBg = isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)';
   const sectionBorder = isLight ? 'rgba(2, 18, 235, 0.1)' : 'rgba(255,255,255,0.1)';
+  const homeCardBg = isLight ? '#F2F2F2' : HOME_LANDMARK_CARD_DARK;
+  const homeCardBorder = isLight ? HOME_LANDMARK_CARD_BORDER_LIGHT : HOME_LANDMARK_CARD_BORDER_DARK;
+  const homeCardTextMuted = isLight ? HOME_LANDMARK_CARD_MUTED_LIGHT : HOME_LANDMARK_CARD_MUTED_DARK;
   const heroGrad0 = isLight ? 'rgba(2,18,235,0.11)' : 'rgba(225,255,0,0.14)';
   /** Повноекранний фон: градієнт підходить під статус-бар і прозору шапку (edge-to-edge). */
   const pageGradColors = isLight
@@ -189,7 +224,7 @@ export default function ProfileLikesPage({ navigation, route }) {
       <ScrollView
         style={[styles.scroll, styles.scrollTransparent]}
         contentContainerStyle={{
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 28,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 28),
         }}
         showsVerticalScrollIndicator={false}
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
@@ -300,49 +335,30 @@ export default function ProfileLikesPage({ navigation, route }) {
             <View style={styles.sectionBody}>
               {savedPlaces.map((row) => {
                 const resolved = resolveSavedLandmarkRow(row);
-                const placeTitle = langUk ? row.titleUk || row.titleEn : row.titleEn || row.titleUk;
-                const regionLine = langUk ? row.regionTitleUk || row.regionTitleEn : row.regionTitleEn || row.regionTitleUk;
-                const thumb = resolved?.lm?.thumb;
+                if (!resolved) return null;
+                const { lm, region } = resolved;
+                const regionLabel = regionTitle(region, langUk);
+                const dist = resolveHomeLandmarkDistKm(userCoords, lm, region);
                 return (
-                  <Pressable
+                  <HomeLandmarkCard
                     key={row.key}
-                    onPress={() => openSavedPlace(row)}
-                    android_ripple={ripple}
-                    style={({ pressed }) => [
-                      styles.placeCard,
-                      { borderColor: sectionBorder, backgroundColor: isLight ? 'rgba(2,18,235,0.03)' : 'rgba(255,255,255,0.05)' },
-                      pressed && { opacity: 0.9 },
-                      !resolved && styles.placeCardStale,
-                    ]}>
-                    <View style={styles.placeThumbWrap}>
-                      {thumb ? (
-                        <Image source={thumb} style={styles.placeThumbImg} resizeMode="cover" />
-                      ) : (
-                        <View style={[styles.placeThumbImg, styles.placeThumbPh]}>
-                          <Text style={styles.placeThumbFlag}>{row.flag || '🏳️'}</Text>
-                        </View>
-                      )}
-                      {thumb ? (
-                        <LinearGradient
-                          colors={['transparent', 'rgba(0,0,0,0.28)']}
-                          style={StyleSheet.absoluteFill}
-                          pointerEvents="none"
-                        />
-                      ) : null}
-                    </View>
-                    <View style={styles.placeBody}>
-                      <Text style={[styles.placeTag, brandFontSansSemibold, { color: accent }]} numberOfLines={1}>
-                        {row.flag} {regionLine}
-                      </Text>
-                      <Text style={[styles.placeTitle, brandFontHeadMedium, { color: textMain }]} numberOfLines={2}>
-                        {placeTitle}
-                      </Text>
-                      <View style={styles.placeMoreRow}>
-                        <Text style={[styles.placeMore, brandFontSansSemibold, { color: accent }]}>{pf(language, 'more')}</Text>
-                        <Ionicons name="chevron-forward" size={18} color={accent} />
-                      </View>
-                    </View>
-                  </Pressable>
+                    lm={lm}
+                    region={region}
+                    countryId={row.countryId}
+                    language={language}
+                    langUk={langUk}
+                    isLight={isLight}
+                    accent={accent}
+                    cardBg={homeCardBg}
+                    cardBorder={homeCardBorder}
+                    textMain={textMain}
+                    textMuted={homeCardTextMuted}
+                    regionLabel={regionLabel}
+                    dist={dist}
+                    isSaved
+                    onOpen={() => openSavedPlace(row)}
+                    onToggleSave={() => onToggleSaveSavedPlace(row)}
+                  />
                 );
               })}
             </View>
@@ -482,56 +498,5 @@ const styles = StyleSheet.create({
   },
   emptyCtaTxt: {
     fontSize: 15,
-  },
-  placeCard: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  placeCardStale: { opacity: 0.62 },
-  placeThumbWrap: {
-    width: 116,
-    height: 128,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(128,128,128,0.2)',
-  },
-  placeThumbImg: {
-    width: 116,
-    height: 128,
-  },
-  placeThumbPh: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  placeThumbFlag: { fontSize: 32 },
-  placeBody: {
-    flex: 1,
-    paddingVertical: 14,
-    paddingRight: 10,
-    paddingLeft: 14,
-    justifyContent: 'center',
-    minWidth: 0,
-  },
-  placeTag: {
-    fontSize: 12,
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
-  placeTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    marginTop: 6,
-  },
-  placeMoreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  placeMore: {
-    fontSize: 14,
-    marginRight: 2,
   },
 });

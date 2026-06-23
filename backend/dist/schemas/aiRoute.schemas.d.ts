@@ -74,4 +74,21 @@ export declare const aiSuggestRouteBodySchema: z.ZodObject<{
         lng: number;
     } | null | undefined;
 }>;
+export declare const visionLandmarkBodySchema: z.ZodObject<{
+    base64: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    base64: string;
+}, {
+    base64: string;
+}>;
+export declare const landmarkTtsBodySchema: z.ZodObject<{
+    text: z.ZodString;
+    language: z.ZodDefault<z.ZodEnum<["uk", "en"]>>;
+}, "strip", z.ZodTypeAny, {
+    language: "uk" | "en";
+    text: string;
+}, {
+    text: string;
+    language?: "uk" | "en" | undefined;
+}>;
 //# sourceMappingURL=aiRoute.schemas.d.ts.map

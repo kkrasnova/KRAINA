@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAppAdminUser } from './adminGate';
 
 const PREFIX = '@kraina_subscription_v1:';
+const RETENTION_OFFER_PREFIX = '@kraina_retention_offer_v1:';
 
 export const PRO_PRICE_USD = 19.99;
 
@@ -9,7 +10,7 @@ export const PRO_PRICE_USD = 19.99;
 export const PRO_LIST_PRICE_USD = 24.99;
 
 /** Explorer — проміжний тариф (продуктова модель). */
-export const EXPLORER_PRICE_USD = 4.99;
+export const EXPLORER_PRICE_USD = 7.99;
 
 export const FREE_LIMITS = {
   scans: 1,
@@ -212,6 +213,32 @@ export async function tryConsume(user, feature) {
   return { ok: true, remaining: limit - full.usage[key], limit };
 }
 
+
+export async function hasUsedRetentionOffer(user) {
+  try {
+    const v = await AsyncStorage.getItem(`${RETENTION_OFFER_PREFIX}${stableUserKey(user)}`);
+    return v === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Одноразова знижка −50% (пропозиція утримання). */
+export async function applyRetentionOffer(user) {
+  const state = await readRaw(user);
+  const tier = state.tier;
+  if (!['explorer', 'pro', 'family'].includes(tier)) {
+    return { ok: false, reason: 'not_paid' };
+  }
+  const full = { ...defaultState(), ...state };
+  full.retentionDiscountPercent = 50;
+  full.retentionDiscountAppliedAt = new Date().toISOString();
+  await persistRaw(user, full);
+  try {
+    await AsyncStorage.setItem(`${RETENTION_OFFER_PREFIX}${stableUserKey(user)}`, '1');
+  } catch (_) {}
+  return { ok: true, tier, discountPercent: 50 };
+}
 
 export async function extendPaidSubscription(user, tier, expiresAtIso) {
   const paid = ['explorer', 'pro', 'family'];

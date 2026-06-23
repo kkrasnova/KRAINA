@@ -8,7 +8,7 @@ import { flushOutboxNow } from './offline/syncEngine';
 
 export default function OfflineOutboxPage({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [appTheme, setAppTheme] = useState('dark');
+  const [appTheme, setAppTheme] = useState(() => getAppThemeSync());
   const [pending, setPending] = useState([]);
   const [history, setHistory] = useState([]);
   const isLight = appTheme === 'light';

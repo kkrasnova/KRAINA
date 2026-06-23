@@ -32,6 +32,13 @@ export declare const googleSchema: z.ZodObject<{
 }, {
     id_token: string;
 }>;
+export declare const firebaseSchema: z.ZodObject<{
+    id_token: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    id_token: string;
+}, {
+    id_token: string;
+}>;
 export declare const appleSchema: z.ZodObject<{
     identity_token: z.ZodString;
     user: z.ZodOptional<z.ZodObject<{
@@ -51,6 +58,13 @@ export declare const appleSchema: z.ZodObject<{
     user?: {
         name?: string | undefined;
     } | undefined;
+}>;
+export declare const facebookSchema: z.ZodObject<{
+    access_token: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    access_token: string;
+}, {
+    access_token: string;
 }>;
 export declare const refreshSchema: z.ZodObject<{
     refresh_token: z.ZodString;

@@ -24,11 +24,6 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { StatusBar } from 'expo-status-bar';
 import AuthHeroHeader, { WAVE_STROKE_PAD as AUTH_HERO_WAVE_PAD } from './AuthHeroHeader';
-import {
-  androidHeroBannerExtraDownPx,
-  androidHeroTextGapPx,
-  authHeroBannerBottomY,
-} from './authHeroLayout';
 import AuthTabSwitcher from './AuthTabSwitcher';
 import ForgotPasswordLockAnimation from './ForgotPasswordLockAnimation';
 import ForgotPasswordOtpInput from './ForgotPasswordOtpInput';
@@ -42,10 +37,11 @@ import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_SIGNIN_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
+  GOOGLE_ANDROID_CLIENT_ID,
   GOOGLE_REDIRECT_URI,
+  GOOGLE_OAUTH_REDIRECT_PATH,
+  resolveGoogleOAuthRedirectUri,
   hasGoogleConfig,
-  FACEBOOK_APP_ID,
-  showFacebookLogin,
 } from './authConfig';
 import {
   registerUser,
@@ -58,15 +54,17 @@ import {
   verifyPasswordResetCode,
   clearPasswordResetOtp,
   signInWithGoogleIdToken,
-  signInWithFacebookAccessToken,
   signInWithAppleFirebase,
   completeAdminLoginWithCredentials,
   loginOrRegisterApple,
 } from './db';
 import {
+  ensureBackendSession,
+  mergeBackendUserIntoLocalSession,
   syncBackendSessionAfterThirdPageEmailAuth,
   syncBackendSessionAfterGoogleIdToken,
   syncBackendSessionAfterAppleIdentityToken,
+  persistSessionRecoveryCredentials,
 } from './syncBackendSessionBridge';
 import { useAuthStore } from './auth/authStore';
 import { ApiError } from './auth/types';
@@ -81,11 +79,12 @@ import { getSavedCountryIdForUser, saveCountryForUser } from './countryStorage';
 import { HOME_COUNTRY_ORDER } from './homeExploreData';
 import { appLangBase } from './appLang';
 import { getSubscriptionState } from './subscriptionStorage';
+import { getAppTheme } from './themeStorage';
 import { noAndroidRipple, rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 
 let AuthSessionModule = null;
 
-let FacebookAuthSessionProvider = null;
+let GoogleAuthSessionProvider = null;
 let GoogleSigninNative = null;
 
 let SecureStoreModule = null;
@@ -112,12 +111,12 @@ try {
   if (requireOptionalNativeModule('ExpoCryptoAES')) {
     require('expo-web-browser');
     AuthSessionModule = require('expo-auth-session');
-    FacebookAuthSessionProvider = require('expo-auth-session/providers/facebook');
+    GoogleAuthSessionProvider = require('expo-auth-session/providers/google');
   }
 } catch (e) {
   if (__DEV__) console.warn('[ThirdPage] auth-session unavailable:', e?.message);
   AuthSessionModule = null;
-  FacebookAuthSessionProvider = null;
+  GoogleAuthSessionProvider = null;
 }
 
 
@@ -762,7 +761,6 @@ function AuthLemonBlockingOverlay({
                 android_ripple={noAndroidRipple}
               >
                 <Text style={authLemonOverlayStyles.errorPrimaryBtnText}>{authOverlayRegisterCta(language)}</Text>
-                <Ionicons name="arrow-forward-circle" size={22} color={TEXT_DARK} style={authLemonOverlayStyles.errorPrimaryBtnIcon} />
               </Pressable>
             ) : null}
             <Pressable
@@ -1714,46 +1712,44 @@ function getTermsContent(langId) {
   return getTermsContentForLanguage(langId);
 }
 
+function buildOAuthRedirectUri(makeRedirectUri, path, envOverride = '') {
+  const envUri = typeof envOverride === 'string' ? envOverride.trim() : '';
+  if (envUri) return envUri;
+  if (typeof makeRedirectUri === 'function') {
+    const nativeUri = makeRedirectUri({ scheme: 'com.kraina.app', path });
+    if (nativeUri && typeof nativeUri === 'string') return nativeUri;
+  }
+  return `com.kraina.app:/${path}`;
+}
+
+function buildGoogleRedirectUri(makeRedirectUri) {
+  const resolved = resolveGoogleOAuthRedirectUri(GOOGLE_OAUTH_REDIRECT_PATH);
+  if (resolved) return resolved;
+  return buildOAuthRedirectUri(makeRedirectUri, GOOGLE_OAUTH_REDIRECT_PATH, GOOGLE_REDIRECT_URI);
+}
+
 function ThirdPageWithGoogleOAuth({ navigation, route }) {
-  const { useAuthRequest, useAutoDiscovery } = AuthSessionModule;
-  const makeRedirectUri = AuthSessionModule.makeRedirectUri;
-  const redirectUri = useMemo(() => {
-    const envUri = typeof GOOGLE_REDIRECT_URI === 'string' ? GOOGLE_REDIRECT_URI.trim() : '';
-    if (envUri) {
-      devLogGoogleRedirectOnce('Redirect URI (from EXPO_PUBLIC_GOOGLE_REDIRECT_URI)', envUri);
-      return envUri;
-    }
-    if (typeof makeRedirectUri === 'function') {
-      const nativeUri = makeRedirectUri({ scheme: 'com.kraina.app', path: 'oauth' });
-      if (nativeUri && typeof nativeUri === 'string') {
-        devLogGoogleRedirectOnce('Redirect URI (native app)', nativeUri);
-        return nativeUri;
-      }
-    }
-    return 'com.kraina.app://oauth';
-  }, [makeRedirectUri]);
-  const [, facebookResponse, facebookPromptAsync] = FacebookAuthSessionProvider.useAuthRequest({
-    clientId: FACEBOOK_APP_ID || '0000000000000000',
-    redirectUri,
-  });
+  const makeRedirectUri = AuthSessionModule?.makeRedirectUri;
+  const googleRedirectUri = useMemo(
+    () => buildGoogleRedirectUri(makeRedirectUri),
+    [makeRedirectUri],
+  );
   const googleAuthUseProxy = useMemo(
-    () => typeof redirectUri === 'string' && redirectUri.startsWith('https://'),
-    [redirectUri],
+    () => typeof googleRedirectUri === 'string' && googleRedirectUri.startsWith('https://'),
+    [googleRedirectUri],
   );
-  const googleDiscovery = useAutoDiscovery('https://accounts.google.com');
-  const googleDiscoverySafe = googleDiscovery || {
-    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenEndpoint: 'https://oauth2.googleapis.com/token',
-    revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
-  };
-  const [googleRequest, googleResponse, googlePromptAsync] = useAuthRequest(
+  const [googleRequest, googleResponse, googlePromptAsync] = GoogleAuthSessionProvider.useIdTokenAuthRequest(
     {
-      clientId: GOOGLE_WEB_CLIENT_ID || 'dummy-client-id.apps.googleusercontent.com',
-      scopes: ['openid', 'profile', 'email'],
-      redirectUri,
+      webClientId: GOOGLE_SIGNIN_WEB_CLIENT_ID,
+      iosClientId: GOOGLE_IOS_CLIENT_ID,
+      androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+      redirectUri: googleRedirectUri,
     },
-    googleDiscoverySafe
+    { scheme: 'com.kraina.app', path: GOOGLE_OAUTH_REDIRECT_PATH },
   );
+  useEffect(() => {
+    devLogGoogleRedirectOnce('Google redirect URI', googleRedirectUri);
+  }, [googleRedirectUri]);
   useEffect(() => {
     const tryComplete = () => {
       try {
@@ -1783,9 +1779,6 @@ function ThirdPageWithGoogleOAuth({ navigation, route }) {
       googleResponse={googleResponse}
       googlePromptAsync={googlePromptAsync}
       googleAuthUseProxy={googleAuthUseProxy}
-      facebookResponse={facebookResponse}
-      facebookPromptAsync={facebookPromptAsync}
-      hasFacebookConfig={showFacebookLogin}
       navigation={navigation}
       route={route}
     />
@@ -1797,9 +1790,6 @@ function ThirdPageContent({
   googleResponse = null,
   googlePromptAsync = null,
   googleAuthUseProxy = false,
-  facebookResponse = null,
-  facebookPromptAsync = null,
-  hasFacebookConfig: hasFacebookFromProps = false,
   navigation = null,
   route = null,
 }) {
@@ -1809,7 +1799,9 @@ function ThirdPageContent({
   );
   const texts = getLoginTexts(language);
   const showAppleLogin = Platform.OS === 'ios';
-  const socialProviderCount = 1 + (showFacebookLogin ? 1 : 0) + (showAppleLogin ? 1 : 0);
+  const socialProviderCount = 1 + (showAppleLogin ? 1 : 0);
+  const useWideSocialButtons = socialProviderCount >= 2;
+  const useAndroidGoogleFullWidth = Platform.OS === 'android';
   const [activeTab, setActiveTab] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1863,8 +1855,6 @@ function ThirdPageContent({
     outputRange: [-8, 0],
   });
   const [authSlideSubmitting, setAuthSlideSubmitting] = useState(false);
-  const authFooterHeroLayoutHeightRef = useRef(0);
-  const [authFooterHeroLayoutHeight, setAuthFooterHeroLayoutHeight] = useState(0);
 
   const registerWithPassword = useAuthStore((s) => s.registerWithPassword);
   const loginWithPasswordBackend = useAuthStore((s) => s.loginWithPassword);
@@ -1888,7 +1878,6 @@ function ThirdPageContent({
   useEffect(() => {
     googleRequestRef.current = googleRequest;
   }, [googleRequest]);
-  const facebookPromptInProgressRef = useRef(false);
 
   const authHydrationGuardRef = useRef({
     tab: false,
@@ -1904,7 +1893,8 @@ function ThirdPageContent({
     if (GoogleSigninNative?.GoogleSignin && hasGoogleConfig) {
       GoogleSigninNative.GoogleSignin.configure({
         webClientId: GOOGLE_SIGNIN_WEB_CLIENT_ID,
-        ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {}),
+        iosClientId: GOOGLE_IOS_CLIENT_ID,
+        offlineAccess: false,
       });
     }
   }, []);
@@ -1931,6 +1921,14 @@ function ThirdPageContent({
       cancelled = true;
     };
   }, [route?.params?.language]);
+
+  useEffect(() => {
+    const reauthEmail = route?.params?.reauthEmail || route?.params?.prefilledEmail;
+    if (route?.params?.reauthForChats && reauthEmail) {
+      setEmail(String(reauthEmail).trim());
+      setActiveTab('login');
+    }
+  }, [route?.params?.reauthForChats, route?.params?.reauthEmail, route?.params?.prefilledEmail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2033,9 +2031,10 @@ function ThirdPageContent({
         return;
       }
       const countryId = await getSavedCountryIdForUser(user);
-      /** Нова реєстрація або акаунт без збереженої країни — екран країни; повторний вхід з країною — одразу далі. */
-      if (isNewUser || !countryId) {
-        navigation?.navigate?.('SelectCountry', { user, language });
+      /** Вибір країни — лише одразу після нової реєстрації; повторний вхід без повторного екрану. */
+      if (isNewUser) {
+        const appTheme = await getAppTheme();
+        navigation?.navigate?.('SelectCountry', { user, language, appTheme });
         return;
       }
       const sub = await getSubscriptionState(user);
@@ -2145,7 +2144,7 @@ function ThirdPageContent({
               headers: { Authorization: `Bearer ${token}` },
             })
               .then((r) => r.json())
-              .then((info) => applySocialLoginSuccess('google', info))
+              .then((info) => applySocialLoginSuccess('google', info, idToken))
               .catch(() => {});
           }
         }
@@ -2158,40 +2157,10 @@ function ThirdPageContent({
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((r) => r.json())
-        .then((info) => applySocialLoginSuccess('google', info))
+        .then((info) => applySocialLoginSuccess('google', info, idToken))
         .catch(() => {});
     }
   }, [googleResponse, navigateAfterAuth]);
-
-  useEffect(() => {
-    if (facebookResponse?.type !== 'success') return;
-    const accessToken =
-      facebookResponse.params?.access_token ||
-      facebookResponse.authentication?.accessToken;
-    if (!accessToken) return;
-    (async () => {
-      try {
-        const { user, isNewUser } = await signInWithFacebookAccessToken(accessToken);
-        await saveSession(user);
-        await clearAuthFormDraft();
-        await navigateAfterAuth(user, isNewUser);
-      } catch (err) {
-        if (__DEV__) console.warn('[Facebook OAuth]', err?.message);
-        const code = err?.message || '';
-        let msg;
-        if (code === 'FIREBASE_AUTH_REQUIRED') {
-          msg = thirdPageUi(language, 'fbFirebase');
-        } else if (code === 'FACEBOOK_GRAPH_TIMEOUT' || code.startsWith('FACEBOOK_GRAPH_ERROR')) {
-          msg = thirdPageUi(language, 'fbTimeout');
-        } else if (code === 'INVALID_FACEBOOK_USER' || code === 'MISSING_FACEBOOK_ID') {
-          msg = thirdPageUi(language, 'fbProfile');
-        } else {
-          msg = thirdPageUi(language, 'fbGeneric');
-        }
-        Alert.alert('', msg);
-      }
-    })();
-  }, [facebookResponse, navigateAfterAuth]);
 
   const contentWidth = Math.min(r.width - r.horizontalPadding * 2, DESIGN_CONTENT_WIDTH);
   const contentHorizontalPadding = Math.max(r.horizontalPadding, (r.width - DESIGN_CONTENT_WIDTH) / 2);
@@ -2246,10 +2215,20 @@ function ThirdPageContent({
   }, [activeTab, password, confirmPassword, texts.errorPasswordMismatch, texts.errorPasswordTooShort]);
 
 
-  const applySocialLoginSuccess = async (provider, googleUserData) => {
+  const applySocialLoginSuccess = async (provider, googleUserData, idTokenHint) => {
     setLoginError(null);
     if (provider !== 'google' || !googleUserData) return;
     try {
+      const hintedToken = String(idTokenHint || '').trim();
+      if (hintedToken) {
+        const { user, isNewUser } = await signInWithGoogleIdToken(hintedToken);
+        await saveSession(user);
+        await syncBackendSessionAfterGoogleIdToken(hintedToken, user);
+        await clearAuthFormDraft();
+        const s = await getSession();
+        await navigateAfterAuth(s?.user || user, isNewUser);
+        return;
+      }
       const { user, isNewUser } = await loginOrRegisterGoogle({
         email: googleUserData.email || '',
         name: googleUserData.name || googleUserData.givenName || '',
@@ -2257,6 +2236,7 @@ function ThirdPageContent({
         avatar: googleUserData.photo || googleUserData.picture || null,
       });
       await saveSession(user);
+      await ensureBackendSession(user);
       await clearAuthFormDraft();
       await navigateAfterAuth(user, isNewUser);
     } catch (err) {
@@ -2335,6 +2315,9 @@ function ThirdPageContent({
       if (rememberMe) {
         await persistRememberedLogin(trimmedEmail, trimmedPassword);
       }
+      // Завжди (незалежно від «Запамʼятати мене») зберігаємо дані для тихого відновлення чатів.
+      await persistSessionRecoveryCredentials(trimmedEmail, trimmedPassword);
+      await mergeBackendUserIntoLocalSession();
       await clearAuthFormDraft();
       const uBackend = useAuthStore.getState().user || authUser || { email: trimmedEmail };
       await navigateAfterAuth(uBackend, false);
@@ -2363,22 +2346,38 @@ function ThirdPageContent({
     googlePromptInProgressRef.current = true;
     setLoginError(null);
     try {
-      const GoogleSignin = GoogleSigninNative?.GoogleSignin;
-      if (GoogleSignin && hasGoogleConfig) {
-        if (Platform.OS === 'android') {
-          await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-        }
-        const result = await GoogleSignin.signIn();
-        const idToken = result?.data?.idToken || result?.idToken;
-        if (!idToken) return;
-        const { user, isNewUser } = await signInWithGoogleIdToken(idToken);
-        await saveSession(user);
-        await syncBackendSessionAfterGoogleIdToken(idToken, user);
-        const s = await getSession();
-        const uNav = s?.user || user;
-        await clearAuthFormDraft();
-        await navigateAfterAuth(uNav, isNewUser);
+      if (!hasGoogleConfig) {
+        Alert.alert('', thirdPageUi(language, 'signInFailedBody'));
         return;
+      }
+      const GoogleSignin = GoogleSigninNative?.GoogleSignin;
+      if (GoogleSignin) {
+        try {
+          if (Platform.OS === 'android') {
+            await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+          }
+          const result = await GoogleSignin.signIn();
+          const idToken = result?.data?.idToken || result?.idToken;
+          if (!idToken) {
+            throw new Error('MISSING_GOOGLE_ID_TOKEN');
+          }
+          const { user, isNewUser } = await signInWithGoogleIdToken(idToken);
+          await saveSession(user);
+          await syncBackendSessionAfterGoogleIdToken(idToken, user);
+          const s = await getSession();
+          const uNav = s?.user || user;
+          await clearAuthFormDraft();
+          await navigateAfterAuth(uNav, isNewUser);
+          return;
+        } catch (nativeErr) {
+          const code = nativeErr?.code || nativeErr?.message || '';
+          if (code === 'SIGN_IN_CANCELLED' || code === '12501' || code === 'ERR_REQUEST_CANCELED') return;
+          if (__DEV__) console.warn('[Google native]', nativeErr?.message || nativeErr);
+          if (Platform.OS === 'ios') {
+            Alert.alert('', thirdPageUi(language, 'signInFailedBody'));
+            return;
+          }
+        }
       }
       if (googlePromptAsync && googleRequestRef.current) {
         await googlePromptAsync();
@@ -2392,24 +2391,6 @@ function ThirdPageContent({
       Alert.alert('', thirdPageUi(language, 'signInFailedBody'));
     } finally {
       googlePromptInProgressRef.current = false;
-    }
-  };
-
-  const handleFacebookLogin = async () => {
-    if (!showFacebookLogin || !facebookPromptAsync) {
-      Alert.alert('', thirdPageUi(language, 'signInFailedBody'));
-      return;
-    }
-    if (facebookPromptInProgressRef.current) return;
-    facebookPromptInProgressRef.current = true;
-    setLoginError(null);
-    try {
-      await facebookPromptAsync();
-    } catch (err) {
-      if (__DEV__) console.warn('[Facebook OAuth]', err?.message || err);
-      Alert.alert('', thirdPageUi(language, 'fbGeneric'));
-    } finally {
-      facebookPromptInProgressRef.current = false;
     }
   };
 
@@ -2528,6 +2509,9 @@ function ThirdPageContent({
         }
       }
       await clearAuthFormDraft();
+      // Завжди зберігаємо дані для тихого відновлення чатів після реєстрації.
+      await persistSessionRecoveryCredentials(trimmedEmail, trimmedPassword);
+      await mergeBackendUserIntoLocalSession();
       const uBackend = useAuthStore.getState().user || authUser || { email: trimmedEmail };
       await navigateAfterAuth(uBackend, true);
       return true;
@@ -2771,6 +2755,14 @@ function ThirdPageContent({
         setForgotSuggestRegister(true);
         return;
       }
+      if (!result?.ok && result?.reason === 'NETWORK_ERROR') {
+        setForgotFieldError(
+          thirdPageUi(language, 'connectionProblemBody') ||
+            texts.forgotSendFailed ||
+            'Could not reach the server. Check your connection and try again.',
+        );
+        return;
+      }
       if (!result?.ok && result?.reason === 'EMPTY') {
         setForgotFieldError(texts.errorEmptyEmail ?? 'Enter your email address');
         return;
@@ -2911,38 +2903,55 @@ function ThirdPageContent({
   const { height: bgH } = Dimensions.get('window');
   const formLayoutHeight = bgH;
   const authHeroHeightRatio =
-    Platform.OS === 'ios' && !r.isShortScreen
-      ? 0.32
-      : r.isVeryShortScreen
+    Platform.OS === 'android'
+      ? !r.isShortScreen
+        ? 0.3
+        : r.isVeryShortScreen
+          ? 0.24
+          : 0.27
+      : !r.isShortScreen
         ? 0.26
-        : r.isShortScreen
-          ? 0.3
-          : AUTH_HERO_HEIGHT_RATIO;
+        : r.isVeryShortScreen
+          ? 0.22
+          : r.isShortScreen
+            ? 0.24
+            : AUTH_HERO_HEIGHT_RATIO;
   const authHeroHeight = Math.round(formLayoutHeight * authHeroHeightRatio);
   const authHeroTopInset = Math.max(
     Math.round(r.insets?.top ?? 0),
     Platform.OS === 'android' ? Math.round(RNStatusBar.currentHeight ?? 28) : 0,
-  ) + (Platform.OS === 'android' ? 6 : 0);
-  const authFormPullUpPx =
-    activeTab === 'login' || activeTab === 'register'
-      ? Math.round(Math.min(36, Math.max(20, formLayoutHeight * 0.028)))
+  );
+  /** iOS: лише візуально нижче; layout форми й нижнього фото без змін. */
+  const authHeroExtraDownPx =
+    Platform.OS === 'ios'
+      ? Math.round(Math.min(62, Math.max(46, formLayoutHeight * 0.034)))
       : 0;
-  const authHeroVisualBottom = authHeroHeight + AUTH_HERO_WAVE_PAD - authHeroTopInset;
-  /** Android: верхнє фото й лаймова лінія трохи нижче. */
   const authHeroExtraLiftPx =
     Platform.OS === 'android'
-      ? androidHeroBannerExtraDownPx(formLayoutHeight)
+      ? -Math.round(Math.min(14, Math.max(8, formLayoutHeight * 0.012)))
       : 0;
-  const authHeroBannerBottomScreenY = authHeroBannerBottomY({
-    heroHeight: authHeroHeight,
-    topInset: authHeroTopInset,
-    heroLiftPx: authHeroExtraLiftPx,
-  });
-  const authHeroSpacerHeight = Math.max(
-    Math.round(authHeroHeight * (r.isVeryShortScreen ? 0.62 : r.isShortScreen ? 0.66 : 0.7)),
+  const authHeroRenderHeight =
+    Platform.OS === 'ios' ? authHeroHeight + authHeroExtraDownPx : authHeroHeight;
+  const authHeroVisualBottom =
+    authHeroHeight +
+    AUTH_HERO_WAVE_PAD -
+    authHeroTopInset +
+    Math.max(0, authHeroExtraLiftPx);
+  /** Невеликий зазор між хвилястою межею фото і текстом форми (логін / реєстрація). */
+  const authPhotoFormGapPx = Math.round(
+    Math.min(28, Math.max(18, formLayoutHeight * 0.022)),
+  );
+  /** Android: форму «Вхід» трохи вище — менший зазор під хвилею. */
+  const authAndroidFormLiftPx =
     Platform.OS === 'android'
-      ? authHeroBannerBottomScreenY - authFormPullUpPx
-      : authHeroVisualBottom - authFormPullUpPx,
+      ? Math.round(Math.min(36, Math.max(22, formLayoutHeight * 0.028)))
+      : 0;
+  const authHeroSpacerHeight = Math.max(
+    authHeroVisualBottom + 8,
+    Math.max(
+      Math.round(authHeroHeight * (r.isVeryShortScreen ? 0.58 : r.isShortScreen ? 0.62 : 0.66)),
+      authHeroVisualBottom + authPhotoFormGapPx,
+    ) - authAndroidFormLiftPx,
   );
   /** Нижнє фото під соцкнопками — у потоці після Google/Facebook/Apple, до низу екрана. */
   const authFooterBottomBleedPx = Math.max(r.insets?.bottom ?? 0, 0);
@@ -2958,42 +2967,49 @@ function ThirdPageContent({
       authHeroSpacerHeight -
       (Platform.OS === 'android' ? r.bottomPadding : 0),
   );
-  /** Невеликий зазор між хвилястою межею фото і текстом форми (логін / реєстрація). */
-  const authPhotoFormGapPx =
-    Platform.OS === 'android'
-      ? androidHeroTextGapPx(formLayoutHeight)
-      : Math.round(Math.min(28, Math.max(18, formLayoutHeight * 0.022)));
   const formGap = r.isVeryShortScreen ? 10 : r.isShortScreen ? 12 : AUTH_FORM_GAP;
   const registerFormGap = r.isVeryShortScreen ? 6 : 8;
   const activeFormGap = activeTab === 'register' ? registerFormGap : formGap;
   const activeTitleMarginTop = r.isShortScreen ? 2 : 4;
-  const authAndroidTitleExtraMarginTop =
-    Platform.OS === 'android' && activeTab === 'login' ? AUTH_FORM_GAP : 0;
   const activeScrollPaddingTop =
-    Platform.OS === 'android'
-      ? Math.max(
-          0,
-          Math.round(
-            authHeroBannerBottomScreenY -
-              authHeroSpacerHeight +
-              authPhotoFormGapPx -
-              authAndroidTitleExtraMarginTop -
-              activeTitleMarginTop,
-          ),
-        )
-      : Math.round(Math.max(16, formLayoutHeight * 0.02)) + authPhotoFormGapPx;
+    Math.round(Math.max(16, formLayoutHeight * 0.02)) +
+    authPhotoFormGapPx -
+    (Platform.OS === 'android' ? Math.round(authAndroidFormLiftPx * 0.4) : 0);
   const authScrollMinHeight = authScrollViewportMinHeight;
   const authFooterHeroBodyHeight = Math.max(
     80,
-    authFooterHeroLayoutHeight -
-      AUTH_HERO_WAVE_PAD -
-      authFooterBottomBleedPx,
+    authFooterHeroMinHeight - AUTH_HERO_WAVE_PAD - authFooterBottomBleedPx,
   );
   const forgotModalMaxWidth = Math.min(r.width - 32, 400);
   const backgroundImageSource =
     activeTab === 'register'
-      ? require('./assets/auth-register-hero.png')
-      : require('./assets/auth-login-hero.png');
+      ? require('./assets/auth-register-hero.webp')
+      : require('./assets/auth-login-hero.webp');
+  const authFooterImageSource =
+    activeTab === 'register'
+      ? require('./assets/auth-register-footer-hero.webp')
+      : require('./assets/auth-login-footer-hero.webp');
+  /** Лише зсув кадру фото вгорі на вході — хвиля й layout без змін. */
+  const authLoginTopHeroImageNudgeUpPx = Math.round(
+    Platform.OS === 'android'
+      ? Math.min(140, Math.max(92, formLayoutHeight * 0.092))
+      : Math.min(168, Math.max(108, formLayoutHeight * 0.108)),
+  );
+  const authIosLoginTopHeroImageNudgeDownPx = Math.round(
+    Math.min(132, Math.max(116, formLayoutHeight * 0.104)),
+  );
+  /** iOS + реєстрація: кадр у верхньому фото трохи вище, ніж на вході. */
+  const authIosRegisterTopHeroImageNudgeDownPx = Math.round(
+    Math.min(72, Math.max(56, formLayoutHeight * 0.052)),
+  );
+  const authTopHeroImageNudgeY =
+    Platform.OS === 'ios'
+      ? activeTab === 'register'
+        ? authIosRegisterTopHeroImageNudgeDownPx
+        : authIosLoginTopHeroImageNudgeDownPx
+      : activeTab === 'login'
+        ? authLoginTopHeroImageNudgeUpPx
+        : 0;
   const registerLayoutNudgeUpPx = Math.round(
     Math.min(30, Math.max(16, formLayoutHeight * 0.024)),
   );
@@ -3150,14 +3166,24 @@ function ThirdPageContent({
       ) : null}
       <AuthHeroHeader
         source={backgroundImageSource}
-        height={authHeroHeight}
+        height={authHeroRenderHeight}
         topInset={authHeroTopInset}
+        imageNudgeY={authTopHeroImageNudgeY}
         style={[
           styles.authHeroBackdrop,
-          authHeroTopInset > 0 ? { top: -authHeroTopInset } : null,
-          authHeroExtraLiftPx !== 0 && {
-            transform: [{ translateY: authHeroExtraLiftPx }],
-          },
+          authHeroTopInset > 0 || authHeroExtraDownPx > 0
+            ? {
+                top:
+                  -authHeroTopInset -
+                  (Platform.OS === 'ios' ? authHeroExtraDownPx : 0),
+              }
+            : null,
+          Platform.OS === 'ios' && authHeroExtraDownPx !== 0
+            ? { transform: [{ translateY: authHeroExtraDownPx }] }
+            : null,
+          Platform.OS === 'android' && authHeroExtraLiftPx !== 0
+            ? { transform: [{ translateY: authHeroExtraLiftPx }] }
+            : null,
         ]}
       />
       <View style={{ height: authHeroSpacerHeight }} pointerEvents="none" />
@@ -3220,7 +3246,7 @@ function ThirdPageContent({
                 onChange={switchAuthTab}
                 loginLabel={texts.loginTab}
                 registerLabel={texts.registerTab}
-                style={{ marginBottom: activeFormGap }}
+                style={{ marginTop: 4, marginBottom: activeFormGap + 4 }}
               />
 
               <View
@@ -3553,43 +3579,53 @@ function ThirdPageContent({
                   styles.socialRow,
                   activeTab === 'register' && styles.registerSocialRow,
                   Platform.OS === 'ios' && socialProviderCount >= 3 ? styles.socialRowIosGrouped : null,
-                  socialProviderCount <= 2 ? styles.socialRowTwoButtons : null,
+                  useAndroidGoogleFullWidth
+                    ? styles.socialRowFullWidth
+                    : useWideSocialButtons
+                      ? styles.socialRowTwoButtons
+                      : styles.socialRowSingle,
                   { marginBottom: r.isShortScreen ? 8 : 0 },
                 ]}
               >
                 <Pressable
-                  style={[styles.socialButton, Platform.OS === 'ios' && styles.socialButtonIos]}
+                  style={[
+                    styles.socialButton,
+                    useAndroidGoogleFullWidth
+                      ? styles.socialButtonFullWidth
+                      : useWideSocialButtons
+                        ? styles.socialButtonWide
+                        : styles.socialButtonCompact,
+                  ]}
                   onPress={() => void handleGoogleLogin()}
                   android_ripple={rippleOnLightSurface}
                   accessibilityRole="button"
                   accessibilityLabel={activeTab === 'login' ? texts.loginWithGoogle : texts.registerWithGoogle}
                 >
-                  <Image
-                    source={require('./assets/google.png')}
-                    style={styles.socialIconImage}
-                    resizeMode="contain"
-                  />
-                </Pressable>
-                {showFacebookLogin ? (
-                  <Pressable
-                    style={[styles.socialButton, Platform.OS === 'ios' && styles.socialButtonIos]}
-                    onPress={() => void handleFacebookLogin()}
-                    android_ripple={rippleOnLightSurface}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      activeTab === 'login' ? texts.loginWithFacebook : texts.registerWithFacebook
-                    }
-                  >
+                  {useAndroidGoogleFullWidth ? (
+                    <View style={styles.socialButtonContent}>
+                      <Image
+                        source={require('./assets/google.png')}
+                        style={styles.socialIconImage}
+                        resizeMode="contain"
+                      />
+                      <Text style={styles.socialButtonLabel}>
+                        {activeTab === 'login' ? texts.loginWithGoogle : texts.registerWithGoogle}
+                      </Text>
+                    </View>
+                  ) : (
                     <Image
-                      source={require('./assets/facebook-icon.png')}
-                      style={[styles.socialIconImage, styles.socialIconFacebook]}
+                      source={require('./assets/google.png')}
+                      style={styles.socialIconImage}
                       resizeMode="contain"
                     />
-                  </Pressable>
-                ) : null}
+                  )}
+                </Pressable>
                 {showAppleLogin ? (
                   <Pressable
-                    style={[styles.socialButton, styles.socialButtonIos]}
+                    style={[
+                      styles.socialButton,
+                      useWideSocialButtons ? styles.socialButtonWide : styles.socialButtonCompact,
+                    ]}
                     onPress={() => void handleAppleLogin()}
                     android_ripple={rippleOnLightSurface}
                     accessibilityRole="button"
@@ -3609,28 +3645,18 @@ function ThirdPageContent({
                 {
                   marginTop: authFooterHeroMarginTopPx,
                   marginHorizontal: -contentHorizontalPadding,
-                  flexGrow: 1,
                   minHeight: authFooterHeroMinHeight,
                 },
               ]}
-              onLayout={(e) => {
-                const h = Math.round(e.nativeEvent.layout.height);
-                if (h > 0 && authFooterHeroLayoutHeightRef.current !== h) {
-                  authFooterHeroLayoutHeightRef.current = h;
-                  setAuthFooterHeroLayoutHeight(h);
-                }
-              }}
               pointerEvents="none"
             >
-              {authFooterHeroLayoutHeight > 0 ? (
-                <AuthHeroHeader
-                  source={backgroundImageSource}
-                  height={authFooterHeroBodyHeight}
-                  waveEdge="top"
-                  bottomBleedPx={authFooterBottomBleedPx}
-                  style={{ width: r.width }}
-                />
-              ) : null}
+              <AuthHeroHeader
+                source={authFooterImageSource}
+                height={authFooterHeroBodyHeight}
+                waveEdge="top"
+                bottomBleedPx={authFooterBottomBleedPx}
+                style={{ width: r.width }}
+              />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -4181,17 +4207,17 @@ const styles = StyleSheet.create({
   },
   registerFormTitleCompact: {
     marginTop: 0,
-    marginBottom: Platform.OS === 'ios' ? 5 : 7,
+    marginBottom: Platform.OS === 'ios' ? 8 : 9,
   },
   loginFormTitleAndroid: {
-    marginBottom: 6,
+    marginBottom: 10,
   },
   loginFormTitleIos: {
     fontSize: AUTH_IOS_TITLE_FONT_SIZE,
     lineHeight: AUTH_IOS_TITLE_LINE_HEIGHT,
     height: undefined,
     minHeight: AUTH_IOS_TITLE_LINE_HEIGHT,
-    marginBottom: 6,
+    marginBottom: 10,
   },
   registerFormInputWrap: {
     marginTop: 0,
@@ -4622,8 +4648,16 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   socialRowTwoButtons: {
+    alignSelf: 'stretch',
+    gap: 12,
+  },
+  socialRowSingle: {
     justifyContent: 'center',
-    gap: 16,
+    alignItems: 'center',
+  },
+  socialRowFullWidth: {
+    alignSelf: 'stretch',
+    justifyContent: 'center',
   },
 
   socialRowIosGrouped: {
@@ -4633,9 +4667,6 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   socialButton: {
-    flex: 1,
-    minWidth: 0,
-    maxWidth: Platform.OS === 'android' ? 160 : 98,
     height: 42,
     borderRadius: 9,
     backgroundColor: '#FFFFFF',
@@ -4646,6 +4677,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  socialButtonWide: {
+    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    maxWidth: (DESIGN_CONTENT_WIDTH - 12) / 2,
+    height: 48,
+  },
+  socialButtonCompact: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 88,
+    width: 88,
+    maxWidth: 88,
+    minWidth: 88,
+  },
+  socialButtonFullWidth: {
+    alignSelf: 'stretch',
+    width: '100%',
+    height: 48,
+    paddingHorizontal: 16,
+  },
+  socialButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  socialButtonLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
+    color: '#1F1F1F',
+    ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif-medium', includeFontPadding: false } : {}),
   },
   socialButtonIos: {
     flexGrow: 0,
@@ -4666,10 +4733,6 @@ const styles = StyleSheet.create({
     height: 20,
   },
 
-  socialIconFacebook: Platform.select({
-    ios: { width: 24, height: 24 },
-    default: {},
-  }),
   socialIconImageApple: {
     width: 13,
     height: 16,
@@ -5290,7 +5353,7 @@ const styles = StyleSheet.create({
 });
 
 export default function ThirdPage({ navigation, route }) {
-  if (!AuthSessionModule || !FacebookAuthSessionProvider) {
+  if (!AuthSessionModule || !GoogleAuthSessionProvider) {
     return <ThirdPageContent navigation={navigation} route={route} />;
   }
   return <ThirdPageWithGoogleOAuth navigation={navigation} route={route} />;

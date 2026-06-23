@@ -14,6 +14,9 @@ export declare const aiRouteConfig: {
     baseUrl: string;
     model: string;
 };
+export declare const visionConfig: {
+    apiKey: string;
+};
 export declare const config: {
     nodeEnv: string;
     sentryDsn: string;
@@ -27,6 +30,8 @@ export declare const config: {
     jwtSecret: string;
     refreshPepper: string;
     googleClientId: string;
+    /** Web + iOS + Android OAuth client IDs accepted as id_token audience. */
+    googleClientIds: string[];
     appleClientId: string;
     publicBaseUrl: string;
     appVersion: string;
@@ -56,8 +61,12 @@ export declare const config: {
     apnsTeamId: string;
     apnsTopic: string;
     apnsProduction: boolean;
+    expoPushAccessToken: string;
     corsOrigins: string[];
     trustProxy: number | boolean;
     apnsConfigured: boolean;
+    livekitConfigured: boolean;
+    googleVisionApiKey: string;
+    googleTtsApiKey: string;
 };
 //# sourceMappingURL=config.d.ts.map

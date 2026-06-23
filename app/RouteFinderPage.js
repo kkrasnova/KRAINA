@@ -10,20 +10,20 @@ import {
   Alert,
   ActivityIndicator,
   Animated,
-  Dimensions,
+  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, THEME_CHANGED_EVENT, resolveAppTheme } from './themeStorage';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { brandFontHeadBold, brandFontSansMedium, brandFontSansBold, brandFontSansSemibold } from './brandFont';
 
 import { rp } from './routePlannerI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
-import { resolveRegionIdFromQuery } from './routeRegionsData';
-import { buildRoutePlan, haversineKm } from './routePlannerCore';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
+import { resolveRegionIdFromQuery, resolveRegionIdFromOrigin } from './routeRegionsData';
+import { buildRoutePlan, haversineKm, buildRouteCoordinates, computeRouteTotalKm, isUserOriginNearRoute, optimizeStopOrder, computeUsedMinutes } from './routePlannerCore';
 import { stripRoutePlanForStorage } from './profileStorage';
 import { buildRoutePlanCacheId, writeRoutePlanCache } from './routePlanFileCache';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
@@ -31,19 +31,8 @@ import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { postSuggestAiRoute } from './aiRouteApi';
 import { fetchPublishedLocations } from './locationsApi';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-
-const BUDGET_ORDER = ['free', 'budget', 'medium'];
-const BUDGET_RP_KEY = {
-  free: 'budgetFree',
-  budget: 'budgetLow',
-  medium: 'budgetMid',
-};
-const BUDGET_ICON = {
-  free: 'gift-outline',
-  budget: 'wallet-outline',
-  medium: 'card-outline',
-};
+const ROUTE_TRANSPORT = 'walk';
+const ROUTE_BUDGET_TIER = 'medium';
 
 const TIME_OPTIONS = [
   { id: '1', hours: 1, key: 'time1h', icon: 'flash-outline' },
@@ -166,6 +155,23 @@ function speedKmhLocal(transport) {
 
 const MAX_ORIGIN_KM = 100;
 
+async function readCurrentUserOrigin() {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') return null;
+  try {
+    const last = await Location.getLastKnownPositionAsync();
+    const pos = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.High,
+      maximumAge: 15000,
+    });
+    const coords = pos?.coords || last?.coords;
+    if (!coords) return null;
+    return { lat: coords.latitude, lng: coords.longitude };
+  } catch {
+    return null;
+  }
+}
+
 function buildPlanFromPublishedLocations({
   rows,
   query,
@@ -235,18 +241,47 @@ function buildPlanFromPublishedLocations({
     if (!added) break;
   }
   if (stops.length < 2) return null;
-  let totalKm = 0;
-  if (base) totalKm += haversineKm(base, stops[0]);
-  for (let i = 1; i < stops.length; i++) totalKm += haversineKm(stops[i - 1], stops[i]);
-  const regionCountry = stops[0]?.country || '';
-  const regionCity = stops[0]?.city || '';
+
+  // 2-opt: прибираємо зигзаги в порядку зупинок (старт фіксований).
+  const anchorForOpt = isUserOriginNearRoute(base, stops) ? base : null;
+  let finalStops = optimizeStopOrder(stops, anchorForOpt);
+
+  // Дозаповнення вивільненим часом + точний перерахунок.
+  let timeNow = computeUsedMinutes(anchorForOpt, finalStops, speed, () => visitMinutes);
+  const usedIds = new Set(finalStops.map((s) => s.id));
+  const leftover = candidates.filter(({ loc }) => !usedIds.has(loc.id)).map(({ loc }) => loc);
+  let progressed = true;
+  while (progressed && leftover.length) {
+    progressed = false;
+    const last = finalStops[finalStops.length - 1];
+    if (!last) break;
+    leftover.sort((a, b) => haversineKm(last, a) - haversineKm(last, b));
+    for (let i = 0; i < leftover.length; i++) {
+      const c = leftover[i];
+      const add = (haversineKm(last, c) / speed) * 60 + visitMinutes;
+      if (timeNow + add <= budgetMin) {
+        finalStops.push(c);
+        timeNow += add;
+        usedIds.add(c.id);
+        leftover.splice(i, 1);
+        progressed = true;
+        break;
+      }
+    }
+  }
+  finalStops = optimizeStopOrder(finalStops, anchorForOpt);
+  timeNow = computeUsedMinutes(anchorForOpt, finalStops, speed, () => visitMinutes);
+
+  const stops2 = finalStops;
+  const originNear = isUserOriginNearRoute(base, stops2);
+  const totalKm = computeRouteTotalKm(originNear ? base : null, stops2);
+  const regionCountry = stops2[0]?.country || '';
+  const regionCity = stops2[0]?.city || '';
   const regionTitleUk =
     regionCity && regionCountry
       ? `${regionCity}, ${regionCountry}`
       : regionCountry || regionCity || 'Маршрут';
-  const coordinates = [];
-  if (base) coordinates.push({ latitude: base.lat, longitude: base.lng });
-  stops.forEach((s) => coordinates.push({ latitude: s.lat, longitude: s.lng }));
+  const coordinates = buildRouteCoordinates(originNear ? base : null, stops2);
   return {
     regionId: `published:${regionCountry || 'global'}`,
     regionTitleUk,
@@ -254,7 +289,7 @@ function buildPlanFromPublishedLocations({
     countryUk: regionCountry || 'Світ',
     countryEn: regionCountry || 'World',
     flag: '\u{1F5FA}\uFE0F',
-    stops: stops.map((s, idx) => ({
+    stops: stops2.map((s, idx) => ({
       order: idx + 1,
       id: s.id,
       titleUk: s.title || 'Локація',
@@ -267,50 +302,18 @@ function buildPlanFromPublishedLocations({
     })),
     coordinates,
     totalKm,
-    totalMinutes: Math.round(usedTime),
+    totalMinutes: Math.round(timeNow),
     transport,
     freeOnly: budgetTier === 'free',
     budgetTier: budgetTier || 'medium',
     interests: interests || null,
-    userOrigin: base,
+    userOrigin: originNear ? base : null,
+    originNearRegion: originNear,
     aiGenerated: false,
     generatedFromLocations: true,
     language,
   };
 }
-
-/* ─── Animated floating dot for the header ─── */
-function FloatingDot({ delay, size, left, top, color }) {
-  const anim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 1, duration: 2800 + delay, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 2800 + delay, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [anim, delay]);
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, -12] });
-  const opacity = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.35, 0.8, 0.35] });
-  return (
-    <Animated.View
-      style={{
-        position: 'absolute',
-        left,
-        top,
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: color,
-        opacity,
-        transform: [{ translateY }],
-      }}
-    />
-  );
-}
-
 
 /**
  * @param {{ navigation: any, route: any, embedHeroPaddingTop?: number }} props
@@ -319,7 +322,7 @@ function FloatingDot({ delay, size, left, top, color }) {
 export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const initialPlace = route?.params?.initialPlace;
   const [place, setPlace] = useState(() =>
     typeof initialPlace === 'string' && initialPlace.trim()
@@ -334,7 +337,6 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
   }, [route?.params?.initialPlace]);
   const [selectedTime, setSelectedTime] = useState('2');
   const hoursText = String(TIME_OPTIONS.find((t) => t.id === selectedTime)?.hours || 2);
-  const [budgetTier, setBudgetTier] = useState('free');
   const [interests, setInterests] = useState({
     landmark: true,
     park: true,
@@ -343,25 +345,27 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
     architecture: false,
     secret: false,
   });
-  const [transport, setTransport] = useState('walk');
   const [userOrigin, setUserOrigin] = useState(null);
   const [locStatus, setLocStatus] = useState('unknown');
   const [useGeo, setUseGeo] = useState(true);
   const [aiBusy, setAiBusy] = useState(false);
+  const [buildStep, setBuildStep] = useState('');
 
-  /* pulse animation for CTA */
+  /* pulse animation for CTA — only when not showing full overlay */
   const ctaPulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (aiBusy) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(ctaPulse, { toValue: 0.96, duration: 600, useNativeDriver: true }),
-          Animated.timing(ctaPulse, { toValue: 1, duration: 600, useNativeDriver: true }),
-        ]),
-      ).start();
-    } else {
       ctaPulse.setValue(1);
+      return undefined;
     }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ctaPulse, { toValue: 1.02, duration: 1400, useNativeDriver: true }),
+        Animated.timing(ctaPulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
   }, [aiBusy, ctaPulse]);
 
   useEffect(() => {
@@ -370,21 +374,32 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
       const t = await getAppTheme();
       if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
     })();
-    return () => { c = true; };
+    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
+      setAppTheme(v === 'light' ? 'light' : 'dark');
+    });
+    return () => {
+      c = true;
+      sub.remove();
+    };
   }, []);
+
+  useEffect(() => {
+    if (route?.params?.appTheme === 'light' || route?.params?.appTheme === 'dark') {
+      setAppTheme(route.params.appTheme);
+    }
+  }, [route?.params?.appTheme]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { status } = await Location.getForegroundPermissionsAsync();
+      const origin = await readCurrentUserOrigin();
       if (cancelled) return;
-      if (status !== 'granted') { setLocStatus('denied'); return; }
-      setLocStatus('granted');
-      try {
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (!cancelled) setUserOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      } catch {
-        if (!cancelled) setLocStatus('error');
+      if (origin) {
+        setUserOrigin(origin);
+        setLocStatus('granted');
+      } else {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (!cancelled) setLocStatus(status === 'granted' ? 'error' : 'denied');
       }
     })();
     return () => { cancelled = true; };
@@ -392,11 +407,13 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
-  const textMain = isLight ? '#1A1A1A' : '#F5F5F0';
-  const textMuted = isLight ? '#6B6B6B' : '#8A8A8A';
-  const surfaceBg = isLight ? '#FFFFFF' : '#111111';
-  const fieldBg = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)';
-  const cardBorder = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+  const textMain = isLight ? '#141414' : '#F7F7F2';
+  const textMuted = isLight ? '#5E5E5E' : '#9A9A9A';
+  const pageBg = isLight ? '#F2F2EA' : '#0A0A0A';
+  const surfaceBg = isLight ? '#FFFFFF' : '#161618';
+  const fieldBg = isLight ? '#F4F4F0' : 'rgba(255,255,255,0.05)';
+  const sectionBg = isLight ? '#FAFAF7' : 'rgba(255,255,255,0.03)';
+  const cardBorder = isLight ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.08)';
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const selectedPillBg = isLight ? 'rgba(2,18,235,0.10)' : 'rgba(225,255,0,0.12)';
 
@@ -428,29 +445,23 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
   }, []);
 
   const resolveUserOrigin = useCallback(async () => {
-    let origin = userOrigin;
-    if (!origin) {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        try {
-          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setUserOrigin(origin);
-          setLocStatus('granted');
-        } catch { /* ignore */ }
-      }
+    if (userOrigin) return userOrigin;
+    const origin = await readCurrentUserOrigin();
+    if (origin) {
+      setUserOrigin(origin);
+      setLocStatus('granted');
     }
     return origin;
   }, [userOrigin]);
 
   const cacheAndNavigate = async (plan) => {
     try {
-      const cacheId = buildRoutePlanCacheId(plan.regionId, place, hoursText, budgetTier);
+      const cacheId = buildRoutePlanCacheId(plan.regionId, place, hoursText, ROUTE_BUDGET_TIER);
       await writeRoutePlanCache(cacheId, {
         ...stripRoutePlanForStorage(plan),
         placeQuery: place,
         hoursText,
-        budgetTier,
+        budgetTier: ROUTE_BUDGET_TIER,
         interests: interestsPayload,
         cachedAt: new Date().toISOString(),
       });
@@ -463,60 +474,81 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
       routeVariant: 0,
       placeQuery: place,
       hoursText,
-      budgetTier,
+      budgetTier: ROUTE_BUDGET_TIER,
       interests: interestsPayload,
-      freeOnly: budgetTier === 'free',
-      transport,
+      freeOnly: false,
+      transport: ROUTE_TRANSPORT,
     });
   };
 
   const onGenerateRoute = async () => {
     const hours = parseHours(hoursText);
+    const trimmedPlace = place.trim();
     const origin = useGeo ? await resolveUserOrigin() : null;
+    if (!trimmedPlace && !origin) {
+      Alert.alert(
+        '',
+        language === 'en'
+          ? 'Enter a city or district, or enable location to build a route nearby.'
+          : 'Вкажіть місто чи район або увімкніть геолокацію для маршруту поруч.',
+      );
+      return;
+    }
     setAiBusy(true);
+    setBuildStep(rp(language, 'buildingStepCatalog'));
     try {
-      const res = await postSuggestAiRoute({
-        place,
-        hours,
-        transport,
-        interests: interestsPayload,
-        budgetTier,
-        language,
-        userOrigin: origin ? { lat: origin.lat, lng: origin.lng } : null,
-      });
-      if (res?.routePlan?.stops?.length) {
-        await cacheAndNavigate(res.routePlan);
-        return;
-      }
       let plan = null;
       try {
         const fetchLimit = hours > 16 ? 500 : hours > 8 ? 300 : 160;
         const { rows } = await fetchPublishedLocations(fetchLimit);
         plan = buildPlanFromPublishedLocations({
           rows,
-          query: place,
+          query: trimmedPlace,
           hours,
-          transport,
+          transport: ROUTE_TRANSPORT,
           language,
           interests: interestsPayload,
           userOrigin: origin,
-          budgetTier,
+          budgetTier: ROUTE_BUDGET_TIER,
         });
-      } catch { /* fallback below */ }
-      if (!plan) {
-        const regionId = resolveRegionIdFromQuery(place);
+      } catch {
+        /* local catalog optional */
+      }
+
+      if (!plan?.stops?.length) {
+        setBuildStep(rp(language, 'buildingStepRoute'));
+        const regionId = trimmedPlace
+          ? resolveRegionIdFromQuery(trimmedPlace)
+          : resolveRegionIdFromOrigin(origin);
         plan = buildRoutePlan({
           regionId,
-          query: place,
+          query: trimmedPlace,
           hours,
-          transport,
-          budgetTier,
+          transport: ROUTE_TRANSPORT,
+          budgetTier: ROUTE_BUDGET_TIER,
           interests: interestsPayload,
           variant: 0,
           language,
           userOrigin: origin,
         });
       }
+
+      if (!plan?.stops?.length) {
+        setBuildStep(rp(language, 'aiBuilding'));
+        const res = await postSuggestAiRoute({
+          place: trimmedPlace,
+          hours,
+          transport: ROUTE_TRANSPORT,
+          interests: interestsPayload,
+          budgetTier: ROUTE_BUDGET_TIER,
+          language,
+          userOrigin: origin ? { lat: origin.lat, lng: origin.lng } : null,
+        });
+        if (res?.routePlan?.stops?.length) {
+          plan = res.routePlan;
+        }
+      }
+
       if (!plan?.stops?.length) {
         Alert.alert('', rp(language, 'noStops'));
         return;
@@ -527,62 +559,88 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
       Alert.alert('', rp(language, 'aiFail'));
     } finally {
       setAiBusy(false);
+      setBuildStep('');
     }
   };
 
-  const modes = [
-    { id: 'walk', icon: 'walk-outline', label: language === 'en' ? 'Walk' : 'Пішки' },
-    { id: 'car', icon: 'car-outline', label: language === 'en' ? 'Car' : 'Авто' },
-    { id: 'train', icon: 'train-outline', label: language === 'en' ? 'Train' : 'Потяг' },
-    { id: 'bus', icon: 'bus-outline', label: language === 'en' ? 'Bus' : 'Автобус' },
-  ];
+  const isEmbedded =
+    embedHeroPaddingTop != null && Number.isFinite(Number(embedHeroPaddingTop));
 
   /* header gradient colors */
   const gradTop = isLight
-    ? ['#E8ECFF', '#D4DFFF', '#F2F2EA']
-    : ['#0A0E1A', '#101828', '#000000'];
-  const dotColor = isLight ? '#0212EB' : '#E1FF00';
+    ? [pageBg, pageBg]
+    : [pageBg, pageBg];
 
   const heroPadTop =
     embedHeroPaddingTop != null && Number.isFinite(embedHeroPaddingTop)
       ? embedHeroPaddingTop
       : insets.top + 12;
-  const dotEmbedded = embedHeroPaddingTop != null && Number.isFinite(embedHeroPaddingTop);
-  const d0 = dotEmbedded ? 26 : insets.top + 38;
-  const d1 = dotEmbedded ? 18 : insets.top + 28;
-  const d2 = dotEmbedded ? 44 : insets.top + 60;
-  const d3 = dotEmbedded ? 34 : insets.top + 52;
-  const d4 = dotEmbedded ? 32 : insets.top + 50;
+
+  const cardShadow = isLight
+    ? {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.06,
+        shadowRadius: 24,
+      }
+    : {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.35,
+        shadowRadius: 28,
+      };
+
+  const section = (children, key) => (
+    <View key={key} style={[s.sectionBlock, { backgroundColor: sectionBg, borderColor: cardBorder }]}>
+      {children}
+    </View>
+  );
 
   return (
-    <View style={[s.screen, { backgroundColor: isLight ? '#F2F2EA' : '#000' }]}>
+    <View style={[s.screen, { backgroundColor: pageBg }]}>
+      {aiBusy ? (
+        <View style={s.buildOverlay} pointerEvents="auto">
+          <View style={[s.buildCard, { backgroundColor: surfaceBg, borderColor: cardBorder }]}>
+            <ActivityIndicator size="large" color={accent} />
+            <Text style={[s.buildTitle, brandFontSansBold, { color: textMain }]}>
+              {rp(language, 'aiBuilding')}
+            </Text>
+            {buildStep ? (
+              <Text style={[s.buildStep, brandFontSansMedium, { color: textMuted }]}>{buildStep}</Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 32 }}
+        contentContainerStyle={{
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 32),
+          paddingHorizontal: isEmbedded ? 14 : 16,
+        }}
         keyboardShouldPersistTaps="handled"
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
       >
-        {/* ─── Hero header with animated dots & route path illustration ─── */}
-        <LinearGradient colors={gradTop} style={[s.heroGrad, { paddingTop: heroPadTop }]}>
-          {/* floating dots */}
-          <FloatingDot delay={0} size={6} left={SCREEN_W * 0.12} top={d0} color={dotColor} />
-          <FloatingDot delay={400} size={8} left={SCREEN_W * 0.75} top={d1} color={dotColor} />
-          <FloatingDot delay={800} size={5} left={SCREEN_W * 0.55} top={d2} color={dotColor} />
-          <FloatingDot delay={200} size={7} left={SCREEN_W * 0.30} top={d3} color={dotColor} />
-          <FloatingDot delay={600} size={4} left={SCREEN_W * 0.88} top={d4} color={dotColor} />
-
-          {/* route path illustration */}
-          <View style={s.heroPathRow}>
-            <View style={[s.heroPathDot, { backgroundColor: accent, width: 14, height: 14, borderRadius: 7 }]} />
-            <View style={[s.heroPathLine, { backgroundColor: accent, opacity: 0.3 }]} />
+        {/* ─── Hero header ─── */}
+        <LinearGradient
+          colors={gradTop}
+          style={[
+            s.heroGrad,
+            {
+              paddingTop: heroPadTop,
+              paddingBottom: isEmbedded ? 12 : 16,
+              borderRadius: isEmbedded ? 0 : 0,
+            },
+          ]}
+        >
+          <View style={[s.heroPathRow, isEmbedded && { marginTop: 0, marginBottom: 10 }]}>
+            <View style={[s.heroPathDot, { backgroundColor: accent, width: 10, height: 10, borderRadius: 5 }]} />
+            <View style={[s.heroPathLine, { backgroundColor: accent, opacity: 0.28 }]} />
             <View style={[s.heroPathDotSm, { borderColor: accent }]} />
-            <View style={[s.heroPathLine, { backgroundColor: accent, opacity: 0.3 }]} />
-            <View style={[s.heroPathDotSm, { borderColor: accent }]} />
-            <View style={[s.heroPathLine, { backgroundColor: accent, opacity: 0.3 }]} />
-            <Ionicons name="flag" size={18} color={accent} />
+            <View style={[s.heroPathLine, { backgroundColor: accent, opacity: 0.28 }]} />
+            <Ionicons name="flag" size={15} color={accent} />
           </View>
 
-          <Text style={[s.heroTitle, brandFontHeadBold, { color: textMain }]}>
+          <Text style={[s.heroTitle, brandFontHeadBold, { color: textMain, fontSize: isEmbedded ? 24 : 28 }]}>
             {rp(language, 'findRoute')}
           </Text>
           <Text style={[s.heroSub, brandFontSansMedium, { color: textMuted }]}>
@@ -590,10 +648,18 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
           </Text>
         </LinearGradient>
 
-        {/* ─── Main card ─── */}
-        <View style={[s.mainCard, { backgroundColor: surfaceBg, borderColor: cardBorder }]}>
-
-          {/* Location banner */}
+        <View
+          style={[
+            s.mainCard,
+            isEmbedded && s.mainCardEmbedded,
+            {
+              backgroundColor: surfaceBg,
+              borderColor: cardBorder,
+              ...cardShadow,
+            },
+          ]}
+        >
+          <View style={s.mainCardInner}>
           <Pressable
             style={({ pressed }) => [
               s.locBanner,
@@ -638,169 +704,108 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
           {/* Place input */}
           <View style={[s.inputWrap, { backgroundColor: fieldBg, borderColor: cardBorder }]}>
-            <Ionicons name="search-outline" size={20} color={textMuted} style={{ marginRight: 10 }} />
+            <View style={[s.inputIconWrap, { backgroundColor: isLight ? 'rgba(2,18,235,0.10)' : 'rgba(225,255,0,0.12)' }]}>
+              <Ionicons name="search" size={20} color={accent} />
+            </View>
             <TextInput
               value={place}
-              onChangeText={(t) => { setPlace(t); if (t.trim().length > 0) setUseGeo(false); }}
+              onChangeText={setPlace}
               placeholder={rp(language, 'placePlaceholder')}
               placeholderTextColor={textMuted}
               style={[s.input, brandFontSansMedium, { color: textMain }]}
             />
             {place.length > 0 ? (
               <Pressable onPress={() => setPlace('')} hitSlop={10}>
-                <Ionicons name="close-circle" size={18} color={textMuted} />
+                <Ionicons name="close-circle" size={20} color={textMuted} />
               </Pressable>
             ) : null}
           </View>
 
-          {/* ─── Compact inline selectors ─── */}
+          {section(
+            <>
+              <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
+                {rp(language, 'timeSection')}
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScrollInner}>
+                {TIME_OPTIONS.map((opt) => {
+                  const sel = selectedTime === opt.id;
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: sel }}
+                      onPress={() => setSelectedTime(opt.id)}
+                      style={({ pressed }) => [
+                        s.slidePill,
+                        {
+                          backgroundColor: sel ? accent : pageBg,
+                          borderColor: sel ? accent : cardBorder,
+                        },
+                        pressed && { opacity: 0.9 },
+                      ]}
+                      android_ripple={ripple}
+                    >
+                      <Ionicons
+                        name={opt.icon}
+                        size={15}
+                        color={sel ? onAccentButtonText(isLight) : textMuted}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text
+                        style={[
+                          s.slidePillTxt,
+                          brandFontSansSemibold,
+                          { color: sel ? onAccentButtonText(isLight) : textMain },
+                        ]}
+                      >
+                        {rp(language, opt.key)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </>,
+            'time',
+          )}
 
-          {/* Time — horizontal slider pills */}
-          <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
-            {rp(language, 'timeSection')}
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.hScroll} contentContainerStyle={s.hScrollInner}>
-            {TIME_OPTIONS.map((opt) => {
-              const sel = selectedTime === opt.id;
-              return (
-                <Pressable
-                  key={opt.id}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: sel }}
-                  onPress={() => setSelectedTime(opt.id)}
-                  style={({ pressed }) => [
-                    s.slidePill,
-                    {
-                      backgroundColor: sel ? accent : fieldBg,
-                      borderColor: sel ? accent : cardBorder,
-                    },
-                    pressed && { transform: [{ scale: 0.95 }] },
-                  ]}
-                  android_ripple={ripple}
-                >
-                  <Ionicons
-                    name={opt.icon}
-                    size={16}
-                    color={sel ? onAccentButtonText(isLight) : textMuted}
-                    style={{ marginRight: 5 }}
-                  />
-                  <Text style={[
-                    s.slidePillTxt,
-                    brandFontSansSemibold,
-                    { color: sel ? onAccentButtonText(isLight) : textMain },
-                  ]}>
-                    {rp(language, opt.key)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          {/* Budget — inline toggle strip */}
-          <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
-            {rp(language, 'budgetSection')}
-          </Text>
-          <View style={[s.toggleStrip, { backgroundColor: fieldBg, borderColor: cardBorder }]}>
-            {BUDGET_ORDER.map((id) => {
-              const sel = budgetTier === id;
-              return (
-                <Pressable
-                  key={id}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: sel }}
-                  onPress={() => setBudgetTier(id)}
-                  style={[
-                    s.toggleStripItem,
-                    sel && { backgroundColor: accent, borderRadius: 10 },
-                  ]}
-                  android_ripple={ripple}
-                >
-                  <Ionicons
-                    name={BUDGET_ICON[id]}
-                    size={15}
-                    color={sel ? onAccentButtonText(isLight) : textMuted}
-                    style={{ marginRight: 4 }}
-                  />
-                  <Text style={[
-                    s.toggleStripTxt,
-                    brandFontSansMedium,
-                    { color: sel ? onAccentButtonText(isLight) : textMain },
-                  ]}>
-                    {rp(language, BUDGET_RP_KEY[id])}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Interests — emoji bubble grid */}
-          <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
-            {rp(language, 'interestsSection')}
-          </Text>
-          <View style={s.bubbleGrid}>
-            {INTEREST_ITEMS.map(({ key, rpKey, em }) => {
-              const on = !!interests[key];
-              return (
-                <Pressable
-                  key={key}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                  onPress={() => toggleInterest(key)}
-                  style={({ pressed }) => [
-                    s.bubble,
-                    {
-                      backgroundColor: on ? selectedPillBg : fieldBg,
-                      borderColor: on ? accent : cardBorder,
-                    },
-                    pressed && { transform: [{ scale: 0.94 }] },
-                  ]}
-                  android_ripple={ripple}
-                >
-                  <Text style={s.bubbleEmoji}>{em}</Text>
-                  <Text
-                    style={[s.bubbleTxt, brandFontSansMedium, { color: on ? accent : textMain }]}
-                    numberOfLines={1}
-                  >
-                    {rp(language, rpKey)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Transport — compact icon row */}
-          <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
-            {rp(language, 'transportSection')}
-          </Text>
-          <View style={s.transportRow}>
-            {modes.map((m) => {
-              const sel = transport === m.id;
-              return (
-                <Pressable
-                  key={m.id}
-                  onPress={() => setTransport(m.id)}
-                  style={({ pressed }) => [
-                    s.transportPill,
-                    {
-                      backgroundColor: sel ? accent : fieldBg,
-                      borderColor: sel ? accent : cardBorder,
-                    },
-                    pressed && { transform: [{ scale: 0.93 }] },
-                  ]}
-                  android_ripple={ripple}
-                >
-                  <Ionicons name={m.icon} size={20} color={sel ? onAccentButtonText(isLight) : textMuted} />
-                  <Text style={[
-                    s.transportPillTxt,
-                    brandFontSansMedium,
-                    { color: sel ? onAccentButtonText(isLight) : textMuted },
-                  ]}>
-                    {m.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {section(
+            <>
+              <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
+                {rp(language, 'interestsSection')}
+              </Text>
+              <View style={s.bubbleGrid}>
+                {INTEREST_ITEMS.map(({ key, rpKey, em }) => {
+                  const on = !!interests[key];
+                  return (
+                    <Pressable
+                      key={key}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      onPress={() => toggleInterest(key)}
+                      style={({ pressed }) => [
+                        s.bubble,
+                        {
+                          backgroundColor: on ? selectedPillBg : pageBg,
+                          borderColor: on ? accent : cardBorder,
+                        },
+                        pressed && { opacity: 0.9 },
+                      ]}
+                      android_ripple={ripple}
+                    >
+                      <Text style={s.bubbleEmoji}>{em}</Text>
+                      <Text
+                        style={[s.bubbleTxt, brandFontSansMedium, { color: on ? accent : textMain }]}
+                        numberOfLines={1}
+                      >
+                        {rp(language, rpKey)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>,
+            'interests',
+          )}
 
           {/* ─── CTA Button ─── */}
           <Animated.View style={{ transform: [{ scale: ctaPulse }] }}>
@@ -809,7 +814,9 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
               disabled={aiBusy}
               style={({ pressed }) => [
                 s.cta,
-                { opacity: aiBusy ? 0.7 : pressed ? 0.92 : 1 },
+                {
+                  opacity: aiBusy ? 0.55 : pressed ? 0.94 : 1,
+                },
               ]}
               android_ripple={ripple}
             >
@@ -822,7 +829,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
                 {aiBusy ? (
                   <ActivityIndicator color={onAccentButtonText(isLight)} style={{ marginRight: 10 }} />
                 ) : (
-                  <Ionicons name="sparkles" size={22} color={onAccentButtonText(isLight)} style={{ marginRight: 10 }} />
+                  <Ionicons name="map-outline" size={22} color={onAccentButtonText(isLight)} style={{ marginRight: 10 }} />
                 )}
                 <Text style={[s.ctaText, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
                   {rp(language, 'generateRoute')}
@@ -830,6 +837,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
               </LinearGradient>
             </Pressable>
           </Animated.View>
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -838,11 +846,44 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
 const s = StyleSheet.create({
   screen: { flex: 1 },
+  buildOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  buildCard: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+  },
+  buildTitle: {
+    fontSize: 17,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  buildStep: {
+    fontSize: 13,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  sectionBlock: {
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+    marginBottom: 12,
+  },
 
   /* Hero */
   heroGrad: {
-    paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingHorizontal: 4,
+    paddingBottom: 14,
     overflow: 'hidden',
   },
   heroPathRow: {
@@ -867,30 +908,32 @@ const s = StyleSheet.create({
     marginHorizontal: 4,
   },
   heroTitle: {
-    fontSize: 26,
-    lineHeight: 32,
-    marginBottom: 8,
+    fontSize: 28,
+    lineHeight: 34,
+    marginBottom: 6,
   },
   heroSub: {
     fontSize: 14,
     lineHeight: 20,
-    opacity: 0.8,
   },
 
   /* Main card */
   mainCard: {
-    marginTop: -24,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 28,
-    paddingBottom: 12,
+    marginTop: 4,
+    borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
+    overflow: 'hidden',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.06, shadowRadius: 12 },
       android: { elevation: 6 },
     }),
+  },
+  mainCardEmbedded: {
+    marginTop: 0,
+  },
+  mainCardInner: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 12,
   },
 
   /* Location banner */
@@ -898,7 +941,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 16,
-    borderWidth: 1.5,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 12,
@@ -926,40 +969,43 @@ const s = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  inputIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
   },
   input: {
     flex: 1,
     fontSize: 15,
-    paddingVertical: 0,
+    paddingVertical: 8,
+    minHeight: 42,
   },
 
   /* Mini label */
   miniLabel: {
-    fontSize: 12,
-    letterSpacing: 0.4,
+    fontSize: 11,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
     marginBottom: 10,
-    marginTop: 6,
   },
 
-  /* Time — horizontal scroll pills */
-  hScroll: {
-    marginHorizontal: -20,
-    marginBottom: 18,
-  },
   hScrollInner: {
-    paddingHorizontal: 20,
     gap: 8,
+    paddingRight: 4,
   },
   slidePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 16,
-    borderRadius: 24,
+    borderRadius: 999,
     borderWidth: 1,
   },
   slidePillTxt: {
@@ -969,17 +1015,17 @@ const s = StyleSheet.create({
   /* Budget — toggle strip */
   toggleStrip: {
     flexDirection: 'row',
-    borderRadius: 12,
+    borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 3,
-    marginBottom: 18,
   },
   toggleStripItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 11,
+    borderRadius: 999,
   },
   toggleStripTxt: {
     fontSize: 12,
@@ -990,14 +1036,13 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 18,
   },
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 999,
     borderWidth: 1,
     gap: 5,
   },
@@ -1012,15 +1057,14 @@ const s = StyleSheet.create({
   transportRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 20,
   },
   transportPill: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    borderRadius: 24,
+    paddingVertical: 12,
+    borderRadius: 999,
     borderWidth: 1,
     gap: 5,
   },
@@ -1030,16 +1074,16 @@ const s = StyleSheet.create({
 
   /* CTA */
   cta: {
-    borderRadius: 18,
+    borderRadius: 999,
     overflow: 'hidden',
-    marginTop: 4,
+    marginTop: 14,
   },
   ctaGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
-    borderRadius: 18,
+    paddingVertical: 17,
+    borderRadius: 999,
   },
   ctaText: {
     fontSize: 17,

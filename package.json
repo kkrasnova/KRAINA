@@ -8,6 +8,8 @@
     "db:down": "docker compose down",
     "db:migrate": "cd backend && npm run migrate",
     "firebase:deploy": "firebase deploy",
+    "firebase:deploy:hosting": "firebase deploy --only hosting",
+    "site:serve": "npx --yes serve marketing/site -p 5173",
     "firebase:deploy:rules": "firebase deploy --only firestore:rules,storage",
     "firebase:deploy:functions": "npm install --prefix functions && firebase deploy --only functions",
     "firebase:emulators": "firebase emulators:start",
@@ -34,10 +36,15 @@
     "clean": "cd app && npm run clean",
     "clean:soft": "cd app && npm run clean:soft",
     "clean:start": "cd app && npm run clean:start",
-    "clean:full": "cd app && npm run clean:full"
+    "clean:full": "cd app && npm run clean:full",
+    "ios:pod": "patch-package && cd ios && pod install && PODS_ROOT=\"$(pwd)/Pods\" bash ../node_modules/expo-modules-jsi/apple/scripts/generate-modulemap.sh",
+    "ios:pod:app": "cd app && npm run ios:pod",
+    "ios:fix-xcode-cache": "bash scripts/ios-fix-xcode-cache.sh",
+    "postinstall": "patch-package"
   },
   "devDependencies": {
-    "@react-native-community/cli": "^20.1.2"
+    "@react-native-community/cli": "^20.1.2",
+    "patch-package": "^8.0.1"
   },
   "engines": {
     "node": ">=20.19.4"
@@ -48,10 +55,15 @@
     "@livekit/react-native": "^2.11.0",
     "@livekit/react-native-expo-plugin": "^1.0.2",
     "@react-native-google-signin/google-signin": "^16.1.2",
+    "@shopify/flash-list": "^2.3.2",
+    "expo": "~56.0.12",
     "expo-file-system": "~56.0.7",
     "expo-font": "~56.0.5",
     "expo-network": "~56.0.4",
     "livekit-client": "^2.19.2",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
     "typescript": "~6.0.3"
-  }
+  },
+  "version": "1.0.0"
 }

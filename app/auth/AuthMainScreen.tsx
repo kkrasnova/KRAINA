@@ -423,7 +423,7 @@ export default function AuthMainScreen({ navigation, route }: Props) {
               s.scroll,
               {
                 paddingHorizontal: hPad,
-                paddingTop: 204,
+                paddingTop: Platform.OS === 'android' ? 90 : 204,
               },
             ]}
             keyboardShouldPersistTaps="always"

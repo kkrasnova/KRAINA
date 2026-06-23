@@ -22,6 +22,8 @@ export default function ProfileGameLevelCard({
   accent,
   onPress,
   embedInTab,
+  /** Головний профіль: лише значок рівня без детальної статистики (деталі — у вкладці «Статистика»). */
+  compact,
 }) {
   if (!snapshot && !serverMode) return null;
 
@@ -61,9 +63,11 @@ export default function ProfileGameLevelCard({
             <Text style={[styles.rankTitle, { color: textMain }, brandFontSansSemibold]} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={[styles.sub, { color: textMuted }, brandFontSans]} numberOfLines={2}>
-              {sub}
-            </Text>
+            {!compact ? (
+              <Text style={[styles.sub, { color: textMuted }, brandFontSans]} numberOfLines={2}>
+                {sub}
+              </Text>
+            ) : null}
           </View>
           <Ionicons name="ribbon-outline" size={26} color={accent} style={styles.ribbon} />
         </View>
@@ -71,9 +75,11 @@ export default function ProfileGameLevelCard({
         <View style={[styles.barTrack, { backgroundColor: barTrack }]}>
           <View style={[styles.barFill, { width: fillW, backgroundColor: accent }]} />
         </View>
-        <Text style={[styles.hint, { color: textMuted }, brandFontSans]} numberOfLines={2}>
-          {nextHint}
-        </Text>
+        {!compact ? (
+          <Text style={[styles.hint, { color: textMuted }, brandFontSans]} numberOfLines={2}>
+            {nextHint}
+          </Text>
+        ) : null}
       </>
     );
 
@@ -91,9 +97,11 @@ export default function ProfileGameLevelCard({
           accessibilityLabel={pf(language, 'gamifyOpenStatsA11y')}
         >
           {inner}
-          <Text style={[styles.tapHint, { color: accent }, brandFontSansSemibold]}>
-            {pf(language, 'gamifyTapStats')}
-          </Text>
+          {!compact ? (
+            <Text style={[styles.tapHint, { color: accent }, brandFontSansSemibold]}>
+              {pf(language, 'gamifyTapStats')}
+            </Text>
+          ) : null}
         </Pressable>
       );
     }
@@ -133,12 +141,14 @@ export default function ProfileGameLevelCard({
           <Text style={[styles.rankTitle, { color: textMain }, brandFontSansSemibold]} numberOfLines={1}>
             {title}
           </Text>
-          <Text style={[styles.sub, { color: textMuted }, brandFontSans]} numberOfLines={2}>
-            {pf(language, 'gamifySubtitle')
-              .replace('{u}', String(snapshot.uniquePlaces))
-              .replace('{t}', String(snapshot.totalVisits))
-              .replace('{xp}', String(snapshot.xp))}
-          </Text>
+          {!compact ? (
+            <Text style={[styles.sub, { color: textMuted }, brandFontSans]} numberOfLines={2}>
+              {pf(language, 'gamifySubtitle')
+                .replace('{u}', String(snapshot.uniquePlaces))
+                .replace('{t}', String(snapshot.totalVisits))
+                .replace('{xp}', String(snapshot.xp))}
+            </Text>
+          ) : null}
         </View>
         <Ionicons name="ribbon-outline" size={26} color={accent} style={styles.ribbon} />
       </View>
@@ -154,9 +164,11 @@ export default function ProfileGameLevelCard({
           ]}
         />
       </View>
-      <Text style={[styles.hint, { color: textMuted }, brandFontSans]} numberOfLines={2}>
-        {nextHint}
-      </Text>
+      {!compact ? (
+        <Text style={[styles.hint, { color: textMuted }, brandFontSans]} numberOfLines={2}>
+          {nextHint}
+        </Text>
+      ) : null}
     </>
   );
 
@@ -174,7 +186,11 @@ export default function ProfileGameLevelCard({
         accessibilityLabel={pf(language, 'gamifyOpenStatsA11y')}
       >
         {inner}
-        <Text style={[styles.tapHint, { color: accent }, brandFontSansSemibold]}>{pf(language, 'gamifyTapStats')}</Text>
+        {!compact ? (
+          <Text style={[styles.tapHint, { color: accent }, brandFontSansSemibold]}>
+            {pf(language, 'gamifyTapStats')}
+          </Text>
+        ) : null}
       </Pressable>
     );
   }

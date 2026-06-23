@@ -10,6 +10,7 @@ import {
   Image,
   LayoutAnimation,
   UIManager,
+  PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -36,8 +37,6 @@ const ROW_H = 52;
 const VISIBLE_ROWS = 7;
 const LIST_MAX_H = ROW_H * VISIBLE_ROWS;
 const ACCENT_STRIP_H = 4;
-const SCROLL_TRACK_W = 7;
-const THUMB_MIN_H = 28;
 const PANEL_BODY_MIN_H = 240;
 const COUNTRY_FLAG_IMAGES = {
   ua: require('./assets/flags/ua.png'),
@@ -62,7 +61,7 @@ const LENS_KIND_SPECS = [
 
 /**
  * Рядок пошуку + список країн: light — синій градієнт + 16.png; dark — Frame 1.png + 16.png.
- * Панель: акцентна смуга, легкий градієнт; кастомний скрол (світла — темно-синій, темна — лайм).
+ * Панель: акцентна смуга, легкий градієнт.
  */
 export default memo(function LightHomeCountrySearch({
   variant = 'light',
@@ -75,6 +74,7 @@ export default memo(function LightHomeCountrySearch({
   onUnifiedPick,
   onParentScrollLockChange,
   dismissSignal = 0,
+  onRequestDismiss,
   resetToken = 0,
   onMenuGeometryChange,
   presentedInOverlay = false,
@@ -110,15 +110,17 @@ export default memo(function LightHomeCountrySearch({
   });
   const [profileHits, setProfileHits] = useState([]);
   const textInputRef = useRef(null);
+  const searchKeyboardIntentRef = useRef(false);
+  const [searchKeyboardEnabled, setSearchKeyboardEnabled] = useState(false);
   const blurTimerRef = useRef(null);
   const lastDismissSignal = useRef(0);
   const lastResetToken = useRef(0);
 
-  const [viewportH, setViewportH] = useState(0);
-  const [contentH, setContentH] = useState(0);
-  const [scrollY, setScrollY] = useState(0);
   const menuOpenRef = useRef(menuOpen);
   menuOpenRef.current = menuOpen;
+  const onRequestDismissRef = useRef(onRequestDismiss);
+  onRequestDismissRef.current = onRequestDismiss;
+  const listScrollYRef = useRef(0);
 
   const clearBlurTimer = useCallback(() => {
     if (blurTimerRef.current != null) {
@@ -127,14 +129,19 @@ export default memo(function LightHomeCountrySearch({
     }
   }, []);
 
+  const resetSearchKeyboard = useCallback(() => {
+    searchKeyboardIntentRef.current = false;
+    setSearchKeyboardEnabled(false);
+  }, []);
+
   const dismissMenu = useCallback(() => {
     clearBlurTimer();
     setBarFocused(false);
     setMenuOpen(false);
+    resetSearchKeyboard();
     Keyboard.dismiss();
     onMenuGeometryChange?.(null);
-    setScrollY(0);
-  }, [clearBlurTimer, onMenuGeometryChange]);
+  }, [clearBlurTimer, onMenuGeometryChange, resetSearchKeyboard]);
 
   const applyPendingLabel = useMemo(
     () => (String(language || '').startsWith('uk') ? 'Застосувати вибір' : 'Apply selection'),
@@ -151,9 +158,16 @@ export default memo(function LightHomeCountrySearch({
   useEffect(() => {
     if (dismissSignal > lastDismissSignal.current) {
       lastDismissSignal.current = dismissSignal;
-      if (menuOpen) dismissMenu();
+      if (menuOpen || barFocused) {
+        onChangeText('');
+        setPendingPickByType({});
+        setScopedRegionId(null);
+        setScopedLandmarkKey(null);
+        setPlaceFilters({ countries: true, cities: true, landmarks: true });
+        dismissMenu();
+      }
     }
-  }, [dismissSignal, menuOpen, dismissMenu]);
+  }, [dismissSignal, menuOpen, barFocused, dismissMenu, onChangeText]);
 
   useEffect(() => {
     if (resetToken > lastResetToken.current) {
@@ -164,14 +178,6 @@ export default memo(function LightHomeCountrySearch({
   }, [resetToken, menuOpen, dismissMenu, onChangeText]);
 
   useEffect(() => {
-    if (!menuOpen) {
-      setScrollY(0);
-      setContentH(0);
-      setViewportH(0);
-    }
-  }, [menuOpen]);
-
-  useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
@@ -180,15 +186,15 @@ export default memo(function LightHomeCountrySearch({
   useLayoutEffect(() => {
     if (!presentedInOverlay) return;
     const id = requestAnimationFrame(() => {
+      searchKeyboardIntentRef.current = true;
+      setSearchKeyboardEnabled(true);
       textInputRef.current?.focus?.();
     });
     return () => cancelAnimationFrame(id);
   }, [presentedInOverlay]);
 
-  const handleSearchFocus = useCallback(() => {
+  const openSearchMenu = useCallback(() => {
     clearBlurTimer();
-    // Каждый новый вход в поиск стартует с чистого состояния,
-    // чтобы не тянуть прошлые промежуточные фильтры/выборы.
     setPendingPickByType({});
     setScopedRegionId(null);
     setScopedLandmarkKey(null);
@@ -197,6 +203,38 @@ export default memo(function LightHomeCountrySearch({
     setBarFocused(true);
     setMenuOpen(true);
   }, [clearBlurTimer, onChangeText]);
+
+  const handleSearchBarPress = useCallback(() => {
+    resetSearchKeyboard();
+    textInputRef.current?.blur?.();
+    Keyboard.dismiss();
+    openSearchMenu();
+  }, [openSearchMenu, resetSearchKeyboard]);
+
+  const handleSearchInputPressIn = useCallback(() => {
+    searchKeyboardIntentRef.current = true;
+    setSearchKeyboardEnabled(true);
+  }, []);
+
+  const handleSearchFocus = useCallback(() => {
+    openSearchMenu();
+    if (searchKeyboardIntentRef.current) {
+      searchKeyboardIntentRef.current = false;
+      if (!searchKeyboardEnabled) {
+        setSearchKeyboardEnabled(true);
+        requestAnimationFrame(() => {
+          textInputRef.current?.focus?.();
+        });
+      }
+      return;
+    }
+    if (!searchKeyboardEnabled) {
+      requestAnimationFrame(() => {
+        textInputRef.current?.blur?.();
+        Keyboard.dismiss();
+      });
+    }
+  }, [openSearchMenu, searchKeyboardEnabled]);
 
   const handleSearchBlur = useCallback(() => {
     setBarFocused(false);
@@ -329,7 +367,7 @@ export default memo(function LightHomeCountrySearch({
       } catch {
         if (!cancelled) setProfileHits([]);
       }
-    }, 280);
+    }, 80);
     return () => {
       cancelled = true;
       clearTimeout(t);
@@ -359,6 +397,7 @@ export default memo(function LightHomeCountrySearch({
   const togglePlaceFilter = useCallback(
     (key) => {
       clearBlurTimer();
+      resetSearchKeyboard();
       textInputRef.current?.blur?.();
       Keyboard.dismiss();
       // Один активный тип за раз: страны ИЛИ города ИЛИ локации.
@@ -370,26 +409,34 @@ export default memo(function LightHomeCountrySearch({
       setMenuOpen(true);
       setBarFocused(false);
     },
-    [clearBlurTimer],
+    [clearBlurTimer, resetSearchKeyboard],
   );
 
-  const enableAllPlaceFilters = useCallback(() => {
+  const resetSearchChanges = useCallback(() => {
     clearBlurTimer();
+    resetSearchKeyboard();
     textInputRef.current?.blur?.();
     Keyboard.dismiss();
+    onChangeText('');
+    setPendingPickByType({});
+    setScopedCountryId(null);
+    setScopedRegionId(null);
+    setScopedLandmarkKey(null);
     setPlaceFilters({ countries: true, cities: true, landmarks: true });
     setMenuOpen(true);
     setBarFocused(false);
-  }, [clearBlurTimer]);
+  }, [clearBlurTimer, resetSearchKeyboard, onChangeText]);
 
   const handleBackToHome = useCallback(() => {
+    if (onRequestDismiss) {
+      onRequestDismiss();
+      return;
+    }
     clearBlurTimer();
     onChangeText?.('');
-    // Сохраняем выбранный контекст для следующего открытия поиска:
-    // пользователь видит прошлый выбор и может быстро продолжить.
     setPlaceFilters({ countries: true, cities: true, landmarks: true });
     dismissMenu();
-  }, [clearBlurTimer, onChangeText, dismissMenu]);
+  }, [clearBlurTimer, dismissMenu, onChangeText, onRequestDismiss]);
 
   const dockedToDropdown =
     showResultsPanel || showEmptyState || showPlaceKindFilterRow || showFilterRow;
@@ -479,20 +526,47 @@ export default memo(function LightHomeCountrySearch({
     onMenuGeometryChange,
   ]);
 
-  const scrollable = contentH > viewportH + 2 && viewportH > 0;
-  const maxScroll = Math.max(1, contentH - viewportH);
-  const thumbH = scrollable
-    ? Math.max(THUMB_MIN_H, Math.min(viewportH - 8, (viewportH / contentH) * viewportH))
-    : 0;
-  const trackPad = 6;
-  const thumbTravel = Math.max(0, viewportH - thumbH - trackPad * 2);
-  const thumbTop = scrollable
-    ? Math.min(thumbTravel, Math.max(0, (scrollY / maxScroll) * thumbTravel))
-    : 0;
+  const dismissSearchToHome = useCallback(() => {
+    onRequestDismiss?.();
+  }, [onRequestDismiss]);
+
+  const dismissBackdropA11y = useMemo(
+    () => (String(language || '').startsWith('uk') ? 'Закрити пошук' : 'Close search'),
+    [language],
+  );
+
+  const dismissPadPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        gesture.dy < -10 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.2,
+      onPanResponderRelease: (_, gesture) => {
+        // Свідомий свайп вгору (а не легкий доторк) закриває пошук. Тап лишається.
+        if (gesture.dy < -32 || gesture.vy < -0.55) {
+          onRequestDismissRef.current?.();
+        }
+      },
+    }),
+  ).current;
 
   const onScrollList = useCallback((e) => {
-    setScrollY(e.nativeEvent.contentOffset.y);
+    listScrollYRef.current = e.nativeEvent.contentOffset.y;
   }, []);
+
+  const onScrollListEndDrag = useCallback(
+    (e) => {
+      if (!menuOpen || !onRequestDismiss) return;
+      const vy = e.nativeEvent.velocity?.y ?? 0;
+      const y = e.nativeEvent.contentOffset?.y ?? listScrollYRef.current;
+      listScrollYRef.current = y;
+      // Закриваємо пошук лише на свідомий сильний протяг вниз від самого верху.
+      // Раніше слабкий поріг (vy < -0.22) випадково викидав на головну під час
+      // звичайного скролу списку біля верху.
+      if (y <= 2 && vy < -0.9) {
+        onRequestDismiss();
+      }
+    },
+    [menuOpen, onRequestDismiss],
+  );
 
   const listPanelHeader = null;
 
@@ -515,10 +589,11 @@ export default memo(function LightHomeCountrySearch({
 
   return (
     <View
-      style={styles.block}
+      style={[styles.block, menuOpen && styles.blockMenuOpen]}
       collapsable={false}
       onLayout={(e) => onClusterLayout?.(e.nativeEvent.layout.height)}
     >
+      <View style={styles.searchForeground}>
       <HomeSearchBar
         variant={variant}
         placeholder={placeholder}
@@ -528,6 +603,9 @@ export default memo(function LightHomeCountrySearch({
         textInputRef={textInputRef}
         wrapStyle={[styles.barWrap, dockedToDropdown && styles.barWrapDocked]}
         focused={barFocused}
+        keyboardOnFocus={searchKeyboardEnabled}
+        onBarPress={handleSearchBarPress}
+        onInputPressIn={handleSearchInputPressIn}
         onFocus={handleSearchFocus}
         onBlur={handleSearchBlur}
       />
@@ -549,29 +627,41 @@ export default memo(function LightHomeCountrySearch({
                 onPress={handleBackToHome}
                 accessibilityLabel={mt(language, 'homeSearchBackToHomeAction')}
                 style={({ pressed }) => [
-                  styles.backInlineChip,
-                  isDark ? styles.backInlineChipDark : styles.backInlineChipLight,
+                  styles.lensChip,
+                  isDark ? styles.lensChipBaseDark : styles.lensChipBaseLight,
                   pressed && styles.lensChipPressed,
                 ]}
               >
                 <Ionicons
                   name="arrow-back-outline"
-                  size={18}
-                  color={isDark ? ACCENT_LIME : SCROLL_THUMB_LIGHT}
+                  size={16}
+                  color={isDark ? 'rgba(244,244,244,0.85)' : SCROLL_THUMB_LIGHT}
                 />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={mt(language, 'homeSearchLensTitle')}
-                accessibilityHint={mt(language, 'homeSearchLensHint')}
-                onPress={enableAllPlaceFilters}
+                onPress={resetSearchChanges}
+                accessibilityLabel={mt(language, 'homeSearchResetAction')}
                 style={({ pressed }) => [
-                  styles.lensStripIcon,
-                  isDark ? styles.lensWandBadgeDark : styles.lensWandBadgeLight,
+                  styles.lensChip,
+                  isDark ? styles.lensChipBaseDark : styles.lensChipBaseLight,
                   pressed && styles.lensChipPressed,
                 ]}
               >
-                <Ionicons name="funnel-outline" size={18} color={isDark ? ACCENT_LIME : SCROLL_THUMB_LIGHT} />
+                <Ionicons
+                  name="refresh-outline"
+                  size={16}
+                  color={isDark ? 'rgba(244,244,244,0.85)' : SCROLL_THUMB_LIGHT}
+                />
+                <Text
+                  style={[
+                    styles.lensChipLabel,
+                    isDark ? styles.lensChipLabelOffDark : styles.lensChipLabelOffLight,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {mt(language, 'homeSearchResetAction')}
+                </Text>
               </Pressable>
               {LENS_KIND_SPECS.map((spec) => {
                 const on = placeFilters[spec.key];
@@ -596,15 +686,13 @@ export default memo(function LightHomeCountrySearch({
                     <Text
                       style={[
                         styles.lensChipLabel,
-                        {
-                          color: on
-                            ? isDark
-                              ? '#F8F8F8'
-                              : '#0F172A'
-                            : isDark
-                              ? 'rgba(244,244,244,0.72)'
-                              : 'rgba(15,23,42,0.72)',
-                        },
+                        on
+                          ? isDark
+                            ? styles.lensChipLabelOnDark
+                            : styles.lensChipLabelOnLight
+                          : isDark
+                            ? styles.lensChipLabelOffDark
+                            : styles.lensChipLabelOffLight,
                       ]}
                       numberOfLines={1}
                     >
@@ -740,9 +828,8 @@ export default memo(function LightHomeCountrySearch({
                         showsVerticalScrollIndicator={false}
                         scrollEventThrottle={16}
                         bounces={Platform.OS === 'ios'}
-                        onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
-                        onContentSizeChange={(_, h) => setContentH(h)}
                         onScroll={onScrollList}
+                        onScrollEndDrag={onScrollListEndDrag}
                       >
                         {searchRows.map((row) => {
                           const hasPendingCountry = !!pendingPickByType.country;
@@ -825,24 +912,6 @@ export default memo(function LightHomeCountrySearch({
                           );
                         })}
                       </ScrollView>
-                      {scrollable ? (
-                        <View
-                          style={[styles.scrollTrack, styles.scrollTrackDark]}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no"
-                        >
-                          <View
-                            style={[
-                              styles.scrollThumb,
-                              {
-                                height: thumbH,
-                                backgroundColor: ACCENT_LIME,
-                                transform: [{ translateY: thumbTop }],
-                              },
-                            ]}
-                          />
-                        </View>
-                      ) : null}
                     </View>
                   </View>
                 )}
@@ -879,9 +948,8 @@ export default memo(function LightHomeCountrySearch({
                         showsVerticalScrollIndicator={false}
                         scrollEventThrottle={16}
                         bounces={Platform.OS === 'ios'}
-                        onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
-                        onContentSizeChange={(_, h) => setContentH(h)}
                         onScroll={onScrollList}
+                        onScrollEndDrag={onScrollListEndDrag}
                       >
                         {searchRows.map((row) => {
                           const hasPendingCountry = !!pendingPickByType.country;
@@ -963,24 +1031,6 @@ export default memo(function LightHomeCountrySearch({
                           );
                         })}
                       </ScrollView>
-                      {scrollable ? (
-                        <View
-                          style={[styles.scrollTrack, styles.scrollTrackLight]}
-                          accessibilityElementsHidden
-                          importantForAccessibility="no"
-                        >
-                          <View
-                            style={[
-                              styles.scrollThumb,
-                              {
-                                height: thumbH,
-                                backgroundColor: SCROLL_THUMB_LIGHT,
-                                transform: [{ translateY: thumbTop }],
-                              },
-                            ]}
-                          />
-                        </View>
-                      ) : null}
                     </View>
                   </View>
                 )}
@@ -1006,6 +1056,17 @@ export default memo(function LightHomeCountrySearch({
           </Text>
         </Pressable>
       ) : null}
+      </View>
+      {menuOpen && onRequestDismiss ? (
+        <View style={styles.searchDismissPad} {...dismissPadPan.panHandlers}>
+          <Pressable
+            style={styles.searchDismissPadPressable}
+            onPress={dismissSearchToHome}
+            accessibilityRole="button"
+            accessibilityLabel={dismissBackdropA11y}
+          />
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -1013,6 +1074,23 @@ export default memo(function LightHomeCountrySearch({
 const styles = StyleSheet.create({
   block: {
     marginBottom: 18,
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  blockMenuOpen: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  searchDismissPad: {
+    flex: 1,
+    minHeight: 140,
+    alignSelf: 'stretch',
+  },
+  searchDismissPadPressable: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  searchForeground: {
     alignSelf: 'stretch',
     width: '100%',
   },
@@ -1057,21 +1135,6 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  lensStripIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 6,
-    alignSelf: 'center',
-  },
-  lensWandBadgeLight: {
-    backgroundColor: 'rgba(15, 58, 115, 0.1)',
-  },
-  lensWandBadgeDark: {
-    backgroundColor: ACCENT_LIME_SOFT,
-  },
   lensChipsScroll: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1082,6 +1145,7 @@ const styles = StyleSheet.create({
   lensChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 14,
     paddingVertical: 9,
     paddingHorizontal: 12,
@@ -1089,6 +1153,7 @@ const styles = StyleSheet.create({
     gap: 6,
     borderWidth: 1,
     minWidth: 0,
+    minHeight: 38,
   },
   lensChipBaseLight: {
     backgroundColor: 'rgba(243, 246, 252, 0.98)',
@@ -1116,6 +1181,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.1,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  lensChipLabelOnLight: {
+    color: '#0F172A',
+  },
+  lensChipLabelOnDark: {
+    color: '#F8F8F8',
+  },
+  lensChipLabelOffLight: {
+    color: 'rgba(15,23,42,0.72)',
+  },
+  lensChipLabelOffDark: {
+    color: 'rgba(244,244,244,0.72)',
   },
   lensChipCount: {
     minWidth: 24,
@@ -1213,23 +1290,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  backInlineChip: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  backInlineChipLight: {
-    backgroundColor: 'rgba(15, 58, 115, 0.1)',
-    borderColor: 'rgba(15, 58, 115, 0.26)',
-  },
-  backInlineChipDark: {
-    backgroundColor: 'rgba(225, 255, 0, 0.12)',
-    borderColor: 'rgba(225, 255, 0, 0.3)',
-  },
   menuShadowHost: {
     marginTop: 8,
     alignSelf: 'stretch',
@@ -1285,8 +1345,6 @@ const styles = StyleSheet.create({
   },
   scrollRow: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'stretch',
     minHeight: 0,
   },
   scroll: {
@@ -1295,29 +1353,7 @@ const styles = StyleSheet.create({
   },
   scrollContentTight: {
     paddingVertical: 9,
-    paddingLeft: 10,
-    paddingRight: 8,
-  },
-  scrollTrack: {
-    width: SCROLL_TRACK_W,
-    marginVertical: 10,
-    marginRight: 6,
-    borderRadius: SCROLL_TRACK_W / 2,
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  scrollTrackLight: {
-    backgroundColor: SCROLL_TRACK_LIGHT,
-  },
-  scrollTrackDark: {
-    backgroundColor: 'rgba(225, 255, 0, 0.14)',
-  },
-  scrollThumb: {
-    width: 5,
-    borderRadius: 3,
-    position: 'absolute',
-    top: 6,
-    alignSelf: 'center',
+    paddingHorizontal: 10,
   },
   row: {
     flexDirection: 'row',

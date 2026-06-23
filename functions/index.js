@@ -7,7 +7,7 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const MAIL_FROM = process.env.RESET_MAIL_FROM || 'KRAINA <noreply@kraina.app>';
-const MAIL_REPLY_TO = process.env.RESET_MAIL_REPLY_TO || 'support@kraina.app';
+const MAIL_REPLY_TO = process.env.RESET_MAIL_REPLY_TO || 'support@kraina.world';
 const RESET_CONTINUE_URL = process.env.RESET_PASSWORD_CONTINUE_URL || 'com.kraina.app://reset-password';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 

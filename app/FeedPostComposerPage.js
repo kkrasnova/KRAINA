@@ -1,3 +1,4 @@
+import { resolveAppTheme } from './themeStorage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -20,30 +21,37 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { fc } from './feedComposerI18n';
-import { prependUserFeedPost } from './feedLocalStorage';
+import { prependUserFeedPost, removeUserFeedPost, saveFeedPostBackendIdMap } from './feedLocalStorage';
 import {
   hasFeedApiToken,
+  ensureFeedApiReady,
+  ensureFeedSocialReady,
   feedUploadMediaFromUri,
   feedCreatePost,
 } from './feedApi';
+import { hasBackendSession } from './backendAuthApi';
+import { persistCapturedImage, normalizeLocalFileUri, isPersistedFeedMediaUri } from './feedMediaPersist';
+import { resetToHomeFeedTab } from './homeTabSwitch';
 import { getSavedRoutes, stripRoutePlanForStorage } from './profileStorage';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { useAuthStore } from './auth/authStore';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { registerPendingFeedPostSync } from './feedPostSyncBridge';
+import { emitDeviceGalleryChanged } from './deviceGallerySync';
 import { errorToUserText } from './errorText';
 import { RenderProfiler } from './performanceMetrics';
 
 export default function FeedPostComposerPage({ navigation, route }) {
   const uris = route.params?.uris || [];
-  const publishVisibility = route.params?.publishVisibility === 'followers' ? 'followers' : 'public';
+  const publishVisibility = route.params?.publishVisibility === 'public' ? 'public' : 'followers';
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const authUser = useAuthStore((s) => s.user);
   const user = route?.params?.user || authUser;
   const countryId = route?.params?.countryId;
-  const appTheme = route?.params?.appTheme || 'dark';
+  const appTheme = resolveAppTheme(route?.params?.appTheme);
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
@@ -99,6 +107,27 @@ export default function FeedPostComposerPage({ navigation, route }) {
     };
   }, []);
 
+  useEffect(() => {
+    const activeUser = user || authUser;
+    if (!activeUser?.id || hasBackendSession()) return;
+    void ensureFeedSocialReady(activeUser);
+  }, [user, authUser]);
+
+  useEffect(() => {
+    if (__DEV__) {
+      const activeUser = user || authUser;
+      const hasToken = !!useAuthStore.getState().accessToken;
+      const hasFeedToken = hasFeedApiToken();
+      console.log('[FeedPostComposer] page loaded:', {
+        urisLength: uris.length,
+        userId: activeUser?.id,
+        hasAccessToken: hasToken,
+        hasFeedToken,
+        userEmail: activeUser?.email,
+      });
+    }
+  }, [uris, user, authUser]);
+
   const slideW = width - 48;
 
   const openCityPicker = useCallback(() => {
@@ -129,66 +158,138 @@ export default function FeedPostComposerPage({ navigation, route }) {
     });
   }, [navigation, shell, publishVisibility, uris]);
 
-  const publish = async () => {
-    if (!user || !uris.length || busy) return;
+  const publish = useCallback(async () => {
+    const activeUser = user || authUser;
+    if (!uris.length || busy) {
+      if (__DEV__) console.log('[FeedPostComposer] publish blocked:', { urisLen: uris.length, busy });
+      return;
+    }
+    if (!activeUser?.id && !activeUser?.email) {
+      Alert.alert(
+        '',
+        language === 'en' ? 'Sign in to publish a post.' : 'Увійдіть в акаунт, щоб опублікувати.',
+      );
+      return;
+    }
     setBusy(true);
+    if (__DEV__) console.log('[FeedPostComposer] publish started:', { urisLen: uris.length });
+    const placeLine =
+      place.trim() ||
+      (mapLat != null && mapLng != null ? `${mapLat.toFixed(3)}, ${mapLng.toFixed(3)}` : '');
+    const captionTrimmed = caption.trim();
+    const captionForApi = captionTrimmed ? captionTrimmed.slice(0, 1000) : null;
+    const shellObj = {
+      user: activeUser,
+      language,
+      appTheme,
+      ...(countryId != null ? { countryId } : {}),
+    };
+    const userId = String(
+      useAuthStore.getState().profileMe?.profile?.user_id || activeUser?.id || '',
+    );
+
     try {
-      const placeLine =
-        place.trim() ||
-        (mapLat != null && mapLng != null ? `${mapLat.toFixed(3)}, ${mapLng.toFixed(3)}` : '');
-      if (hasFeedApiToken()) {
-        const remoteUrls = [];
-        for (const u of uris) {
-          const up = await feedUploadMediaFromUri(u);
-          if (up?.url) remoteUrls.push(up.url);
-        }
-        if (remoteUrls.length) {
-          await feedCreatePost({
+      if (__DEV__) console.log('[FeedPostComposer] processing media uris:', uris.length);
+      const mediaUris = await Promise.all(
+        uris.map(async (u) => {
+          if (isPersistedFeedMediaUri(u)) return normalizeLocalFileUri(u);
+          const isVid = /\.(mp4|mov|m4v)(\?|$)/i.test(String(u));
+          const persisted = await persistCapturedImage(u, {
+            mimeType: isVid ? 'video/mp4' : 'image/jpeg',
+          });
+          return persisted || normalizeLocalFileUri(u);
+        }),
+      );
+      const readyUris = mediaUris.filter(Boolean);
+      if (!readyUris.length) {
+        throw new Error('upload_failed');
+      }
+      if (__DEV__) console.log('[FeedPostComposer] ready uris:', readyUris.length);
+
+      const localPost = await prependUserFeedPost(activeUser, {
+        uris: readyUris,
+        uri: readyUris[0],
+        caption: captionTrimmed,
+        place: placeLine,
+        lat: mapLat,
+        lng: mapLng,
+        route_plan: routePick,
+        scope: publishVisibility === 'public' ? 'world' : 'friends',
+        visibility: publishVisibility,
+      });
+      const localPostId = String(localPost.id);
+      if (__DEV__) console.log('[FeedPostComposer] local post created:', localPostId);
+      emitFeedMediaUpdated({ kind: 'post', userId, post: localPost, visibility: publishVisibility });
+      emitDeviceGalleryChanged();
+      resetToHomeFeedTab(navigation, shellObj);
+
+      const syncPromise = (async () => {
+        try {
+          await ensureFeedSocialReady(activeUser);
+          if (!hasBackendSession()) {
+            if (__DEV__) console.warn('[FeedPostComposer] no feed token after ready');
+            return null;
+          }
+          // Parallel upload: load all media at once for speed
+          if (__DEV__) console.log('[FeedPostComposer] uploading', readyUris.length, 'media files in parallel');
+          const uploadResults = await Promise.all(
+            readyUris.map((u) => {
+              if (__DEV__) console.log('[FeedPostComposer] queue upload:', u.substring(0, 50));
+              return feedUploadMediaFromUri(u);
+            }),
+          );
+          const remoteUrls = uploadResults
+            .filter((result) => result?.url)
+            .map((result) => result.url);
+          if (!remoteUrls.length) {
+            if (__DEV__) console.warn('[FeedPostComposer] no remote urls');
+            return null;
+          }
+          if (__DEV__) console.log('[FeedPostComposer] all media uploaded successfully:', remoteUrls.length);
+          const created = await feedCreatePost({
             media_urls: remoteUrls,
-            content_text: caption.trim() || null,
+            content_text: captionForApi,
             visibility: publishVisibility,
             place_label: placeLine || null,
             lat: mapLat,
             lng: mapLng,
             route_plan: routePick,
           });
-        } else {
-          throw new Error('upload');
+          const backendPostId = String(created?.id || '');
+          if (!backendPostId) {
+            if (__DEV__) console.warn('[FeedPostComposer] no backend post id');
+            return null;
+          }
+          if (__DEV__) console.log('[FeedPostComposer] backend post created:', backendPostId);
+          await saveFeedPostBackendIdMap(activeUser, localPostId, backendPostId);
+          await removeUserFeedPost(activeUser, localPostId);
+          emitFeedMediaUpdated({
+            kind: 'post',
+            userId,
+            postId: backendPostId,
+            localPostId,
+            synced: true,
+          });
+          if (__DEV__) console.log('[FeedPostComposer] post synced:', backendPostId);
+          return backendPostId;
+        } catch (syncErr) {
+          if (__DEV__) console.warn('[FeedPostComposer] sync error:', syncErr?.message);
+          throw syncErr;
         }
-      } else {
-        await prependUserFeedPost(user, {
-          uris,
-          uri: uris[0],
-          caption: caption.trim(),
-          place: placeLine,
-          lat: mapLat,
-          lng: mapLng,
-          route_plan: routePick,
-        });
-      }
-      emitFeedMediaUpdated({
-        kind: 'post',
-        userId: user?.id ? String(user.id) : '',
+      })();
+
+      registerPendingFeedPostSync(localPostId, syncPromise);
+      void syncPromise.catch((apiErr) => {
+        if (__DEV__) console.warn('[FeedPostComposer] background upload failed:', apiErr?.message);
+        // Don't show error alert - local post is already shown to user
       });
-      Alert.alert('', fc(language, 'publishOk'), [
-        {
-          text: 'OK',
-          onPress: () =>
-            navigation.navigate('HomeTabPager', {
-              user,
-              language,
-              appTheme,
-              ...(countryId != null ? { countryId } : {}),
-              tabIndex: 1,
-            }),
-        },
-      ]);
     } catch (e) {
+      if (__DEV__) console.warn('[FeedPostComposer] publish error:', e?.message);
       Alert.alert('', errorToUserText(e, language));
     } finally {
       setBusy(false);
     }
-  };
+  }, [uris, busy, user, authUser, language, place, mapLat, mapLng, caption, countryId, publishVisibility, routePick, navigation, appTheme, shell]);
 
   if (!uris.length) {
     return (

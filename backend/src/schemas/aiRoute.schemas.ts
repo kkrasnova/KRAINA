@@ -25,3 +25,12 @@ export const aiSuggestRouteBodySchema = z.object({
     .optional()
     .nullable(),
 });
+
+export const visionLandmarkBodySchema = z.object({
+  base64: z.string().min(80).max(8_000_000),
+});
+
+export const landmarkTtsBodySchema = z.object({
+  text: z.string().min(1).max(20_000),
+  language: z.enum(['uk', 'en']).default('en'),
+});

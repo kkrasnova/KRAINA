@@ -1,3 +1,4 @@
+import { resolveAppTheme } from './themeStorage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -17,6 +18,7 @@ import {
   Alert,
   StatusBar,
   PanResponder,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Video, ResizeMode } from './expoAvCompat';
@@ -34,15 +36,80 @@ import {
   feedDeleteStory,
   hasFeedApiToken,
 } from './feedApi';
-import { getUserFeedStories, getLikedStoryIds, toggleFeedStoryLike, removeUserFeedStory } from './feedLocalStorage';
+import { getUserFeedStories, getLikedStoryIds, toggleFeedStoryLike, removeUserFeedStory, markOwnStoryViewed, enrichOwnStoriesWithViewed } from './feedLocalStorage';
 import { hasMessageApiToken, messagesOpenThread, messagesSendText } from './messageApi';
 import { ApiError } from './auth/types';
 import { ACCENT_BLUE, ACCENT_LEMON, accentForTheme, onAccentButtonText } from './themeAccent';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { useAuthStore } from './auth/authStore';
 
 const STORY_SLIDE_MS = 7000;
-/** Довгі підписи згортаються; натискання відкриває повністю. */
-const CAPTION_COLLAPSE_CHARS = 140;
+const SHEET_EXPANDED_EXTRA = 228;
+const SHEET_HANDLE_AREA = 26;
+const SHEET_ACTIONS_ROW = 56;
+const SHEET_COLLAPSED_CORE = SHEET_HANDLE_AREA + SHEET_ACTIONS_ROW;
+
+function storyCreatedMs(story) {
+  const raw = story?.created_at ?? story?.createdAt ?? story?.created;
+  if (!raw) return 0;
+  if (typeof raw === 'number') return raw;
+  if (raw && typeof raw.toMillis === 'function') return raw.toMillis();
+  if (raw && typeof raw.seconds === 'number') {
+    return raw.seconds * 1000 + Math.floor((Number(raw.nanoseconds) || 0) / 1000000);
+  }
+  const parsed = Date.parse(String(raw));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sortStoriesOldestFirst(list) {
+  if (!Array.isArray(list)) return [];
+  return [...list].sort((a, b) => {
+    const ta = storyCreatedMs(a);
+    const tb = storyCreatedMs(b);
+    if (ta !== tb) return ta - tb;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+}
+
+function pickViewerStartIndex(list, storyId) {
+  if (storyId != null) {
+    const byId = list.findIndex((s) => String(s?.id) === String(storyId));
+    if (byId >= 0) return byId;
+  }
+  return 0;
+}
+
+/** Локальні історії (ще не на сервері або фонова синхронізація не встигла). */
+async function loadLocalAuthorStoryRows(user, viewerId) {
+  if (!user || !viewerId) return [];
+  const rows = await getUserFeedStories(user);
+  const pm = useAuthStore.getState().profileMe?.profile;
+  const displayName =
+    pm?.display_name != null && String(pm.display_name).trim()
+      ? String(pm.display_name).trim()
+      : user?.name && String(user.name).trim()
+        ? String(user.name).trim()
+        : '';
+  const username =
+    pm?.username != null && String(pm.username).trim()
+      ? String(pm.username).trim()
+      : (user.name || user.email || '').split('@')[0] || '';
+  let list = (Array.isArray(rows) ? rows : []).map((r) => ({
+    id: r.id,
+    user_id: String(viewerId),
+    media_url: r.uri,
+    media_kind: /\.(mp4|mov)(\?|$)/i.test(String(r.uri)) ? 'video' : 'image',
+    caption: r.caption || '',
+    username,
+    display_name: displayName || null,
+    avatar_url: user.avatar || null,
+    liked_by_viewer: false,
+    created_at: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+  }));
+  list = await enrichOwnStoriesWithViewed(user, list);
+  return sortStoriesOldestFirst(list);
+}
 
 function formatStoryTime(iso, langUk) {
   if (!iso) return '';
@@ -67,12 +134,19 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   const authorId = route?.params?.userId;
   const initialStoryId = route?.params?.storyId;
   const useLocalStories = route?.params?.useLocalStories === true;
+  const prefetchedStories = route?.params?.prefetchedStories;
   const paramAuthorUsername = route?.params?.authorUsername;
   const paramAuthorDisplayName = route?.params?.authorDisplayName;
   const paramAuthorAvatarUrl = route?.params?.authorAvatarUrl;
-  const viewerId = user?.id ? String(user.id) : null;
+  const fromProfile = route?.params?.fromProfile === true;
+  const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
+  const viewerId = profileMeUserId
+    ? String(profileMeUserId)
+    : user?.id
+      ? String(user.id)
+      : null;
 
-  const isLight = (route?.params?.appTheme || 'dark') === 'light';
+  const isLight = (resolveAppTheme(route?.params?.appTheme)) === 'light';
   const progressAccent = isLight ? ACCENT_BLUE : ACCENT_LEMON;
 
   const shell = useMemo(
@@ -80,7 +154,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
       user,
       language,
       ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-      appTheme: route?.params?.appTheme || 'dark',
+      appTheme: resolveAppTheme(route?.params?.appTheme),
     }),
     [user, language, route?.params?.countryId, route?.params?.appTheme],
   );
@@ -95,11 +169,11 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   const [statsByStory, setStatsByStory] = useState({});
   const [replyBarText, setReplyBarText] = useState('');
   const [replyBusy, setReplyBusy] = useState(false);
-  const [expandedCaptions, setExpandedCaptions] = useState({});
   const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
   const [likedMap, setLikedMap] = useState({});
   const [progress, setProgress] = useState(0);
   const [holdPaused, setHoldPaused] = useState(false);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
   const [failedMediaIds, setFailedMediaIds] = useState(() => new Set());
   const [forceImageIds, setForceImageIds] = useState(() => new Set());
   const listRef = useRef(null);
@@ -113,13 +187,74 @@ export default function FeedStoryViewerPage({ navigation, route }) {
     [viewerId, authorId],
   );
 
-  const toggleCaptionExpand = useCallback((storyId) => {
-    const id = String(storyId || '');
-    if (!id) return;
-    setExpandedCaptions((prev) => ({ ...prev, [id]: !prev[id] }));
-  }, []);
+  const profileMeDisplayName = useAuthStore((s) => {
+    const dn = s.profileMe?.profile?.display_name;
+    return dn != null && String(dn).trim() ? String(dn).trim() : '';
+  });
+  const profileMeUsername = useAuthStore((s) => {
+    const u = s.profileMe?.profile?.username;
+    return u != null && String(u).trim() ? String(u).trim() : '';
+  });
 
-  const bottomBarReserve = Math.max(insets.bottom, 12) + (isAuthor ? 68 : 84);
+  const bottomInset = Math.max(insets.bottom, 14);
+  const sheetExpandAnim = useRef(new Animated.Value(0)).current;
+  const sheetDragStart = useRef(0);
+
+  const animateSheet = useCallback(
+    (open) => {
+      Animated.spring(sheetExpandAnim, {
+        toValue: open ? 1 : 0,
+        useNativeDriver: false,
+        friction: 9,
+        tension: 72,
+      }).start(({ finished }) => {
+        if (finished) setSheetExpanded(!!open);
+      });
+    },
+    [sheetExpandAnim],
+  );
+
+  const toggleSheet = useCallback(() => {
+    animateSheet(!sheetExpanded);
+  }, [animateSheet, sheetExpanded]);
+
+  const collapseSheet = useCallback(() => {
+    animateSheet(false);
+  }, [animateSheet]);
+
+  const bottomBarReserve = bottomInset + SHEET_COLLAPSED_CORE + (sheetExpanded ? SHEET_EXPANDED_EXTRA : 0);
+
+  const sheetPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          sheetExpandAnim.stopAnimation((v) => {
+            sheetDragStart.current = v;
+          });
+        },
+        onPanResponderMove: (_, g) => {
+          const next = Math.min(1, Math.max(0, sheetDragStart.current - g.dy / SHEET_EXPANDED_EXTRA));
+          sheetExpandAnim.setValue(next);
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dy < -48 || g.vy < -0.28) {
+            animateSheet(true);
+            return;
+          }
+          if (g.dy > 48 || g.vy > 0.28) {
+            animateSheet(false);
+            return;
+          }
+          sheetExpandAnim.stopAnimation((v) => {
+            animateSheet(v > 0.42);
+          });
+        },
+      }),
+    [animateSheet, sheetExpandAnim],
+  );
 
   const load = useCallback(async () => {
     if (!authorId) {
@@ -127,66 +262,97 @@ export default function FeedStoryViewerPage({ navigation, route }) {
       return;
     }
     setLoading(true);
+    const authorIsViewer = viewerId && String(authorId) === String(viewerId);
     try {
-      if (useLocalStories && user?.id && String(authorId) === String(user.id)) {
-        const rows = await getUserFeedStories(user);
-        const displayName =
-          user?.name && String(user.name).trim()
-            ? String(user.name).trim()
-            : (user.email || '').split('@')[0] || '';
-        const list = (Array.isArray(rows) ? rows : []).map((r) => ({
-          id: r.id,
-          user_id: String(user.id),
-          media_url: r.uri,
-          media_kind: /\.(mp4|mov)(\?|$)/i.test(String(r.uri)) ? 'video' : 'image',
-          caption: r.caption || '',
-          username: (user.name || user.email || '').split('@')[0] || '',
-          display_name: displayName || null,
-          avatar_url: user.avatar || null,
-          liked_by_viewer: false,
-          created_at: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
-        }));
-        if (list.length) {
-          setStories(list);
-          setFailedMediaIds(new Set());
-          setForceImageIds(new Set());
-          if (initialStoryId) {
-            const i = list.findIndex((s) => s.id === initialStoryId);
-            setIndex(i >= 0 ? i : 0);
-          } else {
-            setIndex(0);
-          }
-        } else {
-          setStories([]);
+      if (Array.isArray(prefetchedStories) && prefetchedStories.length) {
+        let list = prefetchedStories;
+        if (authorIsViewer && user?.id) {
+          list = await enrichOwnStoriesWithViewed(user, list);
         }
+        list = sortStoriesOldestFirst(list);
+        setStories(list);
+        setFailedMediaIds(new Set());
+        setForceImageIds(new Set());
+        setIndex(pickViewerStartIndex(list, initialStoryId));
         setLoading(false);
         return;
       }
 
+      if (useLocalStories && viewerId && authorIsViewer && user) {
+        const list = await loadLocalAuthorStoryRows(user, viewerId);
+        if (list.length) {
+          setStories(list);
+          setFailedMediaIds(new Set());
+          setForceImageIds(new Set());
+          setIndex(pickViewerStartIndex(list, initialStoryId));
+          setLoading(false);
+          return;
+        }
+        if (!hasFeedApiToken()) {
+          setStories([]);
+          setLoading(false);
+          return;
+        }
+      }
+
       const apiList = await feedListStoriesForUser(String(authorId));
       if (Array.isArray(apiList) && apiList.length) {
-        setStories(apiList);
+        let list = apiList;
+        if (authorIsViewer && user?.id) {
+          list = await enrichOwnStoriesWithViewed(user, list);
+        }
+        list = sortStoriesOldestFirst(list);
+        setStories(list);
         setFailedMediaIds(new Set());
         setForceImageIds(new Set());
-        if (initialStoryId) {
-          const i = apiList.findIndex((s) => s.id === initialStoryId);
-          setIndex(i >= 0 ? i : 0);
-        } else {
-          setIndex(0);
-        }
+        setIndex(pickViewerStartIndex(list, initialStoryId));
+      } else if (authorIsViewer && user && viewerId) {
+        const localList = await loadLocalAuthorStoryRows(user, viewerId);
+        setStories(localList);
+        setFailedMediaIds(new Set());
+        setForceImageIds(new Set());
+        setIndex(pickViewerStartIndex(localList, initialStoryId));
       } else {
         setStories([]);
       }
     } catch {
+      if (authorIsViewer && user && viewerId) {
+        try {
+          const localList = await loadLocalAuthorStoryRows(user, viewerId);
+          if (localList.length) {
+            setStories(localList);
+            setFailedMediaIds(new Set());
+            setForceImageIds(new Set());
+            setIndex(pickViewerStartIndex(localList, initialStoryId));
+            return;
+          }
+        } catch {
+          /* */
+        }
+      }
       setStories([]);
     } finally {
       setLoading(false);
     }
-  }, [authorId, initialStoryId, navigation, useLocalStories, user]);
+  }, [authorId, fromProfile, initialStoryId, navigation, prefetchedStories, useLocalStories, user, viewerId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!isAuthor || !useAuthStore.getState().accessToken) return;
+    void useAuthStore.getState().loadProfileMeIfStale();
+  }, [isAuthor]);
+
+  useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', () => {
+      if (authorId) {
+        emitFeedMediaUpdated({ kind: 'story', userId: String(authorId) });
+      }
+    });
+    return unsub;
+  }, [navigation, authorId]);
 
   useEffect(() => {
     if (!stories.length || !user?.id) return;
@@ -206,34 +372,47 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   }, [stories, user]);
 
   useEffect(() => {
-    if (!stories.length || !initialStoryId || !listRef.current) return;
-    const i = stories.findIndex((s) => s.id === initialStoryId);
-    if (i <= 0) return;
+    if (statsOpen || authorMenuOpen) collapseSheet();
+  }, [statsOpen, authorMenuOpen, collapseSheet]);
+
+  useEffect(() => {
+    if (!stories.length || !listRef.current) return;
     requestAnimationFrame(() => {
       try {
-        listRef.current?.scrollToIndex({ index: i, animated: false });
+        listRef.current?.scrollToIndex({ index, animated: false });
       } catch {
         /* */
       }
     });
-  }, [stories, initialStoryId]);
+  }, [stories.length, index]);
 
   const current = stories[index];
 
+  useEffect(() => {
+    collapseSheet();
+  }, [current?.id, collapseSheet]);
+
   const authorUsername = useMemo(() => {
+    if (isAuthor && profileMeUsername) return profileMeUsername;
     const u = paramAuthorUsername || current?.username;
     if (!u) return '';
     return String(u).replace(/^@/, '').trim();
-  }, [paramAuthorUsername, current?.username]);
+  }, [isAuthor, profileMeUsername, paramAuthorUsername, current?.username]);
+
+  const authorDisplayName = useMemo(() => {
+    if (isAuthor && profileMeDisplayName) return profileMeDisplayName;
+    const fromParam = paramAuthorDisplayName && String(paramAuthorDisplayName).trim();
+    if (fromParam) return fromParam;
+    const fromStory = current?.display_name && String(current.display_name).trim();
+    if (fromStory) return fromStory;
+    return '';
+  }, [isAuthor, profileMeDisplayName, paramAuthorDisplayName, current?.display_name]);
 
   const authorLine = useMemo(() => {
-    const fromParam = paramAuthorDisplayName && String(paramAuthorDisplayName).trim();
-    if (fromParam) return String(paramAuthorDisplayName).trim();
-    const fromStory = current?.display_name && String(current.display_name).trim();
-    if (fromStory) return String(current.display_name).trim();
+    if (authorDisplayName) return authorDisplayName;
     if (authorUsername) return `@${authorUsername}`;
     return '—';
-  }, [paramAuthorDisplayName, authorUsername, current?.display_name]);
+  }, [authorDisplayName, authorUsername]);
 
   const authorAvatarUri = useMemo(() => {
     const raw = paramAuthorAvatarUrl || current?.avatar_url;
@@ -243,10 +422,26 @@ export default function FeedStoryViewerPage({ navigation, route }) {
 
   useEffect(() => {
     if (!current || !viewerId || useLocalStories) return;
-    if (String(current.user_id) !== viewerId) {
-      feedRecordStoryView(current.id).catch(() => {});
+    if (String(current.user_id) === viewerId) {
+      void markOwnStoryViewed(user, current.id).then(() => {
+        setStories((prev) =>
+          prev.map((s) =>
+            String(s.id) === String(current.id) ? { ...s, own_seen_by_viewer: true } : s,
+          ),
+        );
+      });
+      return;
     }
-  }, [current, viewerId, useLocalStories]);
+    feedRecordStoryView(current.id)
+      .then(() => {
+        setStories((prev) =>
+          prev.map((s) =>
+            String(s.id) === String(current.id) ? { ...s, seen_by_viewer: true } : s,
+          ),
+        );
+      })
+      .catch(() => {});
+  }, [current, viewerId, useLocalStories, user]);
 
   const advanceSlide = useCallback(() => {
     if (!stories.length) return;
@@ -297,7 +492,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
       setProgress(0);
       return;
     }
-    if (statsOpen || authorMenuOpen || holdPaused) {
+    if (statsOpen || authorMenuOpen || holdPaused || sheetExpanded) {
       return;
     }
 
@@ -333,7 +528,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = null;
     };
-  }, [current?.id, stories.length, advanceSlide, statsOpen, authorMenuOpen, holdPaused]);
+  }, [current?.id, stories.length, advanceSlide, statsOpen, authorMenuOpen, holdPaused, sheetExpanded]);
 
   const openStats = useCallback(async () => {
     if (!current || !isAuthor || useLocalStories || !hasFeedApiToken()) return;
@@ -614,8 +809,8 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   const storyChromeLight = false;
   const headerPrimary = storyChromeLight ? '#141414' : '#FFFFFF';
   const headerSecondary = storyChromeLight ? 'rgba(20,20,20,0.78)' : 'rgba(255,255,255,0.78)';
-  const headerMuted = storyChromeLight ? 'rgba(20,20,20,0.58)' : 'rgba(255,255,255,0.62)';
-  const headerIconBg = storyChromeLight ? 'rgba(255,255,255,0.62)' : 'rgba(0,0,0,0.38)';
+  const headerMuted = storyChromeLight ? 'rgba(20,20,20,0.58)' : 'rgba(255,255,255,0.55)';
+  const headerIconBg = storyChromeLight ? 'rgba(255,255,255,0.62)' : 'rgba(0,0,0,0.28)';
   const headerIconColor = storyChromeLight ? '#111111' : '#FFFFFF';
   const segTrackBg = storyChromeLight ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.28)';
   const headerNameShadow = storyChromeLight
@@ -634,17 +829,23 @@ export default function FeedStoryViewerPage({ navigation, route }) {
   const barIconColor = useDarkComposer ? '#F0F0F5' : '#1E1E1E';
   const barTopBorder = useDarkComposer ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)';
 
-  const captionCard = storyChromeLight
-    ? {
-        backgroundColor: 'rgba(14,14,18,0.94)',
-        borderColor: 'rgba(255,255,255,0.16)',
-        color: '#F2F3F7',
-      }
-    : {
-        backgroundColor: 'rgba(252,252,254,0.94)',
-        borderColor: 'rgba(0,0,0,0.1)',
-        color: '#121218',
-      };
+  const storyCaption = (current?.caption || '').trim();
+  const sheetContentHeight = sheetExpandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, SHEET_EXPANDED_EXTRA],
+  });
+  const sheetContentOpacity = sheetExpandAnim.interpolate({
+    inputRange: [0, 0.18, 1],
+    outputRange: [0, 0, 1],
+  });
+  const sheetBackdropOpacity = sheetExpandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.24],
+  });
+  const sheetMuted = useDarkComposer ? 'rgba(244,244,247,0.46)' : 'rgba(20,20,24,0.42)';
+  const sheetText = useDarkComposer ? '#F4F4F7' : '#141418';
+  const sheetHandleColor = useDarkComposer ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.14)';
+  const sheetEmptyIconBg = useDarkComposer ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
 
   return (
     <KeyboardAvoidingView
@@ -732,51 +933,6 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                     </View>
                   )}
                 </View>
-                {item.caption ? (
-                  <View
-                    style={[
-                      styles.captionOverlay,
-                      {
-                        bottom: bottomBarReserve + 8,
-                        backgroundColor: captionCard.backgroundColor,
-                        borderColor: captionCard.borderColor,
-                      },
-                    ]}
-                    pointerEvents="box-none"
-                  >
-                    {(() => {
-                      const cap = String(item.caption || '').trim();
-                      const longCap = cap.length > CAPTION_COLLAPSE_CHARS;
-                      const expanded = !!expandedCaptions[item.id];
-                      return (
-                        <Pressable
-                          onPress={() => (longCap ? toggleCaptionExpand(item.id) : undefined)}
-                          disabled={!longCap}
-                          accessibilityRole={longCap ? 'button' : 'text'}
-                          accessibilityLabel={
-                            longCap
-                              ? expanded
-                                ? ft(language, 'storyCaptionLess')
-                                : ft(language, 'storyCaptionMore')
-                              : undefined
-                          }
-                        >
-                          <Text
-                            style={[styles.caption, { color: captionCard.color }]}
-                            numberOfLines={longCap && !expanded ? 4 : undefined}
-                          >
-                            {cap}
-                          </Text>
-                          {longCap ? (
-                            <Text style={[styles.captionMoreLink, { color: captionCard.color }]}>
-                              {expanded ? ft(language, 'storyCaptionLess') : ft(language, 'storyCaptionMore')}
-                            </Text>
-                          ) : null}
-                        </Pressable>
-                      );
-                    })()}
-                  </View>
-                ) : null}
               </View>
             );
           }}
@@ -879,11 +1035,6 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                 <Text style={[styles.headerName, { color: headerPrimary }, headerNameShadow]} numberOfLines={1}>
                   {authorLine}
                 </Text>
-                {authorUsername && authorLine !== `@${authorUsername}` ? (
-                  <Text style={[styles.headerUsername, { color: headerSecondary }]} numberOfLines={1}>
-                    @{authorUsername}
-                  </Text>
-                ) : null}
                 <Text style={[styles.headerTime, { color: headerMuted }]}>
                   {formatStoryTime(current?.created_at, langUk)}
                 </Text>
@@ -896,9 +1047,9 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                   hitSlop={12}
                   style={[styles.headerStatsBtn, { backgroundColor: headerIconBg }]}
                 >
-                  <Ionicons name="eye-outline" size={14} color={headerIconColor} />
+                  <Ionicons name="eye-outline" size={13} color={headerIconColor} />
                   <Text style={[styles.headerStatsTxt, { color: headerIconColor }]}>{currentStoryStats.viewersCount}</Text>
-                  <Ionicons name="heart-outline" size={14} color={headerIconColor} style={{ marginLeft: 8 }} />
+                  <Ionicons name="heart-outline" size={13} color={headerIconColor} style={{ marginLeft: 6 }} />
                   <Text style={[styles.headerStatsTxt, { color: headerIconColor }]}>{currentStoryStats.likersCount}</Text>
                 </Pressable>
               ) : null}
@@ -908,7 +1059,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                   hitSlop={12}
                   style={[styles.headerIconBtn, { backgroundColor: headerIconBg }]}
                 >
-                  <Ionicons name="ellipsis-horizontal" size={26} color={headerIconColor} />
+                  <Ionicons name="ellipsis-horizontal" size={22} color={headerIconColor} />
                 </Pressable>
               ) : null}
               <Pressable
@@ -916,7 +1067,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                 hitSlop={12}
                 style={[styles.headerIconBtn, { backgroundColor: headerIconBg }]}
               >
-                <Ionicons name="close" size={28} color={headerIconColor} />
+                <Ionicons name="close" size={24} color={headerIconColor} />
               </Pressable>
             </View>
           </View>
@@ -945,17 +1096,63 @@ export default function FeedStoryViewerPage({ navigation, route }) {
           </View>
         ) : null}
 
+        <Animated.View
+          pointerEvents={sheetExpanded ? 'auto' : 'none'}
+          style={[styles.sheetBackdrop, { opacity: sheetBackdropOpacity }]}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={collapseSheet} accessibilityRole="button" />
+        </Animated.View>
+
         <View
           style={[
             styles.bottomBarShell,
             {
               borderTopColor: barTopBorder,
-              paddingBottom: Math.max(insets.bottom, 14),
+              paddingBottom: bottomInset,
             },
           ]}
         >
           <BlurView intensity={composerBlurIntensity} tint={composerTint} style={StyleSheet.absoluteFill} />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: composerOverlay }]} />
+          <Pressable
+            onPress={toggleSheet}
+            accessibilityRole="button"
+            accessibilityLabel={ft(language, 'storySheetToggle')}
+            style={styles.sheetHandleHit}
+            {...sheetPan.panHandlers}
+          >
+            <View style={[styles.sheetHandleBar, { backgroundColor: sheetHandleColor }]} />
+          </Pressable>
+          <Animated.View
+            style={[
+              styles.sheetContent,
+              {
+                height: sheetContentHeight,
+                opacity: sheetContentOpacity,
+              },
+            ]}
+          >
+            {storyCaption ? (
+              <ScrollView
+                style={styles.sheetScroll}
+                contentContainerStyle={styles.sheetScrollInner}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={[styles.sheetCaptionLabel, { color: sheetMuted }]}>
+                  {ft(language, 'storySheetCaptionLabel')}
+                </Text>
+                <Text style={[styles.sheetCaptionText, { color: sheetText }]}>{storyCaption}</Text>
+              </ScrollView>
+            ) : (
+              <View style={styles.sheetEmptyWrap}>
+                <View style={[styles.sheetEmptyIcon, { backgroundColor: sheetEmptyIconBg }]}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={26} color={sheetMuted} />
+                </View>
+                <Text style={[styles.sheetEmptyTxt, { color: sheetMuted }]}>{ft(language, 'storySheetEmpty')}</Text>
+              </View>
+            )}
+          </Animated.View>
           <View style={styles.bottomBarInner}>
             {!isAuthor ? (
               <TextInput
@@ -998,6 +1195,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                 <Ionicons name="send" size={20} color={onAccentTxt} />
               </Pressable>
             ) : null}
+            {!isAuthor ? (
             <Pressable
               accessibilityLabel={ft(language, 'storyLike')}
               onPress={onToggleLike}
@@ -1015,6 +1213,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                 color={likedHere ? '#FF4D6A' : barIconColor}
               />
             </Pressable>
+            ) : null}
             <Pressable
               accessibilityLabel={ft(language, 'storyShare')}
               onPress={onShareStory}
@@ -1029,86 +1228,65 @@ export default function FeedStoryViewerPage({ navigation, route }) {
         </View>
 
         <Modal visible={authorMenuOpen} transparent animationType="fade" onRequestClose={closeAuthorMenu}>
-          <View style={[styles.authorMenuOverlay, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
+          <View style={[styles.authorMenuOverlay, { paddingBottom: Math.max(insets.bottom, 10) + 6 }]}>
             <Pressable style={StyleSheet.absoluteFill} onPress={closeAuthorMenu} accessibilityRole="button" />
-            <View
-              style={[
-                styles.authorMenuCard,
-                isLight ? styles.authorMenuCardLight : styles.authorMenuCardDark,
-                { width: Math.min(368, width - 32) },
-              ]}
-            >
-              <LinearGradient
-                colors={isLight ? ['#0212EB', '#3D5CFF'] : ['#E1FF00', '#C4DB00']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.authorMenuAccentBar}
-              />
-              <View style={styles.authorMenuHeader}>
-                <View
-                  style={[
-                    styles.authorMenuHeaderIcon,
-                    { backgroundColor: isLight ? 'rgba(2,18,235,0.1)' : 'rgba(225,255,0,0.16)' },
-                  ]}
-                >
-                  <Ionicons name="sparkles-outline" size={22} color={barAccent} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.authorMenuTitle, { color: isLight ? '#121218' : '#FFFFFF' }]}>
-                    {ft(language, 'storyMore')}
-                  </Text>
-                  <Text style={[styles.authorMenuSubtitle, { color: isLight ? 'rgba(18,18,24,0.55)' : 'rgba(255,255,255,0.55)' }]}>
-                    {ft(language, 'storyAuthorMenuSubtitle')}
-                  </Text>
-                </View>
-              </View>
-
-              {!useLocalStories && hasFeedApiToken() ? (
-                <Pressable
-                  onPress={onAuthorMenuStats}
-                  style={({ pressed }) => [
-                    styles.authorMenuRow,
-                    isLight ? styles.authorMenuRowLight : styles.authorMenuRowDark,
-                    { opacity: pressed ? 0.88 : 1 },
-                  ]}
-                  android_ripple={{ color: isLight ? 'rgba(2,18,235,0.12)' : 'rgba(255,255,255,0.12)' }}
-                >
-                  <View style={[styles.authorMenuRowIconWrap, { backgroundColor: isLight ? 'rgba(2,18,235,0.1)' : 'rgba(255,255,255,0.1)' }]}>
-                    <Ionicons name="stats-chart-outline" size={20} color={barAccent} />
-                  </View>
-                  <Text style={[styles.authorMenuRowLabel, { color: isLight ? '#1A1A22' : '#F4F4F8' }]}>
-                    {ft(language, 'storyMenuStats')}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={20} color={isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.38)'} />
-                </Pressable>
-              ) : null}
-
-              <Pressable
-                onPress={onAuthorMenuDelete}
-                style={({ pressed }) => [
-                  styles.authorMenuRow,
-                  styles.authorMenuRowDanger,
-                  isLight ? styles.authorMenuRowDangerLight : styles.authorMenuRowDangerDark,
-                  { opacity: pressed ? 0.9 : 1 },
+            <View style={[styles.authorMenuSheet, { width: Math.min(360, width - 24) }]}>
+              <View
+                style={[
+                  styles.authorMenuGroup,
+                  isLight ? styles.authorMenuGroupLight : styles.authorMenuGroupDark,
                 ]}
-                android_ripple={{ color: 'rgba(255,77,106,0.2)' }}
               >
-                <View style={styles.authorMenuRowIconWrapDanger}>
-                  <Ionicons name="trash-outline" size={20} color="#FF4D6A" />
-                </View>
-                <Text style={styles.authorMenuRowLabelDanger}>{ft(language, 'storyMenuDelete')}</Text>
-                <Ionicons name="chevron-forward" size={20} color="rgba(255,77,106,0.55)" />
-              </Pressable>
-
+                {!useLocalStories && hasFeedApiToken() ? (
+                  <>
+                    <Pressable
+                      onPress={onAuthorMenuStats}
+                      style={({ pressed }) => [styles.authorMenuItem, pressed && styles.authorMenuItemPressed]}
+                      android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
+                    >
+                      <Text
+                        style={[
+                          styles.authorMenuItemTxt,
+                          { color: isLight ? '#1A1A22' : '#F7F7FA' },
+                        ]}
+                      >
+                        {ft(language, 'storyMenuStats')}
+                      </Text>
+                    </Pressable>
+                    <View
+                      style={[
+                        styles.authorMenuDivider,
+                        { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' },
+                      ]}
+                    />
+                  </>
+                ) : null}
+                <Pressable
+                  onPress={onAuthorMenuDelete}
+                  style={({ pressed }) => [styles.authorMenuItem, pressed && styles.authorMenuItemPressed]}
+                  android_ripple={{ color: 'rgba(255,59,48,0.12)' }}
+                >
+                  <Text style={styles.authorMenuItemDanger}>{ft(language, 'storyMenuDelete')}</Text>
+                </Pressable>
+              </View>
               <Pressable
                 onPress={closeAuthorMenu}
                 style={({ pressed }) => [
-                  styles.authorMenuPrimaryBtn,
-                  { backgroundColor: barAccent, opacity: pressed ? 0.9 : 1 },
+                  styles.authorMenuGroup,
+                  isLight ? styles.authorMenuGroupLight : styles.authorMenuGroupDark,
+                  pressed && styles.authorMenuItemPressed,
                 ]}
-                android_ripple={{ color: isLight ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.15)' }}
+                android_ripple={{ color: 'rgba(0,0,0,0.06)' }}
               >
-                <Text style={[styles.authorMenuPrimaryBtnTxt, { color: onAccentTxt }]}>{ft(language, 'storyClose')}</Text>
+                <Text
+                  style={[
+                    styles.authorMenuItemTxt,
+                    styles.authorMenuCancelTxt,
+                    { color: isLight ? '#1A1A22' : '#F7F7FA' },
+                  ]}
+                >
+                  {ft(language, 'storyClose')}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -1222,28 +1400,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
-  headerAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10, backgroundColor: '#333' },
+  headerAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#333' },
   headerAvatarPh: { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.2)' },
   headerTextCol: { flex: 1, minWidth: 0 },
-  headerName: { fontSize: 16, fontWeight: '700' },
+  headerName: { fontSize: 15, fontWeight: '600', letterSpacing: -0.1 },
   headerUsername: { fontSize: 12, marginTop: 1, fontWeight: '600' },
-  headerTime: { fontSize: 11, marginTop: 3, fontWeight: '600' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerTime: { fontSize: 11, marginTop: 2, fontWeight: '500' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   headerStatsBtn: {
-    height: 34,
-    borderRadius: 17,
-    paddingHorizontal: 10,
+    height: 30,
+    borderRadius: 15,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
   },
-  headerStatsTxt: { fontSize: 12, fontWeight: '800', marginLeft: 4 },
+  headerStatsTxt: { fontSize: 11, fontWeight: '700', marginLeft: 3 },
   headerIconBtn: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
+    borderRadius: 20,
   },
   captionOverlay: {
     position: 'absolute',
@@ -1301,13 +1479,74 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 14,
+    paddingTop: 4,
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 18,
+    backgroundColor: '#000',
+  },
+  sheetHandleHit: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  sheetHandleBar: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+  },
+  sheetContent: {
+    overflow: 'hidden',
+  },
+  sheetScroll: {
+    flex: 1,
+  },
+  sheetScrollInner: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 12,
+  },
+  sheetCaptionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  sheetCaptionText: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  sheetEmptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 8,
+  },
+  sheetEmptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  sheetEmptyTxt: {
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    letterSpacing: -0.1,
   },
   bottomBarInner: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 14,
     gap: 10,
+    minHeight: SHEET_ACTIONS_ROW,
   },
   pillInputXs: {
     flex: 1,
@@ -1353,111 +1592,59 @@ const styles = StyleSheet.create({
   modalCloseTxt: { color: '#E1FF00', fontWeight: '700', fontSize: 16 },
   authorMenuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.52)',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
-  authorMenuCard: {
-    borderRadius: 24,
+  authorMenuSheet: {
+    gap: 8,
+    width: '100%',
+  },
+  authorMenuGroup: {
+    borderRadius: 14,
     overflow: 'hidden',
-    paddingBottom: 4,
     ...(Platform.OS === 'ios'
       ? {
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: 16 },
-          shadowOpacity: 0.35,
-          shadowRadius: 28,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.18,
+          shadowRadius: 18,
         }
-      : { elevation: 22 }),
+      : { elevation: 10 }),
   },
-  authorMenuCardLight: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(2,18,235,0.12)',
+  authorMenuGroupLight: {
+    backgroundColor: 'rgba(255,255,255,0.98)',
   },
-  authorMenuCardDark: {
-    backgroundColor: '#1A1A22',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
+  authorMenuGroupDark: {
+    backgroundColor: 'rgba(28,28,34,0.96)',
   },
-  authorMenuAccentBar: {
-    height: 4,
+  authorMenuItem: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  authorMenuItemPressed: {
+    opacity: 0.72,
+  },
+  authorMenuDivider: {
+    height: StyleSheet.hairlineWidth,
     width: '100%',
   },
-  authorMenuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 14,
-    gap: 14,
+  authorMenuItemTxt: {
+    fontSize: 17,
+    fontWeight: '500',
+    textAlign: 'center',
   },
-  authorMenuHeaderIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+  authorMenuItemDanger: {
+    fontSize: 17,
+    fontWeight: '500',
+    color: '#FF3B30',
+    textAlign: 'center',
   },
-  authorMenuTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
-  authorMenuSubtitle: { fontSize: 13, fontWeight: '600', marginTop: 4, lineHeight: 18 },
-  authorMenuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 12,
-    marginVertical: 4,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    gap: 12,
+  authorMenuCancelTxt: {
+    fontWeight: '600',
   },
-  authorMenuRowLight: {
-    backgroundColor: 'rgba(2,18,235,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(2,18,235,0.1)',
-  },
-  authorMenuRowDark: {
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  authorMenuRowIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  authorMenuRowLabel: { flex: 1, fontSize: 16, fontWeight: '700' },
-  authorMenuRowDanger: {
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  authorMenuRowDangerLight: {
-    backgroundColor: 'rgba(255,77,106,0.08)',
-    borderColor: 'rgba(255,77,106,0.28)',
-  },
-  authorMenuRowDangerDark: {
-    backgroundColor: 'rgba(255,77,106,0.12)',
-    borderColor: 'rgba(255,77,106,0.32)',
-  },
-  authorMenuRowIconWrapDanger: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,77,106,0.16)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  authorMenuRowLabelDanger: { flex: 1, fontSize: 16, fontWeight: '800', color: '#FF4D6A' },
-  authorMenuPrimaryBtn: {
-    marginHorizontal: 12,
-    marginTop: 14,
-    marginBottom: 12,
-    minHeight: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  authorMenuPrimaryBtnTxt: { fontSize: 16, fontWeight: '800' },
 });

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { resolveAppTheme } from './themeStorage';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,7 +13,6 @@ import {
   Share,
   AppState,
   ActivityIndicator,
-  DeviceEventEmitter,
 } from 'react-native';
 import { useFocusEffect, CommonActions } from '@react-navigation/native';
 import * as Location from 'expo-location';
@@ -24,24 +24,37 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { st } from './settingsI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
 import { APP_LANGUAGE_OPTIONS } from './appLanguageOptions';
 import { setAppLanguagePreference, getSession } from './db';
 import { emitAppLanguageChanged } from './appLanguageEvents';
 import { useAuthStore } from './auth/authStore';
-import { patchProfileMe } from './auth/endpoints';
+import { patchProfileMe } from './profileApi';
 import { getPrivacyContactEmail, getPrivacyPolicyUrl, getTermsOfServiceUrl } from './privacyLinks';
+import { privacyRequestMailBody, submitPrivacyUserRequest } from './privacyRequestApi';
 import { getPrivacyContentForLanguage } from './privacyContentI18n';
 import { getTermsContentForLanguage } from './termsContentI18n';
 import { getHelpDocsUrl, getHelpFaqUrl, getSupportEmail } from './helpLinks';
 import { getAppDownloadUrl, getKrainaWebsiteUrl } from './aboutLinks';
-import { requestWalkReminderNotificationPermission } from './walkReminderSync';
+import { requestWalkReminderNotificationPermission, openWalkReminderNotificationSettings, getWalkReminderNotificationPermissionStatus } from './walkReminderSync';
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  NOTIFICATION_SOUND_KEYS,
+  allCategorySoundPrefsTrue,
+  persistInAppNotificationPrefs,
+  prefetchInAppNotificationPrefs,
+  readInAppNotificationPrefsSnapshot,
+} from './inAppNotificationPrefs';
+import { brandFontHeadBold } from './brandFont';
+
+/** @deprecated import from `./inAppNotificationPrefs` */
+export { getInAppNotificationPrefs, prefetchInAppNotificationPrefs as prefetchNotificationPrefs } from './inAppNotificationPrefs';
 
 const ROW_ICON_DARK = '#F2F2EA';
+const PRIVACY_PERSONALIZE_KEY = '@kraina_settings_privacy_personalization';
 const BORDER_DARK = 'rgba(255, 255, 255, 0.08)';
 const BORDER_LIGHT = 'rgba(30, 30, 30, 0.12)';
 const BRAND_BLUE = '#6286E4';
@@ -49,9 +62,6 @@ const ACCENT = '#E1FF00';
 const FIGMA_TEXT = '#1E1E1E';
 const FIGMA_ICON_MUTED = '#727272';
 const FIGMA_LSP = -0.14;
-
-const NOTIFICATIONS_PREFS_KEY = '@kraina_settings_inapp_notifications';
-const PRIVACY_PERSONALIZE_KEY = '@kraina_settings_privacy_personalization';
 
 /** Чи дозволена персоналізація (AsyncStorage); за замовчуванням true. */
 export async function getPrivacyPersonalizationAllowed() {
@@ -64,13 +74,19 @@ export async function getPrivacyPersonalizationAllowed() {
   }
 }
 
-function privacyShellParams(route) {
+function privacyShellParams(route, appThemeOverride) {
   const p = route?.params || {};
+  const appTheme =
+    appThemeOverride === 'light' || appThemeOverride === 'dark'
+      ? appThemeOverride
+      : p.appTheme === 'light'
+        ? 'light'
+        : 'dark';
   return {
     user: p.user || {},
     language: appLangBase(p.language || 'uk'),
     ...(p.countryId ? { countryId: p.countryId } : {}),
-    appTheme: p.appTheme === 'light' ? 'light' : 'dark',
+    appTheme,
   };
 }
 
@@ -86,43 +102,47 @@ function buildMailto(email, subject, body) {
   return `mailto:${e}?${parts.join('&')}`;
 }
 
-const DEFAULT_NOTIFICATION_PREFS = {
-  master: true,
-  messages: true,
-  feed: true,
-  routesTips: true,
-  productNews: true,
-};
-
-function parseNotificationPrefsRaw(raw) {
-  if (raw == null || raw === '') {
-    return { ...DEFAULT_NOTIFICATION_PREFS };
-  }
-  const s = String(raw).trim();
-  if (s === '0' || s === 'false') {
-    return { ...DEFAULT_NOTIFICATION_PREFS, master: false };
-  }
-  if (s === '1' || s === 'true') {
-    return { ...DEFAULT_NOTIFICATION_PREFS, master: true };
-  }
+async function tryOpenMailto(url) {
+  if (!url) return false;
   try {
-    const o = JSON.parse(s);
-    if (o && typeof o === 'object' && !Array.isArray(o)) {
-      return {
-        master: o.master !== false,
-        messages: o.messages !== false,
-        feed: o.feed !== false,
-        routesTips: o.routesTips !== false,
-        productNews: o.productNews !== false,
-      };
-    }
-  } catch (_) {
-    /* ignore */
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
   }
-  return { ...DEFAULT_NOTIFICATION_PREFS };
+}
+
+async function openMailtoWithFallback(language, { email, subject, body, failKey = 'privacyMailFail' }) {
+  const e = String(email || '').trim();
+  if (!e) {
+    Alert.alert('', st(language, failKey));
+    return;
+  }
+  const fullUrl = buildMailto(e, subject, body);
+  const simpleUrl = `mailto:${e}`;
+  if (await tryOpenMailto(fullUrl)) return;
+  if (fullUrl !== simpleUrl && (await tryOpenMailto(simpleUrl))) return;
+  Alert.alert(
+    st(language, failKey),
+    `${e}\n\n${st(language, 'privacyMailManualHint')}`,
+    [
+      { text: st(language, 'adminCancel'), style: 'cancel' },
+      {
+        text: st(language, 'privacyShareEmailLabel'),
+        onPress: () => {
+          void Share.share({
+            message: [e, subject, body].filter(Boolean).join('\n\n'),
+            title: e,
+          });
+        },
+      },
+    ],
+  );
 }
 
 const FAST_PRESS = { delayPressIn: 0, delayPressOut: 0 };
+/** Рядки в ScrollView: невелика затримка, щоб свайп не сприймався як tap і не мигав opacity. */
+const SCROLL_ROW_PRESS = { delayPressIn: 80, delayPressOut: 0 };
 
 const GUIDE_CHAPTERS = [
   { icon: 'earth-outline', titleKey: 'guideCh1Title', bodyKey: 'guideCh1Body' },
@@ -143,40 +163,12 @@ function notificationSwitchPalette(light, on) {
   };
 }
 
-/** Read in-app notification toggles (AsyncStorage); migrates legacy `'0'`/`'1'` values. */
-export async function getInAppNotificationPrefs() {
-  try {
-    const raw = await AsyncStorage.getItem(NOTIFICATIONS_PREFS_KEY);
-    return parseNotificationPrefsRaw(raw);
-  } catch (_) {
-    return { ...DEFAULT_NOTIFICATION_PREFS };
-  }
-}
-
 function SettingsSubScreenShell({ navigation, route, titleKey, children }) {
   const insets = useSafeAreaInsets();
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => {
-      cancelled = true;
-      sub.remove();
-    };
-  }, []);
-
-  const light = appTheme === 'light';
-  const screenBg = light ? LIGHT_BAR_BG : APP_SCREEN_BG;
+  const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme);
 
   return (
     <View style={[styles.root, { backgroundColor: screenBg }]}>
@@ -193,11 +185,15 @@ function SettingsSubScreenShell({ navigation, route, titleKey, children }) {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingBottom: Math.max(28, insets.bottom + 24) + lightTabBarExtraScrollPadding(),
+            paddingBottom: Math.max(28, insets.bottom + 24),
           },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={Platform.OS === 'android'}
+        {...(Platform.OS === 'ios'
+          ? { contentInsetAdjustmentBehavior: 'automatic', decelerationRate: 'normal' }
+          : { overScrollMode: 'never' })}
       >
         {children({ language, light, appTheme })}
       </ScrollView>
@@ -357,8 +353,8 @@ function geoPermTone(status) {
 function geoBadgeStyles(light, tone) {
   if (tone === 'good') {
     return light
-      ? { bg: 'rgba(52, 199, 89, 0.14)', text: '#1B5E20' }
-      : { bg: 'rgba(225, 255, 0, 0.28)', text: '#F9FFCC' };
+      ? { bg: 'rgba(30, 64, 175, 0.12)', text: '#1E40AF' }
+      : { bg: 'rgba(98, 134, 228, 0.24)', text: '#D6E2FF' };
   }
   if (tone === 'bad') {
     return light
@@ -492,12 +488,11 @@ export function SettingsGeoPage({ navigation, route }) {
       {({ language, light }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
         const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
-        const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
+        const hairline = light ? 'rgba(30, 30, 30, 0.1)' : 'rgba(255, 255, 255, 0.1)';
         const ripple = light ? rippleOnLightSurface : rippleOnDarkSurface;
-        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.11)';
-        /** Темна тема: суцільна панель (не напівпрозора) + контраст з #000 фоном екрана. */
-        const cardFill = light ? '#FFFFFF' : '#1E2128';
-        const geoIconWrap = [styles.notifIconWrap, light ? styles.notifIconWrapLight : styles.geoNotifIconWrapDark];
+        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.08)';
+        const accent = light ? BRAND_BLUE : ACCENT;
+        const rowSubtitleMuted = light ? FIGMA_ICON_MUTED : '#D2DAE8';
         const svcLabel =
           servicesOn === null ? st(language, 'subGeoStateUnknown') : servicesOn
             ? st(language, 'subGeoStateOn')
@@ -540,18 +535,38 @@ export function SettingsGeoPage({ navigation, route }) {
           onPress: () => runGeoTest(language),
         });
 
+        const renderStatusRow = ({ icon, label, badge, isLast }) => (
+          <View
+            style={[
+              styles.notifCleanRow,
+              !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: hairline },
+            ]}
+          >
+            <View style={styles.notifCleanIcon}>
+              <Ionicons name={icon} size={22} color={accent} />
+            </View>
+            <View style={styles.notifRowTexts}>
+              <Text style={[styles.notifCleanSubtitle, { color: rowSubtitleMuted }]}>{label}</Text>
+              <View style={[styles.geoBadge, { backgroundColor: badge.bg }]}>
+                <Text style={[styles.geoBadgeText, { color: badge.text }]}>{badge.label}</Text>
+              </View>
+            </View>
+          </View>
+        );
+
         const geoActionRow = (item, index, total) => {
           const rowBusy = busyKey === item.key;
+          const isLast = index >= total - 1;
           return (
             <Pressable
               key={item.key}
               {...FAST_PRESS}
               disabled={rowBusy}
-              hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
+              hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
               style={({ pressed }) => [
-                styles.notifRow,
-                index < total - 1 ? { borderBottomColor: borderColor } : styles.notifRowSingle,
-                pressed && !busyKey && { backgroundColor: pressedBg },
+                styles.notifCleanRow,
+                !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: hairline },
+                pressed && !rowBusy && { backgroundColor: pressedBg },
               ]}
               onPress={() => {
                 const out = item.onPress?.();
@@ -559,145 +574,77 @@ export function SettingsGeoPage({ navigation, route }) {
                   void out.catch(() => {});
                 }
               }}
-              android_ripple={busyKey ? undefined : ripple}
+              android_ripple={rowBusy ? undefined : ripple}
             >
-              <View style={geoIconWrap}>
-                <Ionicons name={item.icon} size={22} color={light ? BRAND_BLUE : ACCENT} />
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name={item.icon} size={22} color={accent} />
               </View>
               <View style={styles.notifRowTexts}>
-                <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                  {item.label}
-                </Text>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{item.label}</Text>
               </View>
               {rowBusy ? (
-                <ActivityIndicator size="small" color={light ? BRAND_BLUE : ACCENT} />
+                <ActivityIndicator size="small" color={accent} />
               ) : (
-                <Ionicons
-                  name="chevron-forward"
-                  size={20}
-                  color={light ? mutedColor : 'rgba(255, 255, 255, 0.72)'}
-                />
+                <Ionicons name="chevron-forward" size={20} color={mutedColor} />
               )}
             </Pressable>
           );
         };
 
-        const hintRingColor = light ? 'rgba(98, 134, 228, 0.42)' : 'rgba(225, 255, 0, 0.42)';
-        const hintFill = light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(225, 255, 0, 0.14)';
-
-        const heroStroke = light ? 'rgba(98, 134, 228, 0.28)' : 'rgba(225, 255, 0, 0.38)';
-        const heroGradColors = light
-          ? ['#C9D7FA', '#E8EEFF', '#F6F8FF']
-          : ['#343A28', '#1E2218', '#12150E'];
-        const heroGradEnd = light ? { x: 1, y: 1 } : { x: 1, y: 0.85 };
-        const heroShadowStyle = light
-          ? {
-              shadowColor: BRAND_BLUE,
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.2,
-              shadowRadius: 22,
-              elevation: 6,
-            }
-          : {
-              shadowColor: '#000000',
-              shadowOffset: { width: 0, height: 12 },
-              shadowOpacity: 0.65,
-              shadowRadius: 28,
-              elevation: 14,
-            };
-        const heroSubtitleColor = light ? 'rgba(30, 30, 30, 0.62)' : 'rgba(255, 255, 255, 0.82)';
-
         return (
-          <View style={light ? styles.lightList : styles.darkListWrap}>
-            <View
-              collapsable={false}
-              style={[styles.geoHeroShell, heroShadowStyle, { borderColor: heroStroke }]}
-            >
-              <LinearGradient
-                colors={heroGradColors}
-                locations={light ? [0, 0.55, 1] : [0, 0.45, 1]}
-                start={{ x: 0, y: 0 }}
-                end={heroGradEnd}
-                style={styles.geoHeroGradient}
-              >
-                <View style={[styles.geoHeroIconWrap, light ? styles.geoHeroIconWrapLight : styles.geoHeroIconWrapDark]}>
-                  <Ionicons name="location" size={30} color={light ? BRAND_BLUE : ACCENT} />
-                </View>
-                <Text style={[styles.geoHeroTitle, { color: labelColor }]}>{st(language, 'subGeoHeroTitle')}</Text>
-                <Text style={[styles.geoHeroSubtitle, { color: heroSubtitleColor }]}>
-                  {st(language, 'subGeoHeroSubtitle')}
-                </Text>
-              </LinearGradient>
-            </View>
-
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{st(language, 'subGeoSectionStatus')}</Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View
-                style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]}
-                collapsable={false}
-              >
-                <View style={[styles.notifRow, { borderBottomColor: borderColor }]}>
-                  <View style={geoIconWrap}>
-                    <Ionicons name="earth-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text
-                      style={[
-                        styles.notifRowSubtitle,
-                        { color: light ? FIGMA_ICON_MUTED : '#D2DAE8' },
-                      ]}
-                    >
-                      {st(language, 'subGeoDeviceLocation')}
-                    </Text>
-                    <View style={[styles.geoBadge, { backgroundColor: svcBadge.bg }]}>
-                      <Text style={[styles.geoBadgeText, { color: svcBadge.text }]}>{svcLabel}</Text>
-                    </View>
-                  </View>
-                </View>
-                <View style={[styles.notifRow, styles.notifRowSingle]}>
-                  <View style={geoIconWrap}>
-                    <Ionicons name="shield-checkmark-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text
-                      style={[
-                        styles.notifRowSubtitle,
-                        { color: light ? FIGMA_ICON_MUTED : '#D2DAE8' },
-                      ]}
-                    >
-                      {st(language, 'subGeoAppAccess')}
-                    </Text>
-                    <View style={[styles.geoBadge, { backgroundColor: permBadge.bg }]}>
-                      <Text style={[styles.geoBadgeText, { color: permBadge.text }]}>{permLabel}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{st(language, 'subGeoSectionActions')}</Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                {actions.map((a, i) => geoActionRow(a, i, actions.length))}
-              </View>
-            </View>
-
-            {testNote ? (
-              <View style={[styles.geoHintRingOuter, { backgroundColor: hintRingColor }]}>
-                <View style={[styles.geoHintRingInner, { backgroundColor: hintFill }]} collapsable={false}>
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={22}
-                    color={light ? BRAND_BLUE : ACCENT}
-                    style={{ marginRight: 10, marginTop: 1 }}
-                  />
-                  <Text style={[styles.geoHintText, { color: labelColor, flex: 1 }]}>
-                    {testNote}
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage, styles.geoCleanPage]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      styles.geoHeroTitleTight,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'subGeoHeroTitle')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroLead,
+                      styles.geoHeroLeadTight,
+                      { color: rowSubtitleMuted, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'subGeoHeroSubtitle')}
                   </Text>
                 </View>
               </View>
-            ) : null}
+            </View>
 
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>
+              {st(language, 'subGeoSectionStatus')}
+            </Text>
+            {renderStatusRow({
+              icon: 'earth-outline',
+              label: st(language, 'subGeoDeviceLocation'),
+              badge: { label: svcLabel, ...svcBadge },
+              isLast: false,
+            })}
+            {renderStatusRow({
+              icon: 'shield-checkmark-outline',
+              label: st(language, 'subGeoAppAccess'),
+              badge: { label: permLabel, ...permBadge },
+              isLast: true,
+            })}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'subGeoSectionActions')}
+            </Text>
+            {actions.map((a, i) => geoActionRow(a, i, actions.length))}
+
+            {testNote ? (
+              <Text style={[styles.notifCleanFootnote, { color: rowSubtitleMuted, textAlign: 'left' }]}>
+                {testNote}
+              </Text>
+            ) : null}
           </View>
         );
       }}
@@ -711,45 +658,52 @@ const NOTIFICATION_CATEGORY_ROWS = [
     icon: 'chatbubbles-outline',
     titleKey: 'notifCatMessagesTitle',
     descKey: 'notifCatMessagesDesc',
+    screenName: 'SettingsNotificationMessages',
+    screenTitleKey: 'notifMessagesScreenTitle',
+    screenDescKey: 'notifMessagesScreenDesc',
   },
   {
     key: 'feed',
     icon: 'newspaper-outline',
     titleKey: 'notifCatFeedTitle',
     descKey: 'notifCatFeedDesc',
+    screenName: 'SettingsNotificationFeed',
+    screenTitleKey: 'notifFeedScreenTitle',
+    screenDescKey: 'notifFeedScreenDesc',
   },
   {
     key: 'routesTips',
     icon: 'map-outline',
     titleKey: 'notifCatRoutesTitle',
     descKey: 'notifCatRoutesDesc',
+    screenName: 'SettingsNotificationRoutes',
+    screenTitleKey: 'notifRoutesScreenTitle',
+    screenDescKey: 'notifRoutesScreenDesc',
   },
   {
     key: 'productNews',
     icon: 'sparkles-outline',
     titleKey: 'notifCatProductTitle',
     descKey: 'notifCatProductDesc',
+    screenName: 'SettingsNotificationProduct',
+    screenTitleKey: 'notifProductScreenTitle',
+    screenDescKey: 'notifProductScreenDesc',
   },
 ];
 
 export function SettingsNotificationsPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
-  const [prefs, setPrefs] = useState(() => ({ ...DEFAULT_NOTIFICATION_PREFS }));
-  const [loaded, setLoaded] = useState(false);
+  const cachedPrefs = readInAppNotificationPrefsSnapshot();
+  const [prefs, setPrefs] = useState(() => cachedPrefs ?? { ...DEFAULT_NOTIFICATION_PREFS });
+  const pendingMasterEnableRef = useRef(false);
+  const masterBusyRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(NOTIFICATIONS_PREFS_KEY);
-        if (cancelled) return;
-        setPrefs(parseNotificationPrefsRaw(raw));
-      } catch (_) {
-        /* ignore */
-      } finally {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
+    void prefetchInAppNotificationPrefs().then((next) => {
+      if (cancelled || !next) return;
+      setPrefs({ ...next });
+    });
     return () => {
       cancelled = true;
     };
@@ -757,234 +711,540 @@ export function SettingsNotificationsPage({ navigation, route }) {
 
   const patchPref = useCallback((key, value) => {
     setPrefs((prev) => {
-      const next = { ...prev, [key]: value };
-      AsyncStorage.setItem(NOTIFICATIONS_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+      const next = persistInAppNotificationPrefs({ ...prev, [key]: value });
       return next;
     });
   }, []);
 
+  const patchPrefs = useCallback((patch) => {
+    setPrefs((prev) => {
+      const next = persistInAppNotificationPrefs({ ...prev, ...patch });
+      return next;
+    });
+  }, []);
+
+  const onSoundMasterChange = useCallback(
+    (next) => {
+      if (!prefs.master) return;
+      if (next) {
+        patchPrefs({ soundMaster: true, ...allCategorySoundPrefsTrue() });
+        return;
+      }
+      patchPref('soundMaster', false);
+    },
+    [patchPref, patchPrefs, prefs.master],
+  );
+
+  const tryCompletePendingMasterEnable = useCallback(async () => {
+    if (!pendingMasterEnableRef.current) return;
+    const status = await getWalkReminderNotificationPermissionStatus();
+    if (!status.granted) return;
+    pendingMasterEnableRef.current = false;
+    patchPref('master', true);
+  }, [patchPref]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void tryCompletePendingMasterEnable();
+    }, [tryCompletePendingMasterEnable]),
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void tryCompletePendingMasterEnable();
+      }
+    });
+    return () => sub.remove();
+  }, [tryCompletePendingMasterEnable]);
+
   const onMasterPrefChange = useCallback(
     async (next) => {
+      if (masterBusyRef.current) return;
       if (!next) {
+        pendingMasterEnableRef.current = false;
         patchPref('master', false);
         return;
       }
-      const ok = await requestWalkReminderNotificationPermission();
-      if (!ok) {
-        Alert.alert('', st(language, 'walkReminderPermissionDenied'), [
-          {
-            text: st(language, 'notifSystemButton'),
-            onPress: () => {
-              Linking.openSettings().catch(() => {});
+      masterBusyRef.current = true;
+      try {
+        const ok = await requestWalkReminderNotificationPermission();
+        if (!ok) {
+          pendingMasterEnableRef.current = true;
+          Alert.alert('', st(language, 'walkReminderPermissionDenied'), [
+            {
+              text: st(language, 'notifSystemButton'),
+              onPress: () => {
+                void openWalkReminderNotificationSettings();
+              },
             },
-          },
-          { text: 'OK', style: 'cancel' },
-        ]);
-        return;
+            { text: 'OK', style: 'cancel' },
+          ]);
+          return;
+        }
+        pendingMasterEnableRef.current = false;
+        patchPref('master', true);
+      } finally {
+        masterBusyRef.current = false;
       }
-      patchPref('master', true);
     },
     [language, patchPref],
   );
 
   const openSystemSettings = useCallback(() => {
-    Linking.openSettings().catch(() => {});
+    void openWalkReminderNotificationSettings();
   }, []);
+
+  const goToNotifCategory = useCallback((screenName) => {
+    navigation.navigate(screenName, {
+      user: route?.params?.user,
+      language,
+      ...(route?.params?.countryId ? { countryId: route.params.countryId } : {}),
+      appTheme: resolveAppTheme(route?.params?.appTheme),
+    });
+  }, [navigation, language, route?.params?.user, route?.params?.countryId, route?.params?.appTheme]);
 
   return (
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey="notifications">
       {({ language, light }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
         const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
-        const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
+        const hairline = light ? 'rgba(30, 30, 30, 0.1)' : 'rgba(255, 255, 255, 0.1)';
         const ripple = light ? rippleOnLightSurface : rippleOnDarkSurface;
-        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.11)';
-        const cardFill = light ? '#FFFFFF' : '#1E2128';
+        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.08)';
+        const accent = light ? BRAND_BLUE : ACCENT;
         const masterOn = prefs.master;
-        const masterPal = notificationSwitchPalette(light, masterOn);
-        const geoIconWrap = [styles.notifIconWrap, light ? styles.notifIconWrapLight : styles.geoNotifIconWrapDark];
-
-        const heroStroke = light ? 'rgba(98, 134, 228, 0.28)' : 'rgba(225, 255, 0, 0.38)';
-        const heroGradColors = light
-          ? ['#C9D7FA', '#E8EEFF', '#F6F8FF']
-          : ['#343A28', '#1E2218', '#12150E'];
-        const heroGradEnd = light ? { x: 1, y: 1 } : { x: 1, y: 0.85 };
-        const heroShadowStyle = light
-          ? {
-              shadowColor: BRAND_BLUE,
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.2,
-              shadowRadius: 22,
-              elevation: 6,
-            }
-          : {
-              shadowColor: '#000000',
-              shadowOffset: { width: 0, height: 12 },
-              shadowOpacity: 0.65,
-              shadowRadius: 28,
-              elevation: 14,
-            };
-        const heroSubtitleColor = light ? 'rgba(30, 30, 30, 0.62)' : 'rgba(255, 255, 255, 0.82)';
-        const hintRingColor = light ? 'rgba(98, 134, 228, 0.42)' : 'rgba(225, 255, 0, 0.42)';
-        const hintFill = light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(225, 255, 0, 0.14)';
+        const soundMasterOn = prefs.soundMaster !== false;
         const rowSubtitleMuted = light ? FIGMA_ICON_MUTED : '#D2DAE8';
 
-        return (
-          <View style={light ? styles.lightList : styles.darkListWrap}>
-            <View
-              collapsable={false}
-              style={[styles.geoHeroShell, heroShadowStyle, { borderColor: heroStroke }]}
-            >
-              <LinearGradient
-                colors={heroGradColors}
-                locations={light ? [0, 0.55, 1] : [0, 0.45, 1]}
-                start={{ x: 0, y: 0 }}
-                end={heroGradEnd}
-                style={styles.geoHeroGradient}
-              >
-                <View
-                  style={[
-                    styles.geoHeroIconWrap,
-                    light ? styles.geoHeroIconWrapLight : styles.geoHeroIconWrapDark,
-                  ]}
-                >
-                  <Ionicons name="notifications" size={30} color={light ? BRAND_BLUE : ACCENT} />
-                </View>
-                <Text style={[styles.geoHeroTitle, { color: labelColor }]}>{st(language, 'notifHeroTitle')}</Text>
-                <Text style={[styles.geoHeroSubtitle, { color: heroSubtitleColor }]}>
-                  {st(language, 'notifHeroSubtitle')}
-                </Text>
-              </LinearGradient>
-            </View>
-
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{st(language, 'notifSectionMain')}</Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                <View style={[styles.notifRow, styles.notifRowSingle]}>
-                  <View style={geoIconWrap}>
-                    <Ionicons name="notifications-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                      {st(language, 'notifMasterTitle')}
-                    </Text>
-                    <Text style={[styles.notifRowSubtitle, { color: rowSubtitleMuted }]}>
-                      {st(language, 'notifMasterSubtitle')}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={masterOn}
-                    onValueChange={onMasterPrefChange}
-                    disabled={!loaded}
-                    trackColor={masterPal.trackColor}
-                    thumbColor={masterPal.thumbColor}
-                    ios_backgroundColor={masterPal.ios_backgroundColor}
-                  />
-                </View>
+        const renderSwitchRow = ({
+          icon,
+          title,
+          subtitle,
+          value,
+          onValueChange,
+          dimmed = false,
+          switchPointerEvents = 'auto',
+          showChevron = false,
+          onPress,
+          isLast = false,
+          isMasterSwitch = false,
+        }) => {
+          const pal = isMasterSwitch
+            ? notificationSwitchPalette(light, value)
+            : notificationSwitchPalette(light, value && masterOn);
+          const content = (
+            <>
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name={icon} size={22} color={accent} />
               </View>
-            </View>
-
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{st(language, 'notifSectionTypes')}</Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                {NOTIFICATION_CATEGORY_ROWS.map((row, index) => {
-                  const on = prefs[row.key];
-                  const pal = notificationSwitchPalette(light, on && masterOn);
-                  const isLast = index === NOTIFICATION_CATEGORY_ROWS.length - 1;
-                  return (
-                    <View
-                      key={row.key}
-                      style={[
-                        styles.notifRow,
-                        !isLast ? { borderBottomColor: borderColor } : styles.notifRowSingle,
-                        !masterOn && styles.notifRowDimmed,
-                      ]}
-                    >
-                      <View style={geoIconWrap}>
-                        <Ionicons name={row.icon} size={22} color={light ? BRAND_BLUE : ACCENT} />
-                      </View>
-                      <View style={styles.notifRowTexts}>
-                        <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                          {st(language, row.titleKey)}
-                        </Text>
-                        <Text style={[styles.notifRowSubtitle, { color: rowSubtitleMuted }]}>
-                          {st(language, row.descKey)}
-                        </Text>
-                      </View>
-                      <Switch
-                        value={on}
-                        onValueChange={(v) => patchPref(row.key, v)}
-                        disabled={!loaded || !masterOn}
-                        trackColor={pal.trackColor}
-                        thumbColor={pal.thumbColor}
-                        ios_backgroundColor={pal.ios_backgroundColor}
-                      />
-                    </View>
-                  );
-                })}
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{title}</Text>
+                {subtitle ? (
+                  <Text style={[styles.notifCleanSubtitle, { color: rowSubtitleMuted }]}>{subtitle}</Text>
+                ) : null}
               </View>
-            </View>
-
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{st(language, 'notifSectionSystem')}</Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                <View style={[styles.notifRow, { borderBottomColor: borderColor }]}>
-                  <View style={geoIconWrap}>
-                    <Ionicons name="phone-portrait-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                      {st(language, 'notifSystemTitle')}
-                    </Text>
-                    <Text style={[styles.notifRowSubtitle, { color: rowSubtitleMuted }]}>
-                      {st(language, 'notifSystemDesc')}
-                    </Text>
-                  </View>
-                </View>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.notifRow,
-                    styles.notifRowSingle,
-                    pressed && { backgroundColor: pressedBg },
-                  ]}
-                  onPress={openSystemSettings}
-                  android_ripple={ripple}
-                >
-                  <View style={geoIconWrap}>
-                    <Ionicons name="open-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                      {st(language, 'notifSystemButton')}
-                    </Text>
-                  </View>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={20}
-                    color={light ? mutedColor : 'rgba(255, 255, 255, 0.72)'}
-                  />
-                </Pressable>
-              </View>
-            </View>
-
-            <View style={[styles.geoHintRingOuter, { backgroundColor: hintRingColor }]}>
-              <View style={[styles.geoHintRingInner, { backgroundColor: hintFill }]} collapsable={false}>
-                <Ionicons
-                  name="information-circle-outline"
-                  size={22}
-                  color={light ? BRAND_BLUE : ACCENT}
-                  style={{ marginRight: 10, marginTop: 1 }}
+              {onValueChange != null ? (
+                <Switch
+                  value={value}
+                  onValueChange={onValueChange}
+                  pointerEvents={switchPointerEvents}
+                  trackColor={pal.trackColor}
+                  thumbColor={pal.thumbColor}
+                  ios_backgroundColor={pal.ios_backgroundColor}
                 />
-                <Text style={[styles.geoHintText, { color: labelColor, flex: 1 }]}>
-                  {st(language, 'notifFooterHint')}
-                </Text>
+              ) : showChevron ? (
+                <Ionicons name="chevron-forward" size={20} color={mutedColor} />
+              ) : null}
+            </>
+          );
+
+          const rowStyle = [
+            styles.notifCleanRow,
+            dimmed && styles.notifRowDimmed,
+            !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: hairline },
+          ];
+
+          if (onPress) {
+            return (
+              <Pressable
+                {...FAST_PRESS}
+                hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+                style={({ pressed }) => [...rowStyle, pressed && { backgroundColor: pressedBg }]}
+                onPress={onPress}
+                android_ripple={ripple}
+              >
+                {content}
+              </Pressable>
+            );
+          }
+
+          return <View style={rowStyle}>{content}</View>;
+        };
+
+        return (
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage, styles.notifCleanPageTight]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      styles.notifHeroTitleTight,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'notifHeroTitle')}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroLead,
+                      styles.notifHeroLeadTight,
+                      { color: rowSubtitleMuted, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'notifHeroSubtitle')}
+                  </Text>
+                </View>
               </View>
             </View>
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>{st(language, 'notifSectionMain')}</Text>
+            {renderSwitchRow({
+              icon: 'notifications-outline',
+              title: st(language, 'notifMasterTitle'),
+              subtitle: st(language, 'notifMasterSubtitle'),
+              value: masterOn,
+              onValueChange: onMasterPrefChange,
+              isMasterSwitch: true,
+              isLast: true,
+            })}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'notifSectionTypes')}
+            </Text>
+            {NOTIFICATION_CATEGORY_ROWS.map((row, index) => {
+              const on = prefs[row.key];
+              const isLast = index === NOTIFICATION_CATEGORY_ROWS.length - 1;
+              return (
+                <View key={row.key}>
+                  {renderSwitchRow({
+                    icon: row.icon,
+                    title: st(language, row.titleKey),
+                    subtitle: st(language, row.descKey),
+                    value: on,
+                    onValueChange: undefined,
+                    onPress: () => goToNotifCategory(row.screenName),
+                    showChevron: true,
+                    dimmed: !masterOn,
+                    isLast,
+                  })}
+                </View>
+              );
+            })}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'notifSectionSound')}
+            </Text>
+            {renderSwitchRow({
+              icon: 'volume-high-outline',
+              title: st(language, 'notifSoundMasterTitle'),
+              subtitle: st(language, 'notifSoundMasterSubtitle'),
+              value: soundMasterOn,
+              onValueChange: onSoundMasterChange,
+              dimmed: !masterOn,
+              switchPointerEvents: masterOn ? 'auto' : 'none',
+              isLast: false,
+            })}
+            {NOTIFICATION_CATEGORY_ROWS.map((row, index) => {
+              const soundKey = NOTIFICATION_SOUND_KEYS[row.key];
+              const on = prefs[soundKey] !== false;
+              const isLast = index === NOTIFICATION_CATEGORY_ROWS.length - 1;
+              const categoryOn = prefs[row.key] !== false;
+              const soundActive = masterOn && soundMasterOn && categoryOn;
+              return (
+                <View key={`sound-${row.key}`}>
+                  {renderSwitchRow({
+                    icon: 'musical-notes-outline',
+                    title: st(language, row.titleKey),
+                    subtitle: st(language, 'notifSoundCatSubtitle'),
+                    value: on && soundActive,
+                    onValueChange: (v) => {
+                      if (!soundActive) return;
+                      patchPref(soundKey, v);
+                    },
+                    dimmed: !soundActive,
+                    switchPointerEvents: soundActive ? 'auto' : 'none',
+                    isLast,
+                  })}
+                </View>
+              );
+            })}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'notifSectionSystem')}
+            </Text>
+            {renderSwitchRow({
+              icon: 'phone-portrait-outline',
+              title: st(language, 'notifSystemTitle'),
+              subtitle: st(language, 'notifSystemDesc'),
+              value: false,
+              onValueChange: null,
+              isLast: false,
+            })}
+            {renderSwitchRow({
+              icon: 'open-outline',
+              title: st(language, 'notifSystemButton'),
+              subtitle: null,
+              value: false,
+              onValueChange: null,
+              showChevron: true,
+              onPress: openSystemSettings,
+              isLast: true,
+            })}
+
+            <Text style={[styles.notifCleanFootnote, { color: rowSubtitleMuted }]}>
+              {st(language, 'notifFooterHint')}
+            </Text>
           </View>
         );
       }}
     </SettingsSubScreenShell>
   );
+}
+
+/** Конфіг категорій сповіщень для детальних екранів. */
+const NOTIF_CATEGORY_CONFIG = {
+  messages: {
+    icon: 'chatbubbles-outline',
+    prefsKey: 'messages',
+    soundKey: 'soundMessages',
+    titleKey: 'notifCatMessagesTitle',
+    descKey: 'notifCatMessagesDesc',
+    screenTitleKey: 'notifMessagesScreenTitle',
+    screenDescKey: 'notifMessagesScreenDesc',
+    pushNoteKey: 'notifMessagesPushNote',
+  },
+  feed: {
+    icon: 'newspaper-outline',
+    prefsKey: 'feed',
+    soundKey: 'soundFeed',
+    titleKey: 'notifCatFeedTitle',
+    descKey: 'notifCatFeedDesc',
+    screenTitleKey: 'notifFeedScreenTitle',
+    screenDescKey: 'notifFeedScreenDesc',
+  },
+  routesTips: {
+    icon: 'map-outline',
+    prefsKey: 'routesTips',
+    soundKey: 'soundRoutesTips',
+    titleKey: 'notifCatRoutesTitle',
+    descKey: 'notifCatRoutesDesc',
+    screenTitleKey: 'notifRoutesScreenTitle',
+    screenDescKey: 'notifRoutesScreenDesc',
+    pushNoteKey: 'notifRoutesPushNote',
+  },
+  productNews: {
+    icon: 'sparkles-outline',
+    prefsKey: 'productNews',
+    soundKey: 'soundProductNews',
+    titleKey: 'notifCatProductTitle',
+    descKey: 'notifCatProductDesc',
+    screenTitleKey: 'notifProductScreenTitle',
+    screenDescKey: 'notifProductScreenDesc',
+  },
+};
+
+/**
+ * Універсальний компонент екрану налаштувань для однієї категорії сповіщень.
+ * Використовує `config` з `NOTIF_CATEGORY_CONFIG` для заповнення даних.
+ */
+function NotifCategoryScreen({ navigation, route, config }) {
+  const language = useSyncedAppLanguage(route, 'uk');
+  const [prefs, setPrefs] = useState(() => {
+    const snap = readInAppNotificationPrefsSnapshot();
+    return snap ?? { ...DEFAULT_NOTIFICATION_PREFS };
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void prefetchInAppNotificationPrefs().then((next) => {
+      if (cancelled || !next) return;
+      setPrefs({ ...next });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const patchPref = useCallback((key, value) => {
+    setPrefs((prev) => {
+      const next = persistInAppNotificationPrefs({ ...prev, [key]: value });
+      return next;
+    });
+  }, []);
+
+  const openSystemSettings = useCallback(() => {
+    Linking.openSettings().catch(() => {});
+  }, []);
+
+  const cfg = config;
+
+  return (
+    <SettingsSubScreenShell navigation={navigation} route={route} titleKey={cfg.screenTitleKey}>
+      {({ language, light }) => {
+        const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
+        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
+        const hairline = light ? 'rgba(30, 30, 30, 0.1)' : 'rgba(255, 255, 255, 0.1)';
+        const accent = light ? BRAND_BLUE : ACCENT;
+        const rowSubtitleMuted = light ? FIGMA_ICON_MUTED : '#D2DAE8';
+        const masterOn = prefs.master;
+        const categoryOn = prefs[cfg.prefsKey] !== false;
+        const categorySoundOn = prefs[cfg.soundKey] !== false;
+        const soundMasterOn = prefs.soundMaster !== false;
+        const soundActive = masterOn && soundMasterOn && categoryOn;
+
+        const renderSwitchRow = ({ icon, title, subtitle, value, onValueChange, dimmed = false, isLast = false }) => {
+          const pal = notificationSwitchPalette(light, value);
+          return (
+            <View
+              style={[
+                styles.notifCleanRow,
+                dimmed && styles.notifRowDimmed,
+                !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: hairline },
+              ]}
+            >
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name={icon} size={22} color={accent} />
+              </View>
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{title}</Text>
+                {subtitle ? (
+                  <Text style={[styles.notifCleanSubtitle, { color: rowSubtitleMuted }]}>{subtitle}</Text>
+                ) : null}
+              </View>
+              {onValueChange != null ? (
+                <Switch
+                  value={value}
+                  onValueChange={onValueChange}
+                  trackColor={pal.trackColor}
+                  thumbColor={pal.thumbColor}
+                  ios_backgroundColor={pal.ios_backgroundColor}
+                />
+              ) : null}
+            </View>
+          );
+        };
+
+        return (
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage, styles.notifCleanPageTight]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      styles.notifHeroTitleTight,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, cfg.screenTitleKey)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroLead,
+                      styles.notifHeroLeadTight,
+                      { color: rowSubtitleMuted, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, cfg.screenDescKey)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>{st(language, 'notifSectionMain')}</Text>
+            {renderSwitchRow({
+              icon: cfg.icon,
+              title: st(language, cfg.titleKey),
+              subtitle: st(language, cfg.descKey),
+              value: categoryOn && masterOn,
+              onValueChange: masterOn ? (v) => patchPref(cfg.prefsKey, v) : undefined,
+              dimmed: !masterOn,
+              isLast: true,
+            })}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'notifSectionSound')}
+            </Text>
+            {renderSwitchRow({
+              icon: 'musical-notes-outline',
+              title: st(language, 'notifSoundCatSubtitle'),
+              subtitle: st(language, 'notifSoundCatSubtitle'),
+              value: categorySoundOn && soundActive,
+              onValueChange: soundActive ? (v) => patchPref(cfg.soundKey, v) : undefined,
+              dimmed: !soundActive,
+              isLast: cfg.pushNoteKey ? false : true,
+            })}
+
+            {cfg.pushNoteKey ? (
+              <>
+                <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+                  {st(language, 'notifSectionSystem')}
+                </Text>
+                <Text style={[styles.notifCleanFootnote, { color: rowSubtitleMuted, textAlign: 'left', marginBottom: 4 }]}>
+                  {st(language, cfg.pushNoteKey)}
+                </Text>
+                <Pressable
+                  {...FAST_PRESS}
+                  hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+                  style={({ pressed }) => [
+                    styles.notifCleanRow,
+                    pressed && { opacity: 0.72 },
+                  ]}
+                  onPress={openSystemSettings}
+                  android_ripple={ripple}
+                >
+                  <View style={styles.notifCleanIcon}>
+                    <Ionicons name="open-outline" size={22} color={accent} />
+                  </View>
+                  <View style={styles.notifRowTexts}>
+                    <Text style={[styles.notifCleanTitle, { color: labelColor }]}>
+                      {st(language, 'notifSystemButton')}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={mutedColor} />
+                </Pressable>
+              </>
+            ) : null}
+
+            <Text style={[styles.notifCleanFootnote, { color: rowSubtitleMuted }]}>
+              {st(language, 'notifFooterHint')}
+            </Text>
+          </View>
+        );
+      }}
+    </SettingsSubScreenShell>
+  );
+}
+
+/** Спеціалізовані сторінки для кожної категорії. */
+export function SettingsNotificationMessagesPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.messages} />;
+}
+
+export function SettingsNotificationFeedPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.feed} />;
+}
+
+export function SettingsNotificationRoutesPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.routesTips} />;
+}
+
+export function SettingsNotificationProductPage({ navigation, route }) {
+  return <NotifCategoryScreen navigation={navigation} route={route} config={NOTIF_CATEGORY_CONFIG.productNews} />;
 }
 
 function StaticTextSubPage({ navigation, route, titleKey, bodyKey }) {
@@ -1013,47 +1273,13 @@ export function SettingsLegalDocPage({ navigation, route }) {
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey={titleKey}>
       {({ language, light }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
-        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
-        const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
-        const cardFill = light ? '#FFFFFF' : '#1E2128';
         const text =
           doc === 'terms' ? getTermsContentForLanguage(language) : getPrivacyContentForLanguage(language);
         return (
-          <View style={light ? styles.lightList : styles.darkListWrap}>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View
-                style={[
-                  styles.geoRingInnerCard,
-                  { backgroundColor: cardFill, paddingHorizontal: 16, paddingVertical: 16 },
-                ]}
-                collapsable={false}
-              >
-                <Text selectable style={[styles.bodyText, { color: labelColor, lineHeight: 22, fontSize: 14 }]}>
-                  {text}
-                </Text>
-              </View>
-            </View>
-            <View style={[styles.geoHintRingOuter, { backgroundColor: light ? 'rgba(98, 134, 228, 0.42)' : 'rgba(225, 255, 0, 0.42)' }]}>
-              <View
-                style={[
-                  styles.geoHintRingInner,
-                  {
-                    backgroundColor: light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(225, 255, 0, 0.14)',
-                  },
-                ]}
-                collapsable={false}
-              >
-                <Ionicons
-                  name="information-circle-outline"
-                  size={22}
-                  color={light ? BRAND_BLUE : ACCENT}
-                  style={{ marginRight: 10, marginTop: 1 }}
-                />
-                <Text style={[styles.geoHintText, { color: mutedColor, flex: 1 }]}>
-                  {st(language, 'legalDocScrollHint')}
-                </Text>
-              </View>
-            </View>
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage]}>
+            <Text selectable style={[styles.privacyProseBody, { color: labelColor }]}>
+              {text}
+            </Text>
           </View>
         );
       }}
@@ -1127,34 +1353,45 @@ export function SettingsPrivacyPage({ navigation, route }) {
   );
 
   const openMail = useCallback(async (language, subject, body) => {
-    const email = getPrivacyContactEmail();
-    const url = buildMailto(email, subject, body);
-    try {
-      const can = await Linking.canOpenURL(url).catch(() => false);
-      if (!can) {
-        Alert.alert(
-          st(language, 'privacyMailFail'),
-          `${email}\n\n${st(language, 'privacyMailManualHint')}`,
-          [
-            { text: st(language, 'adminCancel'), style: 'cancel' },
-            {
-              text: st(language, 'privacyShareEmailLabel'),
-              onPress: () => {
-                void Share.share({
-                  message: subject ? `${email}\n\n${subject}` : email,
-                  title: email,
-                });
-              },
-            },
-          ],
-        );
-        return;
-      }
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert('', st(language, 'privacyMailFail'));
-    }
+    await openMailtoWithFallback(language, {
+      email: getPrivacyContactEmail(),
+      subject,
+      body,
+    });
   }, []);
+
+  const submitPrivacyRequest = useCallback(
+    async (language, requestType, email) => {
+      const subjectKey =
+        requestType === 'export' ? 'privacyMailSubjectExport' : 'privacyMailSubjectDelete';
+      const successTitleKey =
+        requestType === 'export' ? 'privacyExportSuccessTitle' : 'privacyDeleteSuccessTitle';
+      const successBodyKey =
+        requestType === 'export' ? 'privacyExportSuccessBody' : 'privacyDeleteSuccessBody';
+      try {
+        const { channel } = await submitPrivacyUserRequest(requestType, {
+          appLanguage: language,
+          userEmail: email || null,
+        });
+        if (channel === 'guest') {
+          await openMail(
+            language,
+            st(language, subjectKey),
+            privacyRequestMailBody(requestType, email),
+          );
+          return;
+        }
+        Alert.alert(st(language, successTitleKey), st(language, successBodyKey));
+      } catch {
+        await openMail(
+          language,
+          st(language, subjectKey),
+          privacyRequestMailBody(requestType, email),
+        );
+      }
+    },
+    [openMail],
+  );
 
   const shareSupportEmail = useCallback(
     async (language) => {
@@ -1178,40 +1415,20 @@ export function SettingsPrivacyPage({ navigation, route }) {
 
   return (
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey="privacy">
-      {({ language, light }) => {
+      {({ language, light, appTheme }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
         const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
         const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
         const ripple = light ? rippleOnLightSurface : rippleOnDarkSurface;
-        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.11)';
-        const cardFill = light ? '#FFFFFF' : '#1E2128';
         const palSwitch = notificationSwitchPalette(light, personalize);
-        const shell = privacyShellParams(route);
-        const geoIconWrap = [styles.notifIconWrap, light ? styles.notifIconWrapLight : styles.geoNotifIconWrapDark];
+        const shell = privacyShellParams(route, appTheme);
+        const iconTint = light ? BRAND_BLUE : ACCENT;
 
-        const hintRingColor = light ? 'rgba(98, 134, 228, 0.42)' : 'rgba(225, 255, 0, 0.42)';
-        const hintFill = light ? 'rgba(98, 134, 228, 0.08)' : 'rgba(225, 255, 0, 0.14)';
-        const heroStroke = light ? 'rgba(98, 134, 228, 0.28)' : 'rgba(225, 255, 0, 0.38)';
-        const heroGradColors = light
-          ? ['#C9D7FA', '#E8EEFF', '#F6F8FF']
-          : ['#343A28', '#1E2218', '#12150E'];
-        const heroGradEnd = light ? { x: 1, y: 1 } : { x: 1, y: 0.85 };
-        const heroShadowStyle = light
-          ? {
-              shadowColor: BRAND_BLUE,
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.2,
-              shadowRadius: 22,
-              elevation: 6,
-            }
-          : {
-              shadowColor: '#000000',
-              shadowOffset: { width: 0, height: 12 },
-              shadowOpacity: 0.65,
-              shadowRadius: 28,
-              elevation: 14,
-            };
-        const heroSubtitleColor = light ? 'rgba(30, 30, 30, 0.62)' : 'rgba(255, 255, 255, 0.82)';
+        const overviewItems = [
+          { titleKey: 'privacySectionCollectTitle', bodyKey: 'privacySectionCollectBody' },
+          { titleKey: 'privacySectionUseTitle', bodyKey: 'privacySectionUseBody' },
+          { titleKey: 'privacySectionDeviceTitle', bodyKey: 'privacySectionDeviceBody' },
+        ];
 
         const openPrivacyPolicy = () => {
           const url = getPrivacyPolicyUrl();
@@ -1262,38 +1479,13 @@ export function SettingsPrivacyPage({ navigation, route }) {
             key: 'privacy_export',
             icon: 'cloud-download-outline',
             title: st(language, 'privacyRequestExport'),
-            onPress: () =>
-              Alert.alert(st(language, 'privacyExportAlertTitle'), st(language, 'privacyExportAlertBody'), [
-                { text: st(language, 'adminCancel'), style: 'cancel' },
-                {
-                  text: st(language, 'privacyOpenMailApp'),
-                  onPress: () =>
-                    void openMail(
-                      language,
-                      st(language, 'privacyMailSubjectExport'),
-                      sessionEmail ? `Account: ${sessionEmail}` : '',
-                    ),
-                },
-              ]),
+            onPress: () => void submitPrivacyRequest(language, 'export', sessionEmail),
           },
           {
             key: 'privacy_delete',
             icon: 'trash-outline',
             title: st(language, 'privacyRequestDelete'),
-            onPress: () =>
-              Alert.alert(st(language, 'privacyDeleteAlertTitle'), st(language, 'privacyDeleteAlertBody'), [
-                { text: st(language, 'adminCancel'), style: 'cancel' },
-                {
-                  text: st(language, 'privacyWriteEmail'),
-                  style: 'destructive',
-                  onPress: () =>
-                    void openMail(
-                      language,
-                      st(language, 'privacyMailSubjectDelete'),
-                      sessionEmail ? `Account: ${sessionEmail}` : '',
-                    ),
-                },
-              ]),
+            onPress: () => void submitPrivacyRequest(language, 'delete', sessionEmail),
           },
           {
             key: 'privacy_system_settings',
@@ -1321,12 +1513,15 @@ export function SettingsPrivacyPage({ navigation, route }) {
         const privacyActionRow = (item, index, total) => (
           <Pressable
             key={item.key}
-            delayPressIn={0}
+            {...SCROLL_ROW_PRESS}
             hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
             style={({ pressed }) => [
-              styles.notifRow,
-              index < total - 1 ? { borderBottomColor: borderColor } : styles.notifRowSingle,
-              pressed && { backgroundColor: pressedBg },
+              styles.notifCleanRow,
+              index < total - 1 && {
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: borderColor,
+              },
+              pressed && { opacity: 0.72 },
             ]}
             onPress={() => {
               const out = item.onPress?.();
@@ -1334,11 +1529,11 @@ export function SettingsPrivacyPage({ navigation, route }) {
             }}
             android_ripple={ripple}
           >
-            <View style={geoIconWrap}>
-              <Ionicons name={item.icon} size={22} color={light ? BRAND_BLUE : ACCENT} />
+            <View style={styles.notifCleanIcon}>
+              <Ionicons name={item.icon} size={22} color={iconTint} />
             </View>
             <View style={styles.notifRowTexts}>
-              <Text style={[styles.notifRowTitle, { color: labelColor }]}>{item.title}</Text>
+              <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{item.title}</Text>
             </View>
             <Ionicons
               name="chevron-forward"
@@ -1349,141 +1544,112 @@ export function SettingsPrivacyPage({ navigation, route }) {
         );
 
         return (
-          <View style={light ? styles.lightList : styles.darkListWrap}>
-            <View collapsable={false} style={[styles.geoHeroShell, heroShadowStyle, { borderColor: heroStroke }]}>
-              <LinearGradient
-                colors={heroGradColors}
-                locations={light ? [0, 0.55, 1] : [0, 0.45, 1]}
-                start={{ x: 0, y: 0 }}
-                end={heroGradEnd}
-                style={styles.geoHeroGradient}
-              >
-                <View style={[styles.geoHeroIconWrap, light ? styles.geoHeroIconWrapLight : styles.geoHeroIconWrapDark]}>
-                  <Ionicons name="shield-checkmark" size={30} color={light ? BRAND_BLUE : ACCENT} />
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'privacyHeroTitle')}
+                  </Text>
+                  <Text
+                    style={[styles.notifCleanHeroLead, { color: mutedColor, textAlign: 'left', maxWidth: '100%' }]}
+                  >
+                    {st(language, 'privacyHeroSubtitle')}
+                  </Text>
                 </View>
-                <Text style={[styles.geoHeroTitle, { color: labelColor }]}>{st(language, 'privacyHeroTitle')}</Text>
-                <Text style={[styles.geoHeroSubtitle, { color: heroSubtitleColor }]}>
-                  {st(language, 'privacyHeroSubtitle')}
-                </Text>
-              </LinearGradient>
+                <Ionicons
+                  name="shield-checkmark"
+                  size={32}
+                  color={iconTint}
+                  style={styles.privacyFlatHeroIconRight}
+                />
+              </View>
             </View>
 
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>
               {st(language, 'privacyOverviewSection')}
             </Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View
-                style={[styles.geoRingInnerCard, { backgroundColor: cardFill, paddingHorizontal: 16, paddingVertical: 16 }]}
-                collapsable={false}
-              >
-                <Text style={[styles.privacyRingSectionTitle, { color: labelColor }]}>
-                  {st(language, 'privacySectionCollectTitle')}
+            {overviewItems.map((item) => (
+              <View key={item.titleKey} style={styles.privacyProseBlock}>
+                <Text style={[styles.privacyProseTitle, { color: labelColor }]}>
+                  {st(language, item.titleKey)}
                 </Text>
-                <Text style={[styles.geoHintText, { color: mutedColor, marginBottom: 4 }]}>
-                  {st(language, 'privacySectionCollectBody')}
+                <Text style={[styles.privacyProseBody, { color: mutedColor }]}>
+                  {st(language, item.bodyKey)}
                 </Text>
-                <View style={[styles.privacyProseDivider, { backgroundColor: borderColor }]} />
-                <Text style={[styles.privacyRingSectionTitle, { color: labelColor, marginTop: 4 }]}>
-                  {st(language, 'privacySectionUseTitle')}
-                </Text>
-                <Text style={[styles.geoHintText, { color: mutedColor, marginBottom: 4 }]}>
-                  {st(language, 'privacySectionUseBody')}
-                </Text>
-                <View style={[styles.privacyProseDivider, { backgroundColor: borderColor }]} />
-                <Text style={[styles.privacyRingSectionTitle, { color: labelColor, marginTop: 4 }]}>
-                  {st(language, 'privacySectionDeviceTitle')}
-                </Text>
-                <Text style={[styles.geoHintText, { color: mutedColor }]}>{st(language, 'privacySectionDeviceBody')}</Text>
               </View>
-            </View>
+            ))}
 
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
               {st(language, 'privacyPersonalizeSection')}
             </Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                <View style={[styles.notifRow, styles.notifRowSingle]}>
-                  <View style={geoIconWrap}>
-                    <Ionicons name="sparkles-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                      {st(language, 'privacyPersonalizeTitle')}
-                    </Text>
-                    <Text style={[styles.notifRowSubtitle, { color: mutedColor }]}>
-                      {st(language, 'privacyPersonalizeSubtitle')}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={personalize}
-                    onValueChange={setPersonalizePersist}
-                    trackColor={palSwitch.trackColor}
-                    thumbColor={palSwitch.thumbColor}
-                    ios_backgroundColor={palSwitch.ios_backgroundColor}
-                  />
-                </View>
+            <View
+              style={[
+                styles.notifCleanRow,
+                { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: borderColor },
+              ]}
+            >
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name="sparkles-outline" size={22} color={iconTint} />
               </View>
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>
+                  {st(language, 'privacyPersonalizeTitle')}
+                </Text>
+                <Text style={[styles.notifCleanSubtitle, { color: mutedColor }]}>
+                  {st(language, 'privacyPersonalizeSubtitle')}
+                </Text>
+              </View>
+              <Switch
+                value={personalize}
+                onValueChange={setPersonalizePersist}
+                trackColor={palSwitch.trackColor}
+                thumbColor={palSwitch.thumbColor}
+                ios_backgroundColor={palSwitch.ios_backgroundColor}
+              />
             </View>
 
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
               {st(language, 'privacySectionDocsTitle')}
             </Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                {docActions.map((item, i) => privacyActionRow(item, i, docActions.length))}
-              </View>
-            </View>
+            {docActions.map((item, i) => privacyActionRow(item, i, docActions.length))}
 
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
               {st(language, 'privacySectionContactTitle')}
             </Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                {contactActions.map((item, i) => privacyActionRow(item, i, contactActions.length))}
-              </View>
-            </View>
+            {contactActions.map((item, i) => privacyActionRow(item, i, contactActions.length))}
 
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
               {st(language, 'privacySectionMoreTitle')}
             </Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                {moreActions.map((item, i) => privacyActionRow(item, i, moreActions.length))}
-              </View>
-            </View>
+            {moreActions.map((item, i) => privacyActionRow(item, i, moreActions.length))}
 
-            <Text style={[styles.geoSectionLabel, { color: mutedColor }]}>{st(language, 'privacyAccountHint')}</Text>
-            <View style={[styles.geoRingOuterCard, { backgroundColor: borderColor }]}>
-              <View style={[styles.geoRingInnerCard, { backgroundColor: cardFill }]} collapsable={false}>
-                <View style={[styles.notifRow, styles.notifRowSingle]}>
-                  <View style={geoIconWrap}>
-                    <Ionicons name="person-circle-outline" size={22} color={light ? BRAND_BLUE : ACCENT} />
-                  </View>
-                  <View style={styles.notifRowTexts}>
-                    <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                      {st(language, 'privacyAccountHint')}
-                    </Text>
-                    <Text style={[styles.notifRowSubtitle, { color: mutedColor }]}>
-                      {sessionEmail || st(language, 'privacyGuestHint')}
-                    </Text>
-                  </View>
-                </View>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'privacyAccountHint')}
+            </Text>
+            <View style={styles.notifCleanRow}>
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name="person-circle-outline" size={22} color={iconTint} />
               </View>
-            </View>
-
-            <View style={[styles.geoHintRingOuter, { backgroundColor: hintRingColor, marginTop: 8 }]}>
-              <View style={[styles.geoHintRingInner, { backgroundColor: hintFill }]} collapsable={false}>
-                <Ionicons
-                  name="mail-outline"
-                  size={22}
-                  color={light ? BRAND_BLUE : ACCENT}
-                  style={{ marginRight: 10, marginTop: 1 }}
-                />
-                <Text style={[styles.geoHintText, { color: labelColor, flex: 1 }]}>
-                  {`${st(language, 'privacyFooterNote')} ${getPrivacyContactEmail()}`}
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>
+                  {st(language, 'privacyAccountHint')}
+                </Text>
+                <Text style={[styles.notifCleanSubtitle, { color: mutedColor }]}>
+                  {sessionEmail || st(language, 'privacyGuestHint')}
                 </Text>
               </View>
             </View>
+
+            <Text style={[styles.notifCleanFootnote, { color: mutedColor, textAlign: 'left' }]}>
+              {`${st(language, 'privacyFooterNote')} ${getPrivacyContactEmail()}`}
+            </Text>
           </View>
         );
       }}
@@ -1526,13 +1692,12 @@ export function SettingsHelpPage({ navigation, route }) {
   }, []);
 
   const openSupportMail = useCallback(async (language, subject, body) => {
-    const email = getSupportEmail();
-    const url = buildMailto(email, subject, body);
-    try {
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert('', st(language, 'helpMailFail'));
-    }
+    await openMailtoWithFallback(language, {
+      email: getSupportEmail(),
+      subject,
+      body,
+      failKey: 'helpMailFail',
+    });
   }, []);
 
   const shareSupportEmail = useCallback(async (language) => {
@@ -1565,35 +1730,36 @@ export function SettingsHelpPage({ navigation, route }) {
 
   return (
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey="help">
-      {({ language, light }) => {
+      {({ language, light, appTheme }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
-        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255,255,255,0.55)';
-        const borderColor = light ? BORDER_LIGHT : BORDER_DARK;
+        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
+        const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
         const ripple = light ? rippleOnLightSurface : rippleOnDarkSurface;
-        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)';
-        const shell = privacyShellParams(route);
+        const shell = privacyShellParams(route, appTheme);
+        const iconTint = light ? BRAND_BLUE : ACCENT;
 
-        const helpRow = (icon, title, onPress, last) => (
+        const helpRow = (key, icon, title, onPress, last) => (
           <Pressable
-            key={title}
+            key={key}
+            {...SCROLL_ROW_PRESS}
+            hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
             style={({ pressed }) => [
-              styles.notifSystemButton,
-              { borderTopColor: borderColor },
-              !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: borderColor },
-              pressed && { backgroundColor: pressedBg },
+              styles.notifCleanRow,
+              !last && {
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: borderColor,
+              },
+              pressed && { opacity: 0.72 },
             ]}
             onPress={onPress}
             android_ripple={ripple}
           >
-            <Ionicons name={icon} size={20} color={light ? BRAND_BLUE : ACCENT} style={styles.rowIcon} />
-            <Text
-              style={[
-                styles.rowLabel,
-                { color: light ? BRAND_BLUE : ACCENT, flex: 1 },
-              ]}
-            >
-              {title}
-            </Text>
+            <View style={styles.notifCleanIcon}>
+              <Ionicons name={icon} size={22} color={iconTint} />
+            </View>
+            <View style={styles.notifRowTexts}>
+              <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{title}</Text>
+            </View>
             <Ionicons name="chevron-forward" size={20} color={mutedColor} />
           </Pressable>
         );
@@ -1607,90 +1773,154 @@ export function SettingsHelpPage({ navigation, route }) {
           });
         };
 
+        const quickActions = [
+          {
+            key: 'help_chats',
+            icon: 'chatbubbles-outline',
+            title: st(language, 'helpOpenChats'),
+            onPress: openChatsFromHelp,
+          },
+          {
+            key: 'help_faq',
+            icon: 'library-outline',
+            title: st(language, 'helpOpenFaq'),
+            onPress: () => openHelpHttp(language, getHelpFaqUrl()),
+          },
+          {
+            key: 'help_docs',
+            icon: 'book-outline',
+            title: st(language, 'helpOpenDocs'),
+            onPress: () => openHelpHttp(language, getHelpDocsUrl()),
+          },
+          {
+            key: 'help_mail',
+            icon: 'mail-outline',
+            title: st(language, 'helpEmailSupport'),
+            onPress: () =>
+              openSupportMail(
+                language,
+                st(language, 'helpMailSubjectGeneral'),
+                sessionEmail ? `Account / акаунт: ${sessionEmail}` : '',
+              ),
+          },
+          {
+            key: 'help_share',
+            icon: 'share-outline',
+            title: st(language, 'helpShareEmail'),
+            onPress: () => shareSupportEmail(language),
+          },
+          {
+            key: 'help_bug',
+            icon: 'bug-outline',
+            title: st(language, 'helpReportBug'),
+            onPress: () => reportBug(language),
+          },
+        ];
+
+        const moreActions = [
+          {
+            key: 'help_privacy',
+            icon: 'shield-checkmark-outline',
+            title: st(language, 'helpOpenPrivacy'),
+            onPress: () => navigation.navigate('SettingsPrivacy', shell),
+          },
+          {
+            key: 'help_notif',
+            icon: 'notifications-outline',
+            title: st(language, 'helpOpenNotifications'),
+            onPress: () => navigation.navigate('SettingsNotifications', shell),
+          },
+          {
+            key: 'help_geo',
+            icon: 'location-outline',
+            title: st(language, 'helpOpenGeo'),
+            onPress: () => navigation.navigate('SettingsGeo', shell),
+          },
+          {
+            key: 'help_about',
+            icon: 'information-circle-outline',
+            title: st(language, 'helpOpenAbout'),
+            onPress: () => navigation.navigate('SettingsAbout', shell),
+          },
+          {
+            key: 'help_system',
+            icon: 'settings-outline',
+            title: st(language, 'helpOpenSystem'),
+            onPress: () => {
+              Linking.openSettings().catch(() => {});
+            },
+          },
+        ];
+
         return (
-          <View style={light ? styles.lightList : styles.darkListWrap}>
-            <View
-              style={[
-                styles.notifHero,
-                light ? styles.notifHeroLight : styles.notifHeroDark,
-                { borderColor: light ? 'rgba(98, 134, 228, 0.35)' : 'rgba(255,255,255,0.12)' },
-              ]}
-            >
-              <Ionicons name="help-buoy" size={28} color={light ? BRAND_BLUE : ACCENT} style={styles.notifHeroIcon} />
-              <Text style={[styles.notifHeroTitle, { color: labelColor }]}>{st(language, 'helpHeroTitle')}</Text>
-              <Text style={[styles.notifHeroSubtitle, { color: mutedColor }]}>
-                {st(language, 'helpHeroSubtitle')}
-              </Text>
-            </View>
-
-            <Text style={[styles.privacySectionBody, { color: labelColor }]}>
-              {st(language, 'helpSectionTipsTitle')}
-            </Text>
-            <Text style={[styles.privacyParagraph, { color: mutedColor }]}>
-              {st(language, 'helpSectionTipsBody')}
-            </Text>
-
-            <Text style={[styles.privacySectionBody, { color: labelColor }]}>
-              {st(language, 'helpSectionWhenTitle')}
-            </Text>
-            <Text style={[styles.privacyParagraph, { color: mutedColor }]}>
-              {st(language, 'helpSectionWhenBody')}
-            </Text>
-
-            <Text style={[styles.notifSectionLabel, { color: mutedColor }]}>
-              {st(language, 'helpQuickTitle')}
-            </Text>
-            <View style={[styles.notifCard, { borderColor, backgroundColor: light ? '#FFFFFF' : 'rgba(255,255,255,0.05)' }]}>
-              {helpRow('chatbubbles-outline', st(language, 'helpOpenChats'), openChatsFromHelp, false)}
-              {helpRow('library-outline', st(language, 'helpOpenFaq'), () => openHelpHttp(language, getHelpFaqUrl()), false)}
-              {helpRow('book-outline', st(language, 'helpOpenDocs'), () => openHelpHttp(language, getHelpDocsUrl()), false)}
-              {helpRow('mail-outline', st(language, 'helpEmailSupport'), () => {
-                openSupportMail(
-                  language,
-                  st(language, 'helpMailSubjectGeneral'),
-                  sessionEmail ? `Account / акаунт: ${sessionEmail}` : '',
-                );
-              }, false)}
-              {helpRow('share-outline', st(language, 'helpShareEmail'), () => shareSupportEmail(language), false)}
-              {helpRow('bug-outline', st(language, 'helpReportBug'), () => reportBug(language), true)}
-            </View>
-
-            <Text style={[styles.notifSectionLabel, { color: mutedColor }]}>
-              {st(language, 'helpMoreTitle')}
-            </Text>
-            <View style={[styles.notifCard, { borderColor, backgroundColor: light ? '#FFFFFF' : 'rgba(255,255,255,0.05)' }]}>
-              {helpRow('shield-checkmark-outline', st(language, 'helpOpenPrivacy'), () => {
-                navigation.navigate('SettingsPrivacy', shell);
-              }, false)}
-              {helpRow('notifications-outline', st(language, 'helpOpenNotifications'), () => {
-                navigation.navigate('SettingsNotifications', shell);
-              }, false)}
-              {helpRow('location-outline', st(language, 'helpOpenGeo'), () => {
-                navigation.navigate('SettingsGeo', shell);
-              }, false)}
-              {helpRow('information-circle-outline', st(language, 'helpOpenAbout'), () => {
-                navigation.navigate('SettingsAbout', shell);
-              }, false)}
-              {helpRow('settings-outline', st(language, 'helpOpenSystem'), () => {
-                Linking.openSettings().catch(() => {});
-              }, true)}
-            </View>
-
-            <View style={[styles.notifCard, { borderColor, marginTop: 4, backgroundColor: light ? '#FFFFFF' : 'rgba(255,255,255,0.05)' }]}>
-              <View style={[styles.notifRow, styles.notifRowSingle]}>
-                <Ionicons name="person-circle-outline" size={22} color={light ? FIGMA_ICON_MUTED : ROW_ICON_DARK} style={styles.rowIcon} />
-                <View style={styles.notifRowTexts}>
-                  <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                    {st(language, 'helpAccountHint')}
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'helpHeroTitle')}
                   </Text>
-                  <Text style={[styles.notifRowSubtitle, { color: mutedColor }]}>
-                    {sessionEmail || st(language, 'helpGuestHint')}
+                  <Text
+                    style={[styles.notifCleanHeroLead, { color: mutedColor, textAlign: 'left', maxWidth: '100%' }]}
+                  >
+                    {st(language, 'helpHeroSubtitle')}
                   </Text>
                 </View>
               </View>
             </View>
 
-            <Text style={[styles.notifFooter, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>
+              {st(language, 'helpSectionTipsTitle')}
+            </Text>
+            <Text style={[styles.privacyProseBody, { color: mutedColor, marginBottom: 16 }]}>
+              {st(language, 'helpSectionTipsBody')}
+            </Text>
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'helpSectionWhenTitle')}
+            </Text>
+            <Text style={[styles.privacyProseBody, { color: mutedColor, marginBottom: 8 }]}>
+              {st(language, 'helpSectionWhenBody')}
+            </Text>
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'helpQuickTitle')}
+            </Text>
+            {quickActions.map((item, i) =>
+              helpRow(item.key, item.icon, item.title, item.onPress, i === quickActions.length - 1),
+            )}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'helpMoreTitle')}
+            </Text>
+            {moreActions.map((item, i) =>
+              helpRow(item.key, item.icon, item.title, item.onPress, i === moreActions.length - 1),
+            )}
+
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'helpAccountHint')}
+            </Text>
+            <View style={styles.notifCleanRow}>
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name="person-circle-outline" size={22} color={iconTint} />
+              </View>
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>
+                  {st(language, 'helpAccountHint')}
+                </Text>
+                <Text style={[styles.notifCleanSubtitle, { color: mutedColor }]}>
+                  {sessionEmail || st(language, 'helpGuestHint')}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={[styles.notifCleanFootnote, { color: mutedColor, textAlign: 'left' }]}>
               {`${st(language, 'helpFooterNote')} ${getSupportEmail()}`}
             </Text>
           </View>
@@ -1750,137 +1980,162 @@ export function SettingsAboutPage({ navigation, route }) {
 
   return (
     <SettingsSubScreenShell navigation={navigation} route={route} titleKey="info">
-      {({ language, light }) => {
+      {({ language, light, appTheme }) => {
         const labelColor = light ? FIGMA_TEXT : '#FFFFFF';
-        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255,255,255,0.55)';
-        const borderColor = light ? BORDER_LIGHT : BORDER_DARK;
+        const mutedColor = light ? FIGMA_ICON_MUTED : 'rgba(255, 248, 235, 0.86)';
+        const borderColor = light ? BORDER_LIGHT : 'rgba(255, 255, 255, 0.26)';
         const ripple = light ? rippleOnLightSurface : rippleOnDarkSurface;
-        const pressedBg = light ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.04)';
-        const shell = privacyShellParams(route);
-        const cardFill = light ? '#FFFFFF' : 'rgba(255,255,255,0.05)';
+        const shell = privacyShellParams(route, appTheme);
         const iconTint = light ? BRAND_BLUE : ACCENT;
 
-        const aboutRow = (icon, title, onPress, last) => (
+        const aboutRow = (key, icon, title, onPress, last) => (
           <Pressable
-            key={title}
+            key={key}
+            {...SCROLL_ROW_PRESS}
+            hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
             style={({ pressed }) => [
-              styles.notifSystemButton,
-              { borderTopColor: borderColor },
-              !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: borderColor },
-              pressed && { backgroundColor: pressedBg },
+              styles.notifCleanRow,
+              !last && {
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: borderColor,
+              },
+              pressed && { opacity: 0.72 },
             ]}
             onPress={onPress}
             android_ripple={ripple}
           >
-            <Ionicons name={icon} size={20} color={light ? BRAND_BLUE : ACCENT} style={styles.rowIcon} />
-            <Text
-              style={[
-                styles.rowLabel,
-                { color: light ? BRAND_BLUE : ACCENT, flex: 1 },
-              ]}
-            >
-              {title}
-            </Text>
+            <View style={styles.notifCleanIcon}>
+              <Ionicons name={icon} size={22} color={iconTint} />
+            </View>
+            <View style={styles.notifRowTexts}>
+              <Text style={[styles.notifCleanTitle, { color: labelColor }]}>{title}</Text>
+            </View>
             <Ionicons name="chevron-forward" size={20} color={mutedColor} />
           </Pressable>
         );
 
+        const quickActions = [
+          {
+            key: 'guide_help',
+            icon: 'help-circle-outline',
+            title: st(language, 'guideOpenHelp'),
+            onPress: () => navigation.navigate('SettingsHelp', shell),
+          },
+          {
+            key: 'guide_privacy',
+            icon: 'shield-checkmark-outline',
+            title: st(language, 'guideOpenPrivacy'),
+            onPress: () => navigation.navigate('SettingsPrivacy', shell),
+          },
+          {
+            key: 'guide_lang',
+            icon: 'language-outline',
+            title: st(language, 'guideOpenLanguage'),
+            onPress: () => navigation.navigate('SettingsLanguage', shell),
+          },
+          {
+            key: 'guide_plans',
+            icon: 'apps-outline',
+            title: st(language, 'guideOpenPlans'),
+            onPress: () =>
+              navigation.navigate('ChoosePlan', {
+                user: shell.user,
+                language: shell.language,
+                appTheme: shell.appTheme,
+                fromSettings: true,
+                ...(shell.countryId ? { countryId: shell.countryId } : {}),
+              }),
+          },
+          {
+            key: 'guide_web',
+            icon: 'globe-outline',
+            title: st(language, 'guideOpenWebsite'),
+            onPress: () => openAboutHttp(language, getKrainaWebsiteUrl()),
+          },
+          {
+            key: 'guide_faq',
+            icon: 'library-outline',
+            title: st(language, 'guideOpenFaq'),
+            onPress: () => openAboutHttp(language, getHelpFaqUrl()),
+          },
+          {
+            key: 'guide_share',
+            icon: 'share-social-outline',
+            title: st(language, 'guideShareApp'),
+            onPress: () => shareApp(language),
+          },
+        ];
+
         return (
-          <View style={light ? styles.lightList : styles.darkListWrap}>
-            <View
-              style={[
-                styles.notifHero,
-                light ? styles.notifHeroLight : styles.notifHeroDark,
-                { borderColor: light ? 'rgba(98, 134, 228, 0.35)' : 'rgba(255,255,255,0.12)' },
-              ]}
-            >
-              <Ionicons name="book-outline" size={28} color={iconTint} style={styles.notifHeroIcon} />
-              <Text style={[styles.notifHeroTitle, { color: labelColor }]}>{st(language, 'guideHeroTitle')}</Text>
-              <Text style={[styles.notifHeroSubtitle, { color: mutedColor }]}>
-                {st(language, 'guideHeroSubtitle')}
-              </Text>
+          <View style={[light ? styles.lightList : styles.darkListWrap, styles.notifCleanPage]}>
+            <View style={styles.privacyFlatHero}>
+              <View style={styles.privacyFlatHeroRow}>
+                <View style={styles.privacyFlatHeroTexts}>
+                  <Text
+                    style={[
+                      styles.notifCleanHeroTitle,
+                      brandFontHeadBold,
+                      { color: labelColor, textAlign: 'left', maxWidth: '100%' },
+                    ]}
+                  >
+                    {st(language, 'guideHeroTitle')}
+                  </Text>
+                  <Text
+                    style={[styles.notifCleanHeroLead, { color: mutedColor, textAlign: 'left', maxWidth: '100%' }]}
+                  >
+                    {st(language, 'guideHeroSubtitle')}
+                  </Text>
+                </View>
+                <Ionicons name="book-outline" size={32} color={iconTint} style={styles.privacyFlatHeroIconRight} />
+              </View>
             </View>
 
-            <View
-              style={[
-                styles.guideVersionBanner,
-                { borderColor, backgroundColor: cardFill },
-              ]}
-            >
-              <Text style={[styles.guideVersionLabel, { color: mutedColor }]}>
-                {st(language, 'guideVersionLabel')}
-              </Text>
-              <Text style={[styles.guideVersionValue, { color: labelColor }]}>{ver}</Text>
-            </View>
+            <Text style={[styles.notifCleanSection, { color: mutedColor, marginTop: 4 }]}>
+              {st(language, 'guideVersionLabel')}
+            </Text>
+            <Text style={[styles.guideVersionFlat, { color: labelColor }]}>{ver}</Text>
 
             {GUIDE_CHAPTERS.map((ch) => (
-              <View
-                key={ch.titleKey}
-                style={[
-                  styles.guideChapterCard,
-                  { borderColor, backgroundColor: cardFill },
-                ]}
-              >
-                <View style={[styles.guideIconCircle, light ? styles.notifIconWrapLight : styles.notifIconWrapDark]}>
+              <View key={ch.titleKey} style={styles.guideFlatChapter}>
+                <View style={styles.notifCleanIcon}>
                   <Ionicons name={ch.icon} size={22} color={iconTint} />
                 </View>
-                <View style={styles.guideChapterTextCol}>
-                  <Text style={[styles.guideChapterTitle, { color: labelColor }]}>
+                <View style={styles.guideFlatChapterTexts}>
+                  <Text style={[styles.privacyProseTitle, { color: labelColor }]}>
                     {st(language, ch.titleKey)}
                   </Text>
-                  <Text style={[styles.guideChapterBody, { color: mutedColor }]}>
+                  <Text style={[styles.privacyProseBody, { color: mutedColor }]}>
                     {st(language, ch.bodyKey)}
                   </Text>
                 </View>
               </View>
             ))}
 
-            <Text style={[styles.notifSectionLabel, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
               {st(language, 'guideQuickTitle')}
             </Text>
-            <View style={[styles.notifCard, { borderColor, backgroundColor: cardFill }]}>
-              {aboutRow('help-circle-outline', st(language, 'guideOpenHelp'), () => {
-                navigation.navigate('SettingsHelp', shell);
-              }, false)}
-              {aboutRow('shield-checkmark-outline', st(language, 'guideOpenPrivacy'), () => {
-                navigation.navigate('SettingsPrivacy', shell);
-              }, false)}
-              {aboutRow('language-outline', st(language, 'guideOpenLanguage'), () => {
-                navigation.navigate('SettingsLanguage', shell);
-              }, false)}
-              {aboutRow('apps-outline', st(language, 'guideOpenPlans'), () => {
-                navigation.navigate('ChoosePlan', {
-                  user: shell.user,
-                  language: shell.language,
-                  appTheme: shell.appTheme,
-                  fromSettings: true,
-                  ...(shell.countryId ? { countryId: shell.countryId } : {}),
-                });
-              }, false)}
-              {aboutRow('globe-outline', st(language, 'guideOpenWebsite'), () => {
-                openAboutHttp(language, getKrainaWebsiteUrl());
-              }, false)}
-              {aboutRow('library-outline', st(language, 'guideOpenFaq'), () => {
-                openAboutHttp(language, getHelpFaqUrl());
-              }, false)}
-              {aboutRow('share-social-outline', st(language, 'guideShareApp'), () => shareApp(language), true)}
-            </View>
+            {quickActions.map((item, i) =>
+              aboutRow(item.key, item.icon, item.title, item.onPress, i === quickActions.length - 1),
+            )}
 
-            <View style={[styles.notifCard, { borderColor, marginTop: 4, backgroundColor: cardFill }]}>
-              <View style={[styles.notifRow, styles.notifRowSingle]}>
-                <Ionicons name="person-circle-outline" size={22} color={light ? FIGMA_ICON_MUTED : ROW_ICON_DARK} style={styles.rowIcon} />
-                <View style={styles.notifRowTexts}>
-                  <Text style={[styles.notifRowTitle, { color: labelColor }]}>
-                    {st(language, 'guideAccountHint')}
-                  </Text>
-                  <Text style={[styles.notifRowSubtitle, { color: mutedColor }]}>
-                    {sessionEmail || st(language, 'guideGuestHint')}
-                  </Text>
-                </View>
+            <Text style={[styles.notifCleanSection, { color: mutedColor }]}>
+              {st(language, 'guideAccountHint')}
+            </Text>
+            <View style={styles.notifCleanRow}>
+              <View style={styles.notifCleanIcon}>
+                <Ionicons name="person-circle-outline" size={22} color={iconTint} />
+              </View>
+              <View style={styles.notifRowTexts}>
+                <Text style={[styles.notifCleanTitle, { color: labelColor }]}>
+                  {st(language, 'guideAccountHint')}
+                </Text>
+                <Text style={[styles.notifCleanSubtitle, { color: mutedColor }]}>
+                  {sessionEmail || st(language, 'guideGuestHint')}
+                </Text>
               </View>
             </View>
 
-            <Text style={[styles.notifFooter, { color: mutedColor }]}>
+            <Text style={[styles.notifCleanFootnote, { color: mutedColor, textAlign: 'left' }]}>
               {st(language, 'guideFooterNote')}
             </Text>
           </View>
@@ -2114,6 +2369,108 @@ const styles = StyleSheet.create({
   notifRowDimmed: {
     opacity: 0.48,
   },
+  notifCleanPage: {
+    paddingHorizontal: 20,
+  },
+  /** Трохи більше повітря зверху (екрани з hero). */
+  notifCleanPageTight: {
+    paddingTop: 12,
+  },
+  /** Компактніший hero на екрані сповіщень. */
+  notifHeroTitleTight: {
+    fontSize: 24,
+    lineHeight: 30,
+    marginBottom: 8,
+    maxWidth: 340,
+  },
+  notifHeroLeadTight: {
+    fontSize: 14,
+    lineHeight: 20,
+    maxWidth: 340,
+  },
+  /** Тільки екран гео: більше повітря зверху. */
+  geoCleanPage: {
+    paddingTop: 12,
+  },
+  /** Тільки екран гео: компактніший hero заголовок/опис. */
+  geoHeroTitleTight: {
+    fontSize: 24,
+    lineHeight: 30,
+    marginBottom: 8,
+    maxWidth: 340,
+  },
+  geoHeroLeadTight: {
+    fontSize: 14,
+    lineHeight: 20,
+    maxWidth: 340,
+  },
+  notifCleanHeroTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    marginBottom: 10,
+    maxWidth: 320,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  notifCleanHeroLead: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 320,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  notifCleanSection: {
+    marginTop: 18,
+    marginBottom: 6,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.35,
+    textTransform: 'uppercase',
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  notifCleanRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 58,
+    paddingVertical: 11,
+    gap: 12,
+  },
+  notifCleanIcon: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifCleanTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: FIGMA_LSP,
+    marginBottom: 2,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  notifCleanSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: FIGMA_LSP,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  notifCleanFootnote: {
+    marginTop: 28,
+    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    opacity: 0.78,
+    paddingHorizontal: 6,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  geoCleanStatus: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
   notifIconWrap: {
     width: 40,
     height: 40,
@@ -2194,6 +2551,41 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
+  privacyFlatHero: {
+    paddingTop: 6,
+    paddingBottom: 20,
+    alignItems: 'flex-start',
+  },
+  privacyFlatHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+    width: '100%',
+  },
+  privacyFlatHeroTexts: {
+    flex: 1,
+    minWidth: 0,
+  },
+  privacyFlatHeroIconRight: {
+    flexShrink: 0,
+    marginTop: 4,
+  },
+  privacyProseBlock: {
+    marginBottom: 16,
+  },
+  privacyProseTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: FIGMA_LSP,
+    marginBottom: 6,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  privacyProseBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    letterSpacing: FIGMA_LSP,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
   privacyRingSectionTitle: {
     fontSize: 15,
     fontWeight: '700',
@@ -2222,6 +2614,23 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     letterSpacing: FIGMA_LSP,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  guideVersionFlat: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    marginBottom: 20,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  guideFlatChapter: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    gap: 12,
+  },
+  guideFlatChapterTexts: {
+    flex: 1,
+    minWidth: 0,
   },
   guideVersionBanner: {
     marginHorizontal: 20,

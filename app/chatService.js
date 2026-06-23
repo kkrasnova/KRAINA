@@ -11,6 +11,75 @@ import { hasBackendSession } from './backendAuthApi';
 const STORAGE_PREFIX = '@kraina_messenger_v1_';
 const CLOUD_DOC = 'messengerState';
 
+// ─── Migration system ─────────────────────────────────────────────────────────
+// Bump this when a new migration is added. Each migration runs once per user.
+const MIGRATION_VERSION_KEY = '@kraina_messenger_migration_v2';
+const CURRENT_MIGRATION_VERSION = 2;
+
+/**
+ * Run any pending async-storage-level migrations.
+ * Call this once per app cold-start (e.g. from appBootstrap or App.js).
+ *
+ * Migration history:
+ *  v2 — Remove leftover demo/placeholder threads from old builds
+ */
+export async function runChatMigrations() {
+  try {
+    const storedVer = parseInt((await AsyncStorage.getItem(MIGRATION_VERSION_KEY)) || '0', 10);
+    if (storedVer >= CURRENT_MIGRATION_VERSION) return;
+
+    if (__DEV__) console.log('[chatService] running migrations', { from: storedVer, to: CURRENT_MIGRATION_VERSION });
+
+    // Migration to v2: strip demo threads from ALL user keys
+    if (storedVer < 2) {
+      await migrateStripDemoThreads();
+    }
+
+    await AsyncStorage.setItem(MIGRATION_VERSION_KEY, String(CURRENT_MIGRATION_VERSION));
+    if (__DEV__) console.log('[chatService] migrations complete');
+  } catch (e) {
+    if (__DEV__) console.warn('[chatService] migration error', e?.message);
+  }
+}
+
+/** Find all messenger state keys in AsyncStorage and strip demo threads from them. */
+async function migrateStripDemoThreads() {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const messengerKeys = allKeys.filter((k) => k.startsWith(STORAGE_PREFIX));
+    if (!messengerKeys.length) return;
+
+    if (__DEV__) console.log('[chatService] migrateStripDemoThreads: found', messengerKeys.length, 'state(s) to check');
+
+    let cleanedCount = 0;
+    for (const key of messengerKeys) {
+      try {
+        const raw = await AsyncStorage.getItem(key);
+        if (!raw) continue;
+        const state = JSON.parse(raw);
+        if (!state || !Array.isArray(state.threads)) continue;
+
+        const before = state.threads.length;
+        state.threads = state.threads.filter((t) => !isDemoThread(t));
+        const removed = before - state.threads.length;
+        if (removed > 0) {
+          state.updatedAt = Date.now();
+          state.migratedFromV1 = true;
+          await AsyncStorage.setItem(key, JSON.stringify(state));
+          cleanedCount += removed;
+          if (__DEV__) console.log('[chatService] cleaned', removed, 'demo threads from', key);
+        }
+      } catch {
+        // skip corrupt entries
+      }
+    }
+
+    if (__DEV__) console.log('[chatService] migrateStripDemoThreads: total demo threads removed:', cleanedCount);
+  } catch (e) {
+    if (__DEV__) console.warn('[chatService] migrateStripDemoThreads error', e?.message);
+  }
+}
+
 function storageKey(userKey) {
   return `${STORAGE_PREFIX}${userKey}`;
 }
@@ -29,6 +98,23 @@ function now() {
 
 function uid() {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+const DEMO_THREAD_ID_PREFIX = 'th_demo_';
+
+/** Локальні демо-чати з макету — не реальні користувачі. */
+export function isDemoThread(thread) {
+  if (!thread) return false;
+  const id = String(thread.id || '');
+  if (id.startsWith(DEMO_THREAD_ID_PREFIX)) return true;
+  const peerKey = String(thread.peerKey || '');
+  if (peerKey.startsWith('peer_')) return true;
+  if (peerKey.startsWith('friend_')) return true;
+  return false;
+}
+
+function stripDemoThreads(threads) {
+  return (threads || []).filter((t) => !isDemoThread(t));
 }
 
 async function readRaw(userKey) {
@@ -85,7 +171,6 @@ async function cloudPush(uid, state) {
 export async function loadMessengerState(user) {
   const key = chatUserKey(user);
   let local = await readRaw(key);
-  const rawMissing = local == null;
   const uidCloud = auth?.currentUser?.uid;
 
   if (uidCloud) {
@@ -102,6 +187,14 @@ export async function loadMessengerState(user) {
     local = { version: 1, updatedAt: now(), threads: [] };
   }
   if (!Array.isArray(local.threads)) local.threads = [];
+
+  const cleaned = stripDemoThreads(local.threads);
+  if (cleaned.length !== local.threads.length) {
+    local.threads = cleaned;
+    local.updatedAt = now();
+    await writeRaw(key, local);
+    if (uidCloud) void cloudPush(uidCloud, local);
+  }
 
   return local;
 }

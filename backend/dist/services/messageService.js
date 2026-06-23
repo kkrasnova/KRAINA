@@ -1,6 +1,9 @@
 import { pool } from '../db/pool.js';
 import { HttpError } from '../errors/HttpError.js';
 import { isMutualFollow, resolveUserIdByUsername } from './socialService.js';
+import { sendChatMessagePush } from './chatPushService.js';
+import { notifyNewMessage } from './wsService.js';
+import { logger } from '../logger.js';
 function orderedPair(a, b) {
     return a < b ? [a, b] : [b, a];
 }
@@ -94,7 +97,7 @@ export async function listThreads(meId, folder, limit = 50) {
      ),
      last_msg AS (
        SELECT DISTINCT ON (m.thread_id)
-         m.thread_id, m.content, m.sent_at
+         m.thread_id, m.content, m.sent_at, m.sender_id, m.is_read
        FROM messages m
        INNER JOIN base b ON b.id = m.thread_id
        ORDER BY m.thread_id, m.sent_at DESC
@@ -107,6 +110,8 @@ export async function listThreads(meId, folder, limit = 50) {
             b.pending_for_user_id::text AS pending_for,
             lm.content AS last_content,
             lm.sent_at AS last_sent_at,
+            lm.sender_id::text AS last_sender_id,
+            lm.is_read AS last_is_read,
             (SELECT COUNT(*)::int FROM messages m2
              WHERE m2.thread_id = b.id AND m2.receiver_id = $1::uuid AND m2.is_read = false) AS unread_count
      FROM base b
@@ -129,6 +134,8 @@ export async function listThreads(meId, folder, limit = 50) {
             pending_for_peer: row.pending_for === row.peer_id,
             last_content: row.last_content,
             last_sent_at: row.last_sent_at ? new Date(row.last_sent_at).toISOString() : null,
+            last_from_me: String(row.last_sender_id) === meId,
+            last_is_read: Boolean(row.last_is_read),
             unread_count: row.unread_count,
             folder: pendingForMe ? 'requests' : 'inbox',
         };
@@ -191,6 +198,23 @@ export async function sendTextMessage(threadId, senderId, content) {
         await client.query(`UPDATE dm_threads SET updated_at = now() WHERE id = $1::uuid`, [threadId]);
         await client.query('COMMIT');
         const m = ins.rows[0];
+        // Fire-and-forget push notification to the receiver
+        const senderName = await resolveSenderName(senderId);
+        sendChatMessagePush(receiverId, {
+            threadId,
+            senderName,
+            senderId,
+            content: trimmed,
+        }).catch((pushErr) => {
+            logger.warn('[messageService] Failed to send push', pushErr instanceof Error ? pushErr.message : pushErr);
+        });
+        // Real-time WebSocket notification — include sender name for in-app toast
+        try {
+            notifyNewMessage(senderId, receiverId, threadId, { ...m, sender_name: senderName });
+        }
+        catch (wsErr) {
+            logger.warn('[messageService] Failed to send ws notification', wsErr instanceof Error ? wsErr.message : String(wsErr));
+        }
         return {
             id: String(m.id),
             sender_id: String(m.sender_id),
@@ -222,6 +246,20 @@ export async function acceptThread(threadId, meId) {
 export async function clearThreadMessages(threadId, meId) {
     await assertParticipant(threadId, meId);
     await pool.query(`DELETE FROM messages WHERE thread_id = $1::uuid`, [threadId]);
+}
+async function resolveSenderName(senderId) {
+    try {
+        const r = await pool.query(`SELECT COALESCE(display_name, username) AS name FROM profiles WHERE user_id = $1::uuid`, [senderId]);
+        if (r.rowCount) {
+            const name = r.rows[0].name;
+            if (name && String(name).trim())
+                return String(name).trim();
+        }
+    }
+    catch {
+        /* best-effort */
+    }
+    return 'KRAЇNA';
 }
 export async function removeThread(threadId, meId) {
     await assertParticipant(threadId, meId);

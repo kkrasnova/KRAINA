@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { HttpError } from '../errors/HttpError.js';
 import { pool } from '../db/pool.js';
 import { getStorageProvider } from '../storage/index.js';
+import { sendPostLikePush, sendPostCommentPush, sendCommentLikePush } from './chatPushService.js';
+import { logger } from '../logger.js';
 function extFromMime(mimetype) {
     if (mimetype === 'image/jpeg')
         return 'jpg';
@@ -15,6 +17,8 @@ function extFromMime(mimetype) {
         return 'mov';
     if (mimetype === 'audio/mp4' || mimetype === 'audio/m4a' || mimetype === 'audio/x-m4a')
         return 'm4a';
+    if (mimetype === 'audio/x-caf')
+        return 'caf';
     if (mimetype === 'audio/aac')
         return 'aac';
     if (mimetype === 'audio/mpeg')
@@ -35,6 +39,8 @@ export async function saveFeedMediaFile(file) {
             mimetype = 'audio/mpeg';
         else if (/\.wav$/i.test(originalname))
             mimetype = 'audio/wav';
+        else if (/\.caf$/i.test(originalname))
+            mimetype = 'audio/x-caf';
     }
     const allowed = new Set([
         'image/jpeg',
@@ -49,6 +55,7 @@ export async function saveFeedMediaFile(file) {
         'audio/mpeg',
         'audio/wav',
         'audio/x-wav',
+        'audio/x-caf',
     ]);
     if (!allowed.has(mimetype)) {
         throw new HttpError(400, 'invalid_format');
@@ -124,6 +131,7 @@ function mapPostRow(row, author) {
         liked_by_viewer: Boolean(row.liked_by_viewer),
         reposted_by_viewer: Boolean(row.reposted_by_viewer),
         created_at: new Date(String(row.created_at)).toISOString(),
+        archived_at: row.archived_at == null ? null : new Date(String(row.archived_at)).toISOString(),
     };
 }
 async function loadAuthor(userId) {
@@ -133,6 +141,21 @@ async function loadAuthor(userId) {
     }
     const row = r.rows[0];
     return { username: row.username, avatar_url: row.avatar_url };
+}
+/** Best-effort username resolver for push notifications — never throws. */
+async function resolveProfileUsername(userId) {
+    try {
+        const r = await pool.query(`SELECT username FROM profiles WHERE user_id = $1::uuid`, [userId]);
+        if (r.rowCount) {
+            const name = String(r.rows[0].username);
+            if (name.trim())
+                return name.trim();
+        }
+    }
+    catch {
+        /* best-effort */
+    }
+    return 'KRAЇNA';
 }
 // TODO(cursor-pagination): replace limit-only with (created_at DESC, id DESC) composite cursor.
 // Add: before_created_at?: string, before_id?: string params.
@@ -349,10 +372,30 @@ export async function togglePostLike(postId, viewerId) {
      SELECT
        EXISTS(SELECT 1 FROM inserted) AS liked,
        COALESCE((SELECT likes_count FROM updated), 0)::int AS likes_count`, [postId, viewerId]);
-    return {
+    const result = {
         liked: Boolean(out.rows[0]?.liked),
         likes_count: Number(out.rows[0]?.likes_count) || 0,
     };
+    // Fire-and-forget push to post author on like (not unlike)
+    if (result.liked) {
+        Promise.all([
+            pool.query(`SELECT user_id FROM posts WHERE id = $1::uuid`, [postId]).then(r => {
+                if (r.rowCount) {
+                    const authorId = String(r.rows[0].user_id);
+                    if (authorId !== viewerId) {
+                        resolveProfileUsername(viewerId).then(name => {
+                            sendPostLikePush(authorId, {
+                                likerName: name,
+                                likerId: viewerId,
+                                postId,
+                            }).catch(e => logger.warn('[feedPush] togglePostLike', e instanceof Error ? e.message : e));
+                        }).catch(() => { });
+                    }
+                }
+            }).catch(() => { }),
+        ]).catch(() => { });
+    }
+    return result;
 }
 export async function listPostComments(postId, viewerId, limit = 80) {
     const allowed = await canViewerAccessPost(postId, viewerId);
@@ -423,7 +466,7 @@ export async function addPostComment(postId, viewerId, content, parentCommentId 
         await client.query(`UPDATE posts SET comments_count = comments_count + 1 WHERE id = $1::uuid`, [postId]);
         await client.query('COMMIT');
         const row = ins.rows[0];
-        return {
+        const comment = {
             id: String(row.id),
             post_id: String(row.post_id),
             user_id: String(row.user_id),
@@ -436,6 +479,22 @@ export async function addPostComment(postId, viewerId, content, parentCommentId 
             deleted: false,
             created_at: new Date(String(row.created_at)).toISOString(),
         };
+        // Fire-and-forget push to post author on new comment
+        pool.query(`SELECT user_id FROM posts WHERE id = $1::uuid`, [postId]).then(r => {
+            if (r.rowCount) {
+                const authorId = String(r.rows[0].user_id);
+                if (authorId !== viewerId) {
+                    sendPostCommentPush(authorId, {
+                        commenterName: me.username,
+                        commenterId: viewerId,
+                        postId,
+                        commentId: comment.id,
+                        commentPreview: text,
+                    }).catch(e => logger.warn('[feedPush] addPostComment', e instanceof Error ? e.message : e));
+                }
+            }
+        }).catch(() => { });
+        return comment;
     }
     catch (e) {
         // .catch() absorbs any ROLLBACK error (e.g. broken connection) so the
@@ -448,10 +507,16 @@ export async function addPostComment(postId, viewerId, content, parentCommentId 
     }
 }
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
+const STORY_DAILY_LIMIT = 20;
 export async function createStory(userId, media_url, media_kind, caption) {
     const cap = caption?.trim() || '';
     if (cap.length > 500) {
         throw new HttpError(400, 'caption_too_long');
+    }
+    const daily = await pool.query(`SELECT COUNT(*)::int AS c FROM stories
+     WHERE user_id = $1::uuid AND created_at > now() - interval '24 hours'`, [userId]);
+    if (Number(daily.rows[0]?.c) >= STORY_DAILY_LIMIT) {
+        throw new HttpError(429, 'story_daily_limit');
     }
     const expires = new Date(Date.now() + STORY_TTL_MS);
     const r = await pool.query(`INSERT INTO stories (user_id, media_url, media_kind, caption, expires_at)
@@ -478,7 +543,17 @@ export async function listActiveStoriesTray(viewerId) {
         p.avatar_url,
         p.display_name,
         (SELECT COUNT(*)::int FROM story_views v WHERE v.story_id = s.id) AS view_count,
-        EXISTS (SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $1) AS seen_by_viewer
+        EXISTS (SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $1) AS seen_by_viewer,
+        (SELECT COUNT(*)::int FROM stories s2
+          WHERE s2.user_id = s.user_id AND s2.expires_at > now()) AS story_count,
+        EXISTS (
+          SELECT 1 FROM stories s2
+          WHERE s2.user_id = s.user_id AND s2.expires_at > now()
+            AND NOT EXISTS (
+              SELECT 1 FROM story_views v
+              WHERE v.story_id = s2.id AND v.viewer_id = $1
+            )
+        ) AS has_unviewed
      FROM stories s
      JOIN profiles p ON p.user_id = s.user_id
      JOIN users u ON u.id = s.user_id
@@ -508,6 +583,27 @@ export async function listActiveStoriesTray(viewerId) {
             : String(row.display_name).trim(),
         view_count: Number(row.view_count) || 0,
         seen_by_viewer: Boolean(row.seen_by_viewer),
+        story_count: Number(row.story_count) || 0,
+        has_unviewed: Boolean(row.has_unviewed),
+    }));
+}
+export async function listMyArchivedStories(userId, limit = 60) {
+    const r = await pool.query(`SELECT s.id, s.user_id, s.media_url, s.media_kind, s.caption, s.created_at, s.expires_at,
+        (SELECT COUNT(*)::int FROM story_views v WHERE v.story_id = s.id) AS view_count
+     FROM stories s
+     WHERE s.user_id = $1::uuid AND s.expires_at <= now()
+     ORDER BY s.created_at DESC
+     LIMIT $2`, [userId, Math.min(80, Math.max(1, limit))]);
+    return r.rows.map((row) => ({
+        id: String(row.id),
+        user_id: String(row.user_id),
+        media_url: String(row.media_url),
+        media_kind: String(row.media_kind),
+        caption: row.caption == null ? '' : String(row.caption),
+        created_at: new Date(String(row.created_at)).toISOString(),
+        expires_at: new Date(String(row.expires_at)).toISOString(),
+        view_count: Number(row.view_count) || 0,
+        expired: true,
     }));
 }
 export async function listActiveStoriesForUser(authorId, viewerId) {
@@ -689,10 +785,32 @@ export async function toggleCommentLike(commentId, viewerId) {
      SELECT
        EXISTS(SELECT 1 FROM inserted) AS liked,
        COALESCE((SELECT likes_count FROM updated), 0)::int AS likes_count`, [commentId, viewerId]);
-    return {
+    const result = {
         liked: Boolean(out.rows[0]?.liked),
         likes_count: Number(out.rows[0]?.likes_count) || 0,
     };
+    // Fire-and-forget push to comment author on like (not unlike)
+    if (result.liked) {
+        Promise.all([
+            pool.query(`SELECT user_id, post_id::text AS post_id FROM comments WHERE id = $1::uuid`, [commentId]).then(r => {
+                if (r.rowCount) {
+                    const authorId = String(r.rows[0].user_id);
+                    const cPostId = String(r.rows[0].post_id);
+                    if (authorId !== viewerId) {
+                        resolveProfileUsername(viewerId).then(name => {
+                            sendCommentLikePush(authorId, {
+                                likerName: name,
+                                likerId: viewerId,
+                                commentId,
+                                postId: cPostId,
+                            }).catch(e => logger.warn('[feedPush] toggleCommentLike', e instanceof Error ? e.message : e));
+                        }).catch(() => { });
+                    }
+                }
+            }).catch(() => { }),
+        ]).catch(() => { });
+    }
+    return result;
 }
 export async function deletePostCommentByAuthor(commentId, viewerId) {
     const cr = await pool.query(`SELECT c.id, c.post_id, c.user_id, p.user_id AS post_author_id

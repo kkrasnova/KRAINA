@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,16 +13,17 @@ import {
   RefreshControl,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import {
   getProfileDisplayName,
   getProfileCity,
@@ -30,37 +31,76 @@ import {
   getProfileBirthDate,
   getProfileBirthPublic,
   getProfileAvatarLocalUri,
-  getFriends,
+  clearProfileAvatarLocalUri,
   getSavedRoutes,
   KRAINA_SAVED_ROUTES_CHANGED,
 } from './profileStorage';
-import { getSavedLandmarks, KRAINA_SAVED_LANDMARKS_CHANGED } from './savedLandmarksStorage';
+import { getSavedLandmarks, KRAINA_SAVED_LANDMARKS_CHANGED, toggleSavedLandmark } from './savedLandmarksStorage';
 import { resolveSavedLandmarkRow } from './savedLandmarksResolve';
-import { landmarkTitle, regionTitle } from './routeRegionsData';
-import { landmarkResultExtrasFromResolvedLandmark } from './homeLandmarkResultParams';
-import { dominantVisitCategoryFromLandmark } from './visitStatsStorage';
+import { regionTitle } from './routeRegionsData';
+import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
+import { resolveHomeLandmarkDistKm } from './homeLandmarkDisplay';
+import HomeLandmarkCard, {
+  HOME_LANDMARK_CARD_DARK,
+  HOME_LANDMARK_CARD_BORDER_DARK,
+  HOME_LANDMARK_CARD_BORDER_LIGHT,
+  HOME_LANDMARK_CARD_MUTED_DARK,
+  HOME_LANDMARK_CARD_MUTED_LIGHT,
+} from './HomeLandmarkCard';
+import { runAfterInteractions } from './runAfterInteractions';
+
+/** Lazy require — уникаємо циклічного import з screenLoaders (там же lazy-load ProfilePage). */
+function prefetchProfileScreens(user) {
+  try {
+    require('./screenLoaders').prefetchProfileBundle(user);
+  } catch {
+    /* optional */
+  }
+}
+
+function prefetchDiscoverScreen() {
+  try {
+    require('./screenLoaders').prefetchDiscoverBundle();
+  } catch {
+    /* optional */
+  }
+}
 import {
   hasFeedApiToken,
-  feedListMyPosts,
-  feedListStoriesTray,
-  feedListUserPosts,
-  feedListStoriesForUser,
 } from './feedApi';
-import { getLatestUserStory, getUserFeedPosts } from './feedLocalStorage';
+import { getUserFeedPosts } from './feedLocalStorage';
 import { getVisitLog } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
-import ProfileGameLevelCard from './ProfileGameLevelCard';
+import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
+import { getPhysicalVisitBonusXpTotal } from './physicalVisitRewards';
+import ProfileLevelBadge from './ProfileLevelBadge';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
-import { hasSocialApi, socialListIncomingRequests } from './socialApi';
-import { socialListMutuals } from './messageApi';
+import { KRAINA_PROFILE_ME_UPDATED, PROFILE_ME_SYNC_TTL_MS, refreshSocialProfileCounts } from './profileMeSync';
+import { KRAINA_SOCIAL_GRAPH_CHANGED } from './socialFollowSyncEvents';
+import { ensureBackendSession } from './syncBackendSessionBridge';
+import { KRAINA_PROFILE_AVATAR_CHANGED } from './profileStorage';
 import { useAuthStore } from './auth/authStore';
-import ProfileVisitStats from './ProfileVisitStats';
 import ProfileSavedRouteCard from './ProfileSavedRouteCard';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
-import { resolveFeedMediaUrl } from './feedMediaUrl';
+import {
+  mapLocalPostsToGrid,
+  mergeGridPostRows,
+  localPostToGridRow,
+} from './profilePostsGrid';
+import {
+  PROFILE_POSTS_CACHE_UPDATED,
+  fetchProfilePostsPayload,
+  profilePostsCacheKey,
+  readProfilePostsCache,
+  warmProfilePostsCache,
+  writeProfilePostsCache,
+} from './profilePostsCache';
+import ProfileAvatarCircle, { resolveProfileAvatarUri } from './ProfileAvatarCircle';
+import { storyAvatarRingStyle } from './storyTrayUtils';
 import { RenderProfiler } from './performanceMetrics';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
 
 /** Вирівнювання «+» з `FeedPage` / `FeedHeader`: у `AppTopBar.leftSlotWrap` є paddingLeft 16, у стрічці — лише 18. */
 const PROFILE_ADD_LEFT_NUDGE = -16;
@@ -79,49 +119,76 @@ function formatBirthLabel(iso, lang) {
   if (lang === 'uk') return `${d}.${m}.${y}`;
   return `${m}/${d}/${y}`;
 }
+
 const COLS = 3;
 const W = Dimensions.get('window').width;
 const CELL = (W - POST_GRID_EDGE * 2 - POST_GRID_GAP * (COLS - 1)) / COLS;
 
-function selfStoryRing(row, _viewerId, isLight) {
-  if (!row) return { borderWidth: 0 };
-  const bright = (Number(row.view_count) || 0) === 0;
-  if (isLight) {
-    return { borderWidth: 3, borderColor: bright ? ACCENT_BLUE : 'rgba(2, 18, 235, 0.38)' };
+/** Вкладки профілю — лише іконки; підписи в accessibilityLabel і в контенті вкладки. */
+const PROFILE_TABS = [
+  { id: 'posts', icon: 'grid-outline', iconActive: 'grid', labelKey: 'myPosts' },
+  { id: 'routes', icon: 'map-outline', iconActive: 'map', labelKey: 'savedRoutes' },
+  { id: 'stats', icon: 'bar-chart-outline', iconActive: 'bar-chart', labelKey: 'visitsStats' },
+];
+
+let ProfileVisitStatsComponent = null;
+function getProfileVisitStats() {
+  if (!ProfileVisitStatsComponent) {
+    ProfileVisitStatsComponent = require('./ProfileVisitStats').default;
   }
-  return { borderWidth: 3, borderColor: bright ? ACCENT_LEMON : 'rgba(225, 255, 0, 0.45)' };
+  return ProfileVisitStatsComponent;
 }
 
-export default function ProfilePage({ navigation, route }) {
+function readCachedProfileFields() {
+  const pm = useAuthStore.getState().profileMe?.profile;
+  if (!pm) return {};
+  const out = {};
+  if (pm.display_name != null && String(pm.display_name).trim()) {
+    out.name = String(pm.display_name).trim();
+  }
+  if (pm.location_label != null && String(pm.location_label).trim()) {
+    out.city = String(pm.location_label).trim();
+  }
+  if (pm.bio != null && String(pm.bio).trim()) {
+    out.bio = String(pm.bio).trim();
+  }
+  if (Number.isFinite(Number(pm.followers_count))) {
+    out.followersCount = Number(pm.followers_count);
+  }
+  if (Number.isFinite(Number(pm.following_count))) {
+    out.followingCount = Number(pm.following_count);
+  }
+  return out;
+}
+
+export default function ProfilePage({ navigation, route, isTabActive = true }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => {
-      cancelled = true;
-      sub.remove();
-    };
-  }, []);
-  const [tab, setTab] = useState('posts');
-  const [name, setName] = useState('');
-  const [city, setCity] = useState('');
-  const [bioPreview, setBioPreview] = useState('');
+  const { appTheme, isLight, screenBg, savedAppTheme } = useAppTheme(route?.params?.appTheme, route);
+  const [tab, setTab] = useState(() =>
+    route?.params?.initialTab === 'routes'
+      ? 'routes'
+      : route?.params?.initialTab === 'stats'
+        ? 'stats'
+        : 'posts',
+  );
+  const [statsMounted, setStatsMounted] = useState(
+    () => route?.params?.initialTab === 'stats',
+  );
+  const cachedProfile = readCachedProfileFields();
+  const [name, setName] = useState(cachedProfile.name || '');
+  const [city, setCity] = useState(cachedProfile.city || '');
+  const [bioPreview, setBioPreview] = useState(cachedProfile.bio || '');
   const [birthIso, setBirthIso] = useState(null);
-  const [friendsCount, setFriendsCount] = useState(0);
-  const [inviteCount, setInviteCount] = useState(0);
+  const [followersCount, setFollowersCount] = useState(cachedProfile.followersCount ?? 0);
+  const [followingCount, setFollowingCount] = useState(cachedProfile.followingCount ?? 0);
   const [saved, setSaved] = useState([]);
   const [savedPlaces, setSavedPlaces] = useState([]);
+  const [userCoords, setUserCoords] = useState(null);
   const [gridPosts, setGridPosts] = useState([]);
-  const [selfStory, setSelfStory] = useState(null);
+  const [selfStories, setSelfStories] = useState([]);
+  const [selfStoryHasUnviewed, setSelfStoryHasUnviewed] = useState(false);
   const [localAvatarUri, setLocalAvatarUri] = useState('');
   const [gamify, setGamify] = useState(() => computeGamificationFromVisits([]));
   const [refreshing, setRefreshing] = useState(false);
@@ -132,7 +199,7 @@ export default function ProfilePage({ navigation, route }) {
     user,
     language,
     ...(countryId != null ? { countryId } : {}),
-    appTheme,
+    appTheme: savedAppTheme,
   };
 
   const profileAvatarUrlRaw = useAuthStore((s) => s.profileMe?.profile?.avatar_url);
@@ -140,15 +207,27 @@ export default function ProfilePage({ navigation, route }) {
   const profileUsername = useAuthStore((s) => s.profileMe?.profile?.username);
   const profileMeLevel = useAuthStore((s) => s.profileMe?.profile?.level);
   const profileMeXp = useAuthStore((s) => s.profileMe?.profile?.xp_points);
+  const profileMeFollowers = useAuthStore((s) => s.profileMe?.profile?.followers_count);
+  const profileMeFollowing = useAuthStore((s) => s.profileMe?.profile?.following_count);
   const accessToken = useAuthStore((s) => s.accessToken);
   const authUserId = useAuthStore((s) => s.user?.id);
   const authUser = useAuthStore((s) => s.user);
 
+  /** Вкладка профілю в HomeTabPager — завжди «свій», якщо явно не передали чужий profileUserId. */
   const isOwnProfile =
     route?.params?.isOtherUserProfile === true
       ? false
-      : !user?.id || !authUserId || String(authUserId) === String(user.id);
-  const profileAvatarUrl = resolveFeedMediaUrl(profileAvatarUrlRaw || '');
+      : route?.params?.profileUserId != null
+        ? String(route.params.profileUserId) ===
+          String(authUserId || profileMeUserId || user?.id || '')
+        : true;
+  const profileAvatarUrl = resolveProfileAvatarUri({
+    isOwnProfile,
+    accessToken,
+    profileAvatarUrlRaw,
+    localAvatarUri,
+    userAvatar: user?.avatar,
+  });
 
   const ownServerGamify =
     isOwnProfile &&
@@ -164,27 +243,138 @@ export default function ProfilePage({ navigation, route }) {
         }
       : null;
 
-  const hasActiveStory = !!selfStory;
+  const profileDisplayLevel = ownServerGamify?.level ?? gamify.level ?? 1;
+
+  const hasActiveStory = selfStories.length > 0;
   const effectiveUser = isOwnProfile ? authUser || user : user;
   const effectiveUserId =
     (isOwnProfile && profileMeUserId ? String(profileMeUserId) : null) ||
     effectiveUser?.id ||
     user?.id ||
     null;
+  const profileCacheKey = useMemo(
+    () => profilePostsCacheKey(effectiveUser, isOwnProfile, profileUsername || ''),
+    [effectiveUser, isOwnProfile, profileUsername],
+  );
+
+  const syncProfileMediaFromPayload = useCallback(
+    (payload, { persist = true } = {}) => {
+      if (!payload) return;
+      setGridPosts(Array.isArray(payload.gridPosts) ? payload.gridPosts : []);
+      setSelfStories(Array.isArray(payload.selfStories) ? payload.selfStories : []);
+      setSelfStoryHasUnviewed(!!payload.selfStoryHasUnviewed);
+      if (persist) writeProfilePostsCache(profileCacheKey, payload);
+    },
+    [profileCacheKey],
+  );
+
   const avatarStoryInteractive = Boolean(effectiveUserId && (hasActiveStory || isOwnProfile));
+
+  const profileGridItems = useMemo(
+    () =>
+      gridPosts.map((p) => ({
+        ...p,
+        uri: resolveFeedMediaUrl(p.uri || ''),
+      })),
+    [gridPosts],
+  );
+
+  const applyOptimisticFeedPayload = useCallback(
+    (payload) => {
+      if (!isOwnProfile) return;
+      if (payload?.kind === 'post' && payload?.post && !payload?.synced) {
+        const row = localPostToGridRow(payload.post);
+        if (row) setGridPosts((prev) => mergeGridPostRows(prev, [row]));
+      }
+      if (payload?.synced && payload?.localPostId && payload?.postId) {
+        const localId = String(payload.localPostId);
+        const backendId = String(payload.postId);
+        setGridPosts((prev) => {
+          const existing = prev.find((row) => String(row.id) === localId);
+          if (!existing) return prev;
+          return [
+            { ...existing, id: backendId },
+            ...prev.filter((row) => {
+              const id = String(row.id);
+              return id !== localId && id !== backendId;
+            }),
+          ];
+        });
+      }
+      const cached = readProfilePostsCache(profileCacheKey);
+      if (cached?.gridPosts?.length) {
+        syncProfileMediaFromPayload(cached, { persist: false });
+      }
+    },
+    [isOwnProfile, profileCacheKey, syncProfileMediaFromPayload],
+  );
+
+  const refreshProfileMedia = useCallback(async () => {
+    const pm = useAuthStore.getState().profileMe?.profile;
+    const remoteUsername =
+      !isOwnProfile && pm?.username
+        ? String(pm.username)
+        : !isOwnProfile && user?.username
+          ? String(user.username)
+          : '';
+    try {
+      const payload = await fetchProfilePostsPayload({
+        user: effectiveUser,
+        isOwnProfile,
+        effectiveUserId,
+        remoteUsername,
+        effectiveUser,
+      });
+      syncProfileMediaFromPayload(payload);
+    } catch {
+      try {
+        const localOnly = mapLocalPostsToGrid(
+          effectiveUserId ? await getUserFeedPosts(effectiveUser) : [],
+        );
+        syncProfileMediaFromPayload({
+          gridPosts: localOnly,
+          selfStories: [],
+          selfStoryHasUnviewed: false,
+        });
+      } catch {
+        const cached = readProfilePostsCache(profileCacheKey);
+        if (cached?.gridPosts?.length) {
+          syncProfileMediaFromPayload(cached, { persist: false });
+        }
+      }
+    }
+  }, [isOwnProfile, effectiveUser, effectiveUserId, user?.username, syncProfileMediaFromPayload, profileCacheKey]);
+
+  const applySocialCounts = useCallback((counts) => {
+    if (!counts || typeof counts !== 'object') return;
+    if (Number.isFinite(Number(counts.followersCount))) setFollowersCount(Number(counts.followersCount));
+    if (Number.isFinite(Number(counts.followingCount))) setFollowingCount(Number(counts.followingCount));
+  }, []);
 
   const reload = useCallback(async (withSpinner = false) => {
     if (withSpinner) setRefreshing(true);
     try {
-      const t = await getAppTheme();
-      setAppTheme(t === 'light' ? 'light' : 'dark');
-      await useAuthStore.getState().hydrate();
+      const authState = useAuthStore.getState();
+      if (!authState.hydrated) {
+        await authState.hydrate();
+      }
       if (!useAuthStore.getState().accessToken) {
-        await useAuthStore.getState().refreshSession().catch(() => {});
+        await Promise.race([
+          useAuthStore.getState().refreshSession().catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 1200)),
+        ]);
+      }
+      const routeUser = route?.params?.user;
+      const storeUser = useAuthStore.getState().user;
+      const resolvedEffectiveUser = isOwnProfile ? storeUser || routeUser : routeUser;
+      const sessionUser =
+        resolvedEffectiveUser?.id || resolvedEffectiveUser?.email ? resolvedEffectiveUser : routeUser;
+      if (sessionUser) {
+        await ensureBackendSession(sessionUser);
       }
       if (useAuthStore.getState().accessToken) {
         try {
-          await useAuthStore.getState().loadProfileMeIfStale();
+          await useAuthStore.getState().loadProfileMeIfStale(isOwnProfile ? 0 : PROFILE_ME_SYNC_TTL_MS);
         } catch {
           /* */
         }
@@ -194,7 +384,7 @@ export default function ProfilePage({ navigation, route }) {
       const n =
         token && pm?.display_name != null && String(pm.display_name).trim()
           ? String(pm.display_name).trim()
-          : await getProfileDisplayName(user?.name || user?.email || '');
+          : await getProfileDisplayName(routeUser?.name || routeUser?.email || '');
       const c =
         token && pm?.location_label != null && String(pm.location_label).trim()
           ? String(pm.location_label).trim()
@@ -213,123 +403,134 @@ export default function ProfilePage({ navigation, route }) {
             ? birthLocal
             : null;
       setBirthIso(birthRaw);
-      const fr = await getFriends();
-      let serverFriendsCount = fr.length;
-      let inv = [];
-      if (hasSocialApi()) {
-        try {
-          const [mutuals, serverInv] = await Promise.all([
-            socialListMutuals(),
-            isOwnProfile ? socialListIncomingRequests() : Promise.resolve([]),
-          ]);
-          if (Array.isArray(mutuals)) serverFriendsCount = mutuals.length;
-          inv = Array.isArray(serverInv) ? serverInv : [];
-        } catch {
-          inv = [];
-        }
-      }
       const [sv, places] = await Promise.all([getSavedRoutes(), getSavedLandmarks()]);
       try {
-        const visitLog = await getVisitLog({ physicalOnly: true });
-        setGamify(computeGamificationFromVisits(visitLog));
+        const [visitLog, quizBonusXp, physicalBonusXp] = await Promise.all([
+          getVisitLog({ physicalOnly: true }),
+          getLandmarkQuizBonusXpTotal(),
+          getPhysicalVisitBonusXpTotal(),
+        ]);
+        setGamify(computeGamificationFromVisits(visitLog, quizBonusXp + physicalBonusXp));
       } catch {
         setGamify(computeGamificationFromVisits([]));
       }
       setName(n);
       setCity(c);
-      setFriendsCount(serverFriendsCount);
-      setInviteCount(inv.length);
+      if (!isOwnProfile) {
+        setFollowersCount(Number(pm?.followers_count) || 0);
+        setFollowingCount(Number(pm?.following_count) || 0);
+      }
       setSaved(Array.isArray(sv) ? sv : []);
       setSavedPlaces(Array.isArray(places) ? places : []);
       try {
-        const avLocal = await getProfileAvatarLocalUri();
-        setLocalAvatarUri(avLocal);
+        const serverAvatarEmpty =
+          token && pm && !String(pm.avatar_url || '').trim();
+        if (serverAvatarEmpty) {
+          await clearProfileAvatarLocalUri();
+          setLocalAvatarUri('');
+        } else {
+          const avLocal = await getProfileAvatarLocalUri();
+          setLocalAvatarUri(avLocal);
+        }
       } catch {
         setLocalAvatarUri('');
       }
 
-      const mapLocalPosts = (arr) =>
-        (Array.isArray(arr) ? arr : []).map((p) => {
-          const u = p.uri || (Array.isArray(p.uris) && p.uris[0]) || '';
-          const nUris = Array.isArray(p.uris) ? p.uris.length : u ? 1 : 0;
-          return {
-            id: p.id,
-            uri: u,
-            isVideo: /\.(mp4|mov)(\?|$)/i.test(String(u)),
-            mediaCount: Math.max(nUris, u ? 1 : 0),
-          };
-        });
+      const resolvedUserId =
+        (isOwnProfile && pm?.user_id ? String(pm.user_id) : null) ||
+        resolvedEffectiveUser?.id ||
+        routeUser?.id ||
+        effectiveUserId;
 
-      if (hasFeedApiToken() && effectiveUserId) {
+      try {
+        const remoteUsername =
+          !isOwnProfile && pm?.username
+            ? String(pm.username)
+            : !isOwnProfile && routeUser?.username
+              ? String(routeUser.username)
+              : '';
+        const payload = await fetchProfilePostsPayload({
+          user: resolvedEffectiveUser || routeUser,
+          isOwnProfile,
+          effectiveUserId: resolvedUserId,
+          remoteUsername,
+          effectiveUser: resolvedEffectiveUser || routeUser,
+        });
+        syncProfileMediaFromPayload(payload);
+      } catch {
         try {
-          const remoteUsername =
-            !isOwnProfile && pm?.username
-              ? String(pm.username)
-              : !isOwnProfile && user?.username
-                ? String(user.username)
-                : '';
-          const [posts, tray, userStories] = await Promise.all([
-            isOwnProfile ? feedListMyPosts(60) : feedListUserPosts(remoteUsername, 60),
-            isOwnProfile ? feedListStoriesTray() : Promise.resolve([]),
-            isOwnProfile ? Promise.resolve([]) : feedListStoriesForUser(String(effectiveUserId)),
-          ]);
-          if (isOwnProfile) {
-            const mine = (Array.isArray(tray) ? tray : []).find(
-              (s) => String(s.user_id) === String(effectiveUserId),
-            );
-            setSelfStory(mine || null);
-          } else {
-            const latest = Array.isArray(userStories) && userStories.length ? userStories[userStories.length - 1] : null;
-            setSelfStory(latest || null);
-          }
-          let next = [];
-          if (Array.isArray(posts) && posts.length) {
-            next = posts.map((p) => {
-              const urls = Array.isArray(p.media_urls) ? p.media_urls : [];
-              const u = resolveFeedMediaUrl(urls[0] || '');
-              return {
-                id: p.id,
-                uri: u,
-                isVideo: /\.(mp4|mov)(\?|$)/i.test(String(u)),
-                mediaCount: urls.length || (u ? 1 : 0),
-              };
-            });
-          }
-          const localRows = mapLocalPosts(await getUserFeedPosts(effectiveUser));
-          const apiIds = new Set(next.map((x) => String(x.id)));
-          const extras = localRows.filter((row) => !apiIds.has(String(row.id)));
-          setGridPosts([...next, ...extras]);
-        } catch {
-          setSelfStory(null);
-          try {
-            setGridPosts(mapLocalPosts(await getUserFeedPosts(effectiveUser)));
-          } catch {
-            setGridPosts([]);
-          }
-        }
-      } else {
-        try {
-          setGridPosts(mapLocalPosts(effectiveUserId ? await getUserFeedPosts(effectiveUser) : []));
-        } catch {
-          setGridPosts([]);
-        }
-        try {
-          const ls = effectiveUserId ? await getLatestUserStory(effectiveUser) : null;
-          setSelfStory(
-            ls && effectiveUserId
-              ? { id: ls.id, user_id: String(effectiveUserId), view_count: 0 }
-              : null,
+          const localOnly = mapLocalPostsToGrid(
+            resolvedUserId ? await getUserFeedPosts(resolvedEffectiveUser || routeUser) : [],
           );
+          const cached = readProfilePostsCache(profileCacheKey);
+          syncProfileMediaFromPayload({
+            gridPosts: localOnly.length
+              ? localOnly
+              : Array.isArray(cached?.gridPosts)
+                ? cached.gridPosts
+                : [],
+            selfStories: Array.isArray(cached?.selfStories) ? cached.selfStories : [],
+            selfStoryHasUnviewed: !!cached?.selfStoryHasUnviewed,
+          });
         } catch {
-          setSelfStory(null);
+          const cached = readProfilePostsCache(profileCacheKey);
+          if (cached?.gridPosts?.length) {
+            syncProfileMediaFromPayload(cached, { persist: false });
+          }
         }
       }
     } finally {
       if (withSpinner) setRefreshing(false);
     }
-  }, [user?.name, user?.email, user?.id, isOwnProfile, effectiveUser, effectiveUserId]);
+  }, [
+    route?.params?.user,
+    user?.name,
+    user?.email,
+    user?.id,
+    isOwnProfile,
+    effectiveUserId,
+    profileCacheKey,
+    syncProfileMediaFromPayload,
+  ]);
 
-  const homePagerTabIndex = Number(route?.params?.homePagerTabIndex);
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+
+  useEffect(() => {
+    const cached = readProfilePostsCache(profileCacheKey);
+    if (cached?.gridPosts?.length) {
+      syncProfileMediaFromPayload(cached, { persist: false });
+    }
+    void getUserFeedPosts(effectiveUser).then((locals) => {
+      const localRows = mapLocalPostsToGrid(locals);
+      if (!localRows.length) return;
+      setGridPosts((prev) => mergeGridPostRows(prev, localRows));
+    });
+    void warmProfilePostsCache(effectiveUser, {
+      isOwnProfile,
+      effectiveUserId,
+      username: profileUsername,
+    }).then((payload) => {
+      if (payload?.gridPosts?.length) syncProfileMediaFromPayload(payload);
+    });
+  }, [
+    profileCacheKey,
+    effectiveUser,
+    isOwnProfile,
+    effectiveUserId,
+    profileUsername,
+    syncProfileMediaFromPayload,
+  ]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(PROFILE_POSTS_CACHE_UPDATED, ({ key }) => {
+      if (key !== profileCacheKey) return;
+      const cached = readProfilePostsCache(key);
+      if (cached) syncProfileMediaFromPayload(cached, { persist: false });
+    });
+    return () => sub.remove();
+  }, [profileCacheKey, syncProfileMediaFromPayload]);
+
   const refreshSavedCollections = useCallback(async () => {
     try {
       const [sv, places] = await Promise.all([getSavedRoutes(), getSavedLandmarks()]);
@@ -341,11 +542,20 @@ export default function ProfilePage({ navigation, route }) {
     }
   }, []);
 
-  /** Усередині HomeTabPager екран навігації залишається «зфокусованим» при свайпі вкладок — useFocusEffect не викликається; оновлюємо збережені маршрути та місця при відкритті вкладки профілю. */
+  /** Усередині HomeTabPager — повне оновлення профілю при відкритті вкладки. */
   useEffect(() => {
-    if (!Number.isFinite(homePagerTabIndex) || homePagerTabIndex !== HOME_TAB.PROFILE) return;
-    void refreshSavedCollections();
-  }, [homePagerTabIndex, refreshSavedCollections]);
+    if (!isTabActive) return;
+    void reloadRef.current();
+  }, [isTabActive]);
+
+  /** Попереднє завантаження всіх екранів профілю — кнопки відкриваються без затримки. */
+  useEffect(() => {
+    if (!isTabActive) return undefined;
+    const task = runAfterInteractions(() => {
+      prefetchProfileScreens(authUser || user);
+    });
+    return () => task?.cancel?.();
+  }, [isTabActive, authUser, user]);
 
   useEffect(() => {
     const subA = DeviceEventEmitter.addListener(KRAINA_SAVED_ROUTES_CHANGED, () => {
@@ -360,38 +570,167 @@ export default function ProfilePage({ navigation, route }) {
     };
   }, [refreshSavedCollections]);
 
+  useEffect(() => {
+    if (!isTabActive) return undefined;
+    let cancelled = false;
+    const task = runAfterInteractions(async () => {
+      try {
+        const Location = require('expo-location');
+        const existing = await Location.getForegroundPermissionsAsync();
+        if (existing.status !== 'granted') return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!cancelled) {
+          setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      cancelled = true;
+      task?.cancel?.();
+    };
+  }, [isTabActive]);
+
   useFocusEffect(
     useCallback(() => {
-      void reload();
-    }, [reload]),
+      if (!isTabActive) return undefined;
+      void reloadRef.current();
+      return undefined;
+    }, [isTabActive]),
   );
+
+  useEffect(() => {
+    if (!isOwnProfile) return;
+    if (profileMeFollowers != null && Number.isFinite(Number(profileMeFollowers))) {
+      setFollowersCount(Number(profileMeFollowers));
+    }
+    if (profileMeFollowing != null && Number.isFinite(Number(profileMeFollowing))) {
+      setFollowingCount(Number(profileMeFollowing));
+    }
+  }, [isOwnProfile, profileMeFollowers, profileMeFollowing]);
+
+  useEffect(() => {
+    const onProfileMeUpdated = (payload) => {
+      if (!isOwnProfile) return;
+      if (payload?.counts) {
+        applySocialCounts(payload.counts);
+        return;
+      }
+      if (payload?.source === 'loadProfileMe' || payload?.source === 'social_counts') {
+        const pm = useAuthStore.getState().profileMe?.profile;
+        if (pm) {
+          applySocialCounts({
+            followersCount: Number(pm.followers_count) || 0,
+            followingCount: Number(pm.following_count) || 0,
+          });
+        }
+      }
+    };
+    const onAvatarOrSession = () => {
+      if (isOwnProfile) void reload();
+    };
+    const onSocialGraphChanged = () => {
+      if (!isOwnProfile) return;
+      void refreshSocialProfileCounts();
+    };
+    const subProfile = DeviceEventEmitter.addListener(KRAINA_PROFILE_ME_UPDATED, onProfileMeUpdated);
+    const subGraph = DeviceEventEmitter.addListener(KRAINA_SOCIAL_GRAPH_CHANGED, onSocialGraphChanged);
+    const subAvatar = DeviceEventEmitter.addListener(KRAINA_PROFILE_AVATAR_CHANGED, onAvatarOrSession);
+    const subSession = DeviceEventEmitter.addListener('kraina_backend_session_merged_v1', onAvatarOrSession);
+    return () => {
+      subProfile.remove();
+      subGraph.remove();
+      subAvatar.remove();
+      subSession.remove();
+    };
+  }, [isOwnProfile, applySocialCounts, reload]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
       const updatedUserId = payload?.userId ? String(payload.userId) : '';
-      if (!updatedUserId) {
-        void reload();
-        return;
-      }
-      if (effectiveUserId && String(effectiveUserId) === updatedUserId) {
-        void reload();
-      }
+      const ownerMatch =
+        isOwnProfile ||
+        !updatedUserId ||
+        (effectiveUserId && String(effectiveUserId) === updatedUserId);
+      if (!ownerMatch) return;
+      applyOptimisticFeedPayload(payload);
+      void refreshProfileMedia();
     });
     return () => sub.remove();
-  }, [reload, effectiveUserId]);
+  }, [applyOptimisticFeedPayload, refreshProfileMedia, effectiveUserId, isOwnProfile]);
 
   useEffect(() => {
     const it = route?.params?.initialTab;
     if (it === 'routes') setTab('routes');
-    else if (it === 'stats') setTab('stats');
-    else if (it === 'posts') setTab('posts');
+    else if (it === 'stats') {
+      setTab('stats');
+      setStatsMounted(true);
+    } else if (it === 'posts') setTab('posts');
   }, [route?.params?.initialTab]);
 
-  const openSettings = () =>
+  useEffect(() => {
+    if (tab === 'stats') setStatsMounted(true);
+  }, [tab]);
+
+  const openProfileStatsTab = useCallback(() => {
+    setStatsMounted(true);
+    setTab('stats');
+  }, []);
+
+  const openSettings = () => {
+    prefetchProfileScreens(authUser || user);
     navigation.navigate('Settings', {
       ...shell,
       appTheme,
     });
+  };
+
+  const openSocialConnections = useCallback(
+    (kind) => {
+      prefetchProfileScreens(authUser || user);
+      let un = profileUsername ? String(profileUsername).replace(/^@/, '').trim() : '';
+      if (!un) {
+        const pm = useAuthStore.getState().profileMe?.profile;
+        un = pm?.username ? String(pm.username).replace(/^@/, '').trim() : '';
+      }
+      if (!un) return;
+      navigation.navigate('SocialConnections', {
+        ...shell,
+        username: un,
+        kind,
+      });
+    },
+    [navigation, shell, profileUsername, authUser, user],
+  );
+
+  const displayFollowersCount = isOwnProfile
+    ? Number(profileMeFollowers ?? followersCount) || 0
+    : followersCount;
+  const displayFollowingCount = isOwnProfile
+    ? Number(profileMeFollowing ?? followingCount) || 0
+    : followingCount;
+  const displayPostsCount = gridPosts.length;
+
+  const profileHandleBare = profileUsername
+    ? String(profileUsername).replace(/^@/, '').trim()
+    : '';
+  const profileHandle = profileHandleBare ? `@${profileHandleBare}` : '';
+  const displayTitle = (name && String(name).trim()) || profileHandleBare;
+  const showHandleLine =
+    profileHandle &&
+    displayTitle &&
+    displayTitle.toLowerCase() !== profileHandleBare.toLowerCase();
+
+  const openProfileScreen = useCallback(
+    (screen, extraParams = {}) => {
+      prefetchProfileScreens(authUser || user);
+      navigation.navigate(screen, { ...shell, ...extraParams });
+    },
+    [navigation, shell, authUser, user],
+  );
 
   const openStoryCamera = useCallback(() => {
     if (!user?.id || !isOwnProfile) return;
@@ -410,8 +749,8 @@ export default function ProfilePage({ navigation, route }) {
         userId: String(effectiveUserId),
         authorUsername: profileUsername || '',
         authorDisplayName: name,
-        authorAvatarUrl: profileAvatarUrl || localAvatarUri || user.avatar || null,
-        storyId: selfStory.id,
+        authorAvatarUrl: profileAvatarUrl || null,
+        fromProfile: true,
         ...(!hasFeedApiToken() ? { useLocalStories: true } : {}),
       });
       return;
@@ -430,11 +769,17 @@ export default function ProfilePage({ navigation, route }) {
     profileAvatarUrl,
     localAvatarUri,
     user?.avatar,
-    selfStory?.id,
+    selfStories.length,
+    selfStoryHasUnviewed,
     openStoryCamera,
   ]);
 
   /** Як на стрічці (вкладка «Друзі»): одразу камера; історія/публікація перемикаються на екрані зйомки. */
+  const openFindPeople = useCallback(() => {
+    prefetchDiscoverScreen();
+    navigation.navigate('DiscoverPeople', shell);
+  }, [navigation, shell]);
+
   const openFeedCamera = useCallback(() => {
     // Navigate immediately so the button feels instant; hydrate/refresh in the background.
     // FeedCamera re-checks auth on mount and handles missing token itself.
@@ -467,45 +812,48 @@ export default function ProfilePage({ navigation, route }) {
         return;
       }
       const { lm, region } = resolved;
-      const title = landmarkTitle(lm, langUk);
-      const cityName = regionTitle(region, langUk);
-      const extract = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
-      const rawAudio = typeof lm?.story?.audioUri === 'string' ? lm.story.audioUri.trim() : '';
-      const audioGuideUrl = /^https?:\/\//i.test(rawAudio) ? rawAudio : undefined;
-      const dist = lm?.distKm;
-      const visitKm = dist != null && Number.isFinite(Number(dist)) ? Number(dist) : undefined;
-      navigation.navigate('LandmarkResult', {
-        language,
-        appTheme,
-        ...landmarkResultExtrasFromResolvedLandmark({
+      navigation.navigate(
+        'LandmarkResult',
+        buildLandmarkResultParamsFromHomeLandmark({
           lm,
           region,
           countryId: row.countryId,
           language,
+          appTheme,
           user,
         }),
-        subtitle: `${region.flag} ${cityName}`,
-        extract,
-        source: 'sourceDemo',
-        startPhase: 'full',
-        visitCity: cityName,
-        visitCategory: dominantVisitCategoryFromLandmark(lm),
-        ...(visitKm != null ? { visitKm } : {}),
-        ...(row.countryId ? { countryId: row.countryId } : {}),
-        ...(audioGuideUrl ? { audioGuideUrl } : {}),
-      });
+      );
     },
-    [navigation, language, appTheme, langUk, user],
+    [navigation, language, appTheme, user],
   );
 
-  const isLight = appTheme === 'light';
+  const onToggleSaveSavedPlace = useCallback(
+    (row) => {
+      if (!row?.countryId || !row?.regionId || !row?.landmarkId) return;
+      void toggleSavedLandmark({
+        countryId: row.countryId,
+        regionId: row.regionId,
+        landmarkId: row.landmarkId,
+        titleUk: row.titleUk || '',
+        titleEn: row.titleEn || '',
+        regionTitleUk: row.regionTitleUk || '',
+        regionTitleEn: row.regionTitleEn || '',
+        flag: typeof row.flag === 'string' ? row.flag : '',
+      }).then(() => refreshSavedCollections());
+    },
+    [refreshSavedCollections],
+  );
+
   const accent = accentForTheme(isLight);
-  const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? '#727272' : '#A8A8A8';
   const textStatLabel = isLight ? '#5C5C5C' : '#9A9A9A';
+  const homeCardBg = isLight ? '#F2F2F2' : HOME_LANDMARK_CARD_DARK;
+  const homeCardBorder = isLight ? HOME_LANDMARK_CARD_BORDER_LIGHT : HOME_LANDMARK_CARD_BORDER_DARK;
+  const homeCardTextMuted = isLight ? HOME_LANDMARK_CARD_MUTED_LIGHT : HOME_LANDMARK_CARD_MUTED_DARK;
   const profileCardBg = isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)';
   const profileCardBorder = isLight ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.12)';
+  const tabBottomPad = lightTabBarScrollContentPadding(insets.bottom);
   const headerRipple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const topBarLeft = useMemo(
     () => (
@@ -513,16 +861,12 @@ export default function ProfilePage({ navigation, route }) {
         <Pressable
           onPress={openFeedCamera}
           hitSlop={12}
-          style={({ pressed }) => [
-            styles.profileAddCircle,
-            { borderColor: isLight ? '#000000' : '#FFFFFF', borderWidth: 1.5 },
-            pressed && styles.profileAddPressed,
-          ]}
+          style={({ pressed }) => [styles.profileAddHit, pressed && styles.profileAddPressed]}
           android_ripple={headerRipple}
           accessibilityRole="button"
           accessibilityLabel="Add"
         >
-          <Ionicons name="add" size={22} color={isLight ? '#1E1E1E' : '#FFFFFF'} />
+          <Ionicons name="add" size={28} color={isLight ? '#1E1E1E' : '#FFFFFF'} />
         </Pressable>
       </View>
     ),
@@ -549,9 +893,10 @@ export default function ProfilePage({ navigation, route }) {
       />
       <RenderProfiler id="ProfilePage">
       <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 24,
+          paddingBottom: tabBottomPad,
         }}
         refreshControl={
           <RefreshControl
@@ -575,18 +920,16 @@ export default function ProfilePage({ navigation, route }) {
                     <View
                       style={[
                         styles.avatarOuter,
-                        hasActiveStory ? selfStoryRing(selfStory, user?.id, isLight) : { borderWidth: 0 },
+                        hasActiveStory
+                          ? storyAvatarRingStyle({
+                              hasStories: true,
+                              hasUnviewed: selfStoryHasUnviewed,
+                              isLight,
+                            })
+                          : { borderWidth: 0 },
                       ]}
                     >
-                      {profileAvatarUrl || localAvatarUri || user.avatar ? (
-                        <Image
-                          source={{ uri: resolveFeedMediaUrl(profileAvatarUrl || localAvatarUri || user.avatar) }}
-                          style={styles.avatar}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.avatar, !isLight && styles.avatarDark]} />
-                      )}
+                      <ProfileAvatarCircle uri={profileAvatarUrl} size={82} isLight={isLight} />
                     </View>
                   </Pressable>
                 ) : (
@@ -596,106 +939,181 @@ export default function ProfilePage({ navigation, route }) {
                       { borderWidth: 0 },
                     ]}
                   >
-                    {profileAvatarUrl || localAvatarUri || user.avatar ? (
-                      <Image
-                        source={{ uri: resolveFeedMediaUrl(profileAvatarUrl || localAvatarUri || user.avatar) }}
-                        style={styles.avatar}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.avatar, !isLight && styles.avatarDark]} />
-                    )}
+                    <ProfileAvatarCircle uri={profileAvatarUrl} size={82} isLight={isLight} />
                   </View>
                 )}
               </View>
-              <View style={styles.headText}>
-                <Text style={[styles.userName, { color: textMain }]}>{name}</Text>
-                <Text style={[styles.userCity, { color: textMuted }]}>{city}</Text>
-                {bioPreview ? (
-                  <Text style={[styles.userBio, { color: textMuted }]} numberOfLines={3}>
-                    {bioPreview}
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNum, { color: textMain }]}>{displayPostsCount}</Text>
+                  <Text style={[styles.statLabel, { color: textStatLabel }]} numberOfLines={1}>
+                    {pf(language, 'userPosts')}
                   </Text>
-                ) : null}
-                {birthIso ? (
-                  <Text style={[styles.userBirth, { color: textStatLabel }]}>
-                    {formatBirthLabel(birthIso, language)}
-                  </Text>
-                ) : null}
-                <View style={styles.statsRow}>
-                  <Pressable
-                    onPress={() => navigation.navigate('ProfileFriends', shell)}
-                    style={styles.statPress}
-                  >
-                    <Text style={[styles.statNum, { color: textMain }]}>{friendsCount}</Text>
-                    <Text style={[styles.statLabel, { color: textStatLabel }]}> {pf(language, 'friends')}</Text>
-                  </Pressable>
-                  {isOwnProfile ? (
-                    <Pressable
-                      onPress={() => navigation.navigate('ProfileInvites', shell)}
-                      style={styles.statPress}
-                    >
-                      <Text style={[styles.statNum, { color: textMain }]}>{inviteCount}</Text>
-                      <Text style={[styles.statLabel, { color: textStatLabel }]}> {pf(language, 'invitations')}</Text>
-                    </Pressable>
-                  ) : null}
                 </View>
+                <Pressable
+                  onPress={() => openSocialConnections('following')}
+                  style={styles.statItem}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.statNum, { color: textMain }]}>{displayFollowingCount}</Text>
+                  <Text style={[styles.statLabel, { color: textStatLabel }]} numberOfLines={1}>
+                    {pf(language, 'following')}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => openSocialConnections('followers')}
+                  style={styles.statItem}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.statNum, { color: textMain }]}>{displayFollowersCount}</Text>
+                  <Text style={[styles.statLabel, { color: textStatLabel }]} numberOfLines={1}>
+                    {pf(language, 'followers')}
+                  </Text>
+                </Pressable>
               </View>
+            </View>
+            <View style={styles.headText}>
+              <View style={styles.nameRow}>
+                <Text style={[styles.userName, { color: textMain, flex: 1 }]} numberOfLines={2}>
+                  {displayTitle}
+                </Text>
+                {isOwnProfile ? (
+                  <ProfileLevelBadge
+                    level={profileDisplayLevel}
+                    language={language}
+                    accent={accent}
+                    isLight={isLight}
+                    onPress={openProfileStatsTab}
+                  />
+                ) : null}
+              </View>
+              {showHandleLine ? (
+                <Text style={[styles.userHandle, { color: textMuted }]}>{profileHandle}</Text>
+              ) : profileHandle && !displayTitle ? (
+                <Text style={[styles.userHandle, { color: textMuted }]}>{profileHandle}</Text>
+              ) : null}
+              {city ? (
+                <Text style={[styles.userCity, { color: textMuted }]}>{city}</Text>
+              ) : null}
+              {bioPreview ? (
+                <Text style={[styles.userBio, { color: textMuted }]} numberOfLines={3}>
+                  {bioPreview}
+                </Text>
+              ) : null}
+              {birthIso ? (
+                <Text style={[styles.userBirth, { color: textStatLabel }]}>
+                  {formatBirthLabel(birthIso, language)}
+                </Text>
+              ) : null}
             </View>
           </View>
         </View>
 
         {isOwnProfile ? (
-          ownServerGamify ? (
-            <ProfileGameLevelCard
-              serverMode={ownServerGamify}
-              language={language}
-              isLight={isLight}
-              accent={accent}
-              onPress={() => navigation.navigate('ProfileGamificationHub', shell)}
-            />
-          ) : (
-            <ProfileGameLevelCard
-              snapshot={gamify}
-              language={language}
-              isLight={isLight}
-              accent={accent}
-              onPress={() => navigation.navigate('ProfileGamificationHub', shell)}
-            />
-          )
-        ) : null}
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.editBtn,
-            isLight ? styles.editBtnLight : { backgroundColor: accent },
-            pressed && { opacity: 0.9 },
-          ]}
-          onPress={() => navigation.navigate('ProfileEdit', shell)}
-        >
-          <Text
-            style={[
-              styles.editBtnText,
-              { color: isLight ? '#FFFFFF' : onAccentButtonText(false) },
+          <Pressable
+            style={({ pressed }) => [
+              styles.editBtn,
+              isLight ? styles.editBtnLight : { backgroundColor: accent },
+              pressed && { opacity: 0.9 },
             ]}
+            onPress={() => openProfileScreen('ProfileEdit')}
+            android_ripple={headerRipple}
+            accessibilityRole="button"
           >
-            {pf(language, 'editProfile')}
-          </Text>
-        </Pressable>
+            <Text
+              style={[
+                styles.editBtnText,
+                { color: isLight ? '#FFFFFF' : onAccentButtonText(false) },
+              ]}
+            >
+              {pf(language, 'editProfile')}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {isOwnProfile ? (
           <Pressable
             style={({ pressed }) => [
-              styles.discoverBtn,
+              styles.findPeopleBtn,
               {
-                borderColor: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.2)',
-                backgroundColor: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.08)',
+                backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)',
+                borderColor: isLight ? 'rgba(2, 18, 235, 0.16)' : 'rgba(255,255,255,0.14)',
               },
-              pressed && { opacity: 0.88 },
+              isLight && styles.findPeopleBtnLight,
+              pressed && { opacity: 0.9 },
             ]}
-            onPress={() => navigation.navigate('DiscoverPeople', shell)}
+            onPress={openFindPeople}
+            android_ripple={headerRipple}
+            accessibilityRole="button"
           >
-            <Text style={[styles.discoverBtnText, { color: textMain }]}>{pf(language, 'discoverTitle')}</Text>
+            <Ionicons
+              name="people-outline"
+              size={18}
+              color={isLight ? accent : '#FFFFFF'}
+              style={styles.findPeopleIcon}
+            />
+            <Text
+              style={[
+                styles.findPeopleBtnText,
+                { color: isLight ? accent : '#FFFFFF' },
+              ]}
+            >
+              {pf(language, 'findPeopleBtn')}
+            </Text>
           </Pressable>
+        ) : null}
+
+        {isOwnProfile ? (
+          <View style={styles.socialShortcutRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.socialShortcutBtn,
+                {
+                  backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)',
+                  borderColor: isLight ? 'rgba(2, 18, 235, 0.16)' : 'rgba(255,255,255,0.14)',
+                },
+                isLight && styles.findPeopleBtnLight,
+                pressed && { opacity: 0.9 },
+              ]}
+              onPress={() => openProfileScreen('ProfileFriends')}
+              android_ripple={headerRipple}
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="heart-outline"
+                size={18}
+                color={isLight ? accent : '#FFFFFF'}
+                style={styles.findPeopleIcon}
+              />
+              <Text style={[styles.socialShortcutText, { color: isLight ? accent : '#FFFFFF' }]}>
+                {pf(language, 'friends')}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.socialShortcutBtn,
+                {
+                  backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)',
+                  borderColor: isLight ? 'rgba(2, 18, 235, 0.16)' : 'rgba(255,255,255,0.14)',
+                },
+                isLight && styles.findPeopleBtnLight,
+                pressed && { opacity: 0.9 },
+              ]}
+              onPress={() => openProfileScreen('ProfileInvites')}
+              android_ripple={headerRipple}
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="mail-open-outline"
+                size={18}
+                color={isLight ? accent : '#FFFFFF'}
+                style={styles.findPeopleIcon}
+              />
+              <Text style={[styles.socialShortcutText, { color: isLight ? accent : '#FFFFFF' }]}>
+                {pf(language, 'invitations')}
+              </Text>
+            </Pressable>
+          </View>
         ) : null}
 
         <View
@@ -707,86 +1125,47 @@ export default function ProfilePage({ navigation, route }) {
             },
           ]}
         >
-          <Pressable
-            onPress={() => setTab('posts')}
-            style={({ pressed }) => [
-              styles.tabSegment,
-              tab === 'posts' && [
-                styles.tabSegmentActive,
-                {
-                  backgroundColor: isLight ? '#FFFFFF' : 'rgba(36,36,40,0.95)',
-                  borderColor: isLight ? 'rgba(2, 18, 235, 0.14)' : 'rgba(255,255,255,0.12)',
-                },
-              ],
-              pressed && { opacity: 0.9 },
-            ]}
-          >
-            <Text
-              style={[
-                styles.tabSegmentText,
-                brandFontSansSemibold,
-                { color: tab === 'posts' ? textMain : textMuted },
-              ]}
-              numberOfLines={1}
-            >
-              {pf(language, 'myPosts')}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setTab('routes')}
-            style={({ pressed }) => [
-              styles.tabSegment,
-              tab === 'routes' && [
-                styles.tabSegmentActive,
-                {
-                  backgroundColor: isLight ? '#FFFFFF' : 'rgba(36,36,40,0.95)',
-                  borderColor: isLight ? 'rgba(2, 18, 235, 0.14)' : 'rgba(255,255,255,0.12)',
-                },
-              ],
-              pressed && { opacity: 0.9 },
-            ]}
-          >
-            <Text
-              style={[
-                styles.tabSegmentText,
-                brandFontSansSemibold,
-                { color: tab === 'routes' ? textMain : textMuted },
-              ]}
-              numberOfLines={1}
-            >
-              {pf(language, 'savedRoutes')}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setTab('stats')}
-            style={({ pressed }) => [
-              styles.tabSegment,
-              tab === 'stats' && [
-                styles.tabSegmentActive,
-                {
-                  backgroundColor: isLight ? '#FFFFFF' : 'rgba(36,36,40,0.95)',
-                  borderColor: isLight ? 'rgba(2, 18, 235, 0.14)' : 'rgba(255,255,255,0.12)',
-                },
-              ],
-              pressed && { opacity: 0.9 },
-            ]}
-          >
-            <Text
-              style={[
-                styles.tabSegmentText,
-                brandFontSansSemibold,
-                { color: tab === 'stats' ? textMain : textMuted },
-              ]}
-              numberOfLines={1}
-            >
-              {pf(language, 'visitsStats')}
-            </Text>
-          </Pressable>
+          {PROFILE_TABS.map((seg) => {
+            const active = tab === seg.id;
+            const iconColor = active ? (isLight ? accent : '#FFFFFF') : textMuted;
+            return (
+              <Pressable
+                key={seg.id}
+                onPress={() => {
+                  if (seg.id === 'stats') setStatsMounted(true);
+                  setTab(seg.id);
+                }}
+                onPressIn={() => {
+                  if (seg.id === 'stats') getProfileVisitStats();
+                }}
+                style={({ pressed }) => [
+                  styles.tabSegment,
+                  active && [
+                    styles.tabSegmentActive,
+                    {
+                      backgroundColor: isLight ? '#FFFFFF' : 'rgba(36,36,40,0.95)',
+                      borderColor: isLight ? 'rgba(2, 18, 235, 0.14)' : 'rgba(255,255,255,0.12)',
+                    },
+                  ],
+                  pressed && { opacity: 0.9 },
+                ]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={pf(language, seg.labelKey)}
+              >
+                <Ionicons
+                  name={active ? seg.iconActive : seg.icon}
+                  size={22}
+                  color={iconColor}
+                />
+              </Pressable>
+            );
+          })}
         </View>
 
         {tab === 'posts' ? (
           <View style={styles.grid}>
-            {gridPosts.length === 0 ? (
+            {profileGridItems.length === 0 ? (
               <View
                 style={[
                   styles.emptyPostsWrap,
@@ -836,7 +1215,7 @@ export default function ProfilePage({ navigation, route }) {
                   ]}
                 >
                   <Ionicons
-                    name="add-circle-outline"
+                    name="add"
                     size={22}
                     color={isLight ? '#FFFFFF' : onAccentButtonText(false)}
                     style={{ marginRight: 8 }}
@@ -853,10 +1232,17 @@ export default function ProfilePage({ navigation, route }) {
                 </Pressable>
               </View>
             ) : (
-              gridPosts.map((it) => {
+              profileGridItems.map((it) => {
                 const phBg = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.07)';
                 const tileBorder = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)';
                 const multi = (it.mediaCount || 1) > 1;
+
+                const onPress = () =>
+                  openProfileScreen('ProfilePostDetail', {
+                    postId: it.id,
+                    coverUrl: it.uri,
+                  });
+
                 return (
                   <View
                     key={it.id}
@@ -870,13 +1256,7 @@ export default function ProfilePage({ navigation, route }) {
                     ]}
                   >
                     <Pressable
-                      onPress={() =>
-                        navigation.navigate('ProfilePostDetail', {
-                          ...shell,
-                          postId: it.id,
-                          coverUrl: it.uri,
-                        })
-                      }
+                      onPress={onPress}
                       style={({ pressed }) => [
                         styles.postTileFace,
                         {
@@ -888,7 +1268,13 @@ export default function ProfilePage({ navigation, route }) {
                       ]}
                     >
                       {it.uri ? (
-                        <Image source={{ uri: it.uri }} style={styles.postTileImage} resizeMode="cover" />
+                        <ExpoImage
+                          source={{ uri: it.uri }}
+                          style={styles.postTileImage}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={0}
+                        />
                       ) : (
                         <View style={styles.postTilePlaceholder}>
                           <Ionicons
@@ -916,25 +1302,21 @@ export default function ProfilePage({ navigation, route }) {
           </View>
         ) : tab === 'routes' ? (
           <View style={styles.routeList}>
+            <Text style={[styles.tabSectionTitle, brandFontSansSemibold, { color: textMuted }]}>
+              {pf(language, 'savedRoutes')}
+            </Text>
             {saved.length > 0 ? (
-              <>
-                {saved.map((item) => (
-                  <ProfileSavedRouteCard
-                    key={item.id}
-                    item={item}
-                    language={language}
-                    isLight={isLight}
-                    accent={accent}
-                    shell={shell}
-                    navigation={navigation}
-                  />
-                ))}
-                {accessToken && saved.length > 0 ? (
-                  <Text style={[styles.savedRoutesSyncNote, { color: textMuted }, brandFontSans]}>
-                    {pf(language, 'profileSavedRoutesSyncNote')}
-                  </Text>
-                ) : null}
-              </>
+              saved.map((item) => (
+                <ProfileSavedRouteCard
+                  key={item.id}
+                  item={item}
+                  language={language}
+                  isLight={isLight}
+                  accent={accent}
+                  shell={shell}
+                  navigation={navigation}
+                />
+              ))
             ) : savedPlaces.length === 0 ? (
               <View
                 style={[
@@ -995,18 +1377,7 @@ export default function ProfilePage({ navigation, route }) {
                   </Text>
                 </Pressable>
               </View>
-            ) : (
-              <View
-                style={[
-                  styles.routesHintOnly,
-                  isLight ? styles.emptyPostsWrapLight : styles.emptyPostsWrapDark,
-                ]}
-              >
-                <Text style={[styles.routesHintOnlyTxt, brandFontSans, { color: textMuted }]}>
-                  {pf(language, 'profileSavedRoutesEmptyHint')}
-                </Text>
-              </View>
-            )}
+            ) : null}
 
             {savedPlaces.length > 0 ? (
               <View style={styles.savedPlacesBlock}>
@@ -1015,51 +1386,43 @@ export default function ProfilePage({ navigation, route }) {
                 </Text>
                 {savedPlaces.map((row) => {
                   const resolved = resolveSavedLandmarkRow(row);
-                  const placeTitle = langUk ? row.titleUk || row.titleEn : row.titleEn || row.titleUk;
-                  const regionLine = langUk ? row.regionTitleUk || row.regionTitleEn : row.regionTitleEn || row.regionTitleUk;
-                  const thumb = resolved?.lm?.thumb;
+                  if (!resolved) return null;
+                  const { lm, region } = resolved;
+                  const regionLabel = regionTitle(region, langUk);
+                  const dist = resolveHomeLandmarkDistKm(userCoords, lm, region);
                   return (
-                    <Pressable
+                    <HomeLandmarkCard
                       key={row.key}
-                      onPress={() => openSavedPlace(row)}
-                      android_ripple={headerRipple}
-                      style={({ pressed }) => [
-                        styles.profilePlaceCard,
-                        {
-                          borderColor: isLight ? 'rgba(2, 18, 235, 0.12)' : 'rgba(255,255,255,0.12)',
-                          backgroundColor: isLight ? 'rgba(2,18,235,0.04)' : 'rgba(255,255,255,0.06)',
-                        },
-                        pressed && { opacity: 0.9 },
-                        !resolved && styles.profilePlaceCardStale,
-                      ]}
-                    >
-                      {thumb ? (
-                        <Image source={thumb} style={styles.profilePlaceThumb} resizeMode="cover" />
-                      ) : (
-                        <View style={[styles.profilePlaceThumb, styles.profilePlaceThumbPh]}>
-                          <Text style={styles.profilePlaceFlag}>{row.flag || '🏳️'}</Text>
-                        </View>
-                      )}
-                      <View style={styles.profilePlaceBody}>
-                        <Text style={[styles.profilePlaceTag, brandFontSansSemibold, { color: accent }]} numberOfLines={1}>
-                          {row.flag} {regionLine}
-                        </Text>
-                        <Text style={[styles.profilePlaceTitle, brandFontSansSemibold, { color: textMain }]} numberOfLines={2}>
-                          {placeTitle}
-                        </Text>
-                        <Text style={[styles.profilePlaceMore, brandFontSansSemibold, { color: accent }]}>
-                          {pf(language, 'more')}
-                        </Text>
-                      </View>
-                    </Pressable>
+                      lm={lm}
+                      region={region}
+                      countryId={row.countryId}
+                      language={language}
+                      langUk={langUk}
+                      isLight={isLight}
+                      accent={accent}
+                      cardBg={homeCardBg}
+                      cardBorder={homeCardBorder}
+                      textMain={textMain}
+                      textMuted={homeCardTextMuted}
+                      regionLabel={regionLabel}
+                      dist={dist}
+                      isSaved
+                      onOpen={() => openSavedPlace(row)}
+                      onToggleSave={() => onToggleSaveSavedPlace(row)}
+                    />
                   );
                 })}
               </View>
             ) : null}
           </View>
-        ) : (
-          <ProfileVisitStats language={language} isLight={isLight} navigation={navigation} shell={shell} />
-        )}
+        ) : tab === 'stats' && statsMounted ? (
+          React.createElement(getProfileVisitStats(), {
+            language,
+            isLight,
+            navigation,
+            shell,
+          })
+        ) : null}
       </ScrollView>
       </RenderProfiler>
     </View>
@@ -1069,10 +1432,9 @@ export default function ProfilePage({ navigation, route }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   /** Як `FeedPage` → `FeedHeader` → кнопка додавання (історії / зйомка). */
-  profileAddCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  profileAddHit: {
+    minWidth: 44,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1086,7 +1448,7 @@ const styles = StyleSheet.create({
   },
   headRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   avatarCol: {
     marginRight: 16,
@@ -1113,9 +1475,9 @@ const styles = StyleSheet.create({
   },
   emptyPostsWrap: {
     width: '100%',
-    marginTop: 8,
+    marginTop: 4,
     borderRadius: 28,
-    paddingVertical: 28,
+    paddingVertical: 20,
     paddingHorizontal: 22,
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -1157,15 +1519,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   emptyPostsCtaText: { fontSize: 16 },
-  headText: { flex: 1 },
+  headText: { marginTop: 12 },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
   userName: { fontSize: 20, fontWeight: '700' },
+  userHandle: { fontSize: 14, marginTop: 2 },
   userCity: { fontSize: 14, marginTop: 4 },
   userBio: { fontSize: 14, marginTop: 8, lineHeight: 20 },
   userBirth: { fontSize: 13, marginTop: 6, fontWeight: '500' },
-  statsRow: { flexDirection: 'row', marginTop: 12, gap: 20 },
-  statPress: { flexDirection: 'row', alignItems: 'baseline' },
-  statNum: { fontSize: 16, fontWeight: '700' },
-  statLabel: { fontSize: 14 },
+  statsRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', minWidth: 0 },
+  statItem: { flex: 1, alignItems: 'center', minWidth: 0, paddingHorizontal: 2 },
+  statNum: { fontSize: 18, fontWeight: '700' },
+  statLabel: { fontSize: 12, marginTop: 2, textAlign: 'center' },
   editBtn: {
     marginHorizontal: 20,
     marginTop: 18,
@@ -1177,19 +1545,45 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E1E1E',
   },
   editBtnText: { fontSize: 16, fontWeight: '600' },
-  discoverBtn: {
+  findPeopleBtn: {
     marginHorizontal: 20,
     marginTop: 10,
     borderRadius: 14,
-    paddingVertical: 12,
+    paddingVertical: 13,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth * 2,
   },
-  discoverBtnText: { fontSize: 15, fontWeight: '600' },
+  findPeopleBtnLight: {
+    shadowColor: '#0212EB',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  findPeopleIcon: { marginRight: 8 },
+  findPeopleBtnText: { fontSize: 15, fontWeight: '600' },
+  socialShortcutRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 20,
+    marginTop: 10,
+  },
+  socialShortcutBtn: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+  },
+  socialShortcutText: { fontSize: 14, fontWeight: '600' },
   tabRail: {
     flexDirection: 'row',
     marginHorizontal: GRID_H_PAD,
-    marginTop: 20,
+    marginTop: 14,
     borderRadius: 18,
     padding: 4,
     gap: 4,
@@ -1204,7 +1598,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'transparent',
-    minHeight: 44,
+    minHeight: 42,
   },
   tabSegmentActive: {
     ...Platform.select({
@@ -1216,11 +1610,6 @@ const styles = StyleSheet.create({
       },
       android: { elevation: 3 },
     }),
-  },
-  tabSegmentText: {
-    fontSize: 12,
-    textAlign: 'center',
-    letterSpacing: 0.15,
   },
   grid: {
     flexDirection: 'row',
@@ -1241,6 +1630,27 @@ const styles = StyleSheet.create({
   postTileImage: { ...StyleSheet.absoluteFillObject },
   postTilePlaceholder: {
     ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postTileCreate: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+  },
+  postTileCreateLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+  postTileBadgeDevice: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1269,44 +1679,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.28)',
   },
   routeList: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
-  routesHintOnly: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 16,
+  tabSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  routesHintOnlyTxt: { fontSize: 14, lineHeight: 20 },
   savedPlacesBlock: { marginTop: 4 },
   savedPlacesSectionTitle: { fontSize: 17, marginBottom: 12, marginLeft: 2 },
-  profilePlaceCard: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  profilePlaceCardStale: { opacity: 0.62 },
-  profilePlaceThumb: { width: 88, height: 88, backgroundColor: 'rgba(128,128,128,0.2)' },
-  profilePlaceThumbPh: { alignItems: 'center', justifyContent: 'center' },
-  profilePlaceFlag: { fontSize: 28 },
-  profilePlaceBody: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-    minWidth: 0,
-  },
-  profilePlaceTag: { fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' },
-  profilePlaceTitle: { fontSize: 15, lineHeight: 20, marginTop: 4 },
-  profilePlaceMore: { fontSize: 13, marginTop: 8 },
-  savedRoutesSyncNote: {
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 8,
-    paddingHorizontal: 8,
-  },
 });

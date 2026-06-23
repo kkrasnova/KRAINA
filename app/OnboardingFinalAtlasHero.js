@@ -13,7 +13,6 @@ import Svg, {
 
 const LEMON = '#E1FF00';
 const LEMON_SOFT = 'rgba(225, 255, 0, 0.72)';
-const LEMON_FAINT = 'rgba(225, 255, 0, 0.22)';
 const LEMON_ROUTE = 'rgba(225, 255, 0, 0.32)';
 
 const LANDMARKS = [
@@ -586,144 +585,15 @@ function RoutePulse({ fromId, toId, width, height, delayMs, duration = 3200 }) {
   );
 }
 
-function RadarSweep({ cx, cy, radius }) {
-  const spin = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(spin, {
-        toValue: 1,
-        duration: 4200,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [spin]);
-
-  const rotate = spin.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left: cx,
-        top: cy,
-        width: 0,
-        height: 0,
-        transform: [{ rotate }],
-      }}
-    >
-      <LinearGradient
-        colors={['rgba(225, 255, 0, 0.38)', 'rgba(225, 255, 0, 0.08)', 'rgba(225, 255, 0, 0)']}
-        locations={[0, 0.35, 1]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: -radius * 0.55,
-          width: radius,
-          height: radius * 1.1,
-          borderTopRightRadius: radius,
-          borderBottomRightRadius: radius,
-          opacity: 0.55,
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: -1,
-          width: radius,
-          height: 2,
-          backgroundColor: 'rgba(225, 255, 0, 0.85)',
-          shadowColor: LEMON,
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 1,
-          shadowRadius: 8,
-        }}
-      />
-    </Animated.View>
-  );
-}
-
-function buildCompassTicks(ringSize, count = 36) {
-  const cx = ringSize / 2;
-  const cy = ringSize / 2;
-  const outerR = ringSize * 0.46;
-  const innerR = ringSize * 0.435;
-  const ticks = [];
-  for (let i = 0; i < count; i += 1) {
-    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    const major = i % 3 === 0;
-    const r0 = major ? innerR - ringSize * 0.012 : innerR;
-    const x1 = cx + Math.cos(angle) * r0;
-    const y1 = cy + Math.sin(angle) * r0;
-    const x2 = cx + Math.cos(angle) * outerR;
-    const y2 = cy + Math.sin(angle) * outerR;
-    ticks.push({
-      key: `tick-${i}`,
-      x1,
-      y1,
-      x2,
-      y2,
-      major,
-    });
-  }
-  return ticks;
-}
-
 export default function OnboardingFinalAtlasHero({ width, height, style }) {
-  const ringSpin = useRef(new Animated.Value(0)).current;
-  const ringSpinRev = useRef(new Animated.Value(0)).current;
-  const beaconPulse = useRef(new Animated.Value(0)).current;
   const drift = useRef(new Animated.Value(0)).current;
   const driftSlow = useRef(new Animated.Value(0)).current;
   const aurora = useRef(new Animated.Value(0)).current;
   const nebula = useRef(new Animated.Value(0)).current;
-  const vortex = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const loops = [
       Animated.loop(
-        Animated.timing(ringSpin, {
-          toValue: 1,
-          duration: 48000,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-      ),
-      Animated.loop(
-        Animated.timing(ringSpinRev, {
-          toValue: 1,
-          duration: 30000,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-      ),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(beaconPulse, {
-            toValue: 1,
-            duration: 2000,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(beaconPulse, {
-            toValue: 0,
-            duration: 2000,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-      ),
-      Animated.loop(
         Animated.sequence([
           Animated.timing(drift, {
             toValue: 1,
@@ -782,22 +652,6 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
           Animated.timing(nebula, {
             toValue: 0,
             duration: 8000,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-      ),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(vortex, {
-            toValue: 1,
-            duration: 3500,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(vortex, {
-            toValue: 0,
-            duration: 3500,
             easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
@@ -806,31 +660,11 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
     ];
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, [aurora, beaconPulse, drift, driftSlow, nebula, ringSpin, ringSpinRev, vortex]);
+  }, [aurora, drift, driftSlow, nebula]);
 
   const cx = width * 0.5;
-  const cy = height * 0.46;
-  const ringSize = height * 0.88;
-  const ringLeft = cx - ringSize / 2;
-  const ringTop = cy - ringSize / 2;
-  const sweepRadius = ringSize * 0.44;
+  const cy = height * 0.5;
 
-  const ringRotate = ringSpin.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-  const ringRotateRev = ringSpinRev.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['360deg', '0deg'],
-  });
-  const beaconScale = beaconPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.5],
-  });
-  const beaconOpacity = beaconPulse.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.65, 1, 0.65],
-  });
   const driftY = drift.interpolate({
     inputRange: [0, 1],
     outputRange: [-10, 12],
@@ -851,14 +685,6 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
     inputRange: [0, 0.5, 1],
     outputRange: [0.5, 0.9, 0.5],
   });
-  const vortexScale = vortex.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.92, 1.08],
-  });
-  const vortexOpacity = vortex.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.35, 0.75, 0.35],
-  });
 
   const starsNear = useMemo(() => makeStars(48, width, height, 731, 0.55), [width, height]);
   const starsFar = useMemo(() => makeStars(90, width, height, 1203, 0.85), [width, height]);
@@ -867,7 +693,6 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
     [starsFar, starsNear],
   );
   const particles = useMemo(() => makeParticles(18, width, height), [width, height]);
-  const compassTicks = useMemo(() => buildCompassTicks(ringSize), [ringSize]);
 
   const routePaths = useMemo(
     () =>
@@ -902,7 +727,7 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
     const sx = cx;
     const sy = cy;
     const turns = 1.2;
-    const maxR = sweepRadius * 0.85;
+    const maxR = Math.min(width, height) * 0.36;
     let d = '';
     const steps = 48;
     for (let i = 0; i <= steps; i += 1) {
@@ -914,7 +739,7 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
       d += i === 0 ? `M ${px.toFixed(1)} ${py.toFixed(1)}` : ` L ${px.toFixed(1)} ${py.toFixed(1)}`;
     }
     return d;
-  }, [cx, cy, sweepRadius]);
+  }, [cx, cy, height, width]);
 
   const tierOneLandmarks = LANDMARKS.filter((lm) => lm.tier === 1);
 
@@ -1062,110 +887,6 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
           },
         ]}
       >
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: cx - sweepRadius * 1.05,
-            top: cy - sweepRadius * 1.05,
-            width: sweepRadius * 2.1,
-            height: sweepRadius * 2.1,
-            opacity: vortexOpacity,
-            transform: [{ scale: vortexScale }],
-          }}
-        >
-          <LinearGradient
-            colors={['rgba(225, 255, 0, 0.14)', 'rgba(225, 255, 0, 0.04)', 'rgba(0,0,0,0)']}
-            locations={[0, 0.45, 1]}
-            start={{ x: 0.5, y: 0.5 }}
-            end={{ x: 1, y: 1 }}
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: sweepRadius * 1.05,
-            }}
-          />
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.ringSpinWrap,
-            {
-              left: ringLeft,
-              top: ringTop,
-              width: ringSize,
-              height: ringSize,
-              transform: [{ rotate: ringRotate }],
-            },
-          ]}
-        >
-          <Svg width={ringSize} height={ringSize}>
-            <Defs>
-              <RadialGradient id="atlasGlow" cx="50%" cy="50%" r="50%">
-                <Stop offset="0%" stopColor={LEMON} stopOpacity="0.16" />
-                <Stop offset="50%" stopColor={LEMON} stopOpacity="0.05" />
-                <Stop offset="100%" stopColor={LEMON} stopOpacity="0" />
-              </RadialGradient>
-            </Defs>
-            <Circle cx={ringSize / 2} cy={ringSize / 2} r={ringSize * 0.46} fill="url(#atlasGlow)" />
-            <Circle
-              cx={ringSize / 2}
-              cy={ringSize / 2}
-              r={ringSize * 0.46}
-              stroke={LEMON_FAINT}
-              strokeWidth={1.4}
-              fill="none"
-            />
-            <Circle
-              cx={ringSize / 2}
-              cy={ringSize / 2}
-              r={ringSize * 0.46}
-              stroke="rgba(225, 255, 0, 0.08)"
-              strokeWidth={6}
-              strokeDasharray="3 16"
-              fill="none"
-            />
-            {compassTicks.map(({ key, x1, y1, x2, y2, major }) => (
-              <Line
-                key={key}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke={major ? 'rgba(225, 255, 0, 0.35)' : 'rgba(225, 255, 0, 0.14)'}
-                strokeWidth={major ? 1.2 : 0.7}
-              />
-            ))}
-          </Svg>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.ringSpinWrap,
-            {
-              left: ringLeft + ringSize * 0.1,
-              top: ringTop + ringSize * 0.1,
-              width: ringSize * 0.8,
-              height: ringSize * 0.8,
-              transform: [{ rotate: ringRotateRev }],
-            },
-          ]}
-        >
-          <Svg width={ringSize * 0.8} height={ringSize * 0.8}>
-            <Circle
-              cx={(ringSize * 0.8) / 2}
-              cy={(ringSize * 0.8) / 2}
-              r={(ringSize * 0.8) * 0.44}
-              stroke="rgba(255,255,255,0.06)"
-              strokeWidth={0.9}
-              strokeDasharray="2 10"
-              fill="none"
-            />
-          </Svg>
-        </Animated.View>
-
-        <RadarSweep cx={cx} cy={cy} radius={sweepRadius} />
-
         <Svg width={width} height={height} style={StyleSheet.absoluteFillObject}>
           <G opacity={0.32}>
             {latLines.map(({ key, y }) => (
@@ -1274,27 +995,6 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
           />
         ))}
 
-        <Animated.View
-          style={[
-            styles.beaconOuter,
-            {
-              left: cx - 40,
-              top: cy - 40,
-              opacity: beaconOpacity,
-              transform: [{ scale: beaconScale }],
-            },
-          ]}
-        >
-          <BeaconRipple delayMs={0} maxScale={3.2} size={80} />
-          <BeaconRipple delayMs={700} maxScale={2.6} size={80} />
-          <BeaconRipple delayMs={1400} maxScale={2.1} size={80} />
-          <BeaconRipple delayMs={2100} maxScale={1.7} size={80} />
-          <View style={styles.beaconRing} />
-          <View style={styles.beaconRingMid} />
-          <View style={styles.beaconRingInner} />
-          <View style={styles.beaconCore} />
-          <View style={styles.beaconCoreHot} />
-        </Animated.View>
       </Animated.View>
     </View>
   );
@@ -1308,9 +1008,6 @@ const styles = StyleSheet.create({
   },
   ringLayer: {
     position: 'relative',
-  },
-  ringSpinWrap: {
-    position: 'absolute',
   },
   dot: {
     position: 'absolute',

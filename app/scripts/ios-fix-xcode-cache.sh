@@ -10,8 +10,12 @@ echo "== Чищу DerivedData для KRANA… =="
 rm -rf "${HOME}/Library/Developer/Xcode/DerivedData/KRANA-"* 2>/dev/null || true
 echo "== Чищу ios/build… =="
 rm -rf ios/build 2>/dev/null || true
+echo "== patch-package… =="
+npx patch-package 2>/dev/null || true
 echo "== pod install… =="
 (cd ios && pod install)
+echo "== expo-modules-jsi modulemap… =="
+PODS_ROOT="$(cd ios && pwd)/Pods" bash node_modules/expo-modules-jsi/apple/scripts/generate-modulemap.sh 2>/dev/null || true
 
 echo ""
 echo "Готово. Далі у Xcode:"

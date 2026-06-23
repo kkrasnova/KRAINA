@@ -62,17 +62,17 @@ export default function PostMapPickerPage({ navigation, route }) {
 
   const confirmToComposer = useCallback(
     (lat, lng, label) => {
-      navigation.navigate({
-        name: 'FeedPostComposer',
-        params: {
-          pickedLat: lat,
-          pickedLng: lng,
-          pickedLabel: label,
-        },
-        merge: true,
+      // FeedPostComposer видалено — переходимо напряму на камеру
+      navigation.navigate('FeedCamera', {
+        user: route?.params?.user,
+        language,
+        appTheme: route?.params?.appTheme || 'dark',
+        ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
+        publishVisibility: 'public',
+        cameraInitialMode: 'post',
       });
     },
-    [navigation],
+    [navigation, language, route?.params?.user, route?.params?.appTheme, route?.params?.countryId],
   );
 
   const onPickCityRow = useCallback(

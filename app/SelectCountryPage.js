@@ -14,10 +14,13 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsive } from './useResponsive';
-import { noAndroidRipple, rippleOnDarkSurface } from './androidFeedback';
+import { noAndroidRipple, rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { useAppTheme } from './useAppTheme';
+import { accentForTheme } from './themeAccent';
 import { getSavedCountryIdForUser, saveCountryForUser, LEGACY_COUNTRY_STORAGE_KEY } from './countryStorage';
 import Lemon3DButton from './Lemon3DButton';
 import {
@@ -41,28 +44,28 @@ const GRID_GAP = 10;
 
 /** Ті самі hero PNG, що в каруселі на головній (без AVIF — стабільніше на Android). */
 const COUNTRY_SELECT_TILE_PHOTOS = {
-  DE: require('./assets/germany-card-hero.png'),
-  NL: require('./assets/netherlands-card-hero.png'),
-  PL: require('./assets/poland-card-hero.png'),
-  ES: require('./assets/spain-card-hero.png'),
-  LT: require('./assets/lithuania-card-hero.png'),
-  LV: require('./assets/latvia-card-hero.png'),
-  RO: require('./assets/romania-card-hero.png'),
-  IT: require('./assets/italy-card-hero.png'),
-  AM: require('./assets/armenia-card-hero.png'),
-  UA: require('./assets/kyiv-main-hero.png'),
+  DE: require('./assets/germany-card-hero.webp'),
+  NL: require('./assets/netherlands-card-hero.webp'),
+  PL: require('./assets/poland-card-hero.webp'),
+  ES: require('./assets/spain-card-hero.webp'),
+  LT: require('./assets/lithuania-card-hero.webp'),
+  LV: require('./assets/latvia-card-hero.webp'),
+  RO: require('./assets/romania-card-hero.webp'),
+  IT: require('./assets/italy-card-hero.webp'),
+  AM: require('./assets/armenia-card-hero.webp'),
+  UA: require('./assets/kyiv-main-hero.webp'),
 };
 
 const COUNTRY_SELECT_TILE_FALLBACKS = {
-  DE: require('./assets/country-tile-germany-hero.jpg'),
-  NL: require('./assets/country-tile-netherlands-hero.jpg'),
-  PL: require('./assets/country-tile-pl.jpg'),
-  LT: require('./assets/country-tile-lithuania.png'),
-  LV: require('./assets/country-tile-latvia-hero.jpg'),
-  RO: require('./assets/country-tile-romania-hero.jpg'),
-  IT: require('./assets/country-tile-italy-hero.jpg'),
-  AM: require('./assets/tyquxnnd.jpg'),
-  UA: require('./assets/country-tile-ua.jpg'),
+  DE: require('./assets/country-tile-germany-hero.webp'),
+  NL: require('./assets/country-tile-netherlands-hero.webp'),
+  PL: require('./assets/country-tile-pl.webp'),
+  LT: require('./assets/country-tile-lithuania.webp'),
+  LV: require('./assets/country-tile-latvia-hero.webp'),
+  RO: require('./assets/country-tile-romania-hero.webp'),
+  IT: require('./assets/country-tile-italy-hero.webp'),
+  AM: require('./assets/tyquxnnd.webp'),
+  UA: require('./assets/country-tile-ua.webp'),
 };
 
 function getCountryTilePhotoCandidates(countryId) {
@@ -212,67 +215,55 @@ function countryStringToSupportedIso(countryField) {
   return GEO_NORMALIZED_NAME_TO_ISO[k] || '';
 }
 
-function pickBetterPosition(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  const ac = a.coords?.accuracy;
-  const bc = b.coords?.accuracy;
-  if (bc != null && ac != null) return bc < ac ? b : a;
-  if (bc != null && ac == null) return b;
-  return a;
-}
-
 function isFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-/** Пауза перед повторним зчитуванням, якщо перша точка дуже груба (мілісекунди). */
-const GEO_RETRY_AFTER_MS = 650;
-/** Уточнення GPS через watch при середній/поганій точності (мілісекунди). */
-const GEO_REFINE_WATCH_MS = 3200;
+/** Цільовий час отримання координат для вибору країни (мілісекунди). */
+const GEO_LOCATION_BUDGET_MS = 1000;
+/** Кешована точка придатна для визначення країни (мілісекунди). */
+const GEO_LAST_KNOWN_MAX_AGE_MS = 5 * 60 * 1000;
 
 /**
- * Координати для країни: Highest + коротке уточнення — зменшує хибні країни через грубий сигнал.
+ * Швидкі координати для країни: кеш → Balanced GPS, у межах ~1 с.
+ * Точність міста не потрібна — достатньо bbox / reverse geocode / IP fallback.
  */
-async function getHighAccuracyCoords(Location) {
+async function getCountryCoordsFast(Location) {
   const Acc = Location.Accuracy || {};
-  const accuracy = Acc.Highest != null ? Acc.Highest : Acc.High != null ? Acc.High : Acc.Balanced;
-  const opts = {
+  const accuracy =
+    Acc.Balanced != null ? Acc.Balanced : Acc.Low != null ? Acc.Low : Acc.Highest;
+  const currentOpts = {
     accuracy,
-    /** Android: не брати дуже старий кеш. */
-    ...(Platform.OS === 'android' ? { mayShowUserSettingsDialog: true, maximumAge: 0 } : {}),
+    ...(Platform.OS === 'android'
+      ? { mayShowUserSettingsDialog: true, maximumAge: GEO_LAST_KNOWN_MAX_AGE_MS }
+      : {}),
   };
-  let best = await Location.getCurrentPositionAsync(opts);
-  const acc = best?.coords?.accuracy;
-  if (acc != null && acc > 6000) {
-    await new Promise((resolve) => setTimeout(resolve, GEO_RETRY_AFTER_MS));
+  const deadline = Date.now() + GEO_LOCATION_BUDGET_MS;
+
+  if (typeof Location.getLastKnownPositionAsync === 'function') {
     try {
-      const pos2 = await Location.getCurrentPositionAsync(opts);
-      best = pickBetterPosition(best, pos2);
-    } catch (_) {
-      /* залишаємо best */
-    }
-  }
-  const accAfter = best?.coords?.accuracy;
-  const needsRefine = accAfter == null || accAfter > 2500;
-  if (needsRefine && typeof Location.watchPositionAsync === 'function') {
-    let sub;
-    try {
-      let watchBest = best;
-      sub = await Location.watchPositionAsync(opts, (loc) => {
-        watchBest = pickBetterPosition(watchBest, loc);
+      const cached = await Location.getLastKnownPositionAsync({
+        maxAge: GEO_LAST_KNOWN_MAX_AGE_MS,
       });
-      await new Promise((resolve) => setTimeout(resolve, GEO_REFINE_WATCH_MS));
-      best = pickBetterPosition(best, watchBest);
+      if (
+        cached?.coords &&
+        isFiniteNumber(cached.coords.latitude) &&
+        isFiniteNumber(cached.coords.longitude)
+      ) {
+        return cached;
+      }
     } catch (_) {
-      /* лишаємо best */
-    } finally {
-      try {
-        sub?.remove?.();
-      } catch (_) {}
+      /* fresh fix below */
     }
   }
-  return best;
+
+  const remainingMs = Math.max(250, deadline - Date.now());
+  return Promise.race([
+    Location.getCurrentPositionAsync(currentOpts),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('GEO_TIMEOUT')), remainingMs);
+    }),
+  ]);
 }
 
 /** Приблизні межі (прямокутник) — лише для підтримуваних країн; порядок: менший перетин з сусідами вище. */
@@ -846,6 +837,9 @@ export default function SelectCountryPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const previewBeforeAuth = route?.params?.previewBeforeAuth === true;
   const texts = getTexts(lang);
+  const { savedAppTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
+  const accent = accentForTheme(isLight);
+  const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const [countryId, setCountryId] = useState(null);
   /** Звідки поточний вибір: збережений / гео / ручна плитка — щоб підсвітити картку геолокації як «рекомендовану», як мова за замовчуванням. */
@@ -868,6 +862,29 @@ export default function SelectCountryPage({ navigation, route }) {
       : countriesForUi;
   }, [countriesForUi, searchQuery]);
 
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+
+  const applyGeoCountrySelection = useCallback(
+    (resolvedId) => {
+      if (!resolvedId || !SUPPORTED_COUNTRY_IDS.has(resolvedId)) return;
+      const q = String(searchQueryRef.current || '').trim();
+      if (q) {
+        const opt = countriesForUi.find((c) => c.id === resolvedId);
+        const visible = opt && countryMatchesSearchQuery(opt, searchQueryRef.current);
+        if (!visible) {
+          setSearchQuery('');
+          Keyboard.dismiss();
+        }
+      }
+      setCountryId(resolvedId);
+      setSelectionSource('geo');
+      setGeoError(null);
+      setGeoUnsupportedRegion(false);
+    },
+    [countriesForUi],
+  );
+
   const handleUseLocation = useCallback(async () => {
     const t = getTexts(lang);
     setGeoError(null);
@@ -879,10 +896,7 @@ export default function SelectCountryPage({ navigation, route }) {
         if (__DEV__) console.warn('[SelectCountry] expo-location native module not linked');
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
-          setCountryId(byIp);
-          setSelectionSource('geo');
-          setGeoError(null);
-          setGeoUnsupportedRegion(false);
+          applyGeoCountrySelection(byIp);
           return;
         }
         setGeoUnsupportedRegion(false);
@@ -894,10 +908,7 @@ export default function SelectCountryPage({ navigation, route }) {
       if (status !== 'granted') {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
-          setCountryId(byIp);
-          setSelectionSource('geo');
-          setGeoError(null);
-          setGeoUnsupportedRegion(false);
+          applyGeoCountrySelection(byIp);
           return;
         }
         setGeoUnsupportedRegion(false);
@@ -926,10 +937,7 @@ export default function SelectCountryPage({ navigation, route }) {
         if (!servicesOn) {
           const byIpSvc = await detectCountryByIpBackend();
           if (byIpSvc && SUPPORTED_COUNTRY_IDS.has(byIpSvc)) {
-            setCountryId(byIpSvc);
-            setSelectionSource('geo');
-            setGeoError(null);
-            setGeoUnsupportedRegion(false);
+            applyGeoCountrySelection(byIpSvc);
             return;
           }
           setGeoUnsupportedRegion(false);
@@ -937,7 +945,17 @@ export default function SelectCountryPage({ navigation, route }) {
           return;
         }
       }
-      const pos = await getHighAccuracyCoords(Location);
+      let pos;
+      try {
+        pos = await getCountryCoordsFast(Location);
+      } catch (geoFixErr) {
+        const byIpFast = await detectCountryByIpBackend();
+        if (byIpFast && SUPPORTED_COUNTRY_IDS.has(byIpFast)) {
+          applyGeoCountrySelection(byIpFast);
+          return;
+        }
+        throw geoFixErr;
+      }
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       const fromBox = countryIdFromBoundingBox(lat, lng);
@@ -989,10 +1007,7 @@ export default function SelectCountryPage({ navigation, route }) {
         });
       }
       if (countryIdResolved && SUPPORTED_COUNTRY_IDS.has(countryIdResolved)) {
-        setCountryId(countryIdResolved);
-        setSelectionSource('geo');
-        setGeoUnsupportedRegion(false);
-        setGeoError(null);
+        applyGeoCountrySelection(countryIdResolved);
       } else if (rawIsoForNotice && !mapsToSupported && !boxSupported) {
         setGeoUnsupportedRegion(true);
         setGeoError(null);
@@ -1005,10 +1020,7 @@ export default function SelectCountryPage({ navigation, route }) {
       try {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
-          setCountryId(byIp);
-          setSelectionSource('geo');
-          setGeoError(null);
-          setGeoUnsupportedRegion(false);
+          applyGeoCountrySelection(byIp);
           return;
         }
       } catch (_) {
@@ -1019,7 +1031,7 @@ export default function SelectCountryPage({ navigation, route }) {
     } finally {
       setLocating(false);
     }
-  }, [lang]);
+  }, [lang, applyGeoCountrySelection]);
 
   const handleUseLocationRef = useRef(handleUseLocation);
   handleUseLocationRef.current = handleUseLocation;
@@ -1052,7 +1064,7 @@ export default function SelectCountryPage({ navigation, route }) {
       navigation?.replace?.('BackendAuth');
       return;
     }
-    const payload = { user, language: lang, countryId };
+    const payload = { user, language: lang, countryId, appTheme: savedAppTheme };
     navigation?.replace?.('WalkReminderSetup', { ...payload, fromOnboarding: true });
   };
 
@@ -1061,7 +1073,22 @@ export default function SelectCountryPage({ navigation, route }) {
 
   const checkmarkSize = Math.round(20 * r.scale);
   const buttonMinHeight = Math.max(48, Math.round(48 * r.scale));
-  const searchBorderColor = searchFocused ? 'rgba(225, 255, 0, 0.55)' : 'rgba(255, 255, 255, 0.12)';
+  const searchBorderColor = searchFocused
+    ? isLight
+      ? 'rgba(2, 18, 235, 0.45)'
+      : 'rgba(225, 255, 0, 0.55)'
+    : isLight
+      ? 'rgba(0, 0, 0, 0.1)'
+      : 'rgba(255, 255, 255, 0.12)';
+  const searchFieldBg = isLight ? 'rgba(15, 58, 115, 0.06)' : 'rgba(105, 105, 105, 0.1)';
+  const searchTextColor = isLight ? '#1A1A1A' : '#FFFFFF';
+  const searchPlaceholderColor = isLight ? 'rgba(26, 26, 26, 0.45)' : 'rgba(161, 161, 161, 0.85)';
+  const searchIconTint = isLight ? '#0F3A73' : '#FFFFFF';
+  const hintMutedColor = isLight ? 'rgba(0, 0, 0, 0.42)' : 'rgba(255, 255, 255, 0.36)';
+  const tileIdleBorder = isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.12)';
+  const tileSurfaceBg = isLight ? '#FFFFFF' : '#010103';
+  const geoLabelColor = isLight ? '#1A1A1A' : '#FFFFFF';
+  const geoActivityColor = accent;
   const searchIconSize = Math.max(14, Math.round(14 * r.scale));
   const countryTileHeight = Math.max(132, Math.round(152 * r.scale));
   const geoCardHeight = countryTileHeight;
@@ -1075,22 +1102,26 @@ export default function SelectCountryPage({ navigation, route }) {
   const geoGlobeH = Math.round(geoCardHeight * 1.18);
   const geoCardPrimary =
     locating || (selectionSource === 'geo' && !!countryId);
-  const titleLimeSize = Math.min(23, Math.round((r.titleFontSize + 1) * (r.isNarrow ? 0.84 : 0.88)));
+  const titleLimeSize = Math.min(20, Math.round((r.titleFontSize + 1) * (r.isNarrow ? 0.76 : 0.8)));
   const fontUkraine = brandFontText;
+  const footerBottomPad = Math.max(insets.bottom, 12) + 10;
+  const scrollBottomPad = buttonMinHeight + footerBottomPad + 20;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: screenBg }]}>
+      <StatusBar style="light" translucent />
       <Pressable
         style={[
           styles.content,
           {
             paddingTop: insets.top + 10,
-            paddingBottom: r.bottomPadding,
             paddingHorizontal: r.horizontalPadding,
+            backgroundColor: screenBg,
           },
         ]}
         onPress={Keyboard.dismiss}
       >
+        <View style={[styles.topShell, { backgroundColor: screenBg }]}>
         <View
           style={[
             styles.headerBlock,
@@ -1102,7 +1133,8 @@ export default function SelectCountryPage({ navigation, route }) {
               styles.screenTitleLime,
               {
                 fontSize: titleLimeSize,
-                lineHeight: titleLimeSize + 8,
+                lineHeight: titleLimeSize + 6,
+                color: accent,
                 ...fontUkraine,
               },
             ]}
@@ -1112,23 +1144,29 @@ export default function SelectCountryPage({ navigation, route }) {
         </View>
 
         <View style={styles.searchWrap}>
-          <View style={[styles.searchField, { borderColor: searchBorderColor }]}>
+          <View
+            style={[
+              styles.searchField,
+              { borderColor: searchBorderColor, backgroundColor: searchFieldBg },
+            ]}
+          >
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder={texts.searchCountry}
-              placeholderTextColor="rgba(161, 161, 161, 0.85)"
+              placeholderTextColor={searchPlaceholderColor}
               style={[
                 styles.searchInput,
                 {
                   fontSize: Math.max(15, r.optionFontSize),
+                  color: searchTextColor,
                   ...brandFontText,
                 },
               ]}
               autoCapitalize="none"
               autoCorrect={false}
-              keyboardAppearance="dark"
-              selectionColor="#E1FF00"
+              keyboardAppearance={isLight ? 'light' : 'dark'}
+              selectionColor={accent}
               underlineColorAndroid="transparent"
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
@@ -1140,12 +1178,16 @@ export default function SelectCountryPage({ navigation, route }) {
                 accessibilityRole="button"
                 style={styles.searchClearHit}
               >
-                <Ionicons name="close-circle" size={22} color="rgba(255,255,255,0.4)" />
+                <Ionicons
+                  name="close-circle"
+                  size={22}
+                  color={isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.4)'}
+                />
               </Pressable>
             ) : null}
             <Image
               source={require('./assets/Vector2121.png')}
-              style={{ width: searchIconSize, height: searchIconSize, tintColor: '#FFFFFF' }}
+              style={{ width: searchIconSize, height: searchIconSize, tintColor: searchIconTint }}
               resizeMode="contain"
               accessibilityIgnoresInvertColors
               importantForAccessibility="no"
@@ -1197,14 +1239,18 @@ export default function SelectCountryPage({ navigation, route }) {
           <Text style={[styles.geoError, { fontSize: r.hintFontSize }]}>{geoError}</Text>
         ) : null}
 
-        <View style={styles.listSection}>
-          <Text style={[styles.hintMuted, { fontSize: r.hintFontSize - 1 }]}>{texts.scrollHint}</Text>
+        </View>
+
+        <View style={[styles.listSection, { backgroundColor: screenBg }]}>
+          <Text style={[styles.hintMuted, { fontSize: r.hintFontSize - 1, color: hintMutedColor }]}>
+            {texts.scrollHint}
+          </Text>
 
           <ScrollView
-            style={styles.gridScroll}
-            contentContainerStyle={styles.gridContent}
-            showsVerticalScrollIndicator
-            indicatorStyle="white"
+            style={[styles.gridScroll, { backgroundColor: screenBg }]}
+            contentContainerStyle={[styles.gridContent, { paddingBottom: scrollBottomPad }]}
+            showsVerticalScrollIndicator={false}
+            indicatorStyle={isLight ? 'black' : 'white'}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
           >
@@ -1215,20 +1261,24 @@ export default function SelectCountryPage({ navigation, route }) {
                 style={({ pressed }) => [
                   styles.tileOuter,
                   { width: tileW, height: geoCardHeight },
-                  geoCardPrimary && styles.tileSelected,
+                  geoCardPrimary && [styles.tileSelected, { borderColor: accent }],
                   !geoCardPrimary && {
-                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                    borderColor: tileIdleBorder,
+                    backgroundColor: tileSurfaceBg,
                   },
                   pressed && !locating && styles.tilePressed,
                   locating && styles.tileDisabled,
                 ]}
-                android_ripple={locating ? undefined : rippleOnDarkSurface}
+                android_ripple={locating ? undefined : ripple}
                 accessibilityRole="button"
                 accessibilityLabel={texts.useLocationA11y || texts.useLocation}
                 accessibilityState={{ disabled: locating }}
               >
                 <View
-                  style={[styles.geoCardInner, { height: geoCardHeight }]}
+                  style={[
+                    styles.geoCardInner,
+                    { height: geoCardHeight, backgroundColor: tileSurfaceBg },
+                  ]}
                   pointerEvents="box-none"
                   collapsable={false}
                 >
@@ -1240,7 +1290,7 @@ export default function SelectCountryPage({ navigation, route }) {
                     pointerEvents="none"
                   >
                     <Image
-                      source={require('./assets/globe.png')}
+                      source={require('./assets/globe.webp')}
                       style={{ width: geoGlobeW, height: geoGlobeH }}
                       resizeMode="contain"
                       accessibilityIgnoresInvertColors
@@ -1249,7 +1299,7 @@ export default function SelectCountryPage({ navigation, route }) {
                   <View style={styles.geoCardForeground} pointerEvents="box-none" collapsable={false}>
                     <View style={styles.geoLabelRow}>
                       {locating ? (
-                        <ActivityIndicator color="#E1FF00" size="small" style={styles.geoActivitySlot} />
+                        <ActivityIndicator color={geoActivityColor} size="small" style={styles.geoActivitySlot} />
                       ) : (
                         <Image
                           source={require('./assets/mage_location-fill.png')}
@@ -1264,6 +1314,7 @@ export default function SelectCountryPage({ navigation, route }) {
                           styles.geoCardLabel,
                           {
                             fontSize: Math.max(13, Math.round(14 * r.scale)),
+                            color: geoLabelColor,
                             ...fontUkraine,
                             fontWeight: '300',
                           },
@@ -1338,11 +1389,16 @@ export default function SelectCountryPage({ navigation, route }) {
                     }}
                     style={({ pressed }) => [
                       styles.tileOuter,
-                      { width: tileW, height: countryTileHeight },
+                      {
+                        width: tileW,
+                        height: countryTileHeight,
+                        borderColor: selected ? accent : tileIdleBorder,
+                        backgroundColor: tileSurfaceBg,
+                      },
                       selected && styles.tileSelected,
                       pressed && styles.tilePressed,
                     ]}
-                    android_ripple={selected ? noAndroidRipple : rippleOnDarkSurface}
+                    android_ripple={selected ? noAndroidRipple : ripple}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     accessibilityLabel={opt.label}
@@ -1363,8 +1419,13 @@ export default function SelectCountryPage({ navigation, route }) {
                         </View>
                         <LinearGradient
                           pointerEvents="none"
-                          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.92)']}
-                          locations={[0, 0.3, 1]}
+                          colors={[
+                            'rgba(0,0,0,0)',
+                            'rgba(0,0,0,0.06)',
+                            'rgba(0,0,0,0.42)',
+                            'rgba(0,0,0,0.88)',
+                          ]}
+                          locations={[0, 0.42, 0.78, 1]}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 1 }}
                           style={styles.countryTilePhotoFade}
@@ -1390,15 +1451,19 @@ export default function SelectCountryPage({ navigation, route }) {
 
               {!filteredCountries.length ? (
                 <View style={[styles.emptyGridBanner, { width: gridInnerW }]}>
-                  <Text style={styles.emptyText}>{texts.noCountryFound}</Text>
+                  <Text style={[styles.emptyText, { color: hintMutedColor }]}>{texts.noCountryFound}</Text>
                 </View>
               ) : null}
             </View>
           </ScrollView>
         </View>
+      </Pressable>
 
-        <View style={styles.footer}>
-          <View style={styles.footerDivider} />
+      <View
+        pointerEvents="box-none"
+        style={[styles.footerOverlay, { paddingBottom: footerBottomPad, paddingHorizontal: r.horizontalPadding }]}
+      >
+        <View style={styles.footerInner}>
           <Lemon3DButton
             label={texts.continue}
             onPress={handleContinue}
@@ -1412,7 +1477,7 @@ export default function SelectCountryPage({ navigation, route }) {
             accessibilityLabel={texts.continue}
           />
         </View>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -1420,13 +1485,16 @@ export default function SelectCountryPage({ navigation, route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
   },
   content: {
     flex: 1,
     maxWidth: 480,
     width: '100%',
     alignSelf: 'center',
+    backgroundColor: 'transparent',
+  },
+  topShell: {
     backgroundColor: '#000000',
   },
   headerBlock: {
@@ -1455,6 +1523,8 @@ const styles = StyleSheet.create({
   },
   countryTileMedia: {
     ...StyleSheet.absoluteFillObject,
+    borderRadius: 20,
+    overflow: 'hidden',
     backgroundColor: '#1A1A1A',
   },
   countryTilePhotoImage: {
@@ -1467,6 +1537,7 @@ const styles = StyleSheet.create({
   },
   geoCardInner: {
     width: '100%',
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#010103',
   },
@@ -1580,6 +1651,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     marginTop: 10,
+    backgroundColor: 'transparent',
   },
   hintMuted: {
     marginTop: 2,
@@ -1592,10 +1664,10 @@ const styles = StyleSheet.create({
   },
   gridScroll: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   gridContent: {
     paddingTop: 4,
-    paddingBottom: 20,
   },
   grid: {
     flexDirection: 'row',
@@ -1626,7 +1698,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: '56%',
+    height: '50%',
     zIndex: 1,
   },
   countryTileLabelRow: {
@@ -1669,13 +1741,17 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 8,
   },
-  footer: {
-    paddingTop: 16,
-    paddingBottom: 4,
+  footerOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
   },
-  footerDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginBottom: 18,
+  footerInner: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    paddingHorizontal: 22,
   },
 });

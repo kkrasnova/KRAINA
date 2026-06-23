@@ -1,0 +1,1 @@
+{"version":3,"file":"facebookVerify.d.ts","sourceRoot":"","sources":["../../src/oauth/facebookVerify.ts"],"names":[],"mappings":"AAEA,MAAM,MAAM,eAAe,GAAG;IAC5B,UAAU,EAAE,MAAM,CAAC;IACnB,KAAK,EAAE,MAAM,CAAC;IACd,IAAI,EAAE,MAAM,CAAC;CACd,CAAC;AAEF,wBAAsB,yBAAyB,CAAC,WAAW,EAAE,MAAM,GAAG,OAAO,CAAC,eAAe,CAAC,CA8B7F"}

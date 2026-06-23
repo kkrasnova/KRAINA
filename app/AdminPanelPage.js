@@ -15,8 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { THEME_CHANGED_EVENT } from './themeStorage';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { useAppTheme } from './useAppTheme';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { appLangBase, countriesForSelectCountryScreen, resolveSupportedCountryIdFromDisplayName } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import * as ImagePicker from 'expo-image-picker';
@@ -169,7 +169,7 @@ export default function AdminPanelPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const routeUser = route?.params?.user || {};
   const countryId = route?.params?.countryId;
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme === 'light' ? 'light' : 'dark');
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme);
   const [draft, setDraft] = useState(() => clone(buildSnapshotFromRuntime()));
   const [selectedCountryId, setSelectedCountryId] = useState(null);
   const [selectedRegionId, setSelectedRegionId] = useState(null);
@@ -315,20 +315,12 @@ export default function AdminPanelPage({ navigation, route }) {
   const scrollRef = useRef(null);
   const sectionY = useRef({ intro: 0, countries: 0, regions: 0, city: 0 });
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const muted = isLight ? '#5C5C5C' : MUTED;
   const cardBg = isLight ? '#FFFFFF' : CARD_DARK;
   const border = isLight ? 'rgba(30,30,30,0.08)' : BORDER_DARK;
-
-  React.useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => sub.remove();
-  }, []);
 
   React.useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_ADMIN_LOCATION_EVENT, () => {
@@ -958,7 +950,6 @@ export default function AdminPanelPage({ navigation, route }) {
         onBackPress={() => navigation.goBack()}
         replaceCenterTitle={st(language, 'adminPanelTitle')}
         hideSendButton
-        lightBarBackgroundColor={isLight ? '#FFFFFF' : undefined}
         rightSlot={
           <Pressable
             onPress={() => setHubOpen(true)}
@@ -976,7 +967,7 @@ export default function AdminPanelPage({ navigation, route }) {
         ref={scrollRef}
         contentContainerStyle={{
           paddingTop: 12,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 72,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 72),
           paddingHorizontal: 16,
         }}
         keyboardShouldPersistTaps="handled"

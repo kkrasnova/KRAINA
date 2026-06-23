@@ -37,8 +37,12 @@ const S = {
     en: 'KRAÏNA',
   },
   searchPlaceholder: {
-    uk: 'Пошук',
-    en: 'Search',
+    uk: 'Пошук у чатах',
+    en: 'Search chats',
+  },
+  composeSearchA11y: {
+    uk: 'Знайти людину за нікнеймом',
+    en: 'Find someone by username',
   },
   delete: {
     uk: 'Видалити',
@@ -129,6 +133,10 @@ const S = {
     uk: 'Галерея',
     en: 'Gallery',
   },
+  openCamera: {
+    uk: 'Камера',
+    en: 'Camera',
+  },
   takePhoto: {
     uk: 'Камера',
     en: 'Camera',
@@ -144,6 +152,10 @@ const S = {
   needMicPermission: {
     uk: 'Увімкніть доступ до мікрофона',
     en: 'Enable microphone access',
+  },
+  needCameraPermission: {
+    uk: 'Увімкніть доступ до камери',
+    en: 'Enable camera access',
   },
   recordingVoice: {
     uk: 'Запис…',
@@ -175,12 +187,37 @@ const S = {
   },
   inboxTab: { uk: 'Чати', en: 'Chats' },
   requestsTab: { uk: 'Запити', en: 'Requests' },
-  startChatTitle: { uk: 'Новий чат', en: 'New chat' },
+  recentChatsSection: { uk: 'Нещодавні', en: 'Recent' },
+  startChatTitle: { uk: 'Знайти людину', en: 'Find someone' },
   usernameLabel: { uk: 'Нікнейм у KRAÏNA', en: 'KRAÏNA username' },
-  openChatCta: { uk: 'Відкрити чат', en: 'Open chat' },
+  openChatCta: { uk: 'Написати', en: 'Message' },
+  usernameRequired: {
+    uk: 'Введіть нікнейм',
+    en: 'Enter a username',
+  },
   needBackendLogin: {
-    uk: 'Увійдіть у KRAÏNA через email, щоб писати іншим користувачам.',
-    en: 'Sign in with your KRAÏNA email to message other users.',
+    uk: 'Не вдалося підключити чати до вашого акаунта. Спробуйте вийти та увійти знову.',
+    en: 'Could not connect chats to your account. Try signing out and back in.',
+  },
+  connectingChats: {
+    uk: 'Підключення чатів…',
+    en: 'Connecting chats…',
+  },
+  connectChatsHint: {
+    uk: 'Натисніть «Спробувати знову» або увійдіть знову з увімкненим «Запамʼятати мене».',
+    en: 'Tap “Try again” or sign in again with “Remember me” enabled.',
+  },
+  connectChatsRetry: {
+    uk: 'Спробувати знову',
+    en: 'Try again',
+  },
+  reauthForChatsCta: {
+    uk: 'Увійти знову',
+    en: 'Sign in again',
+  },
+  reauthGoogleForChatsCta: {
+    uk: 'Увійти через Google',
+    en: 'Sign in with Google',
   },
   acceptRequest: { uk: 'Прийняти запит', en: 'Accept request' },
   requestBanner: {
@@ -192,8 +229,27 @@ const S = {
     en: 'Photos in server chat are not synced yet.',
   },
   pickMutualOrUsername: {
-    uk: 'Оберіть друга або введіть нікнейм',
-    en: 'Pick a mutual friend or enter a username',
+    uk: 'Введіть нікнейм — можна написати будь-кому',
+    en: 'Enter a username to message anyone',
+  },
+  globalSearchSubtitle: {
+    uk: 'Друзям повідомлення йде одразу в «Чати». Іншим — у «Запити», доки вони не приймуть.',
+    en: 'Friends get messages in Chats right away. Others see them in Requests until they accept.',
+  },
+  globalSearchResults: { uk: 'Знайдені користувачі', en: 'People found' },
+  globalSearchEmpty: { uk: 'Нікого не знайдено за цим нікнеймом', en: 'No users found for this username' },
+  globalSearchBusy: { uk: 'Шукаємо…', en: 'Searching…' },
+  mutualFriendsSection: {
+    uk: 'Взаємні друзі',
+    en: 'Mutual friends',
+  },
+  startChatOrDivider: {
+    uk: 'або',
+    en: 'or',
+  },
+  noMutualFriendsHint: {
+    uk: 'Поки немає взаємних друзів — введіть нікнейм вище',
+    en: 'No mutual friends yet — enter a username above',
   },
   emptyInboxTitle: {
     uk: 'Поки що немає чатів',
@@ -218,6 +274,123 @@ const S = {
   declineRequest: {
     uk: 'Відхилити',
     en: 'Decline',
+  },
+  emptyThreadTitle: {
+    uk: 'Почніть розмову',
+    en: 'Start the conversation',
+    pl: 'Rozpocznij rozmowę',
+    de: 'Starte die Unterhaltung',
+    es: 'Empieza la conversación',
+    it: 'Inizia la conversazione',
+    nl: 'Begin het gesprek',
+    ro: 'Începe conversația',
+    lt: 'Pradėkite pokalbį',
+    lv: 'Sāciet sarunu',
+    hy: 'Սկսեք զրույցը',
+  },
+  emptyThreadBody: {
+    uk: 'Напишіть привіт або оберіть ідею нижче',
+    en: 'Say hello or pick an idea below',
+    pl: 'Przywitaj się lub wybierz pomysł poniżej',
+    de: 'Sag Hallo oder wähle eine Idee unten',
+    es: 'Saluda o elige una idea abajo',
+    it: 'Saluta o scegli un’idea qui sotto',
+    nl: 'Zeg hallo of kies een idee hieronder',
+    ro: 'Spune salut sau alege o idee mai jos',
+    lt: 'Pasisveikinkite arba pasirinkite idėją žemiau',
+    lv: 'Sveicinieties vai izvēlieties ideju zemāk',
+    hy: 'Ողջույն ասեք կամ ընտրեք գաղափար ստորև',
+  },
+  emptyThreadSayHi: {
+    uk: 'Привіт, @{name}! 👋',
+    en: 'Hi @{name}! 👋',
+    pl: 'Cześć @{name}! 👋',
+    de: 'Hi @{name}! 👋',
+    es: '¡Hola @{name}! 👋',
+    it: 'Ciao @{name}! 👋',
+    nl: 'Hoi @{name}! 👋',
+    ro: 'Salut @{name}! 👋',
+    lt: 'Labas, @{name}! 👋',
+    lv: 'Sveiki, @{name}! 👋',
+    hy: 'Ողջույն, @{name}! 👋',
+  },
+  icebreakerLandmark: {
+    uk: 'Я щойно відвідав памʼятку в KRAINA 🗺️',
+    en: 'I just visited a landmark in KRAINA 🗺️',
+    pl: 'Właśnie odwiedziłem zabytek w KRAINA 🗺️',
+    de: 'Ich habe gerade ein Wahrzeichen in KRAINA besucht 🗺️',
+    es: 'Acabo de visitar un lugar en KRAINA 🗺️',
+    it: 'Ho appena visitato un luogo in KRAINA 🗺️',
+    nl: 'Ik heb net een bezienswaardigheid in KRAINA bezocht 🗺️',
+    ro: 'Tocmai am vizitat un obiectiv în KRAINA 🗺️',
+    lt: 'Ką tik aplankiau lankomą vietą KRAINA 🗺️',
+    lv: 'Tikko apmeklēju apskates vietu KRAINA 🗺️',
+    hy: 'Հենց նոր այցելեցի հուշարձան KRAINA-ում 🗺️',
+  },
+  icebreakerRoute: {
+    uk: 'Складемо маршрут разом? 🧭',
+    en: 'Want to plan a route together? 🧭',
+    pl: 'Ułożymy trasę razem? 🧭',
+    de: 'Sollen wir eine Route zusammen planen? 🧭',
+    es: '¿Armamos una ruta juntos? 🧭',
+    it: 'Facciamo un percorso insieme? 🧭',
+    nl: 'Zullen we samen een route plannen? 🧭',
+    ro: 'Facem un traseu împreună? 🧭',
+    lt: 'Sudarysime maršrutą kartu? 🧭',
+    lv: 'Izveidosim maršrutu kopā? 🧭',
+    hy: 'Միասին երթուղի կկազմենք? 🧭',
+  },
+  icebreakerTravel: {
+    uk: 'Де ти зараз мандруєш? ✈️',
+    en: 'Where are you traveling now? ✈️',
+    pl: 'Gdzie teraz podróżujesz? ✈️',
+    de: 'Wo reist du gerade? ✈️',
+    es: '¿Dónde viajas ahora? ✈️',
+    it: 'Dove stai viaggiando ora? ✈️',
+    nl: 'Waar reis je nu? ✈️',
+    ro: 'Unde călătorești acum? ✈️',
+    lt: 'Kur dabar keliaujate? ✈️',
+    lv: 'Kur jūs tagad ceļojat? ✈️',
+    hy: 'Որտե՞ղ եք հիմա ճանապարհորդում ✈️',
+  },
+  icebreakerKraina: {
+    uk: 'KRAINA — круто відкривати міста разом 🇺🇦',
+    en: 'KRAINA is great for discovering cities together 🇺🇦',
+    pl: 'KRAINA to świetny sposób na odkrywanie miast razem 🇺🇦',
+    de: 'KRAINA ist toll, um Städte gemeinsam zu entdecken 🇺🇦',
+    es: 'KRAINA es genial para descubrir ciudades juntos 🇺🇦',
+    it: 'KRAINA è perfetta per scoprire città insieme 🇺🇦',
+    nl: 'KRAINA is geweldig om samen steden te ontdekken 🇺🇦',
+    ro: 'KRAINA e grozav pentru a descoperi orașe împreună 🇺🇦',
+    lt: 'KRAINA puikiai tinka miestams kartu atrasti 🇺🇦',
+    lv: 'KRAINA ir lieliska pilsētu kopīgai atklāšanai 🇺🇦',
+    hy: 'KRAINA-ն հիանալի է քաղաքները միասին բացահայտելու համար 🇺🇦',
+  },
+
+  // --- WebSocket connection status ---
+  connected: {
+    uk: 'Підключено',
+    en: 'Connected',
+    pl: 'Połączono',
+    de: 'Verbunden',
+    es: 'Conectado',
+    it: 'Connesso',
+    nl: 'Verbonden',
+    ro: 'Conectat',
+    lt: 'Prisijungta',
+    lv: 'Savienots',
+  },
+  reconnecting: {
+    uk: 'Перепідключення…',
+    en: 'Reconnecting…',
+    pl: 'Ponowne łączenie…',
+    de: 'Wiederverbinden…',
+    es: 'Reconectando…',
+    it: 'Riconnessione…',
+    nl: 'Opnieuw verbinden…',
+    ro: 'Reconectare…',
+    lt: 'Jungiamasi iš naujo…',
+    lv: 'Atkārtota savienošana…',
   },
 
   // --- Audio calls ---
@@ -266,8 +439,12 @@ const S = {
     en: 'Decline',
   },
   callNoNative: {
-    uk: 'LiveKit не налаштовано. Встановіть @livekit/react-native та перезіберіть додаток.',
-    en: 'LiveKit is not configured. Install @livekit/react-native and rebuild the app.',
+    uk: 'Дзвінки потребують нативної збірки з @livekit/react-native. Перезберіть додаток через expo-dev-client.',
+    en: 'Calls require a native build with @livekit/react-native. Rebuild the app with expo-dev-client.',
+  },
+  callsUnavailable: {
+    uk: 'Дзвінки тимчасово недоступні. Налаштуйте LiveKit на сервері (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET).',
+    en: 'Calls are temporarily unavailable. Configure LiveKit on the server (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET).',
   },
   callEnded: {
     uk: 'Дзвінок завершено',
@@ -312,6 +489,15 @@ export function st(lang, key) {
   const row = S[key];
   if (!row) return '';
   return pick(lang, row);
+}
+
+export function chatIcebreakerKeys() {
+  return ['emptyThreadSayHi', 'icebreakerLandmark', 'icebreakerRoute', 'icebreakerTravel', 'icebreakerKraina'];
+}
+
+export function formatChatIcebreaker(lang, key, peerName) {
+  const name = String(peerName || '').replace(/^@/, '').trim() || 'friend';
+  return st(lang, key).replace(/\{name\}/g, name);
 }
 
 export function formatChatTime(ts, lang) {

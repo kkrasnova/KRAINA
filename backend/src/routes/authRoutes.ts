@@ -5,7 +5,9 @@ import {
   registerSchema,
   loginSchema,
   googleSchema,
+  firebaseSchema,
   appleSchema,
+  facebookSchema,
   refreshSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -17,6 +19,8 @@ import {
   registerUser,
   loginWithPassword,
   loginOrRegisterGoogle,
+  loginOrRegisterFirebaseIdToken,
+  loginOrRegisterFacebook,
   loginOrRegisterApple,
   rotateRefreshToken,
   logoutAllRefreshTokens,
@@ -107,6 +111,32 @@ router.post('/google', authGoogleRateLimiter, async (req, res, next) => {
       throw new HttpError(400, 'invalid_token');
     }
     const out = await loginOrRegisterGoogle(parsed.data.id_token);
+    res.status(200).json(await withFirebaseCustomToken(out));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/firebase', authGoogleRateLimiter, async (req, res, next) => {
+  try {
+    const parsed = firebaseSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, 'invalid_token');
+    }
+    const out = await loginOrRegisterFirebaseIdToken(parsed.data.id_token);
+    res.status(200).json(await withFirebaseCustomToken(out));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/facebook', authGoogleRateLimiter, async (req, res, next) => {
+  try {
+    const parsed = facebookSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, 'invalid_token');
+    }
+    const out = await loginOrRegisterFacebook(parsed.data.access_token);
     res.status(200).json(await withFirebaseCustomToken(out));
   } catch (e) {
     next(e);

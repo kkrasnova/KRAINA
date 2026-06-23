@@ -7,6 +7,12 @@ module.exports = {
         ios: null,
       },
     },
+    'react-native-performance': {
+      platforms: {
+        android: null,
+        ios: null,
+      },
+    },
     'react-native-health-connect': {
       platforms: {
         android: {
@@ -21,6 +27,12 @@ module.exports = {
           libraryName: null,
           cmakeListsPath: null,
         },
+      },
+    },
+    // iOS CallKit only — Android build breaks under New Architecture (RNCallKeep).
+    'react-native-callkeep': {
+      platforms: {
+        android: null,
       },
     },
   },

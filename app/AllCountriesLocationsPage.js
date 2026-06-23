@@ -17,7 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import HomeSearchBar from './HomeSearchBar';
 import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
-import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { noAndroidRipple } from './androidFeedback';
 import { countriesForSelectCountryScreen } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import {
@@ -38,6 +38,8 @@ import { RenderProfiler } from './performanceMetrics';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme } from './themeAccent';
 import OfflineStatusBanner from './OfflineStatusBanner';
+import { countRegionLandmarks } from './homeExploreData';
+import { useHomeLocationsEpoch } from './useHomeLocationsEpoch';
 
 /** Групи країн із регіонами — статичні дані, не змінюються під час роботи. */
 const ALL_COUNTRY_GROUPS = collectAllCountriesWithRegions();
@@ -105,11 +107,11 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
-  const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const debounceTimerRef = useRef(null);
   const [expandedCountry, setExpandedCountry] = useState(null);
+  const homeLocationsEpoch = useHomeLocationsEpoch();
 
   /** Debounce пошуку: 150мс, щоб не перераховувати список на кожен символ. */
   useEffect(() => {
@@ -148,7 +150,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
     const byId = Object.fromEntries(countryList.map((c) => [c.id, c]));
     return ALL_COUNTRY_GROUPS.map((g) => {
       const regions = g.regionIds.map((id) => ROUTE_REGIONS[id]).filter(Boolean);
-      const totalLandmarks = regions.reduce((n, r) => n + (r.landmarks?.length || 0), 0);
+      const totalLandmarks = regions.reduce((n, r) => n + countRegionLandmarks(r), 0);
       return {
         countryId: g.countryId,
         title: byId[g.countryId]?.label || (langUk ? g.countryUk : g.countryEn),
@@ -157,7 +159,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
         totalLandmarks,
       };
     });
-  }, [language, langUk]);
+  }, [language, langUk, homeLocationsEpoch]);
 
   const filtered = useMemo(() => {
     const q = debouncedQuery.trim().toLowerCase();
@@ -233,14 +235,13 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
         cardBg={cardBg}
         cardBorder={cardBorder}
         accent={accent}
-        ripple={ripple}
         isLast={idx === filtered.length - 1}
       />
     ),
     [
       langUk, language, expandedCountry,
       onPickCountry, onPickRegion,
-      textMain, textMuted, cardBg, cardBorder, accent, ripple, filtered,
+      textMain, textMuted, cardBg, cardBorder, accent, filtered,
     ],
   );
 
@@ -261,7 +262,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
       <FlashList
         data={filtered}
         keyExtractor={keyExtractorPlain}
-        estimatedItemSize={90}
+        estimatedItemSize={72}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: HOME_SCROLL_PAD_H,
@@ -287,7 +288,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
                 wrapStyle={s.searchWrap}
               />
               {query.length > 0 ? (
-                <Pressable onPress={() => setQuery('')} style={s.clearQuery} hitSlop={12} android_ripple={ripple}>
+                <Pressable onPress={() => setQuery('')} style={s.clearQuery} hitSlop={12} android_ripple={noAndroidRipple}>
                   <Text style={[s.clearQueryText, brandFontTextMedium, { color: accent }]}>
                     {langUk ? 'Очистити пошук' : 'Clear search'}
                   </Text>
@@ -328,7 +329,6 @@ const CountryCard = memo(function CountryCard({
   cardBg,
   cardBorder,
   accent,
-  ripple,
   isLast,
 }) {
   const rotate = useRef(new Animated.Value(expanded ? 1 : 0)).current;
@@ -343,7 +343,7 @@ const CountryCard = memo(function CountryCard({
   const rotateDeg = rotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] });
 
   return (
-    <View style={{ marginBottom: isLast ? 0 : 12 }}>
+    <View style={{ marginBottom: isLast ? 0 : 8 }}>
       <View
         style={[
           s.countryRow,
@@ -355,8 +355,8 @@ const CountryCard = memo(function CountryCard({
       >
         <Pressable
           onPress={() => onPickCountry?.(country.countryId)}
-          style={({ pressed }) => [s.countryRowMain, { opacity: pressed ? 0.92 : 1 }]}
-          android_ripple={ripple}
+          style={s.countryRowMain}
+          android_ripple={noAndroidRipple}
         >
           <View
             style={[
@@ -381,13 +381,13 @@ const CountryCard = memo(function CountryCard({
         <Pressable
           onPress={onToggle}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={({ pressed }) => [s.countryRowChevron, { opacity: pressed ? 0.85 : 1 }]}
-          android_ripple={ripple}
+          style={s.countryRowChevron}
+          android_ripple={noAndroidRipple}
           accessibilityRole="button"
           accessibilityLabel={langUk ? 'Показати міста' : 'Show cities'}
         >
           <Animated.View style={{ transform: [{ rotate: rotateDeg }] }}>
-            <Ionicons name="chevron-forward" size={22} color={accent} />
+            <Ionicons name="chevron-forward" size={18} color={accent} />
           </Animated.View>
         </Pressable>
       </View>
@@ -396,22 +396,21 @@ const CountryCard = memo(function CountryCard({
         <View style={s.regionsNested}>
           {country.regions.map((region, idx) => {
             const name = regionTitle(region, langUk);
-            const n = region.landmarks?.length || 0;
+            const n = countRegionLandmarks(region);
             const first = region.landmarks?.[0];
             return (
               <Pressable
                 key={region.id}
                 onPress={() => onPickRegion(country.countryId, region.id)}
-                style={({ pressed }) => [
+                style={[
                   s.regionRow,
                   {
                     backgroundColor: cardBg,
                     borderColor: cardBorder,
                     marginBottom: idx === country.regions.length - 1 ? 0 : 8,
-                    opacity: pressed ? 0.92 : 1,
                   },
                 ]}
-                android_ripple={ripple}
+                android_ripple={noAndroidRipple}
               >
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[s.regionName, brandFontTextMedium, { color: textMain }]} numberOfLines={1}>
@@ -422,7 +421,7 @@ const CountryCard = memo(function CountryCard({
                     {first ? ` · ${langUk ? first.titleUk : first.titleEn}` : ''}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={accent} />
+                <Ionicons name="chevron-forward" size={18} color={accent} />
               </Pressable>
             );
           })}
@@ -453,8 +452,8 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   sectionTitle: {
-    fontSize: 17,
-    marginBottom: 12,
+    fontSize: 15,
+    marginBottom: 10,
     letterSpacing: -0.35,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
@@ -462,43 +461,43 @@ const s = StyleSheet.create({
   countryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: 6,
-    borderRadius: 16,
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 4,
+    borderRadius: 14,
     borderWidth: 1,
-    gap: 4,
+    gap: 2,
   },
   countryRowMain: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingLeft: 8,
-    paddingRight: 4,
-    gap: 12,
+    paddingVertical: 6,
+    paddingLeft: 6,
+    paddingRight: 2,
+    gap: 10,
     minWidth: 0,
   },
   countryRowChevron: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   homeFlagWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
   homeFlagImg: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
   },
   flagEmojiHome: {
-    fontSize: 28,
-    lineHeight: 48,
+    fontSize: 24,
+    lineHeight: 40,
     textAlign: 'center',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
@@ -507,37 +506,37 @@ const s = StyleSheet.create({
     minWidth: 0,
   },
   countryName: {
-    fontSize: 17,
+    fontSize: 15,
     letterSpacing: -0.2,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   countryHint: {
-    fontSize: 13,
-    marginTop: 5,
+    fontSize: 12,
+    marginTop: 3,
     letterSpacing: 0.05,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
 
   regionsNested: {
-    marginTop: 10,
+    marginTop: 8,
   },
   regionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    gap: 10,
+    gap: 8,
   },
   regionName: {
-    fontSize: 15,
+    fontSize: 14,
     letterSpacing: -0.1,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   regionMeta: {
-    fontSize: 12,
-    marginTop: 3,
+    fontSize: 11,
+    marginTop: 2,
     letterSpacing: 0.05,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },

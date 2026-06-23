@@ -1,0 +1,237 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  SOPHIA_SHORT_INTRO_UK,
+  SOPHIA_MINI_PREVIEW_UK,
+  SOPHIA_INTRO_PAGE1_UK,
+  SOPHIA_INTRO_PAGE_BODIES_UK,
+  SOPHIA_INTRO_PAGE5_BEFORE_UK,
+  SOPHIA_INTRO_PAGE5_AFTER_UK,
+} from './sophia-uk-source.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
+const OUT_PATH = path.join(ROOT, 'app', 'landmarkIntroI18n', 'sophia.js');
+const CACHE_PATH = path.join(ROOT, 'scripts', '.sophia-intro-i18n-cache.json');
+
+const TARGET_LANGS = ['en', 'de', 'pl', 'nl', 'es', 'lt', 'lv', 'ro', 'it', 'hy'];
+const ALL_LANGS = ['uk', ...TARGET_LANGS];
+const INTRO_BODY_HERO_MARKER = '|||HERO|||';
+
+const QUIZ_UK = {
+  question: 'Скільки відтінків налічує палітра мозаїк Софійського собору?',
+  multiHint: 'Підказка: додайте відтінки зеленого, золотого, синього та червоного зі слайду про мозаїки.',
+  options: [
+    { text: '77', correct: false },
+    { text: '177', correct: true },
+    { text: '277', correct: false },
+  ],
+};
+
+const TITLE_UK = 'Софійський собор';
+const DESC_UK =
+  'Серце стародавнього Києва: мозаїки XI століття, тиша внутрішнього двору й дзвіниця з панорамою, від якої реально перехоплює подих.';
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function loadCache() {
+  try {
+    return JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveCache(c) {
+  fs.writeFileSync(CACHE_PATH, JSON.stringify(c), 'utf8');
+}
+
+function escapeJsStr(s) {
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+async function gtxTranslate(text, tl, cache, stats, sl = 'uk') {
+  const ck = `${sl}->${tl}::${text}`;
+  if (cache[ck] != null && cache[ck] !== '') return cache[ck];
+  const q = text.slice(0, 4500);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (attempt > 0) await sleep(350 * attempt);
+    try {
+      const u = new URL('https://translate.googleapis.com/translate_a/single');
+      u.searchParams.set('client', 'gtx');
+      u.searchParams.set('sl', sl);
+      u.searchParams.set('tl', tl);
+      u.searchParams.set('dt', 't');
+      u.searchParams.set('q', q);
+      stats.requests++;
+      const res = await fetch(u);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      const bits = Array.isArray(j?.[0])
+        ? j[0].map((seg) => (Array.isArray(seg) ? seg[0] : '')).join('')
+        : '';
+      const out = bits || j?.[0]?.[0]?.[0];
+      if (typeof out === 'string' && out.trim()) {
+        cache[ck] = out;
+        return out;
+      }
+    } catch (e) {
+      if (attempt === 7) throw e;
+    }
+    await sleep(400 * (attempt + 1));
+  }
+  throw new Error(`gtx empty for "${text.slice(0, 40)}…" → ${tl}`);
+}
+
+async function translateLong(text, tl, cache, stats) {
+  const raw = String(text || '');
+  if (!raw.trim()) return raw;
+  const parts = raw.split(/(\n\n+)/);
+  const out = [];
+  for (const part of parts) {
+    if (!part.trim()) {
+      out.push(part);
+      continue;
+    }
+    out.push(await gtxTranslate(part, tl, cache, stats));
+    await sleep(60);
+  }
+  return out.join('');
+}
+
+async function fillRow(uk, cache, stats, offline) {
+  const row = { uk: uk || '' };
+  for (const tl of TARGET_LANGS) {
+    if (!uk) {
+      row[tl] = '';
+      continue;
+    }
+    if (offline) {
+      row[tl] = uk;
+      continue;
+    }
+    row[tl] = await translateLong(uk, tl, cache, stats);
+  }
+  return row;
+}
+
+async function fillHeroSplitRow(beforeUk, afterUk, cache, stats, offline) {
+  const row = {
+    uk: `${beforeUk}${INTRO_BODY_HERO_MARKER}${afterUk}`,
+  };
+  for (const tl of TARGET_LANGS) {
+    if (offline) {
+      row[tl] = row.uk;
+      continue;
+    }
+    const before = await translateLong(beforeUk, tl, cache, stats);
+    const after = await translateLong(afterUk, tl, cache, stats);
+    row[tl] = `${before}${INTRO_BODY_HERO_MARKER}${after}`;
+    await sleep(60);
+  }
+  return row;
+}
+
+function emitRow(name, row, indent = '  ') {
+  let out = `${indent}${name}: {\n`;
+  for (const k of ALL_LANGS) {
+    out += `${indent}  ${k}: '${escapeJsStr(row[k] ?? '')}',\n`;
+  }
+  out += `${indent}},\n`;
+  return out;
+}
+
+async function main() {
+  const offline = process.argv.includes('--offline');
+  const cache = loadCache();
+  const stats = { requests: 0 };
+
+  process.stderr.write('Translating Sophia intro i18n from Ukrainian…\n');
+
+  const shortIntro = await fillRow(SOPHIA_SHORT_INTRO_UK, cache, stats, offline);
+  saveCache(cache);
+  const miniPreview = await fillRow(SOPHIA_MINI_PREVIEW_UK, cache, stats, offline);
+  saveCache(cache);
+  const introPage1 = await fillRow(SOPHIA_INTRO_PAGE1_UK, cache, stats, offline);
+  saveCache(cache);
+  const title = await fillRow(TITLE_UK, cache, stats, offline);
+  saveCache(cache);
+  const desc = await fillRow(DESC_UK, cache, stats, offline);
+  saveCache(cache);
+
+  const pageBodies = [];
+  for (let i = 0; i < SOPHIA_INTRO_PAGE_BODIES_UK.length; i++) {
+    process.stderr.write(`  page ${i + 2}/13\n`);
+    if (i === 3) {
+      pageBodies.push(await fillHeroSplitRow(SOPHIA_INTRO_PAGE5_BEFORE_UK, SOPHIA_INTRO_PAGE5_AFTER_UK, cache, stats, offline));
+    } else {
+      pageBodies.push(await fillRow(SOPHIA_INTRO_PAGE_BODIES_UK[i], cache, stats, offline));
+    }
+    saveCache(cache);
+  }
+
+  const quizQuestion = await fillRow(QUIZ_UK.question, cache, stats, offline);
+  saveCache(cache);
+  const quizMultiHint = await fillRow(QUIZ_UK.multiHint, cache, stats, offline);
+  saveCache(cache);
+  const quizOptions = [];
+  for (const opt of QUIZ_UK.options) {
+    quizOptions.push({
+      text: await fillRow(opt.text, cache, stats, offline),
+      correct: opt.correct,
+    });
+    saveCache(cache);
+  }
+
+  let js = `/** Auto-generated Sophia intro translations — do not edit by hand. */\n\n`;
+  js += `export const SOPHIA_INTRO_I18N = {\n`;
+  js += emitRow('title', title);
+  js += emitRow('desc', desc);
+  js += emitRow('shortIntro', shortIntro);
+  js += emitRow('miniPreview', miniPreview);
+  js += emitRow('introPage1', introPage1);
+  js += `  pageBodies: [\n`;
+  for (const row of pageBodies) {
+    js += `    {\n`;
+    for (const k of ALL_LANGS) {
+      js += `      ${k}: '${escapeJsStr(row[k] ?? '')}',\n`;
+    }
+    js += `    },\n`;
+  }
+  js += `  ],\n`;
+  js += `  quiz: {\n`;
+  js += emitRow('question', quizQuestion, '    ');
+  js += emitRow('multiHint', quizMultiHint, '    ');
+  js += `    options: [\n`;
+  for (const opt of quizOptions) {
+    js += `      {\n`;
+    js += `        correct: ${opt.correct ? 'true' : 'false'},\n`;
+    js += emitRow('text', opt.text, '        ');
+    js += `      },\n`;
+  }
+  js += `    ],\n`;
+  js += `  },\n`;
+  js += `};\n`;
+
+  fs.mkdirSync(path.dirname(OUT_PATH), { recursive: true });
+  fs.writeFileSync(OUT_PATH, js, 'utf8');
+  saveCache(cache);
+  process.stderr.write(
+    offline
+      ? `\nWrote ${OUT_PATH} (offline placeholders).\n`
+      : `\nWrote ${OUT_PATH} (HTTP requests: ${stats.requests}).\n`,
+  );
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

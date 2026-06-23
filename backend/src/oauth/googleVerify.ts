@@ -4,14 +4,20 @@ import { HttpError } from '../errors/HttpError.js';
 
 const client = new OAuth2Client();
 
+function googleAudiences(): string[] {
+  if (config.googleClientIds.length > 0) return config.googleClientIds;
+  return config.googleClientId ? [config.googleClientId] : [];
+}
+
 export async function verifyGoogleIdToken(idToken: string): Promise<{ email: string; name?: string }> {
-  if (!config.googleClientId) {
+  const audiences = googleAudiences();
+  if (!audiences.length) {
     throw new HttpError(400, 'invalid_token');
   }
   try {
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: config.googleClientId,
+      audience: audiences.length === 1 ? audiences[0] : audiences,
     });
     const payload = ticket.getPayload();
     if (!payload) {

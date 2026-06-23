@@ -9,11 +9,21 @@ import { getSubscriptionState } from './subscriptionStorage';
 import { initOfflineRuntime } from './offline/runtime';
 import { prepareOfflineMediaPack } from './offline/mediaOfflinePack';
 import { warmOfflineMediaCache } from './offline/localCacheStore';
-import { clearAllAppCaches, clearMemoryCaches } from './cacheCleanup';
+import { clearMemoryCaches } from './cacheCleanup';
+import { getHasUsedAppBefore } from './onboardingStorage';
+import { runChatMigrations } from './chatService';
 import { markStart, markEnd } from './performanceMetrics';
-import { prefetchChatsBundle } from './screenLoaders';
+import { prefetchArchiveBundle, prefetchChatsBundle, prefetchDiscoverBundle, prefetchFeedBundle, prefetchProfileBundle } from './screenLoaders';
 import { setupCallKeep } from './callkeepService';
 import { installVoIPListeners } from './voipPushService';
+import { ensureBackendSession } from './syncBackendSessionBridge';
+import { connectChatWebSocket } from './chatRealtime';
+import { isBackendJwt } from './backendAuthApi';
+import { warmChatsInboxCache, warmMutualsCache } from './chatsDataPrefetch';
+import { hydrateChatsCachesFromDisk, seedChatsCachesIfMissing } from './chatsThreadsCache';
+import { getAppTheme } from './themeStorage';
+import { socialWarmupSearchCache } from './socialApi';
+import { prewarmBackend, startBackendKeepWarm } from './backendWarmup';
 
 /**
  * Сесія, маршрут після заставки та префетч асетів (спільно для звичайного старту і після force-update).
@@ -37,42 +47,71 @@ export async function runAppBootstrap(opts, api) {
 
   markStart('app_bootstrap');
 
+  // ⚡ Будимо Render якнайраніше (поки видно заставку) + тримаємо теплим, поки застосунок
+  // відкритий — щоб натискання після першого відкривались швидко, а не чекали cold start.
+  prewarmBackend();
+  startBackendKeepWarm();
+
   try {
+    // Run AsyncStorage-level migrations (e.g. clean up old demo threads)
+    void runChatMigrations().catch(() => {});
+
     // Очищуємо in-memory TTL кеш при холодному старті
     clearMemoryCaches();
 
-    // Паралельно: offline runtime + hydrate + admin bundle + session
-    // Офлайн-кеш та адмін-бандл — не блокують навігацію (дефернуті)
-    await useAuthStore.getState().hydrate();
+    // hydrate + локальна сесія паралельно — не чекаємо мережу для вибору маршруту
+    const [, session] = await Promise.all([
+      useAuthStore.getState().hydrate(),
+      getSession(),
+    ]);
     if (getCancelled()) return;
-    let session = await getSession();
-    const hasAccessToken = !!useAuthStore.getState().accessToken;
 
     // Дефернуті операції: не блокують навігацію
     void initOfflineRuntime().catch(() => {});
     void warmOfflineMediaCache().catch(() => {});
     void loadAdminLocationBundleOnStartup().catch(() => {});
-    if (session?.user && !hasAccessToken) {
-      // Never trust stale local session without backend auth token.
-      // Очищаємо всі кеші — сесія невалідна
-      await clearAllAppCaches();
-      await clearSession();
-      session = null;
+    void socialWarmupSearchCache().catch(() => {}); // ⚡ Префетч профілів для швидкого пошуку
+
+    // JWT-відновлення (до 7 с ретраїв) — у фоні; маршрут будується з локальної сесії
+    if (session?.user) {
+      const localUser = session.user;
+      const prefetchLang = String(localUser.appLanguage || 'uk').split(/[-_]/)[0].toLowerCase();
+      const prefetchLangUk = prefetchLang === 'uk';
+      seedChatsCachesIfMissing(localUser, prefetchLangUk);
+      void hydrateChatsCachesFromDisk(localUser, prefetchLangUk).catch(() => {});
+
+      const wsAuthState = useAuthStore.getState();
+      if (isBackendJwt(wsAuthState.accessToken) && wsAuthState.user?.id) {
+        void connectChatWebSocket(String(wsAuthState.user.id)).catch(() => {});
+        void warmChatsInboxCache(localUser, prefetchLangUk).catch(() => {});
+        void warmMutualsCache(localUser).catch(() => {});
+      }
+
+      void (async () => {
+        await ensureBackendSession(localUser);
+        const authAfter = useAuthStore.getState();
+        if (isBackendJwt(authAfter.accessToken) && authAfter.user?.id) {
+          void connectChatWebSocket(String(authAfter.user.id)).catch(() => {});
+          void warmChatsInboxCache(localUser, prefetchLangUk).catch(() => {});
+          void warmMutualsCache(localUser).catch(() => {});
+        }
+      })();
     }
-    const language = await AsyncStorage.getItem('@kraina_app_language');
-    if (getCancelled()) return;
-    if (session?.user && hasAccessToken) {
-      // loadProfileMe() is deferred to after navigation — hydrate() already built
-      // profileMe from local session data, which is sufficient for route selection.
-      // The full profile fetch was blocking cold start by ~4s (network request).
-      // It will fire in the background after navigation completes.
-    }
+
     if (getCancelled()) return;
     if (session?.user) {
-      let countryId = await getSavedCountryIdForUser(session.user);
+      const [language, countryIdRaw, theme, sub] = await Promise.all([
+        AsyncStorage.getItem('@kraina_app_language'),
+        getSavedCountryIdForUser(session.user),
+        getAppTheme(),
+        getSubscriptionState(session.user),
+      ]);
+      if (getCancelled()) return;
+
+      let countryId = countryIdRaw;
       if (!countryId && isAppAdminUser(session.user) && HOME_COUNTRY_ORDER[0]) {
         countryId = HOME_COUNTRY_ORDER[0];
-        await saveCountryForUser(session.user, countryId);
+        void saveCountryForUser(session.user, countryId).catch(() => {});
       }
       let langForMain = 'en';
       const stored = language && typeof language === 'string' ? language : null;
@@ -88,45 +127,72 @@ export async function runAppBootstrap(opts, api) {
       const baseParams = {
         user: session.user,
         language: langForMain,
+        appTheme: theme,
         ...(countryId ? { countryId } : {}),
       };
       setMainPageInitialParams(baseParams);
-      if (!countryId) {
-        setFirstPageNextRoute('SelectCountry');
-        setFirstPageNextParams({ user: session.user, language: langForMain });
+      if (sub.needsPlanChoice) {
+        setFirstPageNextRoute('ChoosePlan');
+        setFirstPageNextParams(baseParams);
       } else {
-        const sub = await getSubscriptionState(session.user);
-        if (getCancelled()) return;
-        if (sub.needsPlanChoice) {
-          setFirstPageNextRoute('ChoosePlan');
-          setFirstPageNextParams(baseParams);
-        } else {
-          setFirstPageNextRoute('HomeTabPager');
-          setFirstPageNextParams({ ...baseParams, tabIndex: 0, routeFinderExtras: {} });
+        setFirstPageNextRoute('HomeTabPager');
+        setFirstPageNextParams({ ...baseParams, tabIndex: 0, routeFinderExtras: {} });
+      }
+      if (language && typeof language === 'string') {
+        const base = language.split(/[-_]/)[0].toLowerCase();
+        setSavedLanguage(base === 'ru' ? 'uk' : language);
+        if (base === 'ru') {
+          AsyncStorage.setItem('@kraina_app_language', 'uk').catch(() => {});
         }
       }
     } else {
       setMainPageInitialParams(null);
+      const [language, hasUsedBefore] = await Promise.all([
+        AsyncStorage.getItem('@kraina_app_language'),
+        getHasUsedAppBefore(),
+      ]);
+      if (getCancelled()) return;
       let langForSelect = 'en';
       if (language && typeof language === 'string') {
         const base = language.split(/[-_]/)[0].toLowerCase();
         langForSelect = base === 'ru' ? 'uk' : base;
       }
-      setFirstPageNextRoute('SecondPage');
-      setFirstPageNextParams({ language: langForSelect, firstLaunchOnboarding: true });
-    }
-    if (language && typeof language === 'string') {
-      const base = language.split(/[-_]/)[0].toLowerCase();
-      setSavedLanguage(base === 'ru' ? 'uk' : language);
-      if (base === 'ru') {
-        AsyncStorage.setItem('@kraina_app_language', 'uk').catch(() => {});
+      if (hasUsedBefore) {
+        setFirstPageNextRoute('ThirdPage');
+        setFirstPageNextParams({ language: langForSelect });
+      } else {
+        setFirstPageNextRoute('SecondPage');
+        setFirstPageNextParams({ language: langForSelect, firstLaunchOnboarding: true });
+      }
+      if (language && typeof language === 'string') {
+        const base = language.split(/[-_]/)[0].toLowerCase();
+        setSavedLanguage(base === 'ru' ? 'uk' : language);
+        if (base === 'ru') {
+          AsyncStorage.setItem('@kraina_app_language', 'uk').catch(() => {});
+        }
       }
     }
   } catch {
     if (!getCancelled()) {
       setMainPageInitialParams(null);
-      setFirstPageNextRoute('SecondPage');
-      setFirstPageNextParams({ firstLaunchOnboarding: true });
+      let langForSelect = 'en';
+      try {
+        const language = await AsyncStorage.getItem('@kraina_app_language');
+        if (language && typeof language === 'string') {
+          const base = language.split(/[-_]/)[0].toLowerCase();
+          langForSelect = base === 'ru' ? 'uk' : base;
+        }
+      } catch {
+        /* ignore */
+      }
+      const hasUsedBefore = await getHasUsedAppBefore().catch(() => false);
+      if (hasUsedBefore) {
+        setFirstPageNextRoute('ThirdPage');
+        setFirstPageNextParams({ language: langForSelect });
+      } else {
+        setFirstPageNextRoute('SecondPage');
+        setFirstPageNextParams({ language: langForSelect, firstLaunchOnboarding: true });
+      }
     }
   }
 
@@ -134,17 +200,35 @@ export async function runAppBootstrap(opts, api) {
 
   markEnd('app_bootstrap');
 
-  // Фонові prefetch-операції — не блокують навігацію
+  // Фонові prefetch-операції запускаються порціями, щоб не забивати JS-потік після навігації.
+  scheduleDeferredWork(prefetchChatsBundle, 250);
   scheduleDeferredWork(() => {
-    prefetchChatsBundle();
-    void prepareOfflineMediaPack({ limit: 120 }).catch(() => {});
-  });
+    try {
+      const { prefetchLandmarkBundle } = require('./screenLoaders');
+      prefetchLandmarkBundle();
+    } catch {
+      /* optional */
+    }
+  }, 400);
+  scheduleDeferredWork(prefetchArchiveBundle, 650);
+  scheduleDeferredWork(prefetchDiscoverBundle, 950);
+  scheduleDeferredWork(() => {
+    const sessionUser = useAuthStore.getState().user;
+    if (sessionUser) prefetchFeedBundle(sessionUser);
+  }, 1250);
+  scheduleDeferredWork(() => {
+    const sessionUser = useAuthStore.getState().user;
+    if (sessionUser) prefetchProfileBundle(sessionUser);
+  }, 1550);
+  scheduleDeferredWork(() => {
+    void prepareOfflineMediaPack({ limit: 60 }).catch(() => {});
+  }, 2200);
 
   // CallKit + VoIP push — ініціалізація
   scheduleDeferredWork(() => {
     setupCallKeep();
     installVoIPListeners();
-  });
+  }, 1800);
 
   // Профіль з бекенду — теж не блокусмо навігацію.
   // hydrate() уже побудував profileMe з локальної сесії.
@@ -156,16 +240,18 @@ export async function runAppBootstrap(opts, api) {
       .finally(() => {
         markEnd('profile_load');
       });
-  });
+  }, 500);
 }
 
 /**
  * Виконує роботу після того, як JS-потік звільниться (після першого рендера та навігації).
  */
-function scheduleDeferredWork(fn) {
-  if (typeof globalThis.requestIdleCallback === 'function') {
-    globalThis.requestIdleCallback(() => { fn(); }, { timeout: 3000 });
-  } else {
-    setTimeout(fn, 50);
-  }
+function scheduleDeferredWork(fn, delayMs = 50) {
+  setTimeout(() => {
+    if (typeof globalThis.requestIdleCallback === 'function') {
+      globalThis.requestIdleCallback(() => { fn(); }, { timeout: 3000 });
+    } else {
+      fn();
+    }
+  }, delayMs);
 }

@@ -5,6 +5,8 @@ import { ApiError } from './types';
 import { clearProfileLocalCache } from '../profileStorage';
 import {
   backendApple,
+  backendFacebook,
+  backendFirebase,
   backendGetProfileMe,
   backendGoogle,
   backendLogin,
@@ -20,8 +22,10 @@ import {
   registerUser,
   saveSession as saveLegacySession,
   signInWithAppleFirebase,
+  signInWithFacebookAccessToken,
   signInWithGoogleIdToken,
 } from '../db';
+import { hydrateSavedRoutesFromProfileMe } from '../savedRoutesSync';
 const KEY_ACCESS = 'kraina_backend_access_token';
 const KEY_REFRESH = 'kraina_backend_refresh_token';
 
@@ -50,6 +54,8 @@ export interface AuthState {
     user: UserDTO;
   }) => Promise<void>;
   loginWithGoogleIdToken: (id_token: string) => Promise<void>;
+  loginWithFirebaseIdToken: (id_token: string) => Promise<void>;
+  loginWithFacebookAccessToken: (access_token: string) => Promise<void>;
   loginWithAppleIdentityToken: (identity_token: string, fullName?: string | null) => Promise<void>;
   refreshSession: () => Promise<boolean>;
   logoutRemote: () => Promise<void>;
@@ -131,10 +137,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         SecureStore.getItemAsync(KEY_REFRESH),
       ]);
       const s = await getLegacySession();
-      if (access && refresh && s?.user && isBackendJwt(access)) {
+      if (access && s?.user && isBackendJwt(access)) {
         set({
           accessToken: access,
           refreshToken: refresh,
+          user: mapLegacyUserToDto(s.user),
+          profileMe: buildProfileMe(s.user),
+          hydrated: true,
+        });
+        return;
+      }
+      if (refresh && s?.user) {
+        const legacyUser = mapLegacyUserToDto(s.user);
+        const legacyProfile = buildProfileMe(s.user);
+        set({
+          refreshToken: refresh,
+          user: legacyUser,
+          profileMe: legacyProfile,
+        });
+        const ok = await get().refreshSession();
+        if (ok) {
+          set({ hydrated: true });
+          return;
+        }
+        set({
+          accessToken: null,
+          refreshToken: refresh,
+          user: legacyUser,
+          profileMe: legacyProfile,
+          hydrated: true,
+        });
+        return;
+      }
+      if (s?.user) {
+        set({
           user: mapLegacyUserToDto(s.user),
           profileMe: buildProfileMe(s.user),
           hydrated: true,
@@ -152,17 +188,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const prevIdentity = prevUser?.id != null ? String(prevUser.id) : prevUser?.email || '';
     const nextIdentity = user?.id != null ? String(user.id) : user?.email || '';
     const userChanged = !!prevIdentity && !!nextIdentity && prevIdentity !== nextIdentity;
-    if (userChanged) {
-      await clearProfileLocalCache();
-    }
-    await persistTokens(tokens.access_token, tokens.refresh_token);
+    
+    // ⚡ Встанавлюємо стан одразу (паралельно з SecureStore + cache clear)
     set({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       user,
       lastError: null,
     });
-    void get().loadProfileMe().catch(() => {});
+    
+    // ⚡ Асинхронні операції у фоні (не блокують стан)
+    void (async () => {
+      try {
+        const promises = [persistTokens(tokens.access_token, tokens.refresh_token)];
+        if (userChanged) promises.push(clearProfileLocalCache());
+        promises.push(get().loadProfileMe());
+        await Promise.all(promises);
+      } catch {
+        // Ignore background errors
+      }
+    })();
   },
 
   clearLocalSession: async () => {
@@ -181,24 +226,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ busy: true, lastError: null });
     try {
       const body = await backendLogin(email, password);
+      // ⚡ Встанавлюємо сесію одразу (критично для UX)
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-      try {
-        const userRaw = await loginUser({ email, password });
-        await saveLegacySession(userRaw as any);
-      } catch {
-        await saveLegacySession({
-          id: body.user.id,
-          email: body.user.email,
-          name: body.user.email.split('@')[0] || 'User',
-          role: body.user.role,
-          status: body.user.status,
-          provider: 'email',
-        } as any);
-      }
+      
+      // ⚡ Firebase + Legacy session sync у фоні (не блокує навігацію)
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          // Firebase sync — optional, не блокуємо
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+        }
+        
+        try {
+          const userRaw = await loginUser({ email, password });
+          await saveLegacySession({
+            ...(userRaw as Record<string, unknown>),
+            id: body.user.id,
+            email: body.user.email || (userRaw as { email?: string }).email,
+            provider: 'email',
+          } as any);
+        } catch {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: body.user.email.split('@')[0] || 'User',
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'email',
+          } as any);
+        }
+      })();
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'login_failed' });
@@ -220,48 +281,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         username: explicitUsername || undefined,
         display_name: trimmedDisplay || undefined,
       });
+      // ⚡ Встанавлюємо сесію одразу
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-      await get().loadProfileMe().catch(() => {});
-      const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
-      const profileDisplayName =
-        get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
-      try {
-        const userRaw = await registerUser({
-          email,
-          password,
-          name: profileDisplayName,
-        });
-        const merged = {
-          ...(userRaw as Record<string, unknown>),
-          accountUsername: profileUsername,
-          name: profileDisplayName,
-        };
-        await saveLegacySession(merged as any);
-        if (profileUsername) {
-          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
-          await setProfileUsername(profileUsername);
-          await setProfileDisplayName(profileDisplayName);
+      
+      // ⚡ Firebase + Profile + Legacy session у фоні (не блокує навігацію)
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
         }
-      } catch {
-        await saveLegacySession({
-          id: body.user.id,
-          email: body.user.email,
-          name: profileDisplayName,
-          accountUsername: profileUsername || undefined,
-          role: body.user.role,
-          status: body.user.status,
-          provider: 'email',
-        } as any);
-        if (profileUsername) {
-          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
-          await setProfileUsername(profileUsername);
-          await setProfileDisplayName(profileDisplayName);
+        
+        try {
+          await get().loadProfileMe();
+        } catch {
+          // OK if profile load fails
         }
-      }
+        
+        const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
+        const profileDisplayName =
+          get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
+        
+        try {
+          const userRaw = await registerUser({
+            email,
+            password,
+            name: profileDisplayName,
+          });
+          const merged = {
+            ...(userRaw as Record<string, unknown>),
+            accountUsername: profileUsername,
+            name: profileDisplayName,
+          };
+          await saveLegacySession(merged as any);
+          if (profileUsername) {
+            const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+            await setProfileUsername(profileUsername);
+            await setProfileDisplayName(profileDisplayName);
+          }
+        } catch {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: profileDisplayName,
+            accountUsername: profileUsername || undefined,
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'email',
+          } as any);
+          if (profileUsername) {
+            const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+            await setProfileUsername(profileUsername);
+            await setProfileDisplayName(profileDisplayName);
+          }
+        }
+      })();
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'register_failed' });
@@ -287,14 +364,115 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ busy: true, lastError: null });
     try {
       const body = await backendGoogle(id_token);
+      // ⚡ Встанавлюємо сесію одразу
+      await get().setSession(
+        { access_token: body.access_token, refresh_token: body.refresh_token },
+        body.user,
+      );
+      
+      // ⚡ Firebase + Legacy session у фоні
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+        }
+        
+        try {
+          const signed = await signInWithGoogleIdToken(id_token);
+          if ((signed as any)?.user) {
+            await saveLegacySession({
+              ...(signed as any).user,
+              id: body.user.id,
+              email: body.user.email || (signed as any).user?.email,
+              provider: 'google',
+            } as any);
+          }
+        } catch {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: body.user.email.split('@')[0] || 'User',
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'google',
+          } as any);
+        }
+      })();
+    } catch (e: unknown) {
+      if (e instanceof ApiError) throw e;
+      set({ lastError: e instanceof Error ? e.message : 'google_login_failed' });
+      throw e;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  loginWithFirebaseIdToken: async (id_token) => {
+    set({ busy: true, lastError: null });
+    try {
+      const body = await backendFirebase(id_token);
+      // ⚡ Встанавлюємо сесію одразу
+      await get().setSession(
+        { access_token: body.access_token, refresh_token: body.refresh_token },
+        body.user,
+      );
+      
+      // ⚡ Firebase + Legacy session у фоні
+      void (async () => {
+        try {
+          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+        } catch (e) {
+          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+        }
+        
+        const s = await getLegacySession();
+        if (s?.user) {
+          await saveLegacySession({
+            ...s.user,
+            id: body.user.id,
+            email: body.user.email || s.user.email,
+            provider: s.user.provider || 'email',
+          } as any);
+        } else {
+          await saveLegacySession({
+            id: body.user.id,
+            email: body.user.email,
+            name: body.user.email.split('@')[0] || 'User',
+            role: body.user.role,
+            status: body.user.status,
+            provider: 'email',
+          } as any);
+        }
+      })();
+    } catch (e: unknown) {
+      if (e instanceof ApiError) throw e;
+      set({ lastError: e instanceof Error ? e.message : 'firebase_login_failed' });
+      throw e;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  loginWithFacebookAccessToken: async (access_token) => {
+    set({ busy: true, lastError: null });
+    try {
+      const body = await backendFacebook(access_token);
       await get().setSession(
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
       await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
       try {
-        const signed = await signInWithGoogleIdToken(id_token);
-        if ((signed as any)?.user) await saveLegacySession((signed as any).user);
+        const signed = await signInWithFacebookAccessToken(access_token);
+        if ((signed as any)?.user) {
+          await saveLegacySession({
+            ...(signed as any).user,
+            id: body.user.id,
+            email: body.user.email || (signed as any).user?.email,
+            provider: 'facebook',
+          } as any);
+        }
       } catch {
         await saveLegacySession({
           id: body.user.id,
@@ -302,12 +480,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           name: body.user.email.split('@')[0] || 'User',
           role: body.user.role,
           status: body.user.status,
-          provider: 'google',
+          provider: 'facebook',
         } as any);
       }
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
-      set({ lastError: e instanceof Error ? e.message : 'google_login_failed' });
+      set({ lastError: e instanceof Error ? e.message : 'facebook_login_failed' });
       throw e;
     } finally {
       set({ busy: false });
@@ -327,7 +505,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const signed = await signInWithAppleFirebase(identity_token, undefined, {
           fullName: fullName ? { givenName: fullName } : undefined,
         });
-        if ((signed as any)?.user) await saveLegacySession((signed as any).user);
+        if ((signed as any)?.user) {
+          await saveLegacySession({
+            ...(signed as any).user,
+            id: body.user.id,
+            email: body.user.email || (signed as any).user?.email,
+            provider: 'apple',
+          } as any);
+        }
       } catch {
         await saveLegacySession({
           id: body.user.id,
@@ -360,8 +545,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         lastError: null,
       });
       return true;
-    } catch {
-      await get().clearLocalSession();
+    } catch (e: unknown) {
+      // Скидаємо сесію лише коли сервер реально відхилив refresh-токен (401/403).
+      // Транзієнтні збої — офлайн, таймаут «холодного старту» Render, 5xx — НЕ повинні
+      // знищувати сесію: інакше повідомлення перестають працювати для будь-якого акаунта
+      // (email/Apple/Facebook не мають тихого відновлення, лише Google). Токен лишається в
+      // SecureStore і наступна спроба (refresh або 401-retry) відновить доступ до чатів.
+      const status = e instanceof ApiError ? e.status : 0;
+      const code = e instanceof ApiError ? String(e.payload?.error || '').toLowerCase() : '';
+      const tokenRejected =
+        status === 401 ||
+        status === 403 ||
+        code === 'invalid_token' ||
+        code === 'invalid_refresh_token' ||
+        code === 'token_expired' ||
+        code === 'refresh_token_expired';
+      if (tokenRejected) {
+        await get().clearLocalSession();
+      }
       return false;
     }
   },
@@ -381,15 +582,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       if (isBackendJwt(get().accessToken)) {
         const data = (await backendGetProfileMe()) as ProfileMeBody;
-        const { hydrateSavedRoutesFromProfileMe } = await import('../savedRoutesSync');
         await hydrateSavedRoutesFromProfileMe(data.profile);
         set({ profileMe: data, user: get().user, lastError: null, profileMeLoadedAt: Date.now() });
+        const { applyServerProfileToLocal, emitProfileMeUpdated } = await import('../profileMeSync');
+        await applyServerProfileToLocal(data.profile);
+        const { mergeBackendUserIntoLocalSession } = await import('../syncBackendSessionBridge');
+        await mergeBackendUserIntoLocalSession();
+        emitProfileMeUpdated({ source: 'loadProfileMe' });
         return;
       }
       const s = await getLegacySession();
       if (!s?.user) return;
       const data = buildProfileMe(s.user);
-      const { hydrateSavedRoutesFromProfileMe } = await import('../savedRoutesSync');
       await hydrateSavedRoutesFromProfileMe(data.profile);
       set({ profileMe: data, user: mapLegacyUserToDto(s.user), profileMeLoadedAt: Date.now() });
     } catch (err: unknown) {
@@ -400,7 +604,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  loadProfileMeIfStale: async (staleMs = 30000) => {
+  loadProfileMeIfStale: async (staleMs = 1000) => {
     const state = get();
     const elapsed = state.profileMeLoadedAt != null ? Date.now() - state.profileMeLoadedAt : Infinity;
     if (elapsed < staleMs && state.profileMe != null) {

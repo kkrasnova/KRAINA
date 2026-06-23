@@ -1,7 +1,7 @@
 /**
  * Аудіогід за URL (CDN / S3 / статика): кеш у FileSystem.cacheDirectory, повторне відтворення з диска.
  */
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { sha256 } from 'js-sha256';
 
 const DIR = `${FileSystem.cacheDirectory}kraina_audioguides/`;
@@ -25,7 +25,7 @@ export async function ensureAudioCacheDir() {
  */
 export async function getCachedOrRemoteAudioUri(remoteUrl) {
   const url = String(remoteUrl || '').trim();
-  if (!/^https:\/\//i.test(url)) return url;
+  if (!/^https?:\/\//i.test(url)) return url;
 
   await ensureAudioCacheDir();
   const hash = sha256(url);
@@ -46,7 +46,7 @@ export async function getCachedOrRemoteAudioUri(remoteUrl) {
 /** Видалити один закешований файл за URL (опційно). */
 export async function deleteCachedAudioForUrl(remoteUrl) {
   const url = String(remoteUrl || '').trim();
-  if (!/^https:\/\//i.test(url)) return;
+  if (!/^https?:\/\//i.test(url)) return;
   try {
     const hash = sha256(url);
     const ext = extFromUrl(url);

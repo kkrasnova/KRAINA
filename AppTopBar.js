@@ -96,16 +96,12 @@ export default function AppTopBar({
       return;
     }
     try {
-      const [inboxRows, requestRows] = await Promise.all([
-        messagesListThreads('inbox'),
-        messagesListThreads('requests'),
-      ]);
-      const rows = [...(Array.isArray(inboxRows) ? inboxRows : []), ...(Array.isArray(requestRows) ? requestRows : [])];
+      // Бейдж «нових повідомлень» рахує лише непрочитані в «Чати» (inbox).
+      // Заявки («Запити») мають окремий бейдж на вкладці «Запити», тому тут не враховуються.
+      const inboxRows = await messagesListThreads('inbox');
+      const rows = Array.isArray(inboxRows) ? inboxRows : [];
       const next = rows.reduce(
-        (acc, row) =>
-          acc +
-          Math.max(0, Number(row?.unread_count) || 0) +
-          (row?.pending_for_me ? 1 : 0),
+        (acc, row) => acc + Math.max(0, Number(row?.unread_count) || 0),
         0,
       );
       setUnreadCount(next);
@@ -239,7 +235,9 @@ export default function AppTopBar({
                 brandFontHeadMedium,
                 { color: isLight ? '#181818' : 'rgba(255, 255, 255, 0.92)' },
               ]}
-              numberOfLines={1}
+              numberOfLines={2}
+              adjustsFontSizeToFit={Platform.OS === 'ios'}
+              minimumFontScale={0.82}
             >
               {titleOnly}
             </Text>
@@ -385,9 +383,12 @@ const styles = StyleSheet.create({
     height: 16,
   },
   replaceTitle: {
-    fontSize: 17,
+    fontSize: 16,
+    lineHeight: 20,
     textAlign: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   centerSpacer: {
     minHeight: 22,

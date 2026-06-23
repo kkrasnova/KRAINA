@@ -1,12 +1,22 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
+import { ttlGetItem, ttlSetItem } from './ttlCache';
 import { getRegion } from './routeRegionsData';
 
 export const KRAINA_SAVED_ROUTES_CHANGED = 'kraina_saved_routes_changed';
+export const KRAINA_PROFILE_AVATAR_CHANGED = 'kraina_profile_avatar_changed_v1';
 
 function emitSavedRoutesChanged() {
   try {
     DeviceEventEmitter.emit(KRAINA_SAVED_ROUTES_CHANGED);
+  } catch {
+    /* */
+  }
+}
+
+function emitProfileAvatarChanged() {
+  try {
+    DeviceEventEmitter.emit(KRAINA_PROFILE_AVATAR_CHANGED);
   } catch {
     /* */
   }
@@ -50,7 +60,7 @@ export async function clearProfileLocalCache() {
   }
 }
 
-const T_FALLBACK = require('./assets/kling_20260405_IMAGE____________5495_1.png');
+const T_FALLBACK = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
 
 export function hydrateRoutePlan(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -157,10 +167,12 @@ export async function getProfileAvatarLocalUri() {
 
 export async function setProfileAvatarLocalUri(uri) {
   await AsyncStorage.setItem(K.avatarLocalUri, String(uri || '').trim());
+  emitProfileAvatarChanged();
 }
 
 export async function clearProfileAvatarLocalUri() {
   await AsyncStorage.removeItem(K.avatarLocalUri);
+  emitProfileAvatarChanged();
 }
 
 export async function getProfileBirthDate() {
@@ -216,19 +228,23 @@ export async function setInvitations(list) {
 }
 
 export async function getSavedRoutesRaw() {
-  const raw = await AsyncStorage.getItem(K.savedRoutes);
-  if (!raw) return [];
-  try {
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
+  return ttlGetItem('saved_routes', 30000, async () => {
+    const raw = await AsyncStorage.getItem(K.savedRoutes);
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /** Повна заміна журналу (наприклад після завантаження з сервера). */
 export async function replaceSavedRoutesRaw(arr) {
-  await AsyncStorage.setItem(K.savedRoutes, JSON.stringify(Array.isArray(arr) ? arr : []));
+  const next = Array.isArray(arr) ? arr : [];
+  await AsyncStorage.setItem(K.savedRoutes, JSON.stringify(next));
+  await ttlSetItem('saved_routes', next, 30000);
   emitSavedRoutesChanged();
 }
 
@@ -251,6 +267,7 @@ export async function addSavedRoute(routePlan, titleHint) {
   };
   arr.unshift(entry);
   await AsyncStorage.setItem(K.savedRoutes, JSON.stringify(arr));
+  await ttlSetItem('saved_routes', arr, 30000);
   emitSavedRoutesChanged();
 }
 
@@ -258,6 +275,7 @@ export async function removeSavedRoute(id) {
   const arr = await getSavedRoutesRaw();
   const next = arr.filter((x) => x.id !== id);
   await AsyncStorage.setItem(K.savedRoutes, JSON.stringify(next));
+  await ttlSetItem('saved_routes', next, 30000);
   emitSavedRoutesChanged();
 }
 

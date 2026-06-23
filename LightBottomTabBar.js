@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { View, Pressable, StyleSheet, Platform, DeviceEventEmitter, PanResponder } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { navigationRef } from './navigationRef';
@@ -42,6 +43,7 @@ DeviceEventEmitter.addListener(KRAINA_APP_LANGUAGE_CHANGED, (v) => {
 const BAR_FILL_LIGHT = 'rgba(218, 218, 218, 0.8)';
 const BAR_FILL_DARK = 'rgba(30, 30, 30, 0.8)';
 const ICON_INACTIVE_LIGHT = '#1E1E1E';
+const FEED_TAB_ICON = require('./assets/feed-tab-icon.png');
 
 /** Центральна кнопка сканера: трохи більша за бокові слоти (44). */
 const FAB_SIZE = 62;
@@ -209,7 +211,6 @@ export default function LightBottomTabBar({ navEpoch = 0 }) {
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.MAP) ||
     active === 'RouteResults' ||
     active === 'RouteNavigation';
-  const centerShowsCamera = active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED;
   const profileTabActive =
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.PROFILE) ||
     active === 'ProfilePage' ||
@@ -273,10 +274,18 @@ export default function LightBottomTabBar({ navEpoch = 0 }) {
           accessibilityRole="button"
           accessibilityLabel="Feed"
         >
-          <Ionicons
-            name="albums-outline"
-            size={24}
-            color={active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED ? iconActiveTint : iconInactive}
+          <ExpoImage
+            source={FEED_TAB_ICON}
+            style={[
+              styles.feedTabIcon,
+              {
+                tintColor:
+                  active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED ? iconActiveTint : iconInactive,
+              },
+            ]}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={0}
           />
         </Pressable>
         <Pressable
@@ -288,9 +297,9 @@ export default function LightBottomTabBar({ navEpoch = 0 }) {
             pressed && styles.fabPressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={centerShowsCamera ? 'Camera' : 'Scanner'}
+          accessibilityLabel="Camera"
         >
-          <Ionicons name={centerShowsCamera ? 'camera-outline' : 'scan-outline'} size={30} color={fabIconTint} />
+          <Ionicons name="camera-outline" size={30} color={fabIconTint} />
         </Pressable>
         <Pressable
           onPress={onMap}
@@ -360,6 +369,10 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  feedTabIcon: {
+    width: 24,
+    height: 22,
   },
   pressed: {
     opacity: 0.72,

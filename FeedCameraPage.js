@@ -10,6 +10,8 @@ import {
   Alert,
   Platform,
   AppState,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,6 +23,11 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { fc } from './feedComposerI18n';
 import { persistCapturedImage } from './feedMediaPersist';
 import { tryLoadExpoCamera } from './tryLoadExpoCamera';
+import { hasFeedApiToken, feedUploadMediaFromUri, feedCreatePost, feedCreateStoryFromUri } from './feedApi';
+import { prependUserFeedPost, prependUserFeedStory } from './feedLocalStorage';
+import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
+import { useAuthStore } from './auth/authStore';
 
 const ACCENT = '#E1FF00';
 
@@ -57,6 +64,10 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [thumb, setThumb] = useState(null);
+  /** @type {[string|null, Function]} URI знімка для прев'ю перед публікацією */
+  const [previewUri, setPreviewUri] = useState(null);
+  const [caption, setCaption] = useState('');
+  const [publishBusy, setPublishBusy] = useState(false);
   const zoomRef = useRef(0);
   const pinchRef = useRef(null);
 
@@ -97,9 +108,11 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
     return () => sub.remove();
   }, [refreshCameraGate]);
 
+  const authStoreUser = useAuthStore((s) => s.user);
+  const resolvedUser = user || authStoreUser;
   const publishVisibility = route?.params?.publishVisibility === 'followers' ? 'followers' : 'public';
   const shell = {
-    user,
+    user: resolvedUser,
     language,
     appTheme,
     ...(countryId != null ? { countryId } : {}),
@@ -174,22 +187,6 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   }, [route?.params?.cameraInitialMode]);
 
   const openGallery = useCallback(async () => {
-    if (mode === 'post') {
-      const lib = await MediaLibrary.requestPermissionsAsync();
-      if (lib.status !== 'granted') {
-        Alert.alert('', fc(language, 'galleryDenied'), [
-          { text: fc(language, 'openSettings'), onPress: () => Linking.openSettings().catch(() => {}) },
-          { text: fc(language, 'cancel'), style: 'cancel' },
-        ]);
-        return;
-      }
-      navigation.navigate('FeedPostMediaPicker', {
-        ...shell,
-        publishVisibility,
-        initialUris: [],
-      });
-      return;
-    }
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('', fc(language, 'galleryDenied'), [
@@ -218,14 +215,73 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
         Alert.alert('', fc(language, 'pickError'));
         return;
       }
-      navigation.replace('FeedStoryShare', {
-        ...shell,
-        uri: persisted[0],
-      });
+      // Show preview directly — без FeedStoryShare / FeedPostMediaPicker
+      setPreviewUri(persisted[0]);
+      setCaption('');
     } catch {
       Alert.alert('', fc(language, 'pickError'));
     }
-  }, [mode, navigation, shell, language, publishVisibility]);
+  }, [navigation, shell, language]);
+
+  const handlePublish = useCallback(async () => {
+    if (!previewUri || publishBusy) return;
+    setPublishBusy(true);
+    try {
+      if (mode === 'story') {
+        if (hasFeedApiToken()) {
+          await feedCreateStoryFromUri(previewUri, caption.trim());
+        } else {
+          await prependUserFeedStory(resolvedUser, { uri: previewUri, caption: caption.trim() });
+        }
+        emitFeedMediaUpdated({
+          kind: 'story',
+          userId: resolvedUser?.id ? String(resolvedUser.id) : '',
+        });
+      } else {
+        if (hasFeedApiToken()) {
+          const up = await feedUploadMediaFromUri(previewUri);
+          if (up?.url) {
+            await feedCreatePost({
+              media_urls: [up.url],
+              content_text: caption.trim() || null,
+              visibility: publishVisibility,
+              place_label: null,
+              lat: null,
+              lng: null,
+              route_plan: null,
+            });
+          } else {
+            throw new Error('upload failed');
+          }
+        } else {
+          await prependUserFeedPost(resolvedUser, {
+            uri: previewUri,
+            uris: [previewUri],
+            caption: caption.trim(),
+          });
+        }
+        emitFeedMediaUpdated({
+          kind: 'post',
+          userId: resolvedUser?.id ? String(resolvedUser.id) : '',
+        });
+      }
+      // Після публікації — одразу на стрічку, без зайвих вікон
+      navigation.navigate(HOME_TAB_ROUTE, {
+        ...shell,
+        tabIndex: HOME_TAB.FEED,
+        routeFinderExtras: {},
+      });
+    } catch (e) {
+      Alert.alert('', e?.message || 'Помилка публікації');
+    } finally {
+      setPublishBusy(false);
+    }
+  }, [previewUri, publishBusy, mode, caption, resolvedUser, navigation, shell, publishVisibility]);
+
+  const handleRetake = useCallback(() => {
+    setPreviewUri(null);
+    setCaption('');
+  }, []);
 
   const onPinchTouch = useCallback((e) => {
     const { touches } = e.nativeEvent;
@@ -266,21 +322,15 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
       if (!uri) return;
       const persisted = await persistCapturedImage(uri);
       if (!persisted) return;
-      if (mode === 'story') {
-        navigation.replace('FeedStoryShare', { ...shell, uri: persisted });
-      } else {
-        navigation.navigate('FeedPostMediaPicker', {
-          ...shell,
-          publishVisibility,
-          initialUris: [persisted],
-        });
-      }
+      // Show preview directly on camera page — без зайвих сторінок
+      setPreviewUri(persisted);
+      setCaption('');
     } catch (e) {
       Alert.alert('', e?.message || 'Camera error');
     } finally {
       setBusy(false);
     }
-  }, [ready, busy, mode, navigation, shell, publishVisibility]);
+  }, [ready, busy]);
 
   if (!permission) {
     return (
@@ -317,6 +367,72 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
 
   const zoomStepFine = facing === 'front' ? 0.1 : 0.08;
   const zoomStepCoarse = 0.22;
+
+  // Preview mode — показати знімок з опціональним підписом і кнопкою публікації
+  if (previewUri) {
+    return (
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : insets.bottom}
+      >
+        <View style={styles.screen}>
+          {/* Фото прев'ю на весь екран (камера режиму picture, тому лише фото) */}
+          <View style={styles.previewFill}>
+            <Image source={{ uri: previewUri }} style={styles.previewImg} resizeMode="cover" />
+          </View>
+
+          {/* Затемнення зверху для кнопок */}
+          <View style={[styles.previewTopScrim, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+            <Pressable
+              style={styles.previewTopBtn}
+              onPress={handleRetake}
+              hitSlop={14}
+              accessibilityLabel="Retake"
+            >
+              <Ionicons name="close" size={22} color="#FFFFFF" />
+            </Pressable>
+            <View style={styles.previewModeBadge}>
+              <Text style={styles.previewModeText}>
+                {mode === 'story' ? fc(language, 'story') : fc(language, 'publication')}
+              </Text>
+            </View>
+          </View>
+
+          {/* Нижня панель: підпис + кнопка публікації */}
+          <View style={[styles.previewBottom, { paddingBottom: Math.max(insets.bottom, 14) + 12 }]}>
+            <View style={styles.previewCaptionWrap}>
+              <TextInput
+                style={styles.previewCaptionInput}
+                placeholder={fc(language, 'addDescription')}
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                value={caption}
+                onChangeText={setCaption}
+                multiline
+                maxLength={500}
+              />
+            </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.previewPublishBtn,
+                { opacity: publishBusy ? 0.6 : pressed ? 0.88 : 1 },
+              ]}
+              onPress={handlePublish}
+              disabled={publishBusy}
+            >
+              {publishBusy ? (
+                <ActivityIndicator size="small" color="#101010" />
+              ) : (
+                <Text style={styles.previewPublishBtnText}>
+                  {mode === 'story' ? fc(language, 'shareStory') : fc(language, 'publish')}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -591,6 +707,85 @@ const styles = StyleSheet.create({
   modeHit: { paddingHorizontal: 6, paddingVertical: 6 },
   modeText: { fontSize: 15, fontWeight: '600', color: 'rgba(255,255,255,0.42)' },
   modeTextActive: { color: ACCENT },
+
+  /** Preview UI — знімок з підписом */
+  previewFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
+  previewImg: {
+    width: '100%',
+    height: '100%',
+  },
+  previewTopScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  previewTopBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewModeBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(225,255,0,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(225,255,0,0.5)',
+  },
+  previewModeText: {
+    color: ACCENT,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  previewBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  previewCaptionWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
+  previewCaptionInput: {
+    minHeight: 44,
+    maxHeight: 100,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  previewPublishBtn: {
+    borderRadius: 23,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ACCENT,
+  },
+  previewPublishBtnText: {
+    color: '#101010',
+    fontSize: 17,
+    fontWeight: '700',
+  },
 });
 
 export default function FeedCameraPage(props) {

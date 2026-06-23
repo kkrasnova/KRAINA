@@ -6,6 +6,7 @@ import { pool } from './db/pool.js';
 import { runStartupChecks } from './startupChecks.js';
 import { initStorageProvider, destroyStorageProvider } from './storage/index.js';
 import { startCleanupJobs, stopCleanupJobs } from './workers/cleanupJobs.js';
+import { initWsServer, closeWsServer } from './services/wsService.js';
 
 // Initialise the storage provider (local disk or S3) before anything else.
 initStorageProvider();
@@ -17,6 +18,8 @@ runStartupChecks();
 const app = createApp();
 const server: Server = app.listen(config.port, () => {
   logger.info(`KRAÏNA API listening on port ${config.port}`);
+  // Initialise WebSocket server on the same HTTP server
+  initWsServer(server);
   startCleanupJobs();
 });
 

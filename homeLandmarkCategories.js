@@ -37,6 +37,13 @@ const TAGS = {
   old_town_buh: ['city', 'history'],
   republic_sq: ['city', 'history'],
   cascade: ['mountains', 'city', 'history'],
+  lviv_rynok: ['city', 'history'],
+  lviv_opera: ['city', 'history'],
+  lviv_high_castle: ['mountains', 'city', 'history'],
+  lviv_svobody: ['city'],
+  lviv_dom_sobor: ['faith', 'history', 'city'],
+  lviv_lychakiv: ['history', 'city'],
+  lviv_palace: ['history', 'city'],
 };
 
 export function landmarkMatchesHomeCategory(lmId, catId) {

@@ -20,18 +20,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import {
   socialGetPublicProfile,
   socialGetPublicProfileFull,
+  socialGetCachedPublicProfileFull,
   socialFollowUsername,
   socialUnfollowUsername,
+  mapSocialListRowToProfile,
 } from './socialApi';
 import {
   feedListUserPosts,
@@ -44,17 +46,40 @@ import {
 import { messagesOpenThread, messagesSendText, hasMessageApiToken } from './messageApi';
 import { useAuthStore } from './auth/authStore';
 import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
+import { KRAINA_SOCIAL_FOLLOW_CHANGED, KRAINA_SOCIAL_GRAPH_CHANGED, socialFollowMatches, isPlaceholderSocialUsername, SOCIAL_SYNC_TTL_MS } from './socialFollowSyncEvents';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { storyAvatarRingStyle, storiesHasUnviewed } from './storyTrayUtils';
 import { errorToUserText } from './errorText';
 import {
   peerDisplayNameFromMeta,
   peerUsernameFromMeta,
 } from './chatPeerDisplay';
+import ProfileAvatarCircle from './ProfileAvatarCircle';
+import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
 
 const GRID_GAP = 1;
 const COLS = 3;
 const W = Dimensions.get('window').width;
 const CELL = (W - GRID_GAP * (COLS - 1) - 6) / COLS;
+
+let profilePageCache = {};
+const PROFILE_PAGE_CACHE_TTL = SOCIAL_SYNC_TTL_MS;
+
+function profileCacheKey(username) {
+  return `profile__${String(username || '').trim()}`;
+}
+
+function resolveSeedProfile(route, targetUsername) {
+  const fromFull = route?.params?.preloadedFull?.profile;
+  if (fromFull) return fromFull;
+  const row = route?.params?.preloadedProfile;
+  if (row) return mapSocialListRowToProfile(row, targetUsername);
+  const cachedFull = socialGetCachedPublicProfileFull(targetUsername, 80);
+  if (cachedFull?.profile) return cachedFull.profile;
+  const cached = profilePageCache[profileCacheKey(targetUsername)];
+  if (cached?.profile) return cached.profile;
+  return null;
+}
 
 function formatPostAge(iso, lang) {
   const d = new Date(String(iso || ''));
@@ -72,17 +97,20 @@ export default function SocialUserProfilePage({ navigation, route }) {
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const targetUsername = String(route?.params?.username || '').trim();
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
-  const [profile, setProfile] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [peerStories, setPeerStories] = useState([]);
-  const [friends, setFriends] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const seedProfileRef = useRef(null);
+  if (seedProfileRef.current === null) {
+    seedProfileRef.current = resolveSeedProfile(route, targetUsername);
+  }
+  const seedProfile = seedProfileRef.current;
+  const seedCache = profilePageCache[profileCacheKey(targetUsername)];
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const [profile, setProfile] = useState(seedProfile);
+  const [posts, setPosts] = useState(Array.isArray(seedCache?.posts) ? seedCache.posts : []);
+  const [peerStories, setPeerStories] = useState(Array.isArray(seedCache?.peerStories) ? seedCache.peerStories : []);
+  const [loading, setLoading] = useState(!seedProfile);
   const [refreshing, setRefreshing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
-  const [feedSyncHint, setFeedSyncHint] = useState('');
-  const profilePageCache = useRef({});
-  const PROFILE_PAGE_CACHE_TTL = 120000;
+  const [feedSyncHint, setFeedSyncHint] = useState(seedCache?.feedSyncHint || '');
 
   const [postModal, setPostModal] = useState(null);
   const [likeMap, setLikeMap] = useState({});
@@ -102,8 +130,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
   const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const cardBg = isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)';
   const border = isLight ? 'rgba(0,0,0,0.09)' : 'rgba(255,255,255,0.12)';
-  const heroBg = isLight ? 'rgba(2,18,235,0.05)' : 'rgba(255,255,255,0.07)';
-  const heroBorder = isLight ? 'rgba(2,18,235,0.14)' : 'rgba(255,255,255,0.14)';
+  const textStatLabel = isLight ? '#5C5C5C' : '#9A9A9A';
 
   const shell = {
     user,
@@ -120,9 +147,10 @@ export default function SocialUserProfilePage({ navigation, route }) {
         setLoading(false);
         return;
       }
-      const cacheKey = `profile__${targetUsername}`;
-      const cached = profilePageCache.current[cacheKey];
+      const cacheKey = profileCacheKey(targetUsername);
+      const cached = profilePageCache[cacheKey];
       const cacheFresh = cached && Date.now() - cached.at < PROFILE_PAGE_CACHE_TTL;
+      const instantProfile = cached?.profile || seedProfile;
 
       // Fresh cache — use it, skip revalidation
       if (!force && cacheFresh) {
@@ -130,51 +158,94 @@ export default function SocialUserProfilePage({ navigation, route }) {
         setProfile(cached.profile);
         setPosts(cached.posts);
         setPeerStories(cached.peerStories);
-        setFriends(cached.friends);
         setFeedSyncHint(cached.feedSyncHint);
         setLoading(false);
         return;
       }
 
-      // Stale cache — show immediately, revalidate in background (no spinner)
-      if (!force && cached) {
-        if (__DEV__) console.log(`[Cache] SocialUserProfile STALE hit @${targetUsername} age=${Date.now() - cached.at}ms — background revalidation`);
-        setProfile(cached.profile);
-        setPosts(cached.posts);
-        setPeerStories(cached.peerStories);
-        setFriends(cached.friends);
-        setFeedSyncHint(cached.feedSyncHint);
+      // Stale cache or route seed — show immediately, revalidate in background (no spinner)
+      if (!force && instantProfile) {
+        if (__DEV__) {
+          console.log(
+            `[Cache] SocialUserProfile instant @${targetUsername}` +
+              (cached ? ` age=${Date.now() - cached.at}ms` : ' from route seed'),
+          );
+        }
+        setProfile(instantProfile);
+        if (cached) {
+          setPosts(cached.posts);
+          setPeerStories(cached.peerStories);
+          setFeedSyncHint(cached.feedSyncHint);
+        }
         setLoading(false);
-      } else if (__DEV__ && !cached) {
+      } else if (__DEV__ && !cached && !instantProfile) {
         console.log(`[Cache] SocialUserProfile MISS @${targetUsername}`);
       }
       if (__DEV__ && force && cached) {
         console.log(`[Cache] SocialUserProfile FORCE refresh @${targetUsername} age=${Date.now() - cached.at}ms`);
       }
 
-      const needsSpinner = force || !cached;
+      const needsSpinner = !instantProfile;
       if (needsSpinner) {
         if (silent) setRefreshing(true);
         else setLoading(true);
       }
+
+      let resolvedProfile = instantProfile || null;
+      let notFound = false;
       try {
         const full = await socialGetPublicProfileFull(targetUsername, 80).catch(() => null);
-        const p = full?.profile || (await socialGetPublicProfile(targetUsername));
-        setProfile(p);
-        setFriends(Array.isArray(full?.friends) ? full.friends : []);
+        if (full?.profile) {
+          resolvedProfile = full.profile;
+        } else {
+          try {
+            resolvedProfile = await socialGetPublicProfile(targetUsername);
+          } catch (e) {
+            if (String(e?.message || '') === 'profile_not_found') notFound = true;
+          }
+        }
 
+        if (notFound) {
+          setProfile(null);
+          setPosts([]);
+          setPeerStories([]);
+          setFeedSyncHint('');
+          delete profilePageCache[cacheKey];
+        } else if (resolvedProfile) {
+          setProfile(resolvedProfile);
+        } else if (!instantProfile) {
+          setProfile(null);
+        }
+      } catch (e) {
+        if (!instantProfile) {
+          setProfile(null);
+          setPosts([]);
+          setPeerStories([]);
+        }
+        if (__DEV__) console.warn('[SocialUserProfile]', e?.message);
+      } finally {
+        if (needsSpinner) {
+          if (silent) setRefreshing(false);
+          else setLoading(false);
+        }
+      }
+
+      if (notFound || !resolvedProfile) return;
+
+      try {
         await useAuthStore.getState().hydrate();
         if (!useAuthStore.getState().accessToken) {
           await useAuthStore.getState().refreshSession().catch(() => {});
         }
 
         const grid = await feedListUserPosts(targetUsername, 60);
-        setPosts(Array.isArray(grid) ? grid : []);
+        const nextPosts = Array.isArray(grid) ? grid : [];
+        setPosts(nextPosts);
 
         let stories = [];
-        if (p?.user_id && hasFeedApiToken()) {
+        if (resolvedProfile?.user_id && hasFeedApiToken()) {
           try {
-            const sl = await feedListStoriesForUser(String(p.user_id));
+            const sl = await feedListStoriesForUser(String(resolvedProfile.user_id));
             if (Array.isArray(sl) && sl.length) stories = sl;
           } catch {
             stories = [];
@@ -187,41 +258,58 @@ export default function SocialUserProfilePage({ navigation, route }) {
         }
         setFeedSyncHint(hint);
 
-        profilePageCache.current[cacheKey] = {
+        profilePageCache[cacheKey] = {
           at: Date.now(),
-          profile: p,
-          posts: grid,
+          profile: resolvedProfile,
+          posts: nextPosts,
           peerStories: stories,
-          friends: full?.friends || [],
           feedSyncHint: hint,
         };
       } catch (e) {
-        if (!cached) {
-          setProfile(null);
-          setPosts([]);
-          setPeerStories([]);
-          setFriends([]);
-        }
-        if (__DEV__) console.warn('[SocialUserProfile]', e?.message);
-      } finally {
-        if (needsSpinner) {
-          if (silent) setRefreshing(false);
-          else setLoading(false);
-        }
+        if (__DEV__) console.warn('[SocialUserProfile] feed', e?.message);
       }
     },
-    [targetUsername, language],
+    [targetUsername, language, seedProfile],
   );
 
   useFocusEffect(
     useCallback(() => {
+      if (isPlaceholderSocialUsername(targetUsername)) {
+        navigation.goBack();
+        return undefined;
+      }
       void reload();
-    }, [reload]),
+      return undefined;
+    }, [reload, targetUsername, navigation]),
   );
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, () => {
-      profilePageCache.current = {};
+    const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
+      const updatedUserId = payload?.userId ? String(payload.userId) : '';
+      const profileUserId = profile?.user_id ? String(profile.user_id) : '';
+      if (updatedUserId && profileUserId && updatedUserId !== profileUserId && !payload?.postId) {
+        return;
+      }
+      profilePageCache = {};
+      void reload(true, true);
+    });
+    return () => sub.remove();
+  }, [reload, profile?.user_id]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_FOLLOW_CHANGED, (payload) => {
+      setProfile((p) => {
+        if (!p || !socialFollowMatches(payload, p.username, p.user_id)) return p;
+        return { ...p, is_following: !!payload.is_following };
+      });
+      profilePageCache = {};
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_GRAPH_CHANGED, () => {
+      profilePageCache = {};
       void reload(true, true);
     });
     return () => sub.remove();
@@ -234,9 +322,10 @@ export default function SocialUserProfilePage({ navigation, route }) {
     // Оптимістичне оновлення — кнопка реагує миттєво
     setProfile((p) => (p ? { ...p, is_following: !prevFollowing } : p));
     try {
-      if (prevFollowing) await socialUnfollowUsername(profile.username);
-      else await socialFollowUsername(profile.username);
-      profilePageCache.current = {};
+      const followOpts = { user_id: profile.user_id };
+      if (prevFollowing) await socialUnfollowUsername(profile.username, followOpts);
+      else await socialFollowUsername(profile.username, followOpts);
+      profilePageCache = {};
       await reload(true, true);
     } catch (e) {
       // Відкочуємо оптимістичне оновлення
@@ -248,17 +337,14 @@ export default function SocialUserProfilePage({ navigation, route }) {
   };
 
   const hasPeerStories = peerStories.length > 0;
-  const peerNewestStoryId =
-    hasPeerStories && peerStories[peerStories.length - 1]?.id
-      ? String(peerStories[peerStories.length - 1].id)
-      : null;
+  const peerStoriesHasUnviewed = storiesHasUnviewed(peerStories, { isAuthor: false });
 
   const openPeerStories = () => {
-    if (!profile?.user_id || !peerNewestStoryId) return;
+    if (!profile?.user_id || !hasPeerStories) return;
     navigation.navigate('FeedStoryViewer', {
       ...shell,
       userId: String(profile.user_id),
-      storyId: peerNewestStoryId,
+      fromProfile: true,
       authorUsername: profile.username || '',
       ...(profile.display_name && String(profile.display_name).trim()
         ? { authorDisplayName: String(profile.display_name).trim() }
@@ -290,6 +376,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
         peerDisplayName: peerDisplayNameFromMeta(meta) || profile.display_name || profile.username,
         peerUsername: peerUsernameFromMeta(meta),
         peerAvatarUrl: resolveFeedMediaUrl(profile.avatar_url || meta.peer_avatar_url || '') || '',
+        peerUserId: String(meta.peer_user_id || profile.user_id),
         useMessageApi: true,
         pendingForMe: !!meta.pending_for_me,
       });
@@ -426,7 +513,6 @@ export default function SocialUserProfilePage({ navigation, route }) {
         onBackPress={() => navigation.goBack()}
         replaceCenterTitle={`@${targetUsername}`}
         hideSendButton
-        lightBarBackgroundColor={isLight ? '#FFFFFF' : undefined}
       />
       {loading ? (
         <View style={styles.center}>
@@ -456,7 +542,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
       ) : (
         <ScrollView
           contentContainerStyle={{
-            paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 24,
+            paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 24),
           }}
           keyboardShouldPersistTaps="handled"
           refreshControl={
@@ -465,113 +551,156 @@ export default function SocialUserProfilePage({ navigation, route }) {
           {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
         >
           <View style={styles.headWrap}>
-            <View style={[styles.profileHero, { backgroundColor: heroBg, borderColor: heroBorder }]}>
-              <Ionicons name="person-circle-outline" size={18} color={isLight ? '#0212EB' : '#E1FF00'} />
-              <Text style={[styles.profileHeroText, { color: muted }]}>
-                {language === 'uk' ? 'Профіль користувача' : 'User profile'}
-              </Text>
-            </View>
             <View style={[styles.headCard, { backgroundColor: cardBg, borderColor: border }]}>
-              <View style={styles.head}>
-                {hasPeerStories ? (
-                  <Pressable
-                    onPress={openPeerStories}
-                    style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
-                    accessibilityRole="button"
-                  >
-                    <View
-                      style={[
-                        styles.avatarRingWrap,
-                        { borderColor: isLight ? ACCENT_BLUE : ACCENT_LEMON },
-                      ]}
+              <View style={styles.headRow}>
+                <View style={styles.avatarCol}>
+                  {hasPeerStories ? (
+                    <Pressable
+                      onPress={openPeerStories}
+                      style={({ pressed }) => [{ opacity: pressed ? 0.88 : 1 }]}
+                      accessibilityRole="button"
                     >
-                      {profile.avatar_url ? (
-                        <Image source={{ uri: resolveFeedMediaUrl(profile.avatar_url) }} style={styles.avatarRingInner} resizeMode="cover" />
-                      ) : (
-                        <View
-                          style={[styles.avatarRingInner, { backgroundColor: isLight ? '#E0E0DC' : '#333' }]}
+                      <View
+                        style={[
+                          styles.avatarOuter,
+                          storyAvatarRingStyle({
+                            hasStories: true,
+                            hasUnviewed: peerStoriesHasUnviewed,
+                            isLight,
+                          }),
+                        ]}
+                      >
+                        <ProfileAvatarCircle
+                          uri={resolveFeedMediaUrl(profile.avatar_url)}
+                          size={82}
+                          isLight={isLight}
                         />
-                      )}
+                      </View>
+                    </Pressable>
+                  ) : (
+                    <View style={[styles.avatarOuter, { borderWidth: 0 }]}>
+                      <ProfileAvatarCircle
+                        uri={resolveFeedMediaUrl(profile.avatar_url)}
+                        size={82}
+                        isLight={isLight}
+                      />
                     </View>
-                  </Pressable>
-                ) : profile.avatar_url ? (
-                  <Image source={{ uri: resolveFeedMediaUrl(profile.avatar_url) }} style={styles.avatar} />
-                ) : (
-                  <View style={[styles.avatar, { backgroundColor: isLight ? '#E0E0DC' : '#333' }]} />
-                )}
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.name, { color: textMain }]}>
-                    {profile.display_name || `@${profile.username}`}
-                  </Text>
-                  <Text style={[styles.username, { color: muted }]}>@{profile.username}</Text>
-                  {profile.location_label ? (
-                    <Text style={[styles.location, { color: muted }]}>{profile.location_label}</Text>
-                  ) : null}
-                  {profile.bio ? (
-                    <Text style={[styles.bio, { color: textMain }]}>{profile.bio}</Text>
-                  ) : null}
+                  )}
                 </View>
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text style={[styles.statNum, brandFontSansSemibold, { color: textMain }]}>{posts.length}</Text>
+                    <Text style={[styles.statLabel, brandFontSans, { color: textStatLabel }]} numberOfLines={1}>
+                      {pf(language, 'userPosts')}
+                    </Text>
+                  </View>
+                  <Pressable style={styles.statItem} onPress={() => openConnections('followers')}>
+                    <Text style={[styles.statNum, brandFontSansSemibold, { color: textMain }]}>{profile.followers_count ?? 0}</Text>
+                    <Text style={[styles.statLabel, brandFontSans, { color: textStatLabel }]} numberOfLines={1}>
+                      {pf(language, 'followers')}
+                    </Text>
+                  </Pressable>
+                  <Pressable style={styles.statItem} onPress={() => openConnections('following')}>
+                    <Text style={[styles.statNum, brandFontSansSemibold, { color: textMain }]}>{profile.following_count ?? 0}</Text>
+                    <Text style={[styles.statLabel, brandFontSans, { color: textStatLabel }]} numberOfLines={1}>
+                      {pf(language, 'following')}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.headText}>
+                <Text style={[styles.name, brandFontHeadMedium, { color: textMain }]}>
+                  {profile.display_name || `@${profile.username}`}
+                </Text>
+                <Text style={[styles.username, brandFontSans, { color: muted }]}>@{profile.username}</Text>
+                {profile.location_label ? (
+                  <Text style={[styles.location, brandFontSans, { color: muted }]}>{profile.location_label}</Text>
+                ) : null}
+                {profile.bio ? (
+                  <Text style={[styles.bio, brandFontSans, { color: muted }]} numberOfLines={3}>
+                    {profile.bio}
+                  </Text>
+                ) : null}
               </View>
 
-              <View style={styles.countersRow}>
-                <View style={styles.counterItem}>
-                  <Text style={[styles.counterNum, { color: textMain }]}>{posts.length}</Text>
-                  <Text style={[styles.counterLabel, { color: muted }]}>{pf(language, 'userPosts')}</Text>
+              {profile.user_id && user?.id && String(profile.user_id) !== String(user.id) ? (
+                <View style={styles.actions}>
+                  <Pressable
+                    onPress={onToggleFollow}
+                    disabled={followBusy}
+                    style={({ pressed }) => [
+                      styles.btn,
+                      { backgroundColor: accent, opacity: pressed || followBusy ? 0.88 : 1 },
+                    ]}
+                    android_ripple={rippleOnDarkSurface}
+                  >
+                    <Ionicons
+                      name={profile.is_following ? 'person-remove-outline' : 'person-add-outline'}
+                      size={18}
+                      color={onAccentButtonText(isLight)}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={[styles.btnText, brandFontSansSemibold, { color: onAccentButtonText(isLight) }]}>
+                      {profile.is_following ? pf(language, 'unfollow') : pf(language, 'follow')}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={onMessage}
+                    style={({ pressed }) => [
+                      styles.btnOutline,
+                      { borderColor: isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.2)', opacity: pressed ? 0.88 : 1 },
+                    ]}
+                    android_ripple={ripple}
+                  >
+                    <Ionicons name="chatbubble-outline" size={17} color={textMain} style={{ marginRight: 6 }} />
+                    <Text style={[styles.btnOutlineText, brandFontSansSemibold, { color: textMain }]}>{pf(language, 'messageUser')}</Text>
+                  </Pressable>
                 </View>
-                <Pressable style={styles.counterItem} onPress={() => openConnections('friends')}>
-                  <Text style={[styles.counterNum, { color: textMain }]}>{friends.length}</Text>
-                  <Text style={[styles.counterLabel, { color: muted }]}>{pf(language, 'friends')}</Text>
-                </Pressable>
-                <Pressable style={styles.counterItem} onPress={() => openConnections('followers')}>
-                  <Text style={[styles.counterNum, { color: textMain }]}>{profile.followers_count ?? 0}</Text>
-                  <Text style={[styles.counterLabel, { color: muted }]}>{pf(language, 'followers')}</Text>
-                </Pressable>
-                <Pressable style={styles.counterItem} onPress={() => openConnections('following')}>
-                  <Text style={[styles.counterNum, { color: textMain }]}>{profile.following_count ?? 0}</Text>
-                  <Text style={[styles.counterLabel, { color: muted }]}>{pf(language, 'following')}</Text>
-                </Pressable>
-              </View>
+              ) : null}
             </View>
           </View>
 
-          {profile.user_id && user?.id && String(profile.user_id) !== String(user.id) ? (
-            <View style={styles.actionsWrap}>
-              <View style={styles.actions}>
-                <Pressable
-                  onPress={onToggleFollow}
-                  disabled={followBusy}
-                  style={({ pressed }) => [
-                    styles.btn,
-                    { backgroundColor: accent, opacity: pressed || followBusy ? 0.88 : 1 },
-                  ]}
-                  android_ripple={rippleOnDarkSurface}
-                >
-                  <Text style={[styles.btnText, { color: onAccentButtonText(isLight) }]}>
-                    {profile.is_following ? pf(language, 'unfollow') : pf(language, 'follow')}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={onMessage}
-                  style={({ pressed }) => [
-                    styles.btnOutline,
-                    { borderColor: accent, opacity: pressed ? 0.88 : 1 },
-                  ]}
-                  android_ripple={ripple}
-                >
-                  <Text style={[styles.btnOutlineText, { color: accent }]}>{pf(language, 'messageUser')}</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-
-          <Text style={[styles.sectionTitle, styles.postsTitle, { color: textMain }]}>{pf(language, 'userPosts')}</Text>
+          <View style={[styles.postsSection, { borderColor: border }]}>
+            <Text style={[styles.sectionTitle, brandFontSansSemibold, { color: textMain }]}>{pf(language, 'userPosts')}</Text>
+          </View>
           {feedSyncHint ? (
-            <Text style={[styles.syncHint, { color: muted }]}>{feedSyncHint}</Text>
+            <Text style={[styles.syncHint, brandFontSans, { color: muted }]}>{feedSyncHint}</Text>
           ) : null}
           {posts.length === 0 ? (
-            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: border }]}>
-              <Ionicons name="images-outline" size={24} color={muted} />
-              <Text style={[styles.emptyText, { color: muted }]}>{pf(language, 'noPosts')}</Text>
+            <View
+              style={[
+                styles.emptyPostsWrap,
+                isLight ? styles.emptyPostsWrapLight : styles.emptyPostsWrapDark,
+              ]}
+            >
+              <View style={styles.emptyStickerRow}>
+                <View
+                  style={[
+                    styles.emptySticker,
+                    { borderColor: accent, backgroundColor: isLight ? '#FFFEF8' : 'rgba(255,255,255,0.08)' },
+                  ]}
+                >
+                  <Text style={[styles.emptyStickerGlyph, { color: accent }]}>✦</Text>
+                  <Text
+                    style={[
+                      styles.emptyStickerLabel,
+                      brandFontSansSemibold,
+                      { color: isLight ? '#1E1E1E' : '#F2F2EA' },
+                    ]}
+                  >
+                    {language === 'uk' ? 'Стрічка' : 'Feed'}
+                  </Text>
+                </View>
+                <Text style={styles.emptyStickerEmoji} allowFontScaling={false}>
+                  📷
+                </Text>
+              </View>
+              <Text style={[styles.emptyPostsTitle, brandFontHeadMedium, { color: textMain }]}>
+                {pf(language, 'userPostsEmptyTitle')}
+              </Text>
+              <Text style={[styles.emptyPostsBody, brandFontSans, { color: muted }]}>
+                {pf(language, 'userPostsEmptySubtitle')}
+              </Text>
             </View>
           ) : (
             <View style={[styles.grid, { gap: GRID_GAP }]}>
@@ -729,69 +858,97 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   headWrap: { paddingHorizontal: 16, paddingTop: 14 },
-  profileHero: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  profileHeroText: { fontSize: 13, fontWeight: '600' },
   headCard: {
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 14,
   },
-  head: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  avatar: { width: 72, height: 72, borderRadius: 36 },
-  avatarRingWrap: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    borderWidth: 3,
+  headRow: { flexDirection: 'row', alignItems: 'center' },
+  avatarCol: { marginRight: 16, alignItems: 'stretch' },
+  avatarOuter: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignSelf: 'center',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
   },
-  avatarRingInner: { width: 72, height: 72, borderRadius: 36 },
+  headText: { marginTop: 12 },
   name: { fontSize: 20, fontWeight: '700' },
-  username: { fontSize: 13, marginTop: 2, fontWeight: '600' },
-  location: { fontSize: 13, marginTop: 3 },
+  username: { fontSize: 14, marginTop: 2 },
+  location: { fontSize: 14, marginTop: 4 },
   bio: { fontSize: 14, marginTop: 8, lineHeight: 20 },
-  countersRow: { flexDirection: 'row', marginTop: 12 },
-  counterItem: { flex: 1, alignItems: 'center' },
-  counterNum: { fontSize: 18, fontWeight: '800' },
-  counterLabel: { fontSize: 12, marginTop: 2 },
-  actionsWrap: { paddingHorizontal: 16, marginTop: 12 },
-  actions: { flexDirection: 'row', gap: 12 },
-  btn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+  statsRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', minWidth: 0 },
+  statItem: { flex: 1, alignItems: 'center', minWidth: 0, paddingHorizontal: 2 },
+  statNum: { fontSize: 18, fontWeight: '700' },
+  statLabel: { fontSize: 12, marginTop: 2, textAlign: 'center' },
+  actions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  btn: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   btnText: { fontWeight: '700', fontSize: 15 },
   btnOutline: {
     flex: 1,
+    flexDirection: 'row',
     paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1.5,
-  },
-  btnOutlineText: { fontWeight: '700', fontSize: 15 },
-  sectionTitle: { fontSize: 17, fontWeight: '700', marginTop: 18 },
-  postsTitle: { marginHorizontal: 16, marginTop: 22 },
-  syncHint: { marginTop: 6, marginHorizontal: 16, fontSize: 12.5 },
-  emptyCard: {
-    marginTop: 10,
-    marginHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 18,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: 'transparent',
   },
-  emptyText: { fontSize: 14 },
+  btnOutlineText: { fontWeight: '700', fontSize: 15 },
+  postsSection: {
+    marginTop: 20,
+    marginHorizontal: 16,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  sectionTitle: { fontSize: 16, fontWeight: '700' },
+  syncHint: { marginTop: 6, marginHorizontal: 16, fontSize: 12.5 },
+  emptyPostsWrap: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    borderRadius: 28,
+    paddingVertical: 20,
+    paddingHorizontal: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  emptyPostsWrapLight: {
+    backgroundColor: 'rgba(2, 18, 235, 0.06)',
+    borderColor: 'rgba(2, 18, 235, 0.14)',
+  },
+  emptyPostsWrapDark: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  emptyStickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  emptySticker: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    transform: [{ rotate: '-4deg' }],
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emptyStickerGlyph: { fontSize: 20, marginRight: 8 },
+  emptyStickerLabel: { fontSize: 13, letterSpacing: 0.5 },
+  emptyStickerEmoji: { fontSize: 44, marginRight: 4 },
+  emptyPostsTitle: { fontSize: 20, lineHeight: 26, marginBottom: 10 },
+  emptyPostsBody: { fontSize: 15, lineHeight: 22 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, paddingHorizontal: 3 },
   cellImg: { width: '100%', height: '100%', borderRadius: 4 },
   badgeVideo: {

@@ -54,7 +54,11 @@ services:
       - key: CORS_ORIGINS
         sync: false     # Напр. https://kraina.app,https://admin.kraina.app
       - key: GOOGLE_CLIENT_ID
-        sync: false     # OAuth для входу через Google
+        sync: false     # OAuth web client ID (вхід через Google)
+      - key: GOOGLE_IOS_CLIENT_ID
+        sync: false     # iOS audience id_token — без нього вхід Google на iPhone відхиляється
+      - key: GOOGLE_ANDROID_CLIENT_ID
+        sync: false     # Android audience id_token — без нього вхід Google на Android відхиляється
       - key: APPLE_CLIENT_ID
         sync: false     # OAuth для входу через Apple
       - key: OPENAI_API_KEY

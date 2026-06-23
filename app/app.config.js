@@ -17,6 +17,11 @@ const googleMapsApiKey =
   appJson.expo?.extra?.googleMapsApiKey ||
   '';
 
+const googleVisionApiKey =
+  process.env.EXPO_PUBLIC_GOOGLE_VISION_API_KEY ||
+  appJson.expo?.extra?.googleVisionApiKey ||
+  '';
+
 const basePlugins = appJson.expo?.plugins || [];
 const hasMapsPlugin = basePlugins.some(
   (p) => (Array.isArray(p) ? p[0] : p) === 'react-native-maps',
@@ -40,6 +45,7 @@ module.exports = {
   extra: {
     ...appJson.expo.extra,
     googleMapsApiKey,
+    googleVisionApiKey,
   },
   android: {
     ...appJson.expo.android,
@@ -60,6 +66,10 @@ module.exports = {
       UIViewControllerBasedStatusBarAppearance: true,
       NSMicrophoneUsageDescription:
         'Мікрофон потрібен, щоб записувати та надсилати голосові повідомлення в чаті.',
+      NSHealthShareUsageDescription:
+        'KRAÏNA зчитує кількість кроків із «Здоров’я», щоб показувати її у статистиці профілю.',
+      NSHealthUpdateUsageDescription:
+        'KRAÏNA не записує дані про кроки в «Здоров’я»; цей дозвіл може знадобитися системі для сумісності.',
     },
   },
   updates: {

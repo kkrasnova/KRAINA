@@ -24,6 +24,7 @@ const S = {
   newPublication: { uk: 'Нова публікація', en: 'New post' },
   publicationTitle: { uk: 'Публікація', en: 'Post' },
   addFromGallery: { uk: 'Додати з галереї', en: 'Add from gallery' },
+  openCamera: { uk: 'Камера', en: 'Camera' },
   addCity: { uk: 'Додати місто', en: 'Add city' },
   markOnMap: { uk: 'Відмітити на карті', en: 'Mark on map' },
   captionPlaceholder: { uk: 'Напишіть свою історію…', en: 'Write your story…' },
@@ -44,7 +45,36 @@ const S = {
     uk: 'Зведіть / розведіть два пальці в області прев’ю, щоб наблизити.',
     en: 'Pinch on the preview to zoom in or out.',
   },
+  simulatorCameraHint: {
+    uk: 'Камера недоступна в симуляторі.\nОберіть фото з галереї або підключіть iPhone.',
+    en: 'Camera is unavailable in the simulator.\nPick from gallery or use a real iPhone.',
+  },
+  emulatorCameraHint: {
+    uk: 'На емуляторі прев’ю може бути порожнім.\nУ Extended Controls → Camera оберіть Webcam або Virtual scene.\nАбо натисніть затвор — відкриється галерея.',
+    en: 'Emulator preview may be blank.\nIn Extended Controls → Camera pick Webcam or Virtual scene.\nOr tap the shutter to pick from gallery.',
+  },
+  captureFailed: {
+    uk: 'Не вдалося зробити знімок. Спробуйте ще раз або оберіть фото з галереї.',
+    en: 'Could not take a photo. Try again or pick from gallery.',
+  },
+  cameraNotReady: {
+    uk: 'Камера ще завантажується. Зачекайте секунду.',
+    en: 'Camera is still loading. Wait a moment.',
+  },
+  cameraInitializing: {
+    uk: 'Запуск камери…',
+    en: 'Starting camera…',
+  },
+  cameraError: {
+    uk: 'Не вдалося відкрити камеру.',
+    en: 'Could not open the camera.',
+  },
+  retry: { uk: 'Спробувати знову', en: 'Try again' },
   pickError: { uk: 'Не вдалося обрати фото.', en: 'Could not pick photos.' },
+  mediaPickerFailed: {
+    uk: 'Не вдалося відкрити камеру чи галерею. Спробуйте ще раз або оберіть фото зліва.',
+    en: 'Could not open the camera or gallery. Try again or pick a photo from the thumbnail.',
+  },
   publishOk: { uk: 'Публікація збережена.', en: 'Your post is published.' },
   attachSavedRoute: { uk: 'Маршрут зі збережених', en: 'Attach saved route' },
   routeAttachedHint: { uk: 'До поста додано маршрут — кнопка «Маршрут» відкриє його для інших.', en: 'A route is attached — the Route button opens it for others.' },

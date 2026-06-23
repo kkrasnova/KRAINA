@@ -234,23 +234,25 @@ export async function deleteFollowEdgeByIds(
 export async function followByUsername(
   followerId: string,
   targetUsername: string,
-): Promise<{ pending: boolean }> {
+): Promise<{ pending: boolean; user_id: string }> {
   const targetId = await resolveUserIdByUsername(targetUsername);
   if (!targetId) throw new HttpError(404, 'user_not_found');
   if (targetId === followerId) throw new HttpError(400, 'cannot_follow_self');
-  return insertFollowEdgeByIds(followerId, targetId);
+  const out = await insertFollowEdgeByIds(followerId, targetId);
+  return { ...out, user_id: targetId };
 }
 
 export async function followByUserId(
   followerId: string,
   targetUserId: string,
-): Promise<{ pending: boolean }> {
+): Promise<{ pending: boolean; user_id: string }> {
   const targetId = String(targetUserId || '').trim();
   if (!PG_UUID_RE.test(targetId)) throw new HttpError(400, 'invalid_user_id');
   const exists = await pool.query(`SELECT id FROM users WHERE id = $1::uuid AND status = 'active'`, [targetId]);
   if (!exists.rowCount) throw new HttpError(404, 'user_not_found');
   if (targetId === followerId) throw new HttpError(400, 'cannot_follow_self');
-  return insertFollowEdgeByIds(followerId, targetId);
+  const out = await insertFollowEdgeByIds(followerId, targetId);
+  return { ...out, user_id: targetId };
 }
 
 export async function unfollowByUsername(followerId: string, targetUsername: string): Promise<void> {
@@ -476,9 +478,49 @@ export async function searchSocialProfiles(meId: string | null, q: string, limit
     .replace(/%/g, '')
     .replace(/_/g, '')
     .replace(/^@/, '');
-  if (term.length < 1) return [];
 
   const lim = Math.min(40, Math.max(1, Number(limit) || 24));
+
+  const mapSearchRow = (row: Record<string, unknown>): SocialSearchRow => ({
+    user_id: String(row.user_id),
+    firebase_uid: row.firebase_uid == null ? null : String(row.firebase_uid),
+    username: String(row.username),
+    display_name: row.display_name == null ? null : String(row.display_name),
+    avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
+    bio: row.bio == null ? null : String(row.bio),
+    is_private: Boolean(row.is_private),
+    followers_count: Number(row.followers_count || 0),
+    following_count: Number(row.following_count || 0),
+    is_following: Boolean(row.is_following),
+    pending_follow_outgoing: Boolean(row.pending_follow_outgoing),
+  });
+
+  // Порожній запит → добірка людей для огляду (топ активних публічних профілів).
+  // Без цього екран «Знайти людей» лишається порожнім до першого введеного символу.
+  if (term.length < 1) {
+    const top = await pool.query(
+      `SELECT p.user_id::text AS user_id, p.firebase_uid, p.username, p.display_name,
+              p.avatar_url, p.bio, (p.is_public = false) AS is_private,
+              p.followers_count, p.following_count,
+              EXISTS (
+                SELECT 1 FROM follows f
+                WHERE $1::uuid IS NOT NULL AND f.follower_id = $1::uuid AND f.following_id = p.user_id
+              ) AS is_following,
+              EXISTS (
+                SELECT 1 FROM follow_requests fr
+                WHERE $1::uuid IS NOT NULL AND fr.follower_id = $1::uuid AND fr.followee_id = p.user_id
+              ) AS pending_follow_outgoing
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       WHERE ($1::uuid IS NULL OR p.user_id <> $1::uuid)
+         AND p.is_public = true
+       ORDER BY p.followers_count DESC, p.updated_at DESC
+       LIMIT $2`,
+      [meId, lim],
+    );
+    return (top.rows as Array<Record<string, unknown>>).map(mapSearchRow);
+  }
+
   const like = `%${term}%`;
 
   const r = await pool.query(
@@ -534,19 +576,7 @@ export async function searchSocialProfiles(meId: string | null, q: string, limit
     [meId, like, term, lim],
   );
 
-  return (r.rows as Array<Record<string, unknown>>).map((row) => ({
-    user_id: String(row.user_id),
-    firebase_uid: row.firebase_uid == null ? null : String(row.firebase_uid),
-    username: String(row.username),
-    display_name: row.display_name == null ? null : String(row.display_name),
-    avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
-    bio: row.bio == null ? null : String(row.bio),
-    is_private: Boolean(row.is_private),
-    followers_count: Number(row.followers_count || 0),
-    following_count: Number(row.following_count || 0),
-    is_following: Boolean(row.is_following),
-    pending_follow_outgoing: Boolean(row.pending_follow_outgoing),
-  }));
+  return (r.rows as Array<Record<string, unknown>>).map(mapSearchRow);
 }
 
 // TODO(cursor-pagination): replace limit-only with alphabetical (username ASC, user_id ASC) cursor.

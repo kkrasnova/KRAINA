@@ -4,6 +4,7 @@ import { sha256 } from 'js-sha256';
 import * as FirebaseCfg from './firebaseConfig';
 import { isAdminGateEmail, verifyAdminPasswordGate } from './adminGate';
 import { clearProfileLocalCache } from './profileStorage';
+import { resetOtpEmailPayload } from './resetOtpEmailTemplate';
 
 const auth = FirebaseCfg.auth;
 const db = FirebaseCfg.db;
@@ -940,13 +941,34 @@ async function fetchFacebookProfileFromGraph(accessToken) {
 
 export async function canRequestPasswordReset(normalizedEmail) {
   const e = (normalizedEmail || '').trim().toLowerCase();
-  if (!e) return false;
-  if (await userExistsByEmail(e)) return true;
+  if (!e) return { eligible: false, reason: 'EMPTY' };
+  if (await userExistsByEmail(e)) return { eligible: true };
+
+  if (firebaseAuthEnabled && auth) {
+    try {
+      const { fetchSignInMethodsForEmail } = require('firebase/auth');
+      const methods = await Promise.race([
+        fetchSignInMethodsForEmail(auth, e),
+        new Promise((resolve) => setTimeout(() => resolve(null), FIREBASE_FETCH_SIGNIN_METHODS_MS)),
+      ]);
+      if (Array.isArray(methods) && methods.length > 0) {
+        return { eligible: true };
+      }
+    } catch (err) {
+      if (__DEV__) console.warn('[db] canRequestPasswordReset firebase', err?.message);
+    }
+  }
+
   try {
     const { backendEmailExists } = require('./backendAuthApi');
-    if (await backendEmailExists(e)) return true;
-  } catch (_) {}
-  return false;
+    const { API_BASE_URL } = require('./auth/config');
+    if (!API_BASE_URL) return { eligible: false, reason: 'NOT_FOUND' };
+    if (await backendEmailExists(e)) return { eligible: true };
+    return { eligible: false, reason: 'NOT_FOUND' };
+  } catch (err) {
+    if (__DEV__) console.warn('[db] canRequestPasswordReset backend', err?.message);
+    return { eligible: false, reason: 'NETWORK_ERROR' };
+  }
 }
 
 async function syncBackendPasswordResetOtp(emailLower, code, expiresAt) {
@@ -1016,69 +1038,6 @@ function otpHashForCode(emailLower, codeDigits) {
 
 const PASSWORD_RESET_OTP_TTL_MS = 15 * 60 * 1000;
 
-function resetOtpEmailPayload(code, lang) {
-  const raw = String(lang || 'en').split('-')[0].toLowerCase();
-  const langNorm = raw === 'ru' ? 'uk' : raw;
-  const safeCode = String(code || '').replace(/[^\d]/g, '').slice(0, 6);
-  const packs = {
-    uk: {
-      subject: 'KRAÏNA — код для відновлення пароля',
-      intro: 'Вітаємо! Ось код для відновлення пароля у додатку.',
-      hint: 'Введіть його на екрані «Забули пароль». Код дійсний 15 хвилин.',
-      ignore: 'Якщо ви не запитували відновлення пароля — проігноруйте цей лист.',
-      codeLabel: 'Ваш код',
-    },
-    en: {
-      subject: 'KRAÏNA — password reset code',
-      intro: 'Hello! Here is your password reset verification code.',
-      hint: 'Enter it in the app on the “Forgot password” screen. The code expires in 15 minutes.',
-      ignore: 'If you did not request a password reset, you can safely ignore this email.',
-      codeLabel: 'Your code',
-    },
-  };
-  const p = packs[langNorm] || packs.en;
-  const html = `<!DOCTYPE html>
-<html lang="${langNorm}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light" />
-  <meta name="supported-color-schemes" content="light" />
-  <title>KRAÏNA</title>
-</head>
-<body style="margin:0;padding:0;background:#F3F3EF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F3EF;padding:40px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border:1px solid #E6E6E0;border-radius:20px;overflow:hidden;box-shadow:0 10px 32px rgba(0,0,0,0.06);">
-          <tr>
-            <td style="height:5px;background:linear-gradient(90deg,#E1FF00,#C6DB00);"></td>
-          </tr>
-          <tr>
-            <td style="padding:34px 28px 28px;text-align:center;">
-              <div style="text-align:center;margin:0 0 22px;">
-                <span style="display:inline-block;font-size:30px;line-height:1;font-weight:700;letter-spacing:0.16em;color:#1A1A1A;">KRA</span><span style="display:inline-block;font-size:30px;line-height:1;font-weight:700;letter-spacing:0.16em;color:#5A6600;">Ï</span><span style="display:inline-block;font-size:30px;line-height:1;font-weight:700;letter-spacing:0.16em;color:#1A1A1A;">NA</span>
-              </div>
-              <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5C5C58;text-align:center;">${p.intro}</p>
-              <div style="margin:6px 0 20px;padding:22px 18px 20px;border-radius:16px;background:linear-gradient(180deg,#FCFFE8 0%,#F4FAD1 100%);border:1px solid rgba(198,219,0,0.45);">
-                <div style="font-size:12px;line-height:1.4;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#5A6600;margin-bottom:12px;">${p.codeLabel}</div>
-                <span style="display:inline-block;font-size:36px;line-height:1;font-weight:700;letter-spacing:12px;color:#1A1A1A;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">${safeCode}</span>
-              </div>
-              <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5C5C58;text-align:center;">${p.hint}</p>
-              <p style="margin:18px 0 0;font-size:12px;line-height:1.55;color:#8A8A86;text-align:center;">${p.ignore}</p>
-            </td>
-          </tr>
-        </table>
-        <p style="margin:18px 0 0;font-size:11px;line-height:1.4;color:#A0A09A;letter-spacing:0.06em;">© KRAÏNA</p>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
-  return { subject: p.subject, html };
-}
-
-
 function isLikelyResendApiKey(key) {
   return typeof key === 'string' && /^re_[a-zA-Z0-9_]+$/.test(key.trim());
 }
@@ -1127,16 +1086,17 @@ async function sendPasswordResetCodeViaResend(toEmail, code, lang) {
     }
     return { ok: false, reason: 'INVALID_RESEND_KEY' };
   }
-  const fromDefault = 'KRAINA <onboarding@resend.dev>';
+  const fromDefault = 'KRAÏNA <onboarding@resend.dev>';
   const from =
     (typeof process !== 'undefined' && process.env && process.env.EXPO_PUBLIC_RESEND_FROM) ||
     fromDefault;
-  const { subject, html } = resetOtpEmailPayload(code, lang);
+  const { subject, html, text } = resetOtpEmailPayload(code, lang);
   const body = JSON.stringify({
     from,
     to: [toEmail],
     subject,
     html,
+    text,
   });
   const headers = {
     Authorization: `Bearer ${apiKey}`,
@@ -1198,8 +1158,10 @@ export async function requestPasswordResetCode(email, options) {
   const normalizedEmail = (email || '').trim().toLowerCase();
   if (!normalizedEmail) return { ok: false, reason: 'EMPTY' };
 
-  const eligible = await canRequestPasswordReset(normalizedEmail);
-  if (!eligible) return { ok: false, reason: 'NOT_FOUND' };
+  const eligibility = await canRequestPasswordReset(normalizedEmail);
+  if (eligibility.reason === 'EMPTY') return { ok: false, reason: 'EMPTY' };
+  if (eligibility.reason === 'NETWORK_ERROR') return { ok: false, reason: 'NETWORK_ERROR' };
+  if (!eligibility.eligible) return { ok: false, reason: 'NOT_FOUND' };
 
   const code = await randomSixDigitCode();
   const h = otpHashForCode(normalizedEmail, code);
@@ -1379,7 +1341,8 @@ export async function updateUserPassword({ email, newPassword, resetCode }) {
   let user = users.find((u) => (u.email || '').toLowerCase() === emailLower);
 
   if (!user) {
-    if (!(await canRequestPasswordReset(emailLower))) return false;
+    const eligibility = await canRequestPasswordReset(emailLower);
+    if (!eligibility.eligible) return false;
 
     user = {
       id: makeId(),
@@ -1402,18 +1365,23 @@ export async function updateUserPassword({ email, newPassword, resetCode }) {
     try {
       const { backendEmailExists, backendResetPasswordWithAppOtp } = require('./backendAuthApi');
       if (await backendEmailExists(emailLower)) {
-        await backendResetPasswordWithAppOtp(
+        const backendReset = await backendResetPasswordWithAppOtp(
           emailLower,
           String(resetCode).replace(/\s/g, ''),
           newPassword,
         );
+        if (backendReset?.reason === 'BACKEND_OUTDATED') {
+          if (__DEV__) {
+            console.warn(
+              '[db] updateUserPassword: backend OTP confirm not deployed; local password saved',
+            );
+          }
+        } else if (!backendReset?.ok && __DEV__) {
+          console.warn('[db] updateUserPassword: backend OTP confirm failed', backendReset?.reason);
+        }
       }
     } catch (e) {
       if (__DEV__) console.warn('[db] updateUserPassword backend', e?.message);
-      try {
-        const { backendEmailExists } = require('./backendAuthApi');
-        if (await backendEmailExists(emailLower)) return false;
-      } catch (_) {}
     }
   }
 
@@ -1521,6 +1489,12 @@ export async function clearSession() {
   } catch (_) {}
   await secureStoreDeleteIfPresent(REMEMBER_EMAIL_SECURE_KEY);
   await secureStoreDeleteIfPresent(REMEMBER_PASSWORD_SECURE_KEY);
+  // Первинні (без `@`) ключі, які реально пише ThirdPage — теж чистимо при виході.
+  await secureStoreDeleteIfPresent('kraina_remember_email_secure');
+  await secureStoreDeleteIfPresent('kraina_remember_password_secure');
+  // Дані для тихого відновлення чат-сесії — обовʼязково видалити при явному виході.
+  await secureStoreDeleteIfPresent('kraina_session_recovery_email_secure');
+  await secureStoreDeleteIfPresent('kraina_session_recovery_password_secure');
   await secureStoreDeleteIfPresent(AUTH_DRAFT_PASSWORD_SECURE_KEY);
 }
 

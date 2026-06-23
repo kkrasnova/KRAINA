@@ -128,7 +128,7 @@ const S = {
   },
   historyRadius: {
     uk: '(Історія доступна в радіусі 100 метрів)',
-    en: '(History unlocks within 100 meters)',
+    en: '(Story unlocks within 100 meters)',
   },
   changePath: {
     uk: 'Змінити шлях',
@@ -143,12 +143,12 @@ const S = {
     en: 'Drive',
   },
   hintRegion: {
-    uk: 'Вкажіть місто чи район — ШІ підбере локації з каталогу за часом, бюджетом і інтересами.',
-    en: 'Enter a city or area — AI picks catalog places for your time, budget, and interests.',
+    uk: 'Місто, район або ваша геолокація — підберемо піший маршрут під ваш час.',
+    en: 'City, district, or your location — we’ll plan a walking route for your time.',
   },
   noStops: {
-    uk: 'Не вдалося скласти маршрут. Спробуйте більше годин, інший бюджет або ширший набір інтересів.',
-    en: 'Could not build a route. Try more hours, another budget, or broader interests.',
+    uk: 'Не вдалося скласти маршрут. Спробуйте більше годин або ширший набір інтересів.',
+    en: 'Could not build a route. Try more hours or broader interests.',
   },
   myLocation: {
     uk: 'Моє місцеположення',
@@ -165,6 +165,42 @@ const S = {
   openGoogleMaps: {
     uk: 'Відкрити в Google Maps',
     en: 'Open in Google Maps',
+  },
+  startTrip: {
+    uk: 'В дорогу',
+    en: 'Start trip',
+  },
+  previewRoute: {
+    uk: 'Переглянути',
+    en: 'Preview',
+  },
+  farFromCityHint: {
+    uk: 'Ви далеко від міста — маршрут починається з першої пам’ятки.',
+    en: 'You are far from the city — the route starts at the first landmark.',
+  },
+  etaToStop: {
+    uk: '~{min} хв до зупинки',
+    en: '~{min} min to stop',
+  },
+  rerouting: {
+    uk: 'Перебудовуємо маршрут…',
+    en: 'Rerouting…',
+  },
+  tapMapToWalk: {
+    uk: 'Натисніть на карту, щоб стати на маршрут і піти пішки',
+    en: 'Tap the map to stand on the route and start walking',
+  },
+  tapMapWalkActive: {
+    uk: 'Рухайтеся за жовтою лінією на карті',
+    en: 'Follow the yellow line on the map',
+  },
+  fitFullRoute: {
+    uk: 'Весь маршрут',
+    en: 'Full route',
+  },
+  headingTo: {
+    uk: 'Рух до',
+    en: 'Heading to',
   },
   shareRoute: {
     uk: 'Поділитись маршрутом',
@@ -202,6 +238,26 @@ const S = {
     uk: 'Підійдіть ближче до пам’ятки (до 100 м), щоб відкрити історію.',
     en: 'Move closer to the landmark (within 100 m) to open the story.',
   },
+  historyToGo: {
+    uk: 'До історії {dist} м',
+    en: '{dist} m to story',
+  },
+  stopProgress: {
+    uk: 'Зупинка {current} з {total}',
+    en: 'Stop {current} of {total}',
+  },
+  routeCompleteTitle: {
+    uk: 'Маршрут пройдено',
+    en: 'Route complete',
+  },
+  routeCompleteBody: {
+    uk: 'Ви відвідали {stops} місць і заробили {xp} балів.',
+    en: 'You visited {stops} places and earned {xp} points.',
+  },
+  routeAutoOpenHint: {
+    uk: 'Підійдіть на 50 м — історія відкриється автоматично.',
+    en: 'Come within 50 m — the story opens automatically.',
+  },
   aiRouteButton: {
     uk: 'ШІ-маршрут (каталог)',
     en: 'AI route (catalog)',
@@ -212,6 +268,14 @@ const S = {
   },
   aiBuilding: {
     uk: 'Складаємо маршрут…',
+    en: 'Building your route…',
+  },
+  buildingStepCatalog: {
+    uk: 'Шукаємо локації…',
+    en: 'Finding places…',
+  },
+  buildingStepRoute: {
+    uk: 'Будуємо маршрут…',
     en: 'Building route…',
   },
   aiNoStops: {
@@ -226,6 +290,12 @@ const S = {
 
 fillBundleMissingLangs(S);
 
-export function rp(lang, key) {
-  return pick(lang, S[key] || {});
+export function rp(lang, key, vars) {
+  let s = pick(lang, S[key] || {});
+  if (vars && typeof vars === 'object') {
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    }
+  }
+  return s;
 }
