@@ -33,3 +33,6 @@ data/landmarks/out/*.json
 
 # Логи отладки (adb logcat дампы) — не коммитить
 *logcat*.txt
+
+# Editor/transfer temp files (macOS .!NNNNN! safe-save artifacts)
+.!*!*
