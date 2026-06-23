@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useAppTheme } from './useAppTheme';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { appLangBase, countriesForSelectCountryScreen, resolveSupportedCountryIdFromDisplayName } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import * as ImagePicker from 'expo-image-picker';
@@ -950,7 +950,6 @@ export default function AdminPanelPage({ navigation, route }) {
         onBackPress={() => navigation.goBack()}
         replaceCenterTitle={st(language, 'adminPanelTitle')}
         hideSendButton
-        lightBarBackgroundColor={isLight ? '#FFFFFF' : undefined}
         rightSlot={
           <Pressable
             onPress={() => setHubOpen(true)}
@@ -968,7 +967,7 @@ export default function AdminPanelPage({ navigation, route }) {
         ref={scrollRef}
         contentContainerStyle={{
           paddingTop: 12,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 72,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 72),
           paddingHorizontal: 16,
         }}
         keyboardShouldPersistTaps="handled"

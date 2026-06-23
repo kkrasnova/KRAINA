@@ -5,18 +5,16 @@ import { useResponsive } from './useResponsive';
 import { notifySplashLogoPainted, subscribeSplashHidden } from './splashLogoGate';
 
 const SPLASH_TITLE_POSTER = require('./assets/kraina-title-splash-frame0.png');
-const GLOBE_IMAGE = require('./assets/globe.png');
-const PERSON_IMAGE = require('./assets/person-12.png');
+const GLOBE_IMAGE = require('./assets/globe.webp');
+const PERSON_IMAGE = require('./assets/person-12.webp');
 
-/** Мінімум відтворення після старту — майже повний цикл лінзи (~6 с відео). */
-const SPLASH_MIN_PLAYBACK_MS = 5400;
-/** Абсолютний мінімум на FirstPage (first launch). */
-const FIRST_LAUNCH_SPLASH_MIN_MS = 5800;
-/** Для повернення в застосунок — коротше, але достатньо для анімації. */
-const RETURNING_USER_SPLASH_MIN_MS = 4800;
-const RETURNING_USER_MIN_PLAYBACK_MS = 4200;
-/** Не чекати відео довше цього — все одно переходимо далі. */
-const SPLASH_VIDEO_MAX_WAIT_MS = 9500;
+/** Мінімум на FirstPage — короткий брендинг, але встигаємо показати анімацію лого. */
+const SPLASH_MIN_PLAYBACK_MS = 2000;
+const FIRST_LAUNCH_SPLASH_MIN_MS = 2500;
+const RETURNING_USER_SPLASH_MIN_MS = 1800;
+const RETURNING_USER_MIN_PLAYBACK_MS = 1200;
+/** Якщо відео так і не стартувало — не блокуємо навігацію довше за цей ліміт. */
+const SPLASH_VIDEO_MAX_WAIT_MS = 4000;
 
 function resolveSplashDelayMs(nextRoute, nextParams) {
   const isFirstLaunchOnboarding =
@@ -75,6 +73,7 @@ export default function FirstPage({ navigation, route }) {
 
   const mountTimeRef = useRef(Date.now());
   const titleVideoPlaybackStartedAtRef = useRef(null);
+  const allImagesLoadedRef = useRef(false);
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const [imagesLoaded, setImagesLoaded] = useState({
     poster: false,
@@ -106,6 +105,9 @@ export default function FirstPage({ navigation, route }) {
   /** Чекаємо, поки всі зображення завантажаться, і тільки тоді сигналимо про готовність. */
   const allImagesLoaded =
     imagesLoaded.poster && imagesLoaded.globe && imagesLoaded.person;
+  useEffect(() => {
+    allImagesLoadedRef.current = allImagesLoaded;
+  }, [allImagesLoaded]);
   useEffect(() => {
     if (allImagesLoaded) {
       notifySplashLogoPainted();
@@ -180,7 +182,7 @@ export default function FirstPage({ navigation, route }) {
           );
           return;
         }
-      } else if (!videoWaitExceeded) {
+      } else if (!videoWaitExceeded && !allImagesLoadedRef.current) {
         timer = setTimeout(tryNavigate, 50);
         return;
       }

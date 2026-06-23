@@ -307,25 +307,43 @@ export default function ChatThreadPage({ navigation, route }) {
 
   const pickPhoto = async () => {
     setMenuOpen(false);
+    if (__DEV__) console.log('[ChatThreadPage.pickPhoto] starting, useMessageApi:', useMessageApi);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
+    if (!perm.granted) {
+      if (__DEV__) console.warn('[ChatThreadPage.pickPhoto] permission denied');
+      return;
+    }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
     });
+    if (__DEV__) console.log('[ChatThreadPage.pickPhoto] image selected:', { canceled: res.canceled, uri: res.assets?.[0]?.uri?.substring(0, 50) });
+    
     if (!res.canceled && res.assets?.[0]?.uri) {
       if (useMessageApi) {
         try {
+          if (__DEV__) console.log('[ChatThreadPage.pickPhoto] uploading to backend');
           const up = await feedUploadMediaFromUri(res.assets[0].uri);
-          if (!up?.url) throw new Error('upload');
+          if (__DEV__) console.log('[ChatThreadPage.pickPhoto] upload result:', { url: up?.url?.substring(0, 50) });
+          if (!up?.url) throw new Error('upload_no_url');
+          if (__DEV__) console.log('[ChatThreadPage.pickPhoto] sending message with image url');
           await messagesSendText(threadId, up.url);
+          if (__DEV__) console.log('[ChatThreadPage.pickPhoto] message sent, reloading');
           reload();
         } catch (e) {
-          Alert.alert('', e?.message || 'Error');
+          if (__DEV__) console.error('[ChatThreadPage.pickPhoto] error:', e?.message);
+          Alert.alert('Помилка', e?.message || 'Не вдалося відправити фото');
         }
       } else {
-        await sendImageMessage(user, threadId, res.assets[0].uri, langUk);
-        reload();
+        try {
+          if (__DEV__) console.log('[ChatThreadPage.pickPhoto] using sendImageMessage (local)');
+          await sendImageMessage(user, threadId, res.assets[0].uri, langUk);
+          if (__DEV__) console.log('[ChatThreadPage.pickPhoto] local image saved, reloading');
+          reload();
+        } catch (e) {
+          if (__DEV__) console.error('[ChatThreadPage.pickPhoto] local error:', e?.message);
+          Alert.alert('Помилка', e?.message || 'Не вдалося зберегти фото');
+        }
       }
     }
   };

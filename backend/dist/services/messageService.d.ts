@@ -17,6 +17,8 @@ export type MessageFolder = 'inbox' | 'requests';
 export interface ThreadListItemDTO extends ThreadMetaDTO {
     last_content: string | null;
     last_sent_at: string | null;
+    last_from_me: boolean;
+    last_is_read: boolean;
     unread_count: number;
     folder: MessageFolder;
 }

@@ -169,6 +169,8 @@ export declare function listActiveStoriesTray(viewerId: string): Promise<{
     display_name: string | null;
     view_count: number;
     seen_by_viewer: boolean;
+    story_count: number;
+    has_unviewed: boolean;
 }[]>;
 export declare function listMyArchivedStories(userId: string, limit?: number): Promise<{
     id: string;

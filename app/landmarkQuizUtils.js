@@ -37,7 +37,7 @@ export function resolveCorrectOptionIndex(quiz) {
   return 0;
 }
 
-export const LANDMARK_QUIZ_XP_WIN = 15;
+export const LANDMARK_QUIZ_XP_WIN = 5;
 
 /** XP за вірну відповідь: `quiz.xpReward` або стандартне значення. */
 export function resolveLandmarkQuizXpWin(quiz) {

@@ -17,6 +17,8 @@ function extFromMime(mimetype) {
         return 'mov';
     if (mimetype === 'audio/mp4' || mimetype === 'audio/m4a' || mimetype === 'audio/x-m4a')
         return 'm4a';
+    if (mimetype === 'audio/x-caf')
+        return 'caf';
     if (mimetype === 'audio/aac')
         return 'aac';
     if (mimetype === 'audio/mpeg')
@@ -37,6 +39,8 @@ export async function saveFeedMediaFile(file) {
             mimetype = 'audio/mpeg';
         else if (/\.wav$/i.test(originalname))
             mimetype = 'audio/wav';
+        else if (/\.caf$/i.test(originalname))
+            mimetype = 'audio/x-caf';
     }
     const allowed = new Set([
         'image/jpeg',
@@ -51,6 +55,7 @@ export async function saveFeedMediaFile(file) {
         'audio/mpeg',
         'audio/wav',
         'audio/x-wav',
+        'audio/x-caf',
     ]);
     if (!allowed.has(mimetype)) {
         throw new HttpError(400, 'invalid_format');
@@ -502,10 +507,16 @@ export async function addPostComment(postId, viewerId, content, parentCommentId 
     }
 }
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
+const STORY_DAILY_LIMIT = 20;
 export async function createStory(userId, media_url, media_kind, caption) {
     const cap = caption?.trim() || '';
     if (cap.length > 500) {
         throw new HttpError(400, 'caption_too_long');
+    }
+    const daily = await pool.query(`SELECT COUNT(*)::int AS c FROM stories
+     WHERE user_id = $1::uuid AND created_at > now() - interval '24 hours'`, [userId]);
+    if (Number(daily.rows[0]?.c) >= STORY_DAILY_LIMIT) {
+        throw new HttpError(429, 'story_daily_limit');
     }
     const expires = new Date(Date.now() + STORY_TTL_MS);
     const r = await pool.query(`INSERT INTO stories (user_id, media_url, media_kind, caption, expires_at)
@@ -532,7 +543,17 @@ export async function listActiveStoriesTray(viewerId) {
         p.avatar_url,
         p.display_name,
         (SELECT COUNT(*)::int FROM story_views v WHERE v.story_id = s.id) AS view_count,
-        EXISTS (SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $1) AS seen_by_viewer
+        EXISTS (SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $1) AS seen_by_viewer,
+        (SELECT COUNT(*)::int FROM stories s2
+          WHERE s2.user_id = s.user_id AND s2.expires_at > now()) AS story_count,
+        EXISTS (
+          SELECT 1 FROM stories s2
+          WHERE s2.user_id = s.user_id AND s2.expires_at > now()
+            AND NOT EXISTS (
+              SELECT 1 FROM story_views v
+              WHERE v.story_id = s2.id AND v.viewer_id = $1
+            )
+        ) AS has_unviewed
      FROM stories s
      JOIN profiles p ON p.user_id = s.user_id
      JOIN users u ON u.id = s.user_id
@@ -562,6 +583,8 @@ export async function listActiveStoriesTray(viewerId) {
             : String(row.display_name).trim(),
         view_count: Number(row.view_count) || 0,
         seen_by_viewer: Boolean(row.seen_by_viewer),
+        story_count: Number(row.story_count) || 0,
+        has_unviewed: Boolean(row.has_unviewed),
     }));
 }
 export async function listMyArchivedStories(userId, limit = 60) {

@@ -17,7 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import HomeSearchBar from './HomeSearchBar';
 import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
-import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { noAndroidRipple } from './androidFeedback';
 import { countriesForSelectCountryScreen } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import {
@@ -107,7 +107,6 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
-  const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const debounceTimerRef = useRef(null);
@@ -236,14 +235,13 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
         cardBg={cardBg}
         cardBorder={cardBorder}
         accent={accent}
-        ripple={ripple}
         isLast={idx === filtered.length - 1}
       />
     ),
     [
       langUk, language, expandedCountry,
       onPickCountry, onPickRegion,
-      textMain, textMuted, cardBg, cardBorder, accent, ripple, filtered,
+      textMain, textMuted, cardBg, cardBorder, accent, filtered,
     ],
   );
 
@@ -290,7 +288,7 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
                 wrapStyle={s.searchWrap}
               />
               {query.length > 0 ? (
-                <Pressable onPress={() => setQuery('')} style={s.clearQuery} hitSlop={12} android_ripple={ripple}>
+                <Pressable onPress={() => setQuery('')} style={s.clearQuery} hitSlop={12} android_ripple={noAndroidRipple}>
                   <Text style={[s.clearQueryText, brandFontTextMedium, { color: accent }]}>
                     {langUk ? 'Очистити пошук' : 'Clear search'}
                   </Text>
@@ -331,7 +329,6 @@ const CountryCard = memo(function CountryCard({
   cardBg,
   cardBorder,
   accent,
-  ripple,
   isLast,
 }) {
   const rotate = useRef(new Animated.Value(expanded ? 1 : 0)).current;
@@ -358,8 +355,8 @@ const CountryCard = memo(function CountryCard({
       >
         <Pressable
           onPress={() => onPickCountry?.(country.countryId)}
-          style={({ pressed }) => [s.countryRowMain, { opacity: pressed ? 0.92 : 1 }]}
-          android_ripple={ripple}
+          style={s.countryRowMain}
+          android_ripple={noAndroidRipple}
         >
           <View
             style={[
@@ -384,8 +381,8 @@ const CountryCard = memo(function CountryCard({
         <Pressable
           onPress={onToggle}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={({ pressed }) => [s.countryRowChevron, { opacity: pressed ? 0.85 : 1 }]}
-          android_ripple={ripple}
+          style={s.countryRowChevron}
+          android_ripple={noAndroidRipple}
           accessibilityRole="button"
           accessibilityLabel={langUk ? 'Показати міста' : 'Show cities'}
         >
@@ -405,16 +402,15 @@ const CountryCard = memo(function CountryCard({
               <Pressable
                 key={region.id}
                 onPress={() => onPickRegion(country.countryId, region.id)}
-                style={({ pressed }) => [
+                style={[
                   s.regionRow,
                   {
                     backgroundColor: cardBg,
                     borderColor: cardBorder,
                     marginBottom: idx === country.regions.length - 1 ? 0 : 8,
-                    opacity: pressed ? 0.92 : 1,
                   },
                 ]}
-                android_ripple={ripple}
+                android_ripple={noAndroidRipple}
               >
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[s.regionName, brandFontTextMedium, { color: textMain }]} numberOfLines={1}>

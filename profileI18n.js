@@ -14,10 +14,6 @@ const S = {
   savedRoutesStops: { uk: '{n} зупинок', en: '{n} stops' },
   savedRoutesKm: { uk: '≈ {k} км', en: '≈ {k} km' },
   savedRoutesOpenCta: { uk: 'Відкрити маршрут', en: 'Open route' },
-  profileSavedRoutesSyncNote: {
-    uk: 'Маршрути зберігаються в акаунті та синхронізуються між пристроями після входу.',
-    en: 'Routes are saved to your account and sync across devices when you are signed in.',
-  },
   visitsStats: { uk: 'Статистика відвідувань', en: 'Visit statistics' },
   statsPeriod: { uk: 'Період для діаграм', en: 'Period for charts' },
   period3d: { uk: '3 дні', en: '3 days' },

@@ -23,12 +23,14 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
 import { ft } from './feedI18n';
 import { getChoosePlanTexts } from './choosePlanI18n';
-import { feedListMyArchivedPosts, feedListMyArchivedStories, feedPatchPostArchive, hasFeedApiToken } from './feedApi';
+import { feedPatchPostArchive, hasFeedApiToken } from './feedApi';
 import { useAuthStore } from './auth/authStore';
 import { getUserFeedStories } from './feedLocalStorage';
 import {
   archiveCacheKey,
+  fetchArchiveData,
   readArchiveCache,
+  seedArchiveCacheIfMissing,
   writeArchiveCache,
 } from './archivePostsCache';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
@@ -45,15 +47,15 @@ const STORY_COLS = 3;
 const STORY_GAP = 8;
 
 const ARCHIVE_EMPTY_POST_PHOTOS = [
-  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.jpg'),
-  require('./assets/carousel/photo-1615119449152-d94284eafa45.jpg'),
-  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.jpg'),
+  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.webp'),
+  require('./assets/carousel/photo-1615119449152-d94284eafa45.webp'),
+  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.webp'),
 ];
 
 const ARCHIVE_EMPTY_STORY_PHOTOS = [
-  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.jpg'),
-  require('./assets/carousel/photo-1518684079-3c830dcef090.jpg'),
-  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.jpg'),
+  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.webp'),
+  require('./assets/carousel/photo-1518684079-3c830dcef090.webp'),
+  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.webp'),
 ];
 
 function formatArchiveDate(iso, langUk) {
@@ -503,12 +505,13 @@ export default function SettingsArchivePage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
   const initialCacheKey = archiveCacheKey();
+  seedArchiveCacheIfMissing(initialCacheKey);
   const initialCache = readArchiveCache(initialCacheKey);
   const { appTheme, isLight } = useAppTheme(route?.params?.appTheme);
   const [posts, setPosts] = useState(initialCache?.posts ?? []);
   const [stories, setStories] = useState(initialCache?.stories ?? []);
   const [tab, setTab] = useState('posts');
-  const [loading, setLoading] = useState(() => hasFeedApiToken() && !initialCache);
+  const [syncing, setSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [listContentW, setListContentW] = useState(0);
@@ -529,23 +532,19 @@ export default function SettingsArchivePage({ navigation, route }) {
       setPosts([]);
       setStories(localStories);
       if (localStories.length) writeArchiveCache(key, { posts: [], stories: localStories });
-      setLoading(false);
+      setSyncing(false);
       return;
     }
-    if (!silent && !cached) setLoading(true);
+    if (!silent) setSyncing(true);
     try {
-      const [list, storyList] = await Promise.all([
-        feedListMyArchivedPosts(80),
-        feedListMyArchivedStories(80),
-      ]);
-      const nextPosts = Array.isArray(list) ? list : [];
-      let nextStories = Array.isArray(storyList) ? storyList : [];
-      if (!nextStories.length && hasShellUser) {
-        nextStories = await loadLocalArchivedStories(shellUser);
+      const { posts: nextPosts, stories: nextStories } = await fetchArchiveData(80);
+      let resolvedStories = nextStories;
+      if (!resolvedStories.length && hasShellUser) {
+        resolvedStories = await loadLocalArchivedStories(shellUser);
       }
       setPosts(nextPosts);
-      setStories(nextStories);
-      writeArchiveCache(key, { posts: nextPosts, stories: nextStories });
+      setStories(resolvedStories);
+      writeArchiveCache(key, { posts: nextPosts, stories: resolvedStories });
     } catch {
       if (!cached) {
         setPosts([]);
@@ -553,7 +552,7 @@ export default function SettingsArchivePage({ navigation, route }) {
         setStories(localStories);
       }
     } finally {
-      setLoading(false);
+      setSyncing(false);
       setRefreshing(false);
     }
   }, [hasShellUser, shellUser]);
@@ -633,7 +632,7 @@ export default function SettingsArchivePage({ navigation, route }) {
   );
 
   const activeItems = tab === 'posts' ? posts : stories;
-  const isEmpty = !loading && activeItems.length === 0;
+  const isEmpty = activeItems.length === 0;
 
   const listHeader = (
     <View style={styles.listHeader}>
@@ -648,6 +647,11 @@ export default function SettingsArchivePage({ navigation, route }) {
         postsCount={posts.length}
         storiesCount={stories.length}
       />
+      {syncing ? (
+        <View style={styles.syncRow}>
+          <ActivityIndicator size="small" color={isLight ? '#0212EB' : '#E1FF00'} />
+        </View>
+      ) : null}
       <Text style={[styles.intro, { color: textMuted }]}>
         {tab === 'posts' ? pf(language, 'archiveSubtitle') : pf(language, 'archiveStoriesSubtitle')}
       </Text>
@@ -702,11 +706,7 @@ export default function SettingsArchivePage({ navigation, route }) {
         hideSendButton
         transparentHeader
       />
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={isLight ? '#0212EB' : '#E1FF00'} />
-        </View>
-      ) : !feedOk && !hasShellUser ? (
+      {!feedOk && !hasShellUser ? (
         <ArchiveScreenPlaceholder
           language={language}
           isLight={isLight}
@@ -748,6 +748,11 @@ export default function SettingsArchivePage({ navigation, route }) {
               postsCount={posts.length}
               storiesCount={stories.length}
             />
+            {syncing ? (
+              <View style={styles.syncRow}>
+                <ActivityIndicator size="small" color={isLight ? '#0212EB' : '#E1FF00'} />
+              </View>
+            ) : null}
           </View>
           <ArchiveScreenPlaceholder
             language={language}
@@ -915,6 +920,7 @@ const styles = StyleSheet.create({
   },
   archiveLoginCtaTxt: { fontSize: 16, fontWeight: '800' },
   listHeader: { paddingBottom: 10, paddingHorizontal: 0, width: '100%' },
+  syncRow: { alignItems: 'flex-start', paddingBottom: 6, paddingLeft: 4 },
   intro: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
   footer: { width: '100%', paddingTop: 8, paddingBottom: 4 },
   footerCancelBtn: {

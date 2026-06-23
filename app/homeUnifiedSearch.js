@@ -1,6 +1,9 @@
 import { countriesForSelectCountryScreen, appLangBase } from './appLang';
 import { HOME_COUNTRY_ORDER, getHomeRegionsForCountry } from './homeExploreData';
-import { regionTitle, landmarkTitle } from './routeRegionsData';
+import {
+  resolveCatalogLandmarkTitle,
+  resolveCatalogRegionTitle,
+} from './catalogDisplayI18n';
 import {
   countryMatchesSearchQuery,
   multiFieldMatchesSearchQuery,
@@ -79,7 +82,7 @@ export function filterHomeSearchRowsByKinds(
  * Порожній запит — лише список країн (як раніше).
  */
 export function buildHomeSearchRows(query, language) {
-  const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+  const lang = appLangBase(language);
   const list = countriesForSelectCountryScreen(language);
   const byId = Object.fromEntries(list.map((c) => [c.id, c]));
   const qNorm = normalizeForSearch(String(query || '').trim());
@@ -122,7 +125,7 @@ export function buildHomeSearchRows(query, language) {
 
     const regions = getHomeRegionsForCountry(countryId);
     for (const region of regions) {
-      const cityTitle = regionTitle(region, langUk);
+      const cityTitle = resolveCatalogRegionTitle(region, lang);
       const cityFields = [
         cityTitle,
         region.titleUk,
@@ -145,7 +148,10 @@ export function buildHomeSearchRows(query, language) {
       }
 
       for (const lm of region.landmarks || []) {
-        const lmTitle = landmarkTitle(lm, langUk);
+        const lmTitle = resolveCatalogLandmarkTitle(lm, lang, {
+          regionId: region.id,
+          landmarkId: lm.id,
+        });
         const lmFields = [
           lmTitle,
           lm.titleUk,
@@ -190,7 +196,7 @@ export function buildHomeBrowseRows(language) {
   const key = appLangBase(language || 'en');
   const hit = browseRowsCache.get(key);
   if (hit) return hit;
-  const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+  const lang = appLangBase(language || 'en');
   const list = countriesForSelectCountryScreen(language);
   const byId = Object.fromEntries(list.map((c) => [c.id, c]));
   const rows = [];
@@ -209,7 +215,7 @@ export function buildHomeBrowseRows(language) {
 
     const regions = getHomeRegionsForCountry(countryId);
     for (const region of regions) {
-      const cityTitle = regionTitle(region, langUk);
+      const cityTitle = resolveCatalogRegionTitle(region, lang);
       rows.push({
         type: 'city',
         key: `r-${region.id}`,
@@ -222,7 +228,10 @@ export function buildHomeBrowseRows(language) {
       });
 
       for (const lm of region.landmarks || []) {
-        const lmTitle = landmarkTitle(lm, langUk);
+        const lmTitle = resolveCatalogLandmarkTitle(lm, lang, {
+          regionId: region.id,
+          landmarkId: lm.id,
+        });
         rows.push({
           type: 'landmark',
           key: `l-${region.id}-${lm.id}`,

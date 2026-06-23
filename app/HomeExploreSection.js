@@ -4,18 +4,22 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Image,
   Platform,
   DeviceEventEmitter,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import { runAfterInteractions } from './runAfterInteractions';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getHomeRegionsForCountry, countRegionLandmarks } from './homeExploreData';
+import { getHomeRegionsForCountry, countRegionLandmarks, resolveRegionHeroSource } from './homeExploreData';
 import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
+import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
 import { getSavedHomeCityRegionId, KRAINA_HOME_CITY_CHANGED } from './homeCityStorage';
-import { landmarkTitle, regionTitle } from './routeRegionsData';
+import {
+  resolveCatalogLandmarkTitle,
+  resolveCatalogRegionTitle,
+} from './catalogDisplayI18n';
 import { landmarkMatchesHomeCategory } from './homeLandmarkCategories';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
@@ -38,7 +42,6 @@ import {
   KRAINA_SAVED_LANDMARKS_CHANGED,
 } from './savedLandmarksStorage';
 import { countryFlagSource } from './WavingCountryFlag';
-import { resolveOfflineUriSync } from './offline/localCacheStore';
 
 const CARD_DARK = HOME_LANDMARK_CARD_DARK;
 const BORDER_DARK = HOME_LANDMARK_CARD_BORDER_DARK;
@@ -54,7 +57,6 @@ function HomeExploreSection({
   categoryId = 'all',
   homeLocationsEpoch = 0,
 }) {
-  const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const [focusEpoch, setFocusEpoch] = useState(0);
@@ -66,6 +68,7 @@ function HomeExploreSection({
   const [selectedRegionId, setSelectedRegionId] = useState(null);
   const [userCoords, setUserCoords] = useState(null);
   const [savedKeySet, setSavedKeySet] = useState(() => new Set());
+  const [cityHeroBroken, setCityHeroBroken] = useState(false);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const refreshSavedLandmarks = useCallback(async () => {
@@ -188,10 +191,29 @@ function HomeExploreSection({
     (lm) => {
       const params = landmarkNavById.get(lm?.id);
       if (!params) return;
+      void prefetchLandmarkResultParams(params);
       shellNavigate('LandmarkResult', params, appTheme);
     },
     [landmarkNavById, appTheme],
   );
+
+  const prefetchLandmark = useCallback(
+    (lm) => {
+      const params = landmarkNavById.get(lm?.id);
+      if (params) void prefetchLandmarkResultParams(params);
+    },
+    [landmarkNavById],
+  );
+
+  useEffect(() => {
+    if (!filteredLandmarks.length) return undefined;
+    const task = runAfterInteractions(() => {
+      for (const lm of filteredLandmarks.slice(0, 10)) {
+        prefetchLandmark(lm);
+      }
+    });
+    return () => task.cancel?.();
+  }, [filteredLandmarks, prefetchLandmark]);
 
   const openRouteFinder = useCallback(() => {
     shellNavigate(
@@ -215,24 +237,27 @@ function HomeExploreSection({
         countryId,
         regionId: region.id,
         landmarkId: lm.id,
-        titleUk: landmarkTitle(lm, true),
-        titleEn: landmarkTitle(lm, false),
-        regionTitleUk: regionTitle(region, true),
-        regionTitleEn: regionTitle(region, false),
+        titleUk: resolveCatalogLandmarkTitle(lm, 'uk', { regionId: region.id, landmarkId: lm.id }),
+        titleEn: resolveCatalogLandmarkTitle(lm, 'en', { regionId: region.id, landmarkId: lm.id }),
+        regionTitleUk: resolveCatalogRegionTitle(region, 'uk'),
+        regionTitleEn: resolveCatalogRegionTitle(region, 'en'),
         flag: typeof region.flag === 'string' ? region.flag : '',
       });
     },
     [countryId],
   );
 
+  useEffect(() => {
+    setCityHeroBroken(false);
+  }, [activeRegion?.id, homeLocationsEpoch, focusEpoch]);
+
   const cityHeroSource = useMemo(() => {
     if (!activeRegion) return null;
-    const u = typeof activeRegion.heroUri === 'string' ? activeRegion.heroUri.trim() : '';
-    if (u && /^https?:\/\//i.test(u)) return { uri: resolveOfflineUriSync(u) };
-    if (activeRegion.heroThumb) return activeRegion.heroThumb;
-    return activeRegion.landmarks?.[0]?.thumb ?? null;
-  }, [activeRegion]);
-  const cityHeroIsKyiv = activeRegion?.id === 'kyiv';
+    if (cityHeroBroken) {
+      return activeRegion.heroThumb || activeRegion.landmarks?.[0]?.thumb || null;
+    }
+    return resolveRegionHeroSource(activeRegion);
+  }, [activeRegion, cityHeroBroken]);
   const flagSource = useMemo(() => (countryId ? countryFlagSource(countryId) : null), [countryId]);
 
   if (!countryId || !regions.length || !activeRegion) return null;
@@ -241,7 +266,7 @@ function HomeExploreSection({
   const textMuted = isLight ? MUTED_LIGHT : MUTED_DARK;
   const cardBg = isLight ? '#F2F2F2' : CARD_DARK;
   const cardBorder = isLight ? BORDER_LIGHT : BORDER_DARK;
-  const regionLabel = regionTitle(activeRegion, langUk);
+  const regionLabel = resolveCatalogRegionTitle(activeRegion, language);
 
   const activeLocationCount = countRegionLandmarks(activeRegion);
 
@@ -259,14 +284,18 @@ function HomeExploreSection({
       >
         {cityHeroSource ? (
           <View style={styles.cityListBtnThumbWrap}>
-            <Image
+            <ExpoImage
               source={cityHeroSource}
-              style={[styles.cityListBtnThumb, cityHeroIsKyiv && styles.cityListBtnThumbKyiv]}
-              resizeMode="cover"
+              style={styles.cityListBtnThumb}
+              contentFit="cover"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={0}
+              onError={() => setCityHeroBroken(true)}
             />
           </View>
         ) : flagSource ? (
-          <Image source={flagSource} style={styles.cityListBtnFlagImg} resizeMode="contain" />
+          <ExpoImage source={flagSource} style={styles.cityListBtnFlagImg} contentFit="contain" cachePolicy="memory-disk" transition={0} />
         ) : (
           <Text style={styles.cityListBtnFlag}>{activeRegion.flag}</Text>
         )}
@@ -274,7 +303,7 @@ function HomeExploreSection({
           <View style={styles.cityListBtnTitleRow}>
             {cityHeroSource ? (
               flagSource ? (
-                <Image source={flagSource} style={styles.inlineFlagImg} />
+                <ExpoImage source={flagSource} style={styles.inlineFlagImg} contentFit="contain" cachePolicy="memory-disk" transition={0} />
               ) : (
                 <Text style={{ fontSize: 14, lineHeight: 16 }}>{activeRegion.flag}</Text>
               )
@@ -315,7 +344,6 @@ function HomeExploreSection({
               region={activeRegion}
               countryId={countryId}
               language={language}
-              langUk={langUk}
               isLight={isLight}
               accent={accent}
               cardBg={cardBg}
@@ -326,6 +354,7 @@ function HomeExploreSection({
               dist={dist}
               isSaved={savedKeySet.has(saveKey)}
               onOpen={() => openLandmark(lm)}
+              onPressIn={() => prefetchLandmark(lm)}
               onToggleSave={() => onToggleSaveLandmark(lm, activeRegion)}
               homeLocationsEpoch={homeLocationsEpoch}
             />
@@ -348,7 +377,7 @@ function HomeExploreSection({
 export default memo(HomeExploreSection);
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 28, marginTop: 4, paddingBottom: 4 },
+  wrap: { marginBottom: 28, marginTop: 4, paddingBottom: 12 },
   emptyCat: {
     textAlign: 'center',
     fontSize: 14,
@@ -380,14 +409,13 @@ const styles = StyleSheet.create({
   },
   inlineFlagImg: { width: 20, height: 14, borderRadius: 2 },
   cityListBtnThumbWrap: {
-    width: 48,
-    height: 48,
+    width: 52,
+    height: 52,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#333',
   },
-  cityListBtnThumb: { width: 48, height: 48, backgroundColor: '#333' },
-  cityListBtnThumbKyiv: { height: 68, transform: [{ translateY: -14 }] },
+  cityListBtnThumb: { width: '100%', height: '100%' },
   cityListBtnTextCol: { flex: 1, minWidth: 0 },
   cityListBtnTitle: { fontSize: 17, fontWeight: '700' },
   cityListBtnHint: { fontSize: 13, fontWeight: '600', marginTop: 4 },

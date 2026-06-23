@@ -1,8 +1,12 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { landmarkTitle } from './routeRegionsData';
+import {
+  resolveCatalogLandmarkTitle,
+  resolveLandmarkDescI18n,
+} from './catalogDisplayI18n';
 import { mt, mtHomePlaceLine } from './mainPageI18n';
 import {
   resolveHomeLandmarkThumbSource,
@@ -22,7 +26,6 @@ function HomeLandmarkCard({
   region,
   countryId,
   language,
-  langUk,
   isLight,
   accent,
   cardBg,
@@ -33,6 +36,7 @@ function HomeLandmarkCard({
   dist,
   isSaved,
   onOpen,
+  onPressIn,
   onToggleSave,
   homeLocationsEpoch = 0,
   style,
@@ -40,7 +44,12 @@ function HomeLandmarkCard({
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const flagImgSrc = useMemo(() => countryFlagSource(countryId), [countryId]);
   const line = mtHomePlaceLine(language, regionLabel, dist);
-  const desc = langUk ? lm.descUk || '' : lm.descEn || lm.descUk || '';
+  const catalogCtx = useMemo(
+    () => ({ regionId: region?.id, landmarkId: lm?.id }),
+    [region?.id, lm?.id],
+  );
+  const title = resolveCatalogLandmarkTitle(lm, language, catalogCtx);
+  const desc = resolveLandmarkDescI18n(lm, language, catalogCtx);
   const thumbKey = homeLandmarkThumbKey(lm);
   const [thumbSource, setThumbSource] = useState(() => resolveHomeLandmarkThumbSource(lm));
 
@@ -53,29 +62,40 @@ function HomeLandmarkCard({
       <Pressable
         style={({ pressed }) => [styles.locThumbWrap, pressed && styles.pressedThumb]}
         onPress={onOpen}
+        onPressIn={onPressIn}
         android_ripple={ripple}
         accessibilityRole="button"
-        accessibilityLabel={landmarkTitle(lm, langUk)}
+        accessibilityLabel={title}
       >
-        <Image
+        <ExpoImage
           source={thumbSource}
           style={styles.locThumbImg}
-          resizeMode="cover"
+          contentFit="cover"
+          contentPosition="center"
+          cachePolicy="memory-disk"
+          transition={0}
           onError={() => setThumbSource(HERO_THUMB_MAP.t1)}
         />
       </Pressable>
       <Pressable
         style={styles.locBody}
         onPress={onOpen}
+        onPressIn={onPressIn}
         android_ripple={ripple}
         accessibilityRole="button"
-        accessibilityLabel={landmarkTitle(lm, langUk)}
+        accessibilityLabel={title}
       >
         <View style={styles.locBodyTop}>
           <View style={styles.locTopRow}>
             <View style={styles.locTopRowLeft}>
               {flagImgSrc ? (
-                <Image source={flagImgSrc} style={styles.locFlagImg} />
+                <ExpoImage
+                  source={flagImgSrc}
+                  style={styles.locFlagImg}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                />
               ) : (
                 <Text style={styles.locFlagFallback}>{region.flag}</Text>
               )}
@@ -108,7 +128,7 @@ function HomeLandmarkCard({
             </Pressable>
           </View>
           <Text style={[styles.locTitle, { color: textMain }]} numberOfLines={2} ellipsizeMode="tail">
-            {landmarkTitle(lm, langUk)}
+            {title}
           </Text>
           <Text style={[styles.locDesc, { color: textMuted }]} numberOfLines={2} ellipsizeMode="tail">
             {desc}
@@ -128,13 +148,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     marginBottom: 10,
-    minHeight: 84,
+    minHeight: 88,
     overflow: 'hidden',
   },
   pressedThumb: { opacity: 0.88 },
   locThumbWrap: {
-    width: 72,
-    height: 72,
+    width: 76,
+    height: 76,
     alignSelf: 'center',
     marginVertical: 6,
     marginLeft: 6,
@@ -143,8 +163,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
   locThumbImg: {
-    width: 72,
-    height: 72,
+    width: '100%',
+    height: '100%',
   },
   locBody: {
     flex: 1,

@@ -4,6 +4,10 @@ export function threadCacheKey(threadId, useMessageApi = false) {
   return `${useMessageApi ? 'api' : 'local'}:${String(threadId)}`;
 }
 
+export function hasThreadCache(key) {
+  return store.has(key);
+}
+
 export function readThreadCache(key) {
   const row = store.get(key);
   if (!row) return null;

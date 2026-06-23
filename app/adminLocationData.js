@@ -95,7 +95,14 @@ export function buildSnapshotFromRuntime() {
   return { homeCountryOrder, homeRegionIdsByCountry, regions, homeCountryHeroRefs, homeCountryHeroUris };
 }
 
-const DEFAULT_LOCATION_SNAPSHOT_JSON = JSON.stringify(buildSnapshotFromRuntime());
+let defaultLocationSnapshotJson = null;
+
+function getDefaultLocationSnapshotJson() {
+  if (!defaultLocationSnapshotJson) {
+    defaultLocationSnapshotJson = JSON.stringify(buildSnapshotFromRuntime());
+  }
+  return defaultLocationSnapshotJson;
+}
 
 function applySnapshot(data) {
   if (!data || typeof data !== 'object') return;
@@ -216,6 +223,6 @@ export async function resetAdminLocationsToDefaults() {
   } catch {
     /* ignore */
   }
-  applySnapshot(JSON.parse(DEFAULT_LOCATION_SNAPSHOT_JSON));
+  applySnapshot(JSON.parse(getDefaultLocationSnapshotJson()));
   DeviceEventEmitter.emit(KRAINA_ADMIN_LOCATION_EVENT);
 }

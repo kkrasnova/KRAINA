@@ -10,7 +10,9 @@
     "migrate": "tsx src/db/runMigrate.ts",
     "migrate:prod": "node dist/db/runMigrate.js",
     "lint": "tsc --noEmit",
-    "migrate:firestore": "node scripts/migrate-to-firestore.mjs"
+    "test": "tsx --test test/*.test.ts",
+    "migrate:firestore": "node scripts/migrate-to-firestore.mjs",
+    "cleanup:social": "node scripts/cleanup-social-data.mjs"
   },
   "engines": {
     "node": ">=20.19.4"
@@ -35,6 +37,7 @@
     "sequelize": "^6.37.5",
     "uuid": "^11.0.5",
     "winston": "^3.17.0",
+    "ws": "^8.21.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -46,6 +49,7 @@
     "@types/node": "^22.10.5",
     "@types/pg": "^8.20.0",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

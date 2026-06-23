@@ -57,7 +57,7 @@ export default function ChoosePlanPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const fromSettings = !!route?.params?.fromSettings;
-  const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme);
+  const { savedAppTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme, route);
   const texts = getChoosePlanTexts(lang);
   const [busy, setBusy] = useState(null);
   const [planTab, setPlanTab] = useState('explorer');
@@ -365,16 +365,16 @@ export default function ChoosePlanPage({ navigation, route }) {
   const heroWaveFill = light ? screenBg : BG_TOP;
   const planHeroTopImage =
     planTab === 'explorer'
-      ? require('./assets/choose-plan-explorer-hero-bottom.png')
+      ? require('./assets/choose-plan-explorer-hero-bottom.webp')
       : planTab === 'pro'
-        ? require('./assets/choose-plan-pro-hero-bottom.png')
-        : require('./assets/choose-plan-hero-bottom.png');
+        ? require('./assets/choose-plan-pro-hero-bottom.webp')
+        : require('./assets/choose-plan-hero-bottom.webp');
   const planHeroBottomImage =
     planTab === 'explorer'
-      ? require('./assets/choose-plan-explorer-hero-top.png')
+      ? require('./assets/choose-plan-explorer-hero-top.webp')
       : planTab === 'pro'
-        ? require('./assets/choose-plan-pro-hero-top.png')
-        : require('./assets/choose-plan-hero-top.png');
+        ? require('./assets/choose-plan-pro-hero-top.webp')
+        : require('./assets/choose-plan-hero-top.webp');
   const planLayoutHeight = r.height;
   const planHeroTopInset = Math.max(
     r.insets.top,

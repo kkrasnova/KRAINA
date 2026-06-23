@@ -19,7 +19,7 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { getSavedHomeCityRegionId, saveHomeCityRegionId } from './homeCityStorage';
 import { getHomeRegionsForCountry, resolveRegionHeroSource, countRegionLandmarks } from './homeExploreData';
-import { regionTitle } from './routeRegionsData';
+import { resolveCatalogRegionTitle } from './catalogDisplayI18n';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme } from './themeAccent';
 import { countryFlagSource } from './WavingCountryFlag';
@@ -107,7 +107,6 @@ export default function HomeCityPickerPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'en');
   const [appTheme, setAppTheme] = useState(route?.params?.appTheme === 'light' ? 'light' : 'dark');
   const [selectedId, setSelectedId] = useState(null);
-  const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
@@ -173,7 +172,7 @@ export default function HomeCityPickerPage({ navigation, route }) {
     ({ item: r }) => (
       <CityPickerRow
         region={r}
-        name={regionTitle(r, langUk)}
+        name={resolveCatalogRegionTitle(r, language)}
         locationCount={countRegionLandmarks(r)}
         selected={r.id === selectedId}
         heroSource={resolveRegionHeroSource(r)}
@@ -186,7 +185,7 @@ export default function HomeCityPickerPage({ navigation, route }) {
         ripple={ripple}
       />
     ),
-    [accent, flagSource, isLight, langUk, language, onPick, ripple, selectedId, homeLocationsEpoch, focusEpoch],
+    [accent, flagSource, isLight, language, onPick, ripple, selectedId, homeLocationsEpoch, focusEpoch],
   );
 
   if (!countryId || !regions.length) {

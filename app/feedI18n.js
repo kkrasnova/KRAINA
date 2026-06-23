@@ -25,6 +25,14 @@ const S = {
     uk: 'Маршрут',
     en: 'Route',
   },
+  feedWasToday: {
+    uk: 'Сьогодні була в',
+    en: 'Was today at',
+  },
+  feedBookmarkSoon: {
+    uk: 'Збереження постів — незабаром.',
+    en: 'Saving posts — coming soon.',
+  },
   createSoon: {
     uk: 'Незабаром тут можна буде додати історію або пост.',
     en: 'Soon you will be able to add a story or post here.',
@@ -188,6 +196,34 @@ const S = {
     uk: 'Увійдіть у профіль, щоб писати в повідомленнях.',
     en: 'Sign in to send messages.',
   },
+  feedNeedLogin: {
+    uk: 'Увійдіть у профіль, щоб лайкати, коментувати та репостити.',
+    en: 'Sign in to like, comment, and repost.',
+  },
+  feedServerRequired: {
+    uk: 'Потрібне з’єднання з сервером для лайків і коментарів. Перевірте мережу та спробуйте ще раз.',
+    en: 'Server connection required for likes and comments. Check your network and try again.',
+  },
+  feedActionFailed: {
+    uk: 'Не вдалося виконати дію. Перевірте мережу та спробуйте ще раз.',
+    en: 'Could not complete this action. Check your connection and try again.',
+  },
+  feedLocalPostAction: {
+    uk: 'Не вдалося опублікувати пост. Перевірте мережу та спробуйте ще раз.',
+    en: 'Could not publish this post. Check your connection and try again.',
+  },
+  feedSyncingPost: {
+    uk: 'Публікуємо пост…',
+    en: 'Publishing post…',
+  },
+  feedPostPublishing: {
+    uk: 'Публікується на сервер…',
+    en: 'Publishing to server…',
+  },
+  postCommentsEmpty: {
+    uk: 'Поки що немає коментарів. Будьте першим!',
+    en: 'No comments yet. Be the first!',
+  },
   storyCannotReplySelf: {
     uk: 'Не можна відповісти на власний сторіс.',
     en: 'You can’t reply to your own story.',
@@ -235,6 +271,18 @@ const S = {
   storySwipeStatsHint: {
     uk: 'Проведіть вгору — статистика',
     en: 'Swipe up for stats',
+  },
+  storySheetEmpty: {
+    uk: 'Тут нічого',
+    en: 'Nothing here',
+  },
+  storySheetCaptionLabel: {
+    uk: 'Підпис',
+    en: 'Caption',
+  },
+  storySheetToggle: {
+    uk: 'Відкрити деталі історії',
+    en: 'Open story details',
   },
   profileAddTitle: {
     uk: 'Додати',

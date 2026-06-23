@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Platform,
   ScrollView,
-  ActivityIndicator,
   DeviceEventEmitter,
   Keyboard,
   Pressable,
@@ -18,11 +17,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSession } from './db';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { getSubscriptionState } from './subscriptionStorage';
-import { syncSubscriptionFromBackend } from './syncSubscriptionFromBackend';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { syncSubscriptionFromBackend, syncSubscriptionFromBackendIfStale } from './syncSubscriptionFromBackend';
 import { getSavedCountryIdForUser, saveCountryForUser } from './countryStorage';
 import { saveHomeCityRegionId } from './homeCityStorage';
 import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
+import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
 import { mt } from './mainPageI18n';
 import { appLangBase } from './appLang';
 import { KRAINA_APP_LANGUAGE_CHANGED } from './appLanguageEvents';
@@ -31,12 +30,12 @@ import HomeExploreSection from './HomeExploreSection';
 import HomeCountryCarousel from './HomeCountryCarousel';
 import { getHomeCountriesForCarousel, HOME_COUNTRY_ORDER } from './homeExploreData';
 import { KRAINA_ADMIN_LOCATION_EVENT } from './adminLocationData';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
-import { accentForTheme } from './themeAccent';
+import { lightTabBarScrollContentPadding, HOME_TAB_SCROLL_CLEARANCE } from './LightBottomTabBar';
+import { useAppTheme } from './useAppTheme';
 import { setMainPageContentReady } from './mainPageTabGate';
 import { shellNavigate, shellPush } from './shellNavigate';
-import { prefetchChatsBundle } from './screenLoaders';
-import { warmChatsInboxCache } from './chatsDataPrefetch';
+import { prefetchArchiveBundle, prefetchChatsBundle, prefetchDiscoverBundle } from './screenLoaders';
+import { prefetchChatsForUser } from './chatsDataPrefetch';
 const BG = APP_SCREEN_BG;
 /**
  * Пошук у скролі: трохи нижче від шапки, блок категорій трохи вище (менший зазор під пошуком).
@@ -101,9 +100,10 @@ const SearchDismissLayer = memo(function SearchDismissLayer({ onDismiss, languag
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) =>
-        gesture.dy < -6 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.85,
+        gesture.dy < -10 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.2,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy < -18 || gesture.vy < -0.1) {
+        // Свідомий свайп вгору (а не легкий доторк) закриває пошук. Тап лишається.
+        if (gesture.dy < -32 || gesture.vy < -0.55) {
           onDismissRef.current();
         }
       },
@@ -116,7 +116,7 @@ const SearchDismissLayer = memo(function SearchDismissLayer({ onDismiss, languag
         style={StyleSheet.absoluteFillObject}
         onPress={() => onDismissRef.current()}
         accessibilityRole="button"
-        accessibilityLabel={language === 'uk' ? 'Закрити пошук' : 'Close search'}
+        accessibilityLabel={mt(language, 'homeCloseSearchA11y')}
       />
     </View>
   );
@@ -163,33 +163,15 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
   );
 });
 
-export default function MainPage({ navigation, route }) {
+export default function MainPage({ navigation, route, isTabActive = true }) {
   const insets = useSafeAreaInsets();
   const [sessionUser, setSessionUser] = useState(null);
   const [sessionLang, setSessionLang] = useState(null);
-  const [appTheme, setAppTheme] = useState('dark');
+  const { appTheme, isLight, screenBg, savedAppTheme } = useAppTheme(route?.params?.appTheme, route);
   const [countrySearchLocksScroll, setCountrySearchLocksScroll] = useState(false);
   const [searchResetToken, setSearchResetToken] = useState(0);
   const [searchDismissSignal, setSearchDismissSignal] = useState(0);
   const [homeLocationsEpoch, setHomeLocationsEpoch] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => sub.remove();
-  }, []);
-
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_ADMIN_LOCATION_EVENT, () => {
       setHomeLocationsEpoch((n) => n + 1);
@@ -309,10 +291,11 @@ export default function MainPage({ navigation, route }) {
   }, [route?.params?.countryId, user?.id, user?.firebaseUid, user?.email]);
 
   useEffect(() => {
+    if (!isTabActive) return;
     prefetchChatsBundle();
-    const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
-    void warmChatsInboxCache(user, langUk);
-  }, [user?.id, user?.firebaseUid, user?.email, language]);
+    prefetchArchiveBundle();
+    prefetchDiscoverBundle();
+  }, [user?.id, user?.firebaseUid, user?.email, language, isTabActive]);
 
   const [gateReady, setGateReady] = useState(() => userHasIdentity(route?.params?.user));
 
@@ -376,6 +359,33 @@ export default function MainPage({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      if (!userHasIdentity(user)) return undefined;
+      let cancelled = false;
+      (async () => {
+        try {
+          await syncSubscriptionFromBackendIfStale(user);
+          if (cancelled) return;
+          const nextSub = await getSubscriptionState(user);
+          if (nextSub.needsPlanChoice) {
+            navigation.replace('ChoosePlan', {
+              user,
+              language,
+              appTheme,
+              ...(countryId ? { countryId } : {}),
+            });
+          }
+        } catch {
+          /* ignore background sync errors */
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [user?.id, user?.firebaseUid, user?.email, navigation, language, countryId, appTheme]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
       setCountrySearchLocksScroll(false);
     }, []),
   );
@@ -385,8 +395,14 @@ export default function MainPage({ navigation, route }) {
   }, [appTheme]);
 
   const openTopRight = useCallback(() => {
-    shellNavigate('Chats', {}, appTheme);
-  }, [appTheme]);
+    prefetchChatsForUser(user, language.split(/[-_]/)[0].toLowerCase() === 'uk');
+    navigation.navigate('Chats', {
+      user,
+      language,
+      ...(countryId ? { countryId } : {}),
+      appTheme,
+    });
+  }, [navigation, user, language, countryId, appTheme]);
 
   const openAllCountriesLocations = useCallback(() => {
     shellNavigate('AllCountriesLocations', {}, appTheme);
@@ -444,18 +460,16 @@ export default function MainPage({ navigation, route }) {
         }
         void saveCountryForUser(user, row.countryId);
         void saveHomeCityRegionId(user, row.countryId, row.regionId);
-        shellNavigate(
-          'LandmarkResult',
-          buildLandmarkResultParamsFromHomeLandmark({
-            lm: row.landmark,
-            region: row.region,
-            countryId: row.countryId,
-            language,
-            appTheme,
-            user,
-          }),
+        const landmarkParams = buildLandmarkResultParamsFromHomeLandmark({
+          lm: row.landmark,
+          region: row.region,
+          countryId: row.countryId,
+          language,
           appTheme,
-        );
+          user,
+        });
+        void prefetchLandmarkResultParams(landmarkParams);
+        shellNavigate('LandmarkResult', landmarkParams, appTheme);
         return;
       }
       if (row.type === 'profile') {
@@ -477,41 +491,17 @@ export default function MainPage({ navigation, route }) {
     [user, language, appTheme, onHomePickCountry, countryId, bumpSearchReset],
   );
 
-  const isLightMain = appTheme === 'light';
+  const isLightMain = isLight;
   const showHomeSections = !countrySearchLocksScroll;
   const dismissKeyboardOnScroll = useCallback(() => {
     Keyboard.dismiss();
   }, []);
 
   const searchVariant = isLightMain ? 'light' : 'dark';
-  const searchPlaceholder =
-    language === 'uk'
-      ? 'Пошук місць: країни, міста, локації'
-      : 'Search places: countries, cities, locations';
+  const searchPlaceholder = mt(language, 'homeSearchPlaceholder');
   const { height: windowHeight } = useWindowDimensions();
   const searchContentMinHeight = Math.max(360, windowHeight - 168);
-  const contentReady = gateReady && userHasIdentity(user);
-
-  if (!contentReady) {
-    return (
-      <View style={[styles.safe, { backgroundColor: isLightMain ? LIGHT_BAR_BG : BG }]}>
-        <View style={styles.mainShell}>
-          <View style={styles.mainBelowDim}>
-            <AppTopBar
-              appTheme={appTheme}
-              lightMenuButton="hamburger"
-              showBrandLogo
-              onMenuPress={openSettings}
-              onSendPress={openTopRight}
-            />
-            <View style={[styles.center, styles.loadingBody, { paddingTop: HOME_GAP_AFTER_TOPBAR }]}>
-              <ActivityIndicator size="large" color={accentForTheme(isLightMain)} />
-            </View>
-          </View>
-        </View>
-      </View>
-    );
-  }
+  const tabBottomPad = lightTabBarScrollContentPadding(insets.bottom, HOME_TAB_SCROLL_CLEARANCE);
 
   return (
     <View style={[styles.safe, { backgroundColor: isLightMain ? LIGHT_BAR_BG : BG }]}>
@@ -543,8 +533,7 @@ export default function MainPage({ navigation, route }) {
                   countrySearchLocksScroll && { minHeight: searchContentMinHeight },
                   {
                     paddingTop: HOME_GAP_AFTER_TOPBAR,
-                    /** iOS: індикатор «дому» + плаваюча нижня панель — резервуємо safe-area, щоб останні локації не ховались за таб-баром. */
-                    paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 16,
+                    paddingBottom: tabBottomPad,
                   },
                 ]}
                 pointerEvents={countrySearchLocksScroll ? 'box-none' : 'auto'}
@@ -553,7 +542,7 @@ export default function MainPage({ navigation, route }) {
                 onScrollBeginDrag={dismissKeyboardOnScroll}
                 scrollEnabled={!countrySearchLocksScroll}
                 nestedScrollEnabled
-                removeClippedSubviews={Platform.OS === 'android'}
+                removeClippedSubviews={false}
                 showsVerticalScrollIndicator
                 {...(Platform.OS === 'ios'
                   ? {
@@ -642,7 +631,7 @@ const styles = StyleSheet.create({
   },
   center: { justifyContent: 'center', alignItems: 'center' },
   loadingBody: { flex: 1 },
-  scroll: { paddingHorizontal: HOME_SCROLL_PAD_H, paddingBottom: 32 },
+  scroll: { paddingHorizontal: HOME_SCROLL_PAD_H },
   scrollSearchOpen: {
     flexGrow: 1,
   },

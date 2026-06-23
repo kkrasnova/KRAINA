@@ -67,13 +67,17 @@ export function createLandmarkPagerPanResponder({
     if (typeof preferVerticalScroll !== 'function' || !preferVerticalScroll()) return false;
     const ax = Math.abs(g.dx);
     const ay = Math.abs(g.dy);
-    return ay > 4 && ay >= ax * 0.72;
+    // Будь-який помітно вертикальний рух одразу віддаємо скролу — менше випадкових
+    // перегортань і смикань під час читання.
+    return ay > 3 && ay >= ax * 0.5;
   };
   const isStrongHorizontalSwipe = (g) => {
     const ax = Math.abs(g.dx);
     const ay = Math.abs(g.dy);
     if (typeof preferVerticalScroll === 'function' && preferVerticalScroll()) {
-      return ax > 18 && ax > ay * 1.75;
+      // Перегортаємо лише на явно горизонтальний жест (домінування 2×),
+      // інакше вертикальний скрол лишається у ScrollView.
+      return ax > 22 && ax > ay * 2;
     }
     return isLandmarkHorizontalSwipe(g);
   };

@@ -5,7 +5,7 @@ import { useAuthStore } from './authStore';
 import { authColors } from './theme';
 import type { AuthStackParamList } from './navigation.types';
 import { navigationRef } from '../navigationRef';
-import { setAppTheme } from '../themeStorage';
+import { getAppTheme } from '../themeStorage';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'PostAuthHome'>;
 
@@ -51,7 +51,7 @@ export default function PostAuthHomeScreen({ navigation }: Props) {
       const pm = useAuthStore.getState().profileMe;
       const lang = pm?.profile?.language || 'uk';
       const sessionUser = { id: authUser.id, email: authUser.email };
-      await setAppTheme('dark');
+      const theme = await getAppTheme();
 
       // Check if user already picked a country (local cache first, then Firestore profile fallback
       // for users signing in on a fresh install / new device — avoids re-running onboarding).
@@ -99,29 +99,22 @@ export default function PostAuthHomeScreen({ navigation }: Props) {
       }
       if (!navigationRef.isReady()) return;
 
-      if (!countryId) {
-        navigationRef.reset({
-          index: 0,
-          routes: [{ name: 'SelectCountry', params: { user: sessionUser, language: lang, appTheme: 'dark' } }],
-        });
-      } else {
-        navigationRef.reset({
-          index: 0,
-          routes: [
-            {
-              name: 'HomeTabPager',
-              params: {
-                user: sessionUser,
-                language: lang,
-                countryId,
-                appTheme: 'dark',
-                tabIndex: 0,
-                routeFinderExtras: {},
-              },
+      navigationRef.reset({
+        index: 0,
+        routes: [
+          {
+            name: 'HomeTabPager',
+            params: {
+              user: sessionUser,
+              language: lang,
+              ...(countryId ? { countryId } : {}),
+              appTheme: theme,
+              tabIndex: 0,
+              routeFinderExtras: {},
             },
-          ],
-        });
-      }
+          },
+        ],
+      });
     })();
   }, [user, loadProfileMeIfStale, navigation]);
 

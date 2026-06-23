@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG, mainContentTopBelowTopBar } from './AppTopBar';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
@@ -16,7 +16,7 @@ import { gm } from './geoMapI18n';
 export default function ExploreMapPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   useEffect(() => {
     let cancelled = false;

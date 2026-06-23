@@ -1,16 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Platform, DeviceEventEmitter } from 'react-native';
+import { View, StyleSheet, Platform, DeviceEventEmitter, InteractionManager } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import MainPage from './MainPage';
-import FeedPage from './FeedPage';
-import LandmarkScannerPage from './LandmarkScannerPage';
-import MapTabPage from './MapTabPage';
-import ProfilePage from './ProfilePage';
+import LazyScreen from './LazyScreen';
 import { markReturningUserAfterSuccessfulAuth } from './onboardingStorage';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { RenderProfiler, markEnd } from './performanceMetrics';
+import { HOME_TAB_SWITCH_EVENT } from './homeTabPagerConstants';
+import {
+  loadFeedPage,
+  loadLandmarkScannerPage,
+  loadMapTabPage,
+  loadProfilePage,
+  prefetchFeedBundle,
+  prefetchHomeTabScreens,
+  prefetchProfileBundle,
+} from './screenLoaders';
+
+const FeedPage = (props) => <LazyScreen loader={loadFeedPage} {...props} />;
+const LandmarkScannerPage = (props) => <LazyScreen loader={loadLandmarkScannerPage} {...props} />;
+const MapTabPage = (props) => <LazyScreen loader={loadMapTabPage} {...props} />;
+const ProfilePage = (props) => <LazyScreen loader={loadProfilePage} {...props} />;
 
 function clampTab(i) {
   const n = Number(i);
@@ -22,11 +34,13 @@ export default function HomeTabPagerPage({ navigation, route }) {
   const pagerRef = useRef(null);
   const skipPageSelectRef = useRef(false);
   const tabIndex = clampTab(route.params?.tabIndex);
-  /* Тримаємо 4 «легкі» вкладки змонтованими від старту — щоб при першому тапі
-     показувався готовий контент, а не пустий екран зі спінером. Сканер (індекс 2)
-     лишається лінивим: не запускаємо камеру / не смикаємо дозволи, поки користувач
-     реально туди не перейде. */
-  const [mountedTabs, setMountedTabs] = useState(() => new Set([0, 1, 3, 4, tabIndex]));
+  /* Лише активна вкладка + головна змонтовані одразу — решта підвантажуються після першого кадру
+     або при першому відкритті, щоб не тримати 4 важкі екрани в памʼяті одночасно. */
+  const [mountedTabs, setMountedTabs] = useState(() => {
+    const initial = new Set([0]);
+    if (tabIndex !== 0) initial.add(tabIndex);
+    return initial;
+  });
 
   /* Користувач реально досяг головної сторінки — це єдиний момент, коли ми позначаємо пристрій
      як «знайомий». Після цього при виході з акаунту та повторному холодному старті без сесії
@@ -34,7 +48,16 @@ export default function HomeTabPagerPage({ navigation, route }) {
   useEffect(() => {
     markReturningUserAfterSuccessfulAuth();
     markEnd('home_tabs_mounted');
-  }, []);
+    const bootUser = route.params?.user;
+    const task = InteractionManager.runAfterInteractions(() => {
+      prefetchHomeTabScreens();
+      if (bootUser) {
+        prefetchFeedBundle(bootUser);
+        prefetchProfileBundle(bootUser);
+      }
+    });
+    return () => task.cancel();
+  }, [route.params?.user]);
   /** Актуальна мова зі сховища / події — підставляємо в усі вкладки, бо route.params часто не оновлюється. */
   const syncLang = useSyncedAppLanguage(route, 'uk');
 
@@ -42,33 +65,14 @@ export default function HomeTabPagerPage({ navigation, route }) {
      tabIndex не ламала memo і не каскадно ре-рендерила всі 5 сторінок. */
   const shellUser = route.params?.user;
   const shellCountryId = route.params?.countryId;
-  /** Тема для всіх вкладок: спочатку з route (якщо передали), потім підтягуємо зі сховища,
-      далі живі зміни приходять через THEME_CHANGED_EVENT — щоб після повного перезапуску
-      і при перемиканні в Налаштуваннях усі 5 вкладок одразу мали правильну тему. */
-  const [shellAppTheme, setShellAppTheme] = useState(
-    route.params?.appTheme === 'light' ? 'light' : route.params?.appTheme === 'dark' ? 'dark' : undefined,
-  );
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setShellAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setShellAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => {
-      cancelled = true;
-      sub.remove();
-    };
-  }, []);
+  const { savedAppTheme } = useAppTheme(route?.params?.appTheme, route);
   const shellParams = useMemo(() => {
     const out = { language: syncLang };
     if (shellUser !== undefined) out.user = shellUser;
     if (shellCountryId != null) out.countryId = shellCountryId;
-    if (shellAppTheme !== undefined) out.appTheme = shellAppTheme;
+    out.appTheme = savedAppTheme;
     return out;
-  }, [shellUser, shellCountryId, shellAppTheme, syncLang]);
+  }, [shellUser, shellCountryId, savedAppTheme, syncLang]);
 
   const mainRoute = useMemo(
     () => ({
@@ -106,7 +110,18 @@ export default function HomeTabPagerPage({ navigation, route }) {
     [shellParams, route.params?.routeFinderExtras],
   );
 
-  const activeTabIndex = clampTab(route.params?.tabIndex);
+  const [activeTabIndex, setActiveTabIndex] = useState(() => clampTab(route.params?.tabIndex));
+
+  useEffect(() => {
+    setActiveTabIndex(clampTab(route.params?.tabIndex));
+  }, [route.params?.tabIndex]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(HOME_TAB_SWITCH_EVENT, (rawIndex) => {
+      setActiveTabIndex(clampTab(rawIndex));
+    });
+    return () => sub.remove();
+  }, []);
 
   const profileRoute = useMemo(
     () => ({
@@ -115,27 +130,16 @@ export default function HomeTabPagerPage({ navigation, route }) {
       params: {
         ...shellParams,
         initialTab: route.params?.initialTab || 'posts',
-        /** Щоб профіль міг підтягнути з AsyncStorage збережені маршрути після повернення з карти (useFocusEffect тут не спрацьовує). */
-        homePagerTabIndex: clampTab(route.params?.tabIndex),
       },
     }),
-    [shellParams, route.params?.initialTab, route.params?.tabIndex],
+    [shellParams, route.params?.initialTab],
   );
 
-  useEffect(() => {
-    const t = clampTab(route.params?.tabIndex);
-    setMountedTabs((prev) => {
-      if (prev.has(t)) return prev;
-      const next = new Set(prev);
-      next.add(t);
-      return next;
-    });
+  const applyPagerTab = useCallback((t) => {
     const pager = pagerRef.current;
     if (!pager) return;
     skipPageSelectRef.current = true;
     try {
-      // Тап по нижній панелі / навігація між вкладками — миттєво, без анімації гортання.
-      // (Ручний свайп пальцем лишається плавним — це не зачіпає жест.)
       if (typeof pager.setPageWithoutAnimation === 'function') {
         pager.setPageWithoutAnimation(t);
       } else if (typeof pager.setPage === 'function') {
@@ -146,44 +150,39 @@ export default function HomeTabPagerPage({ navigation, route }) {
     } catch {
       skipPageSelectRef.current = false;
     }
-  }, [route.params?.tabIndex]);
+    setMountedTabs((prev) => {
+      if (prev.has(t)) return prev;
+      const next = new Set(prev);
+      next.add(t);
+      return next;
+    });
+  }, []);
 
-  /** Після повернення з Settings / синхронізації кроків iOS інколи не перемальовує PagerView — синхронізуємо вкладку. */
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(HOME_TAB_SWITCH_EVENT, (rawIndex) => {
+      applyPagerTab(clampTab(rawIndex));
+    });
+    return () => sub.remove();
+  }, [applyPagerTab]);
+
+  useEffect(() => {
+    applyPagerTab(clampTab(route.params?.tabIndex));
+  }, [route.params?.tabIndex, applyPagerTab]);
+
   useFocusEffect(
     useCallback(() => {
-      const t = clampTab(route.params?.tabIndex);
-      setMountedTabs((prev) => {
-        if (prev.has(t)) return prev;
-        const next = new Set(prev);
-        next.add(t);
-        return next;
-      });
-      const pager = pagerRef.current;
-      if (!pager) return;
-      skipPageSelectRef.current = true;
-      requestAnimationFrame(() => {
-        try {
-          if (typeof pager.setPageWithoutAnimation === 'function') {
-            pager.setPageWithoutAnimation(t);
-          } else if (typeof pager.setPage === 'function') {
-            pager.setPage(t);
-          } else {
-            skipPageSelectRef.current = false;
-          }
-        } catch {
-          skipPageSelectRef.current = false;
-        }
-      });
-    }, [route.params?.tabIndex]),
+      applyPagerTab(clampTab(route.params?.tabIndex));
+    }, [route.params?.tabIndex, applyPagerTab]),
   );
 
   const onPageSelected = useCallback(
     (e) => {
+      const i = e.nativeEvent.position;
+      setActiveTabIndex(clampTab(i));
       if (skipPageSelectRef.current) {
         skipPageSelectRef.current = false;
         return;
       }
-      const i = e.nativeEvent.position;
       const cur = clampTab(route.params?.tabIndex);
       if (i !== cur) {
         navigation.setParams({ tabIndex: i });
@@ -209,13 +208,35 @@ export default function HomeTabPagerPage({ navigation, route }) {
         overdrag
         offscreenPageLimit={1}
       >
-        <View key="0" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
-          {mountedTabs.has(0) ? <MainPage navigation={navigation} route={mainRoute} /> : null}
+        <View
+          key="0"
+          style={styles.page}
+          collapsable={false}
+          removeClippedSubviews={false}
+          pointerEvents={activeTabIndex === 0 ? 'auto' : 'none'}
+        >
+          {mountedTabs.has(0) ? (
+            <MainPage navigation={navigation} route={mainRoute} isTabActive={activeTabIndex === 0} />
+          ) : null}
         </View>
-        <View key="1" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
-          {mountedTabs.has(1) ? <FeedPage navigation={navigation} route={feedRoute} /> : null}
+        <View
+          key="1"
+          style={styles.page}
+          collapsable={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          pointerEvents={activeTabIndex === 1 ? 'auto' : 'none'}
+        >
+          {mountedTabs.has(1) ? (
+            <FeedPage navigation={navigation} route={feedRoute} isTabActive={activeTabIndex === 1} />
+          ) : null}
         </View>
-        <View key="2" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
+        <View
+          key="2"
+          style={styles.page}
+          collapsable={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          pointerEvents={activeTabIndex === 2 ? 'auto' : 'none'}
+        >
           {mountedTabs.has(2) ? (
             <LandmarkScannerPage
               navigation={navigation}
@@ -224,11 +245,31 @@ export default function HomeTabPagerPage({ navigation, route }) {
             />
           ) : null}
         </View>
-        <View key="3" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
-          {mountedTabs.has(3) ? <MapTabPage navigation={navigation} route={mapTabRoute} /> : null}
+        <View
+          key="3"
+          style={styles.page}
+          collapsable={false}
+          removeClippedSubviews={false}
+          pointerEvents={activeTabIndex === 3 ? 'auto' : 'none'}
+        >
+          {mountedTabs.has(3) ? (
+            <MapTabPage
+              navigation={navigation}
+              route={mapTabRoute}
+              isTabActive={activeTabIndex === 3}
+            />
+          ) : null}
         </View>
-        <View key="4" style={styles.page} collapsable={false} removeClippedSubviews={Platform.OS === 'android'}>
-          {mountedTabs.has(4) ? <ProfilePage navigation={navigation} route={profileRoute} /> : null}
+        <View
+          key="4"
+          style={styles.page}
+          collapsable={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          pointerEvents={activeTabIndex === 4 ? 'auto' : 'none'}
+        >
+          {mountedTabs.has(4) ? (
+            <ProfilePage navigation={navigation} route={profileRoute} isTabActive={activeTabIndex === 4} />
+          ) : null}
         </View>
       </PagerView>
     </View>

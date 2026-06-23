@@ -22,7 +22,6 @@ import { brandFontHeadBold, brandFontHeadMedium, brandFontSans, brandFontSansSem
 import { useResponsive } from './useResponsive';
 import { st } from './settingsI18n';
 import { useAppTheme } from './useAppTheme';
-import { getAppTheme } from './themeStorage';
 import { getSubscriptionState } from './subscriptionStorage';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import Lemon3DButton from './Lemon3DButton';
@@ -71,7 +70,7 @@ export default function WalkReminderSetupPage({ navigation, route }) {
   const countryId = route?.params?.countryId;
   const fromOnboarding = route?.params?.fromOnboarding === true;
 
-  const { appTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme);
+  const { savedAppTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
   const [enabled, setEnabled] = useState(false);
   const [hour, setHour] = useState(18);
   const [minute, setMinute] = useState(30);
@@ -105,9 +104,9 @@ export default function WalkReminderSetupPage({ navigation, route }) {
       user,
       language,
       ...(countryId != null ? { countryId } : {}),
-      appTheme,
+      appTheme: savedAppTheme,
     }),
-    [user, language, countryId, appTheme],
+    [user, language, countryId, savedAppTheme],
   );
 
   const loadPrefs = useCallback(async () => {
@@ -252,13 +251,16 @@ export default function WalkReminderSetupPage({ navigation, route }) {
 
   const finishToApp = useCallback(async () => {
     const sub = await getSubscriptionState(user);
-    const payload = { user, language, countryId, appTheme };
+    const payload = { user, language, countryId, appTheme: savedAppTheme };
     if (sub.needsPlanChoice) {
-      navigation.replace('ChoosePlan', payload);
+      navigation.replace('ChoosePlan', {
+        ...payload,
+        ...(fromOnboarding ? { fromOnboarding: true } : {}),
+      });
     } else {
       navigation.replace('HomeTabPager', { ...payload, tabIndex: 0, routeFinderExtras: {} });
     }
-  }, [navigation, user, language, countryId, appTheme]);
+  }, [navigation, user, language, countryId, savedAppTheme, fromOnboarding]);
 
   const applyAndSync = useCallback(
     async (nextEnabled, nextHour, nextMinute) => {
@@ -493,7 +495,7 @@ export default function WalkReminderSetupPage({ navigation, route }) {
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
       <AppTopBar
-        appTheme={appTheme}
+        appTheme={savedAppTheme}
         leftMode={fromOnboarding ? 'menu' : 'back'}
         leftSlot={
           fromOnboarding ? (

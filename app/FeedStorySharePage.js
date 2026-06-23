@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { resolveAppTheme } from './themeStorage';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -23,10 +24,11 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { fc } from './feedComposerI18n';
 import { prependUserFeedStory } from './feedLocalStorage';
 import { hasFeedApiToken, ensureFeedApiReady, feedCreateStoryFromUri } from './feedApi';
-import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
+import { resetToHomeFeedTab } from './homeTabSwitch';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { useAuthStore } from './auth/authStore';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { emitDeviceGalleryChanged } from './deviceGallerySync';
 import { errorToUserText } from './errorText';
 
 export default function FeedStorySharePage({ navigation, route }) {
@@ -35,11 +37,17 @@ export default function FeedStorySharePage({ navigation, route }) {
   const authUser = useAuthStore((s) => s.user);
   const user = route?.params?.user || authUser;
   const uri = route?.params?.uri;
-  const isLight = (route?.params?.appTheme || 'dark') === 'light';
+  const isLight = (resolveAppTheme(route?.params?.appTheme)) === 'light';
   const [caption, setCaption] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const share = async () => {
+  useEffect(() => {
+    const activeUser = user || authUser;
+    if (!activeUser?.id || hasFeedApiToken()) return;
+    void ensureFeedApiReady(activeUser);
+  }, [user, authUser]);
+
+  const share = useCallback(async () => {
     if (busy) return;
     const activeUser = user || authUser;
     if (!uri) {
@@ -56,52 +64,49 @@ export default function FeedStorySharePage({ navigation, route }) {
       return;
     }
     setBusy(true);
+    const captionTrimmed = caption.trim();
+    const shell = {
+      user: activeUser,
+      language,
+      appTheme: resolveAppTheme(route?.params?.appTheme),
+      ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
+    };
+    const userId = String(
+      useAuthStore.getState().profileMe?.profile?.user_id || activeUser.id,
+    );
     try {
-      // Пробуємо відновити backend-сесію перед публікацією, щоб історія потрапила в Postgres,
-      // а не лише в локальне сховище (інакше її не побачать інші користувачі).
-      await ensureFeedApiReady(activeUser);
-      if (hasFeedApiToken()) {
-        await feedCreateStoryFromUri(uri, caption.trim());
-      } else {
-        await prependUserFeedStory(activeUser, { uri, caption: caption.trim() });
-      }
-      emitFeedMediaUpdated({
-        kind: 'story',
-        userId: activeUser?.id ? String(activeUser.id) : '',
-      });
-      const shell = {
-        user: activeUser,
-        language,
-        appTheme: route?.params?.appTheme || 'dark',
-        ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-      };
-      navigation.navigate(HOME_TAB_ROUTE, { ...shell, tabIndex: HOME_TAB.FEED, routeFinderExtras: {} });
-    } catch (e) {
-      if (hasFeedApiToken()) {
+      if (__DEV__) console.log('[FeedStoryShare] started:', { uri: uri.substring(0, 50), caption: captionTrimmed.substring(0, 30) });
+      const localStory = await prependUserFeedStory(activeUser, { uri, caption: captionTrimmed });
+      if (__DEV__) console.log('[FeedStoryShare] local story created:', localStory.id);
+      emitFeedMediaUpdated({ kind: 'story', userId, story: localStory });
+      emitDeviceGalleryChanged();
+      resetToHomeFeedTab(navigation, shell);
+
+      void (async () => {
         try {
-          await prependUserFeedStory(activeUser, { uri, caption: caption.trim() });
-          emitFeedMediaUpdated({
-            kind: 'story',
-            userId: activeUser?.id ? String(activeUser.id) : '',
-          });
-          const shell = {
-            user: activeUser,
-            language,
-            appTheme: route?.params?.appTheme || 'dark',
-            ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-          };
-          navigation.navigate(HOME_TAB_ROUTE, { ...shell, tabIndex: HOME_TAB.FEED, routeFinderExtras: {} });
-          return;
-        } catch (localErr) {
-          Alert.alert('', errorToUserText(localErr, language));
-          return;
+          if (!hasFeedApiToken()) {
+            if (__DEV__) console.log('[FeedStoryShare] preparing API...');
+            await ensureFeedApiReady(activeUser);
+          }
+          if (!hasFeedApiToken()) {
+            if (__DEV__) console.warn('[FeedStoryShare] no API token available, using local fallback');
+            return;
+          }
+          if (__DEV__) console.log('[FeedStoryShare] uploading to backend...');
+          await feedCreateStoryFromUri(uri, captionTrimmed);
+          if (__DEV__) console.log('[FeedStoryShare] backend upload successful');
+          emitFeedMediaUpdated({ kind: 'story', userId, story: localStory, synced: true });
+        } catch (uploadErr) {
+          if (__DEV__) console.warn('[FeedStoryShare] background upload failed:', uploadErr?.message);
         }
-      }
+      })();
+    } catch (e) {
+      if (__DEV__) console.warn('[FeedStoryShare] error:', e?.message);
       Alert.alert('', errorToUserText(e, language));
     } finally {
       setBusy(false);
     }
-  };
+  }, [user, authUser, uri, caption, navigation, language, route?.params?.appTheme, route?.params?.countryId, busy]);
 
   if (!uri) {
     navigation.goBack();

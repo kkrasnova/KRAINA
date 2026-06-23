@@ -187,11 +187,19 @@ config.resolver = {
   },
 };
 
-// maxWorkers: явно обмежуємо до CPU - 1 (залишаємо один для системи)
-config.maxWorkers = Math.max(2, os.cpus().length - 1);
+
 
 // cacheVersion: форсувати скидання кешу при зміні конфігурації трансформера
-config.cacheVersion = '1.8';
+config.cacheVersion = '2.0';
+
+// Додаємо hashing для кешу — пришвидшує повторний бандлінг
+if (config.transformer) {
+  config.transformer.assetPlugins = config.transformer.assetPlugins || [];
+}
+
+// maxWorkers: явно обмежуємо до CPU - 1 (залишаємо один для системи)
+// Використовуємо більше воркерів для швидшого бандлінгу
+config.maxWorkers = Math.min(os.cpus().length, 6);
 
 // Ensure the patch wins even if a dependency re-required Metro during config setup.
 patchExpoSourceMapSerializer();

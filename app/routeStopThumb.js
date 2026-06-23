@@ -1,6 +1,6 @@
 import { Image } from 'react-native';
 
-const FALLBACK = require('./assets/Frame 23.png');
+const FALLBACK = require('./assets/Frame 23.webp');
 
 /** @param {number | { uri: string } | null | undefined} thumb */
 export function routeStopImageSource(thumb) {

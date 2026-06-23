@@ -40,16 +40,16 @@ const CAROUSEL_FACE_RGB = [
 ];
 
 const CAROUSEL_FACE_SOURCES = [
-  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.jpg'),
-  require('./assets/carousel/1234.jpg'),
-  require('./assets/carousel/photo-1518684079-3c830dcef090.jpg'),
-  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.jpg'),
-  require('./assets/carousel/photo-1615119449152-d94284eafa45.jpg'),
-  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.jpg'),
-  require('./assets/carousel/photo-1631603903804-9dab873f8522.jpg'),
-  require('./assets/carousel/photo-1635317376825-59b7d18a9342.jpg'),
-  require('./assets/carousel/premium_photo-1669399775776-16a90384a3e6.jpg'),
-  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.jpg'),
+  require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.webp'),
+  require('./assets/carousel/1234.webp'),
+  require('./assets/carousel/photo-1518684079-3c830dcef090.webp'),
+  require('./assets/carousel/photo-1580072624564-1fe6b660b7e2.webp'),
+  require('./assets/carousel/photo-1615119449152-d94284eafa45.webp'),
+  require('./assets/carousel/photo-1630227286297-f7cc7c97f415.webp'),
+  require('./assets/carousel/photo-1631603903804-9dab873f8522.webp'),
+  require('./assets/carousel/photo-1635317376825-59b7d18a9342.webp'),
+  require('./assets/carousel/premium_photo-1669399775776-16a90384a3e6.webp'),
+  require('./assets/carousel/premium_photo-1676319876974-3c9759cb8c4a.webp'),
 ];
 
 
@@ -617,7 +617,6 @@ export default function SecondPage({ navigation }) {
   const searchEnter = useRef(new Animated.Value(0)).current;
   const listEnter = useRef(new Animated.Value(0)).current;
   const footerEnter = useRef(new Animated.Value(0)).current;
-  const carouselSpin = useRef(new Animated.Value(0)).current;
   const languageListScrollRef = useRef(null);
   const languageListScrollViewportH = useRef(0);
   const languageListScrollContentH = useRef(0);
@@ -704,20 +703,6 @@ export default function SecondPage({ navigation }) {
     return () => loop.stop();
 
   }, []);
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(carouselSpin, {
-        toValue: 1,
-        duration: 20000,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }),
-    );
-    loop.start();
-    return () => loop.stop();
-
-  }, [carouselSpin]);
 
   useEffect(() => {
     Animated.stagger(
@@ -892,15 +877,6 @@ export default function SecondPage({ navigation }) {
   const carouselCardH = Math.round(164 * carouselScale);
 
   const carouselRingR = carouselCardW + carouselCardH;
-  const [ringRotationRad, setRingRotationRad] = useState(0);
-  useEffect(() => {
-    const id = carouselSpin.addListener(({ value }) => {
-      setRingRotationRad(value * Math.PI * 2);
-    });
-    return () => {
-      carouselSpin.removeListener(id);
-    };
-  }, [carouselSpin]);
 
   const carouselRingStageW = Math.max(carouselRingR * 2 + carouselCardW + 16, sw);
   const carouselRingStageH = Math.max(carouselCardH + carouselRingR * 0.28, carouselRingR * 1.05) + 8;
@@ -939,6 +915,22 @@ export default function SecondPage({ navigation }) {
     const travel = Math.max(0, trackH - scrollbarThumbH);
     return (y / maxY) * travel;
   }, [languageScrollbarTrackH, scrollbarThumbH, languageScrollbarTick]);
+
+  const [ringRotationRad, setRingRotationRad] = useState(0);
+  useEffect(() => {
+    let rotation = 0;
+    let intervalId = null;
+    const startId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        rotation = (rotation + Math.PI / 96) % (Math.PI * 2);
+        setRingRotationRad(rotation);
+      }, 120);
+    }, 500);
+    return () => {
+      clearTimeout(startId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
   return (
     <View style={styles.container}>
       <View style={styles.bgDecor} pointerEvents="none">
@@ -1950,4 +1942,3 @@ function CarouselCylinderFaces({ carouselCardW, carouselCardH, ringRadius, rotat
     );
   });
 }
-

@@ -11,20 +11,30 @@
 import { Platform, NativeModules } from 'react-native';
 import { navigationRef } from './navigationRef';
 
+// CallKit / react-native-callkeep is iOS-only. On Android the native module is
+// incompatible with the New Architecture (duplicate @ReactMethod names) and we
+// do not use ConnectionService yet — skip loading entirely.
+const isIosCallKeep = Platform.OS === 'ios';
+
 let RNCallKeep = null;
-try {
-  RNCallKeep = require('react-native-callkeep').default;
-} catch {
-  // react-native-callkeep not installed — skip
+if (isIosCallKeep) {
+  try {
+    RNCallKeep = require('react-native-callkeep').default;
+  } catch {
+    // react-native-callkeep not installed — skip
+  }
 }
 
+const hasNativeCallKeep = isIosCallKeep && !!NativeModules.RNCallKeep;
 const CALLKEEP_APP_NAME = 'KRAÏNA';
 let callKeepInitialized = false;
 let pendingCallData = null;
+let answerCallListener = null;
+let endCallListener = null;
 
 /** Initialize CallKit. Should be called once on app start. */
 export function setupCallKeep() {
-  if (callKeepInitialized || !RNCallKeep || Platform.OS !== 'ios') return;
+  if (callKeepInitialized || !RNCallKeep || !hasNativeCallKeep || Platform.OS !== 'ios') return;
 
   try {
     void RNCallKeep.setup({
@@ -46,9 +56,8 @@ export function setupCallKeep() {
     });
     callKeepInitialized = true;
 
-    // Register event listeners (react-native-callkeep v2+ uses .on())
-    RNCallKeep.on('answerCall', onAnswerCall);
-    RNCallKeep.on('endCall', onEndCall);
+    answerCallListener = RNCallKeep.addEventListener('answerCall', onAnswerCall);
+    endCallListener = RNCallKeep.addEventListener('endCall', onEndCall);
   } catch (e) {
     if (__DEV__) console.warn('[CallKeep] setup failed:', e?.message);
   }
@@ -66,13 +75,12 @@ export function reportIncomingCall({
   if (!RNCallKeep || !callKeepInitialized) return;
 
   try {
-    RNCallKeep.reportNewIncomingCall(
+    RNCallKeep.displayIncomingCall(
       uuid,
       handle || 'unknown',
+      callerName || 'KRAÏNA',
       'generic',
       !!hasVideo,
-      callerName || 'KRAÏNA',
-      true, // fromPushKit
     );
 
     // Store call data for when the user answers
@@ -127,10 +135,12 @@ function onEndCall({ callUUID }) {
 export function tearDownCallKeep() {
   if (!RNCallKeep || !callKeepInitialized) return;
   try {
-    RNCallKeep.removeListener('answerCall', onAnswerCall);
-    RNCallKeep.removeListener('endCall', onEndCall);
+    answerCallListener?.remove?.();
+    endCallListener?.remove?.();
   } catch {
     /* ignore */
   }
+  answerCallListener = null;
+  endCallListener = null;
   callKeepInitialized = false;
 }

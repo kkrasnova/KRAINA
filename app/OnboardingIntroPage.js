@@ -12,6 +12,7 @@ import {
   Dimensions,
   StatusBar,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import AuthHeroHeader from './AuthHeroHeader';
 import { runAfterInteractions } from './runAfterInteractions';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,6 +29,7 @@ import {
   authHeroBannerBottomY,
 } from './authHeroLayout';
 import OnboardingFinalAtlasHero from './OnboardingFinalAtlasHero';
+import OnboardingGlobe3D from './OnboardingGlobe3D';
 
 const ACCENT = '#E1FF00';
 const BODY = '#FAFAF6';
@@ -72,23 +74,23 @@ const ONBOARD_LEMON_GLOWS = [
 ];
 
 /** Фон слайду «Шукай цікаві пам’ятки» */
-const LANDMARKS_SEARCH_BG = require('./assets/onboarding-landmarks-hero.png');
+const LANDMARKS_SEARCH_BG = require('./assets/onboarding-landmarks-hero.webp');
 
 /** Горизонтальна смуга переходу фото → тінь (Rectangle 37). */
-const RECTANGLE_37 = require('./assets/Rectangle 37.png');
+const RECTANGLE_37 = require('./assets/image 37.webp');
 
 /**
  * Слайд «Скануй пам’ятку»: Frame 23 — верхні жовті кутники в PNG; нижні два — ScanHeroLemonCorners
  * поверх фото й тіні (той самий #E1FF00, 1.5).
  */
-const SCAN_SLIDE_HERO = require('./assets/onboarding-scan-hero.png');
+const SCAN_SLIDE_HERO = require('./assets/onboarding-scan-hero.webp');
 
 /** Фото слайду «Шукай маршрути» (нічна карта / маршрут). */
-const ROUTE_FIND_ILLUSTRATION = require('./assets/onboarding-route-hero.png');
+const ROUTE_FIND_ILLUSTRATION = require('./assets/onboarding-route-hero.webp');
 /** Ілюстрація слайду «Ділись своєю історією». */
-const SHARE_ROUTES_ILLUSTRATION = require('./assets/onboarding-share-hero.png');
+const SHARE_ROUTES_ILLUSTRATION = require('./assets/onboarding-share-hero.webp');
 /** Фото слайду «Спілкуйся з друзями». */
-const FRIENDS_SLIDE_HERO = require('./assets/kling_20260405_IMAGE____________5495_1.png');
+const FRIENDS_SLIDE_HERO = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
 const SLIDES_UK = [
   {
     title: 'Шукай цікаві пам’ятки',
@@ -670,25 +672,23 @@ function ScanHeroLemonCorners({
 function DoubleRect37Strip({
   firstOpacity = 1,
   secondOpacity = 0.82,
-  androidResize = Platform.OS === 'android' || Platform.OS === 'ios',
 }) {
-  const resizeProps = androidResize ? { resizeMethod: 'resize' } : {};
   return (
     <>
-      <Image
+      <ExpoImage
         source={RECTANGLE_37}
         style={[styles.landmarksBottomFadeImage, { opacity: firstOpacity }]}
-        resizeMode="stretch"
-        {...resizeProps}
-        accessibilityIgnoresInvertColors
+        contentFit="fill"
+        cachePolicy="memory-disk"
+        transition={0}
         accessible={false}
       />
-      <Image
+      <ExpoImage
         source={RECTANGLE_37}
         style={[StyleSheet.absoluteFillObject, { opacity: secondOpacity }]}
-        resizeMode="stretch"
-        {...resizeProps}
-        accessibilityIgnoresInvertColors
+        contentFit="fill"
+        cachePolicy="memory-disk"
+        transition={0}
         accessible={false}
       />
     </>
@@ -1073,15 +1073,15 @@ export default function OnboardingIntroPage({ navigation, route }) {
     Platform.OS === 'android' && lang === 'de' && isScanSlide
       ? -Math.round(Math.max(30, screenH * 0.018))
       : 0;
-  /** Android + en, слайд маршруту: додатковий підйом фото й лаймової лінії (translateY −). */
+  /** Android + en, слайд маршруту: легкий підйом фото й лаймової лінії (translateY −). */
   const androidEnRouteHeroExtraLiftPx =
     isAndroidEn && isRouteSlide
-      ? -Math.round(Math.max(36, screenH * 0.032))
+      ? -Math.round(Math.max(8, screenH * 0.009))
       : 0;
-  /** Android + en, слайд «поділитися»: фото й тінь трохи вище (translateY −). */
+  /** En, слайд «поділитися»: фото й лаймова лінія трохи нижче (+translateY). */
   const androidEnShareHeroExtraLiftPx =
     isAndroidEn && isShareSlide
-      ? -Math.round(Math.max(16, screenH * 0.016))
+      ? Math.round(Math.max(14, screenH * 0.016))
       : 0;
   /** Android + uk, слайд «поділитися»: фото й тінь трохи вище (translateY −). */
   const androidUkShareHeroExtraLiftPx =
@@ -1364,7 +1364,10 @@ export default function OnboardingIntroPage({ navigation, route }) {
     ? Math.round(Math.max(18, screenH * 0.02))
     : 0;
   const onboardHeroCombinedLiftPx =
-    onboardHeroSlideExtraDownPx + androidEnRouteHeroExtraLiftPx;
+    onboardHeroSlideExtraDownPx +
+    androidEnRouteHeroExtraLiftPx +
+    androidEnShareHeroExtraLiftPx +
+    androidEnFriendsHeroExtraDownPx;
   const onboardHeroCombinedTitleGapPx = onboardHeroTitleGapAfterWavePx;
   /** Запас між низом тексту й футером (крапки / CTA). */
   const overflowScrollReliefBottomPx = 8;
@@ -1552,6 +1555,14 @@ export default function OnboardingIntroPage({ navigation, route }) {
       48,
       Math.round((r.insets?.top ?? 0) * 0.65) + Math.round(screenH * 0.018),
     );
+  const finalGlobeSize = Math.round(Math.min(screenW * 0.62, screenH * 0.31));
+  const finalGlobeCenterX = Math.round(screenW / 2);
+  const finalGlobeExtraDownPx = Math.round(
+    Math.max(Platform.OS === 'ios' ? 46 : 30, screenH * 0.048),
+  );
+  const finalGlobeCenterY = Math.round(
+    finalAtlasBandTopOffset + finalAtlasHeroHeight * 0.76 + finalGlobeExtraDownPx,
+  );
   /** Фото пам’яток не заходить на зону тексту + CTA.
    *  topBleed — зона вгору; photoZoomScale — рівномірне збільшення (contain + clip). */
   const landmarksBgLayout = useMemo(() => {
@@ -2154,6 +2165,13 @@ export default function OnboardingIntroPage({ navigation, route }) {
               style={{ zIndex: 1 }}
             />
           </View>
+          <OnboardingGlobe3D
+            size={finalGlobeSize}
+            centerX={finalGlobeCenterX}
+            centerY={finalGlobeCenterY}
+            showPerson={false}
+            style={{ zIndex: 3 }}
+          />
         </View>
       ) : (
         <>
@@ -2504,6 +2522,7 @@ const styles = StyleSheet.create({
     left: 0,
     backgroundColor: '#000000',
     zIndex: 0,
+    overflow: 'visible',
   },
   finalBrandHeroBand: {
     position: 'relative',

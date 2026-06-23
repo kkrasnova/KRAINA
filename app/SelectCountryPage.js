@@ -14,10 +14,13 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsive } from './useResponsive';
-import { noAndroidRipple, rippleOnDarkSurface } from './androidFeedback';
+import { noAndroidRipple, rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { useAppTheme } from './useAppTheme';
+import { accentForTheme } from './themeAccent';
 import { getSavedCountryIdForUser, saveCountryForUser, LEGACY_COUNTRY_STORAGE_KEY } from './countryStorage';
 import Lemon3DButton from './Lemon3DButton';
 import {
@@ -41,28 +44,28 @@ const GRID_GAP = 10;
 
 /** Ті самі hero PNG, що в каруселі на головній (без AVIF — стабільніше на Android). */
 const COUNTRY_SELECT_TILE_PHOTOS = {
-  DE: require('./assets/germany-card-hero.png'),
-  NL: require('./assets/netherlands-card-hero.png'),
-  PL: require('./assets/poland-card-hero.png'),
-  ES: require('./assets/spain-card-hero.png'),
-  LT: require('./assets/lithuania-card-hero.png'),
-  LV: require('./assets/latvia-card-hero.png'),
-  RO: require('./assets/romania-card-hero.png'),
-  IT: require('./assets/italy-card-hero.png'),
-  AM: require('./assets/armenia-card-hero.png'),
-  UA: require('./assets/kyiv-main-hero.png'),
+  DE: require('./assets/germany-card-hero.webp'),
+  NL: require('./assets/netherlands-card-hero.webp'),
+  PL: require('./assets/poland-card-hero.webp'),
+  ES: require('./assets/spain-card-hero.webp'),
+  LT: require('./assets/lithuania-card-hero.webp'),
+  LV: require('./assets/latvia-card-hero.webp'),
+  RO: require('./assets/romania-card-hero.webp'),
+  IT: require('./assets/italy-card-hero.webp'),
+  AM: require('./assets/armenia-card-hero.webp'),
+  UA: require('./assets/kyiv-main-hero.webp'),
 };
 
 const COUNTRY_SELECT_TILE_FALLBACKS = {
-  DE: require('./assets/country-tile-germany-hero.jpg'),
-  NL: require('./assets/country-tile-netherlands-hero.jpg'),
-  PL: require('./assets/country-tile-pl.jpg'),
-  LT: require('./assets/country-tile-lithuania.png'),
-  LV: require('./assets/country-tile-latvia-hero.jpg'),
-  RO: require('./assets/country-tile-romania-hero.jpg'),
-  IT: require('./assets/country-tile-italy-hero.jpg'),
-  AM: require('./assets/tyquxnnd.jpg'),
-  UA: require('./assets/country-tile-ua.jpg'),
+  DE: require('./assets/country-tile-germany-hero.webp'),
+  NL: require('./assets/country-tile-netherlands-hero.webp'),
+  PL: require('./assets/country-tile-pl.webp'),
+  LT: require('./assets/country-tile-lithuania.webp'),
+  LV: require('./assets/country-tile-latvia-hero.webp'),
+  RO: require('./assets/country-tile-romania-hero.webp'),
+  IT: require('./assets/country-tile-italy-hero.webp'),
+  AM: require('./assets/tyquxnnd.webp'),
+  UA: require('./assets/country-tile-ua.webp'),
 };
 
 function getCountryTilePhotoCandidates(countryId) {
@@ -834,6 +837,9 @@ export default function SelectCountryPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const previewBeforeAuth = route?.params?.previewBeforeAuth === true;
   const texts = getTexts(lang);
+  const { savedAppTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
+  const accent = accentForTheme(isLight);
+  const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const [countryId, setCountryId] = useState(null);
   /** Звідки поточний вибір: збережений / гео / ручна плитка — щоб підсвітити картку геолокації як «рекомендовану», як мова за замовчуванням. */
@@ -1058,7 +1064,7 @@ export default function SelectCountryPage({ navigation, route }) {
       navigation?.replace?.('BackendAuth');
       return;
     }
-    const payload = { user, language: lang, countryId };
+    const payload = { user, language: lang, countryId, appTheme: savedAppTheme };
     navigation?.replace?.('WalkReminderSetup', { ...payload, fromOnboarding: true });
   };
 
@@ -1067,7 +1073,22 @@ export default function SelectCountryPage({ navigation, route }) {
 
   const checkmarkSize = Math.round(20 * r.scale);
   const buttonMinHeight = Math.max(48, Math.round(48 * r.scale));
-  const searchBorderColor = searchFocused ? 'rgba(225, 255, 0, 0.55)' : 'rgba(255, 255, 255, 0.12)';
+  const searchBorderColor = searchFocused
+    ? isLight
+      ? 'rgba(2, 18, 235, 0.45)'
+      : 'rgba(225, 255, 0, 0.55)'
+    : isLight
+      ? 'rgba(0, 0, 0, 0.1)'
+      : 'rgba(255, 255, 255, 0.12)';
+  const searchFieldBg = isLight ? 'rgba(15, 58, 115, 0.06)' : 'rgba(105, 105, 105, 0.1)';
+  const searchTextColor = isLight ? '#1A1A1A' : '#FFFFFF';
+  const searchPlaceholderColor = isLight ? 'rgba(26, 26, 26, 0.45)' : 'rgba(161, 161, 161, 0.85)';
+  const searchIconTint = isLight ? '#0F3A73' : '#FFFFFF';
+  const hintMutedColor = isLight ? 'rgba(0, 0, 0, 0.42)' : 'rgba(255, 255, 255, 0.36)';
+  const tileIdleBorder = isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.12)';
+  const tileSurfaceBg = isLight ? '#FFFFFF' : '#010103';
+  const geoLabelColor = isLight ? '#1A1A1A' : '#FFFFFF';
+  const geoActivityColor = accent;
   const searchIconSize = Math.max(14, Math.round(14 * r.scale));
   const countryTileHeight = Math.max(132, Math.round(152 * r.scale));
   const geoCardHeight = countryTileHeight;
@@ -1087,18 +1108,20 @@ export default function SelectCountryPage({ navigation, route }) {
   const scrollBottomPad = buttonMinHeight + footerBottomPad + 20;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: screenBg }]}>
+      <StatusBar style="light" translucent />
       <Pressable
         style={[
           styles.content,
           {
             paddingTop: insets.top + 10,
             paddingHorizontal: r.horizontalPadding,
+            backgroundColor: screenBg,
           },
         ]}
         onPress={Keyboard.dismiss}
       >
-        <View style={styles.topShell}>
+        <View style={[styles.topShell, { backgroundColor: screenBg }]}>
         <View
           style={[
             styles.headerBlock,
@@ -1111,6 +1134,7 @@ export default function SelectCountryPage({ navigation, route }) {
               {
                 fontSize: titleLimeSize,
                 lineHeight: titleLimeSize + 6,
+                color: accent,
                 ...fontUkraine,
               },
             ]}
@@ -1120,23 +1144,29 @@ export default function SelectCountryPage({ navigation, route }) {
         </View>
 
         <View style={styles.searchWrap}>
-          <View style={[styles.searchField, { borderColor: searchBorderColor }]}>
+          <View
+            style={[
+              styles.searchField,
+              { borderColor: searchBorderColor, backgroundColor: searchFieldBg },
+            ]}
+          >
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder={texts.searchCountry}
-              placeholderTextColor="rgba(161, 161, 161, 0.85)"
+              placeholderTextColor={searchPlaceholderColor}
               style={[
                 styles.searchInput,
                 {
                   fontSize: Math.max(15, r.optionFontSize),
+                  color: searchTextColor,
                   ...brandFontText,
                 },
               ]}
               autoCapitalize="none"
               autoCorrect={false}
-              keyboardAppearance="dark"
-              selectionColor="#E1FF00"
+              keyboardAppearance={isLight ? 'light' : 'dark'}
+              selectionColor={accent}
               underlineColorAndroid="transparent"
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
@@ -1148,12 +1178,16 @@ export default function SelectCountryPage({ navigation, route }) {
                 accessibilityRole="button"
                 style={styles.searchClearHit}
               >
-                <Ionicons name="close-circle" size={22} color="rgba(255,255,255,0.4)" />
+                <Ionicons
+                  name="close-circle"
+                  size={22}
+                  color={isLight ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.4)'}
+                />
               </Pressable>
             ) : null}
             <Image
               source={require('./assets/Vector2121.png')}
-              style={{ width: searchIconSize, height: searchIconSize, tintColor: '#FFFFFF' }}
+              style={{ width: searchIconSize, height: searchIconSize, tintColor: searchIconTint }}
               resizeMode="contain"
               accessibilityIgnoresInvertColors
               importantForAccessibility="no"
@@ -1207,14 +1241,16 @@ export default function SelectCountryPage({ navigation, route }) {
 
         </View>
 
-        <View style={styles.listSection}>
-          <Text style={[styles.hintMuted, { fontSize: r.hintFontSize - 1 }]}>{texts.scrollHint}</Text>
+        <View style={[styles.listSection, { backgroundColor: screenBg }]}>
+          <Text style={[styles.hintMuted, { fontSize: r.hintFontSize - 1, color: hintMutedColor }]}>
+            {texts.scrollHint}
+          </Text>
 
           <ScrollView
-            style={styles.gridScroll}
+            style={[styles.gridScroll, { backgroundColor: screenBg }]}
             contentContainerStyle={[styles.gridContent, { paddingBottom: scrollBottomPad }]}
             showsVerticalScrollIndicator={false}
-            indicatorStyle="white"
+            indicatorStyle={isLight ? 'black' : 'white'}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
           >
@@ -1225,20 +1261,24 @@ export default function SelectCountryPage({ navigation, route }) {
                 style={({ pressed }) => [
                   styles.tileOuter,
                   { width: tileW, height: geoCardHeight },
-                  geoCardPrimary && styles.tileSelected,
+                  geoCardPrimary && [styles.tileSelected, { borderColor: accent }],
                   !geoCardPrimary && {
-                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                    borderColor: tileIdleBorder,
+                    backgroundColor: tileSurfaceBg,
                   },
                   pressed && !locating && styles.tilePressed,
                   locating && styles.tileDisabled,
                 ]}
-                android_ripple={locating ? undefined : rippleOnDarkSurface}
+                android_ripple={locating ? undefined : ripple}
                 accessibilityRole="button"
                 accessibilityLabel={texts.useLocationA11y || texts.useLocation}
                 accessibilityState={{ disabled: locating }}
               >
                 <View
-                  style={[styles.geoCardInner, { height: geoCardHeight }]}
+                  style={[
+                    styles.geoCardInner,
+                    { height: geoCardHeight, backgroundColor: tileSurfaceBg },
+                  ]}
                   pointerEvents="box-none"
                   collapsable={false}
                 >
@@ -1250,7 +1290,7 @@ export default function SelectCountryPage({ navigation, route }) {
                     pointerEvents="none"
                   >
                     <Image
-                      source={require('./assets/globe.png')}
+                      source={require('./assets/globe.webp')}
                       style={{ width: geoGlobeW, height: geoGlobeH }}
                       resizeMode="contain"
                       accessibilityIgnoresInvertColors
@@ -1259,7 +1299,7 @@ export default function SelectCountryPage({ navigation, route }) {
                   <View style={styles.geoCardForeground} pointerEvents="box-none" collapsable={false}>
                     <View style={styles.geoLabelRow}>
                       {locating ? (
-                        <ActivityIndicator color="#E1FF00" size="small" style={styles.geoActivitySlot} />
+                        <ActivityIndicator color={geoActivityColor} size="small" style={styles.geoActivitySlot} />
                       ) : (
                         <Image
                           source={require('./assets/mage_location-fill.png')}
@@ -1274,6 +1314,7 @@ export default function SelectCountryPage({ navigation, route }) {
                           styles.geoCardLabel,
                           {
                             fontSize: Math.max(13, Math.round(14 * r.scale)),
+                            color: geoLabelColor,
                             ...fontUkraine,
                             fontWeight: '300',
                           },
@@ -1348,11 +1389,16 @@ export default function SelectCountryPage({ navigation, route }) {
                     }}
                     style={({ pressed }) => [
                       styles.tileOuter,
-                      { width: tileW, height: countryTileHeight },
+                      {
+                        width: tileW,
+                        height: countryTileHeight,
+                        borderColor: selected ? accent : tileIdleBorder,
+                        backgroundColor: tileSurfaceBg,
+                      },
                       selected && styles.tileSelected,
                       pressed && styles.tilePressed,
                     ]}
-                    android_ripple={selected ? noAndroidRipple : rippleOnDarkSurface}
+                    android_ripple={selected ? noAndroidRipple : ripple}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     accessibilityLabel={opt.label}
@@ -1405,7 +1451,7 @@ export default function SelectCountryPage({ navigation, route }) {
 
               {!filteredCountries.length ? (
                 <View style={[styles.emptyGridBanner, { width: gridInnerW }]}>
-                  <Text style={styles.emptyText}>{texts.noCountryFound}</Text>
+                  <Text style={[styles.emptyText, { color: hintMutedColor }]}>{texts.noCountryFound}</Text>
                 </View>
               ) : null}
             </View>

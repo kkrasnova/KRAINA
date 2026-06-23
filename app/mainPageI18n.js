@@ -272,6 +272,19 @@ const S = {
     it: 'Cerca',
     hy: 'Որոնում',
   },
+  homeCloseSearchA11y: {
+    uk: 'Закрити пошук',
+    en: 'Close search',
+    pl: 'Zamknij wyszukiwanie',
+    nl: 'Zoeken sluiten',
+    es: 'Cerrar búsqueda',
+    lt: 'Uždaryti paiešką',
+    lv: 'Aizvērt meklēšanu',
+    de: 'Suche schließen',
+    ro: 'Închide căutarea',
+    it: 'Chiudi ricerca',
+    hy: 'Փակել որոնումը',
+  },
   homeSearchEmpty: {
     uk: 'Нічого не знайдено. Спробуйте іншу назву країни, міста, локації, текст з опису чи історії.',
     en: 'Nothing found. Try another country, city, place, description or story text.',
@@ -1045,6 +1058,22 @@ export function mtRemainingLine(lang, left, max, perMonthLabel) {
   if (b === 'de') return `${left} von ${max} (${perMonthLabel})`;
   if (b === 'hy') return `${left}՝ ${max}-ից (${perMonthLabel})`;
   return `${left} of ${max} (${perMonthLabel})`;
+}
+
+export function mtHomeSettlementsCount(lang, n) {
+  const k = Math.max(0, Math.round(Number(n) || 0));
+  const b = mainLangBase(lang);
+  if (b === 'uk') return `${k} міст і сіл`;
+  if (b === 'pl') return `${k} miast i wioseł`;
+  if (b === 'de') return `${k} Städte & Dörfer`;
+  if (b === 'nl') return `${k} steden & dorpen`;
+  if (b === 'es') return `${k} ciudades y pueblos`;
+  if (b === 'lt') return `${k} miestų ir kaimų`;
+  if (b === 'lv') return `${k} pilsētas un ciemati`;
+  if (b === 'ro') return `${k} orașe și sate`;
+  if (b === 'it') return `${k} città e paesi`;
+  if (b === 'hy') return `${k} քաղաք և գյուղ`;
+  return `${k} cities & towns`;
 }
 
 export function mtHomeLocationsCount(lang, n) {

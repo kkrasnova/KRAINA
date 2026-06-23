@@ -3,61 +3,6 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-/** Корінь Expo-проєкту (app/package.json, app/.env). */
-def appRootDir = rootDir.getAbsoluteFile().getParentFile().getParentFile()
-
-def googleMapsApiKey = ''
-def fromMapsProp = findProperty('GOOGLE_MAPS_API_KEY')
-if (fromMapsProp != null && fromMapsProp.toString().trim()) {
-    googleMapsApiKey = fromMapsProp.toString().trim()
-} else {
-    def fromEnv = System.getenv('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY')
-    if (fromEnv != null && fromEnv.trim()) {
-        googleMapsApiKey = fromEnv.trim()
-    } else {
-        for (def envFile : [new File(appRootDir, '.env'), new File(projectRoot, '.env')]) {
-            if (!envFile.exists()) {
-                continue
-            }
-            envFile.eachLine { line ->
-                if (googleMapsApiKey) {
-                    return
-                }
-                def trimmed = line.trim()
-                if (!trimmed || trimmed.startsWith('#') || !trimmed.contains('=')) {
-                    return
-                }
-                def parts = trimmed.split('=', 2)
-                if (parts.length == 2 && parts[0].trim() == 'EXPO_PUBLIC_GOOGLE_MAPS_API_KEY') {
-                    googleMapsApiKey = parts[1].trim().replaceAll(/^["']|["']$/, '')
-                }
-            }
-            if (googleMapsApiKey) {
-                break
-            }
-        }
-    }
-}
-if (!googleMapsApiKey) {
-    def gsFile = new File(appRootDir, 'google-services.json')
-    if (gsFile.exists()) {
-        try {
-            def json = new groovy.json.JsonSlurper().parse(gsFile)
-            def key = json?.client?.getAt(0)?.api_key?.getAt(0)?.current_key
-            if (key) {
-                googleMapsApiKey = key.toString()
-            }
-        } catch (ignored) {
-            // fall through
-        }
-    }
-}
-if (!googleMapsApiKey) {
-    logger.warn(
-        '[KRAINA] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is empty — Google Maps will fail on Android. ' +
-        'Add the key to app/.env and run a full native rebuild (npm run android).'
-    )
-}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -145,13 +90,11 @@ android {
     namespace 'com.kraina.app'
     defaultConfig {
         applicationId 'com.kraina.app'
-        minSdkVersion 26
+        minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
         versionName "1.0.1"
 
-        manifestPlaceholders = [googleMapsApiKey: googleMapsApiKey]
-        resValue 'string', 'google_maps_api_key', googleMapsApiKey ?: 'missing-google-maps-api-key'
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {

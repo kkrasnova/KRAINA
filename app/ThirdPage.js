@@ -79,6 +79,7 @@ import { getSavedCountryIdForUser, saveCountryForUser } from './countryStorage';
 import { HOME_COUNTRY_ORDER } from './homeExploreData';
 import { appLangBase } from './appLang';
 import { getSubscriptionState } from './subscriptionStorage';
+import { getAppTheme } from './themeStorage';
 import { noAndroidRipple, rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 
 let AuthSessionModule = null;
@@ -1854,8 +1855,6 @@ function ThirdPageContent({
     outputRange: [-8, 0],
   });
   const [authSlideSubmitting, setAuthSlideSubmitting] = useState(false);
-  const authFooterHeroLayoutHeightRef = useRef(0);
-  const [authFooterHeroLayoutHeight, setAuthFooterHeroLayoutHeight] = useState(0);
 
   const registerWithPassword = useAuthStore((s) => s.registerWithPassword);
   const loginWithPasswordBackend = useAuthStore((s) => s.loginWithPassword);
@@ -2032,9 +2031,10 @@ function ThirdPageContent({
         return;
       }
       const countryId = await getSavedCountryIdForUser(user);
-      /** Нова реєстрація або акаунт без збереженої країни — екран країни; повторний вхід з країною — одразу далі. */
-      if (isNewUser || !countryId) {
-        navigation?.navigate?.('SelectCountry', { user, language });
+      /** Вибір країни — лише одразу після нової реєстрації; повторний вхід без повторного екрану. */
+      if (isNewUser) {
+        const appTheme = await getAppTheme();
+        navigation?.navigate?.('SelectCountry', { user, language, appTheme });
         return;
       }
       const sub = await getSubscriptionState(user);
@@ -2869,13 +2869,6 @@ function ThirdPageContent({
         newPassword: pass,
         resetCode: forgotCodeInput,
       });
-      if (ok === 'BACKEND_OUTDATED') {
-        Alert.alert(
-          thirdPageUi(language, 'connectionProblemTitle') || '',
-          thirdPageUi(language, 'forgotBackendOutdated'),
-        );
-        return;
-      }
       if (!ok) {
         Alert.alert('', texts.forgotUserNotFound ?? 'User not found');
         return;
@@ -2928,11 +2921,22 @@ function ThirdPageContent({
     Math.round(r.insets?.top ?? 0),
     Platform.OS === 'android' ? Math.round(RNStatusBar.currentHeight ?? 28) : 0,
   );
-  const authHeroVisualBottom = authHeroHeight + AUTH_HERO_WAVE_PAD - authHeroTopInset;
+  /** iOS: лише візуально нижче; layout форми й нижнього фото без змін. */
+  const authHeroExtraDownPx =
+    Platform.OS === 'ios'
+      ? Math.round(Math.min(62, Math.max(46, formLayoutHeight * 0.034)))
+      : 0;
   const authHeroExtraLiftPx =
     Platform.OS === 'android'
       ? -Math.round(Math.min(14, Math.max(8, formLayoutHeight * 0.012)))
       : 0;
+  const authHeroRenderHeight =
+    Platform.OS === 'ios' ? authHeroHeight + authHeroExtraDownPx : authHeroHeight;
+  const authHeroVisualBottom =
+    authHeroHeight +
+    AUTH_HERO_WAVE_PAD -
+    authHeroTopInset +
+    Math.max(0, authHeroExtraLiftPx);
   /** Невеликий зазор між хвилястою межею фото і текстом форми (логін / реєстрація). */
   const authPhotoFormGapPx = Math.round(
     Math.min(28, Math.max(18, formLayoutHeight * 0.022)),
@@ -2974,25 +2978,38 @@ function ThirdPageContent({
   const authScrollMinHeight = authScrollViewportMinHeight;
   const authFooterHeroBodyHeight = Math.max(
     80,
-    authFooterHeroLayoutHeight -
-      AUTH_HERO_WAVE_PAD -
-      authFooterBottomBleedPx,
+    authFooterHeroMinHeight - AUTH_HERO_WAVE_PAD - authFooterBottomBleedPx,
   );
   const forgotModalMaxWidth = Math.min(r.width - 32, 400);
   const backgroundImageSource =
     activeTab === 'register'
-      ? require('./assets/auth-register-hero.png')
-      : require('./assets/auth-login-hero.png');
+      ? require('./assets/auth-register-hero.webp')
+      : require('./assets/auth-login-hero.webp');
   const authFooterImageSource =
     activeTab === 'register'
-      ? require('./assets/auth-register-footer-hero.png')
-      : require('./assets/auth-login-footer-hero.png');
+      ? require('./assets/auth-register-footer-hero.webp')
+      : require('./assets/auth-login-footer-hero.webp');
   /** Лише зсув кадру фото вгорі на вході — хвиля й layout без змін. */
   const authLoginTopHeroImageNudgeUpPx = Math.round(
     Platform.OS === 'android'
       ? Math.min(140, Math.max(92, formLayoutHeight * 0.092))
       : Math.min(168, Math.max(108, formLayoutHeight * 0.108)),
   );
+  const authIosLoginTopHeroImageNudgeDownPx = Math.round(
+    Math.min(132, Math.max(116, formLayoutHeight * 0.104)),
+  );
+  /** iOS + реєстрація: кадр у верхньому фото трохи вище, ніж на вході. */
+  const authIosRegisterTopHeroImageNudgeDownPx = Math.round(
+    Math.min(72, Math.max(56, formLayoutHeight * 0.052)),
+  );
+  const authTopHeroImageNudgeY =
+    Platform.OS === 'ios'
+      ? activeTab === 'register'
+        ? authIosRegisterTopHeroImageNudgeDownPx
+        : authIosLoginTopHeroImageNudgeDownPx
+      : activeTab === 'login'
+        ? authLoginTopHeroImageNudgeUpPx
+        : 0;
   const registerLayoutNudgeUpPx = Math.round(
     Math.min(30, Math.max(16, formLayoutHeight * 0.024)),
   );
@@ -3149,15 +3166,24 @@ function ThirdPageContent({
       ) : null}
       <AuthHeroHeader
         source={backgroundImageSource}
-        height={authHeroHeight}
+        height={authHeroRenderHeight}
         topInset={authHeroTopInset}
-        imageNudgeY={activeTab === 'login' ? authLoginTopHeroImageNudgeUpPx : 0}
+        imageNudgeY={authTopHeroImageNudgeY}
         style={[
           styles.authHeroBackdrop,
-          authHeroTopInset > 0 ? { top: -authHeroTopInset } : null,
-          authHeroExtraLiftPx !== 0 && {
-            transform: [{ translateY: authHeroExtraLiftPx }],
-          },
+          authHeroTopInset > 0 || authHeroExtraDownPx > 0
+            ? {
+                top:
+                  -authHeroTopInset -
+                  (Platform.OS === 'ios' ? authHeroExtraDownPx : 0),
+              }
+            : null,
+          Platform.OS === 'ios' && authHeroExtraDownPx !== 0
+            ? { transform: [{ translateY: authHeroExtraDownPx }] }
+            : null,
+          Platform.OS === 'android' && authHeroExtraLiftPx !== 0
+            ? { transform: [{ translateY: authHeroExtraLiftPx }] }
+            : null,
         ]}
       />
       <View style={{ height: authHeroSpacerHeight }} pointerEvents="none" />
@@ -3619,28 +3645,18 @@ function ThirdPageContent({
                 {
                   marginTop: authFooterHeroMarginTopPx,
                   marginHorizontal: -contentHorizontalPadding,
-                  flexGrow: 1,
                   minHeight: authFooterHeroMinHeight,
                 },
               ]}
-              onLayout={(e) => {
-                const h = Math.round(e.nativeEvent.layout.height);
-                if (h > 0 && authFooterHeroLayoutHeightRef.current !== h) {
-                  authFooterHeroLayoutHeightRef.current = h;
-                  setAuthFooterHeroLayoutHeight(h);
-                }
-              }}
               pointerEvents="none"
             >
-              {authFooterHeroLayoutHeight > 0 ? (
-                <AuthHeroHeader
-                  source={authFooterImageSource}
-                  height={authFooterHeroBodyHeight}
-                  waveEdge="top"
-                  bottomBleedPx={authFooterBottomBleedPx}
-                  style={{ width: r.width }}
-                />
-              ) : null}
+              <AuthHeroHeader
+                source={authFooterImageSource}
+                height={authFooterHeroBodyHeight}
+                waveEdge="top"
+                bottomBleedPx={authFooterBottomBleedPx}
+                style={{ width: r.width }}
+              />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

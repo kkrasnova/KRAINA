@@ -81,6 +81,30 @@ const S = {
     uk: 'Аудіогід',
     en: 'Audio guide',
   },
+  audioPause: {
+    uk: 'Пауза',
+    en: 'Pause',
+  },
+  audioResume: {
+    uk: 'Продовжити',
+    en: 'Resume',
+  },
+  audioPrevSlide: {
+    uk: 'Попередній слайд',
+    en: 'Previous slide',
+  },
+  audioNextSlide: {
+    uk: 'Наступний слайд',
+    en: 'Next slide',
+  },
+  audioScrubber: {
+    uk: 'Перемотка аудіогіда',
+    en: 'Audio guide scrubber',
+  },
+  audioSlideCounter: {
+    uk: 'Слайд {current} з {total}',
+    en: 'Slide {current} of {total}',
+  },
   audioPlayingHint: {
     uk: 'Відтворення…',
     en: 'Playing…',
@@ -141,6 +165,34 @@ const S = {
   paramMenuReportHint: {
     uk: 'Опишіть помилку в підтримці застосунку або надішліть скриншот з екрана «Налаштування».',
     en: 'Describe the issue via app support or send a screenshot from Settings.',
+  },
+  paramMenuShareEmpty: {
+    uk: 'Немає тексту для поширення.',
+    en: 'Nothing to share yet.',
+  },
+  paramMenuReportPrompt: {
+    uk: 'Надіслати лист у підтримку з даними про цю пам’ятку?',
+    en: 'Send an email to support with details about this landmark?',
+  },
+  paramMenuReportSend: {
+    uk: 'Надіслати',
+    en: 'Send',
+  },
+  paramMenuReportCancel: {
+    uk: 'Скасувати',
+    en: 'Cancel',
+  },
+  paramMenuReportBodyIntro: {
+    uk: 'Повідомлення про помилку в тексті пам’ятки:',
+    en: 'Report an error in landmark content:',
+  },
+  paramMenuReportBodyFooter: {
+    uk: 'Опишіть, що саме не так (текст, фото, переклад тощо):',
+    en: 'Describe what is wrong (text, photo, translation, etc.):',
+  },
+  paramMenuReportOk: {
+    uk: 'Дякуємо',
+    en: 'Thank you',
   },
   notInDatabaseBody: {
     uk: 'На жаль, цієї історії ще немає в нашій базі.',

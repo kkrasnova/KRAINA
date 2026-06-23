@@ -1,7 +1,7 @@
 /**
  * Аудіогід за URL (CDN / S3 / статика): кеш у FileSystem.cacheDirectory, повторне відтворення з диска.
  */
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { sha256 } from 'js-sha256';
 
 const DIR = `${FileSystem.cacheDirectory}kraina_audioguides/`;

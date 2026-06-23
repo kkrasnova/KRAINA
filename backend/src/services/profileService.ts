@@ -272,6 +272,21 @@ function normalizeSavedRoutePlans(rowVal: unknown): unknown[] {
   return [];
 }
 
+/** Лічильники з таблиці `follows` — не з кешованих колонок profiles (уникає розсинхрону). */
+async function loadLiveSocialCounts(userId: string): Promise<{ followers_count: number; following_count: number }> {
+  const r = await pool.query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM follows WHERE following_id = $1::uuid) AS followers_count,
+       (SELECT COUNT(*)::int FROM follows WHERE follower_id = $1::uuid) AS following_count`,
+    [userId],
+  );
+  const row = r.rows[0] as { followers_count?: number; following_count?: number } | undefined;
+  return {
+    followers_count: Number(row?.followers_count || 0),
+    following_count: Number(row?.following_count || 0),
+  };
+}
+
 function mapProfileRow(row: Record<string, unknown>): ProfileDTO {
   return {
     id: String(row.id),
@@ -323,7 +338,9 @@ export async function getProfileMe(userId: string): Promise<{
   if (!pr.rowCount) {
     throw new HttpError(404, 'profile_not_found');
   }
-  const profile = mapProfileRow(pr.rows[0] as Record<string, unknown>);
+  const profileBase = mapProfileRow(pr.rows[0] as Record<string, unknown>);
+  const liveCounts = await loadLiveSocialCounts(userId);
+  const profile = { ...profileBase, ...liveCounts };
   const subscription = await loadActiveSubscription(userId);
   const usage = await loadUsage(userId);
   return { profile, subscription, usage };
@@ -559,6 +576,7 @@ export async function getPublicProfileByUsername(
   const birthDate = pgDateToIso(row.birth_date);
   const isOwnerViewer = Boolean(viewerUserId && viewerUserId === ownerId);
   const showBirthToViewer = isOwnerViewer || Boolean(row.birth_date_public);
+  const liveCounts = await loadLiveSocialCounts(ownerId);
   return {
     username: String(row.username),
     avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
@@ -574,8 +592,8 @@ export async function getPublicProfileByUsername(
     xp_points: Number.isFinite(Number(row.xp_points)) ? Number(row.xp_points) : 0,
     locations_visited: Number(row.locations_visited),
     routes_created: Number(row.routes_created),
-    followers_count: Number(row.followers_count),
-    following_count: Number(row.following_count),
+    followers_count: liveCounts.followers_count,
+    following_count: liveCounts.following_count,
     user_id: ownerId,
     is_following: isFollowing,
     is_public: isPublic,

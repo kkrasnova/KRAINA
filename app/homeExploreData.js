@@ -5,33 +5,33 @@ import { resolveOfflineUriSync } from './offline/localCacheStore';
 
 /** Картка країни на головній: прев’ю t1–t4 або URL (керується з адмін-панелі). */
 export const HOME_COUNTRY_HERO_REFS = {
-  UA: require('./assets/kyiv-main-hero.png'),
-  ES: require('./assets/spain-card-hero.png'),
-  FR: require('./assets/france-card-hero.png'),
-  IT: require('./assets/italy-card-hero.png'),
-  DE: require('./assets/germany-card-hero.png'),
-  PL: require('./assets/poland-card-hero.png'),
-  NL: require('./assets/netherlands-card-hero.png'),
-  RO: require('./assets/romania-card-hero.png'),
-  LT: require('./assets/lithuania-card-hero.png'),
-  LV: require('./assets/latvia-card-hero.png'),
-  AM: require('./assets/armenia-card-hero.png'),
+  UA: require('./assets/kyiv-main-hero.webp'),
+  ES: require('./assets/spain-card-hero.webp'),
+  FR: require('./assets/france-card-hero.webp'),
+  IT: require('./assets/italy-card-hero.webp'),
+  DE: require('./assets/germany-card-hero.webp'),
+  PL: require('./assets/poland-card-hero.webp'),
+  NL: require('./assets/netherlands-card-hero.webp'),
+  RO: require('./assets/romania-card-hero.webp'),
+  LT: require('./assets/lithuania-card-hero.webp'),
+  LV: require('./assets/latvia-card-hero.webp'),
+  AM: require('./assets/armenia-card-hero.webp'),
 };
 /** Окремий URL фото картки країни (має пріоритет над прев’ю). */
 export const HOME_COUNTRY_HERO_URIS = {};
 /** Вбудовані fallback-фото карток (працюють навіть якщо адмін-перевизначення порожні). */
 const HOME_COUNTRY_HERO_DEFAULTS = {
-  UA: require('./assets/kyiv-main-hero.png'),
-  ES: require('./assets/spain-card-hero.png'),
-  FR: require('./assets/france-card-hero.png'),
-  IT: require('./assets/italy-card-hero.png'),
-  DE: require('./assets/germany-card-hero.png'),
-  PL: require('./assets/poland-card-hero.png'),
-  NL: require('./assets/netherlands-card-hero.png'),
-  RO: require('./assets/romania-card-hero.png'),
-  LT: require('./assets/lithuania-card-hero.png'),
-  LV: require('./assets/latvia-card-hero.png'),
-  AM: require('./assets/armenia-card-hero.png'),
+  UA: require('./assets/kyiv-main-hero.webp'),
+  ES: require('./assets/spain-card-hero.webp'),
+  FR: require('./assets/france-card-hero.webp'),
+  IT: require('./assets/italy-card-hero.webp'),
+  DE: require('./assets/germany-card-hero.webp'),
+  PL: require('./assets/poland-card-hero.webp'),
+  NL: require('./assets/netherlands-card-hero.webp'),
+  RO: require('./assets/romania-card-hero.webp'),
+  LT: require('./assets/lithuania-card-hero.webp'),
+  LV: require('./assets/latvia-card-hero.webp'),
+  AM: require('./assets/armenia-card-hero.webp'),
 };
 
 /**

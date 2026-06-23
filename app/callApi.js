@@ -6,8 +6,17 @@
 import { backendAuthFetch } from './backendAuthApi';
 
 /** Initiate a call to a user. */
-export async function callsInitiate(calleeId) {
-  const data = await backendAuthFetch('POST', '/api/calls/initiate', { callee_id: calleeId });
+export async function callsInitiate(calleeId, { isVideo = false } = {}) {
+  const data = await backendAuthFetch('POST', '/api/calls/initiate', {
+    callee_id: calleeId,
+    is_video: !!isVideo,
+  });
+  return data;
+}
+
+/** Whether audio/video calls are enabled on the backend. */
+export async function callsGetConfig() {
+  const data = await backendAuthFetch('GET', '/api/calls/config');
   return data;
 }
 

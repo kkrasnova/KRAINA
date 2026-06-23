@@ -1,25 +1,31 @@
 import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { View, Pressable, StyleSheet, Platform, DeviceEventEmitter, PanResponder } from 'react-native';
+import { View, Pressable, StyleSheet, Platform, DeviceEventEmitter } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { navigationRef, subscribeNavState, getNavStateVersion } from './navigationRef';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { getAppTheme, getAppThemeSync, THEME_CHANGED_EVENT } from './themeStorage';
 import {
   tabBarActiveIconTint,
   tabBarFabBackground,
   tabBarFabIconTint,
   TAB_ICON_INACTIVE_DARK,
 } from './themeAccent';
-import { HOME_TAB_ROUTE, HOME_TAB, LANDMARK_SCANNER_CAPTURE_EVENT } from './homeTabPagerConstants';
-import { shellNavigate } from './shellNavigate';
+import { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
+import { HOME_TAB, LANDMARK_SCANNER_CAPTURE_EVENT } from './homeTabPagerConstants';
+import { switchHomeTab, isHomeTabActive } from './homeTabSwitch';
 
-/** Світла панель: Figma #DADADA 80%. Темна: #1E1E1E 80%. */
-const BAR_FILL_LIGHT = 'rgba(218, 218, 218, 0.8)';
-const BAR_FILL_DARK = 'rgba(30, 30, 30, 0.8)';
+/** Світла панель: крем фону екрана (непрозора — інакше #000 кореня дає «брудно-сірий»). */
+const BAR_FILL_LIGHT = LIGHT_BAR_BG;
+/** Темна панель: непрозорий фон екрана. */
+const BAR_FILL_DARK = APP_SCREEN_BG;
 const ICON_INACTIVE_LIGHT = '#1E1E1E';
+const FEED_TAB_ICON = require('./assets/feed-tab-icon.png');
 
 /** Центральна кнопка сканера: трохи більша за бокові слоти (44). */
 const FAB_SIZE = 62;
+/** Тінь / візуальний виступ плаваючої панелі над контентом. */
+const TAB_BAR_VISUAL_BLEED = 8;
 
 const ROUTES_WITH_TAB = new Set([
   'HomeTabPager',
@@ -40,10 +46,51 @@ const ROUTES_WITH_TAB = new Set([
 
 export const LIGHT_TAB_BAR_FLOAT_GAP = 10;
 export const LIGHT_TAB_BAR_HEIGHT = 64;
+/** paddingVertical: 8 з styles.bar — потрібен для реальної висоти рядка з FAB. */
+const TAB_BAR_VERTICAL_PAD = 16;
+/** Екрани з білим фоном — під плаваючою панеллю теж білий, без кремового проміжку. */
+export const LIGHT_TAB_WHITE_UNDER_ROUTES = new Set([
+  'Chats',
+  'StartChat',
+  'ChatThread',
+  'DiscoverPeople',
+]);
+
+export function lightTabBarUnderlayColor(isLight, routeName) {
+  if (!isLight) return APP_SCREEN_BG;
+  if (routeName && LIGHT_TAB_WHITE_UNDER_ROUTES.has(routeName)) return '#FFFFFF';
+  return LIGHT_BAR_BG;
+}
+
+/** Екрани з tab bar — контент прокручується під панель, без непрозорої смуги safe area. */
+export function lightTabBarTransparentSafeUnderlay(routeName) {
+  return !!(routeName && ROUTES_WITH_TAB.has(routeName));
+}
+
+/** Фактична висота плаваючої панелі (центральна кнопка 62px вища за minHeight 64). */
+export function lightTabBarEffectiveHeight() {
+  return Math.max(LIGHT_TAB_BAR_HEIGHT, FAB_SIZE + TAB_BAR_VERTICAL_PAD) + TAB_BAR_VISUAL_BLEED;
+}
 
 /** Відступ під плаваючу панель (світла й темна тема). */
 export function lightTabBarExtraScrollPadding() {
-  return LIGHT_TAB_BAR_FLOAT_GAP + LIGHT_TAB_BAR_HEIGHT;
+  return LIGHT_TAB_BAR_FLOAT_GAP + lightTabBarEffectiveHeight();
+}
+
+/** Мінімальний зазор між останнім елементом списку і панеллю вкладок. */
+export const LIGHT_TAB_BAR_SCROLL_CLEARANCE = 32;
+/** Додатковий зазор для головної з високими картками локацій. */
+export const HOME_TAB_SCROLL_CLEARANCE = 64;
+
+/** paddingBottom для ScrollView / FlatList / FlashList на екранах з tab bar. */
+export function lightTabBarScrollContentPadding(safeAreaBottom = 0, extraClearance = 0) {
+  const extra = Math.max(LIGHT_TAB_BAR_SCROLL_CLEARANCE, extraClearance);
+  return Math.max(0, Number(safeAreaBottom) || 0) + lightTabBarExtraScrollPadding() + extra;
+}
+
+/** Нижній відступ для абсолютних елементів над tab bar (з safe area). */
+export function lightTabBarOverlayBottomInset(safeAreaBottom = 0, extraGap = 0) {
+  return lightTabBarScrollContentPadding(safeAreaBottom, extraGap);
 }
 
 function currentRouteMeta() {
@@ -61,7 +108,7 @@ function LightBottomTabBar() {
   // (the root App previously re-rendered on every navigation event via navEpoch).
   const navVersion = useSyncExternalStore(subscribeNavState, getNavStateVersion, getNavStateVersion);
   const insets = useSafeAreaInsets();
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => getAppThemeSync());
 
   useEffect(() => {
     let cancelled = false;
@@ -75,8 +122,8 @@ function LightBottomTabBar() {
   }, []);
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setTheme(v === 'light' ? 'light' : 'dark');
+    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, () => {
+      setTheme(getAppThemeSync());
     });
     return () => sub.remove();
   }, []);
@@ -95,48 +142,9 @@ function LightBottomTabBar() {
   const fabIconTint = tabBarFabIconTint(isLight);
   const iconInactive = isLight ? ICON_INACTIVE_LIGHT : TAB_ICON_INACTIVE_DARK;
   const barFill = isLight ? BAR_FILL_LIGHT : BAR_FILL_DARK;
-  const barBorder = isLight ? 'rgba(242, 242, 234, 0.95)' : 'rgba(255, 255, 255, 0.1)';
-
-  const baseNavigate = useCallback(
-    (name, extra = {}) => shellNavigate(name, extra, isLight ? 'light' : 'dark'),
-    [isLight],
-  );
-
-  const onHome = useCallback(
-    () => baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.MAIN, routeFinderExtras: {} }),
-    [baseNavigate],
-  );
-  const onStack = useCallback(
-    () => baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.FEED, routeFinderExtras: {} }),
-    [baseNavigate],
-  );
-  const onCenter = useCallback(() => {
-    if (routeName === 'HomeTabPager' && pagerTab === HOME_TAB.SCANNER) {
-      DeviceEventEmitter.emit(LANDMARK_SCANNER_CAPTURE_EVENT);
-      return;
-    }
-    baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.SCANNER, routeFinderExtras: {} });
-  }, [baseNavigate, routeName, pagerTab]);
-  const onMap = useCallback(
-    () => baseNavigate(HOME_TAB_ROUTE, { tabIndex: HOME_TAB.MAP, routeFinderExtras: {} }),
-    [baseNavigate],
-  );
-  const onProfile = useCallback(
-    () =>
-      baseNavigate(HOME_TAB_ROUTE, {
-        tabIndex: HOME_TAB.PROFILE,
-        initialTab: 'posts',
-        routeFinderExtras: {},
-      }),
-    [baseNavigate],
-  );
-  const navigateToTabIndex = useCallback(
-    (i) => {
-      const t = Math.min(4, Math.max(0, Number(i) || 0));
-      baseNavigate(HOME_TAB_ROUTE, { tabIndex: t, routeFinderExtras: {} });
-    },
-    [baseNavigate],
-  );
+  const screenUnderBar = lightTabBarUnderlayColor(isLight, routeName);
+  const transparentSafeUnderlay = lightTabBarTransparentSafeUnderlay(routeName);
+  const barBorder = isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.1)';
 
   const active = routeName;
   const routeTabActive =
@@ -154,29 +162,41 @@ function LightBottomTabBar() {
     active === 'ProfileComments' ||
     active === 'ProfileLikes' ||
     active === 'ProfileEditPublication';
-  const resolvedTabIndex =
-    active === 'HomeTabPager'
-      ? pagerTab
-      : routeTabActive
-        ? HOME_TAB.MAP
-        : profileTabActive
-          ? HOME_TAB.PROFILE
-          : null;
-  const barPanResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dx) > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
-        onPanResponderRelease: (_, g) => {
-          if (!Number.isFinite(resolvedTabIndex)) return;
-          if (Math.abs(g.dx) < 28 || Math.abs(g.dx) <= Math.abs(g.dy)) return;
-          // Swipe left => next tab (screen moves right-to-left). Swipe right => previous tab.
-          if (g.dx < 0) navigateToTabIndex(resolvedTabIndex + 1);
-          else navigateToTabIndex(resolvedTabIndex - 1);
-        },
-      }),
-    [navigateToTabIndex, resolvedTabIndex],
+
+  const baseNavigate = useCallback(
+    (tabIndex, extra = {}) => switchHomeTab(tabIndex, extra, isLight ? 'light' : 'dark'),
+    [isLight],
   );
+
+  const onHome = useCallback(() => {
+    if (isHomeTabActive(HOME_TAB.MAIN)) return;
+    baseNavigate(HOME_TAB.MAIN);
+  }, [baseNavigate]);
+  const onStack = useCallback(() => {
+    if (isHomeTabActive(HOME_TAB.FEED)) return;
+    baseNavigate(HOME_TAB.FEED);
+  }, [baseNavigate]);
+  const onCenter = useCallback(() => {
+    if (routeName === 'HomeTabPager' && pagerTab === HOME_TAB.SCANNER) {
+      DeviceEventEmitter.emit(LANDMARK_SCANNER_CAPTURE_EVENT);
+      return;
+    }
+    if (isHomeTabActive(HOME_TAB.SCANNER)) return;
+    baseNavigate(HOME_TAB.SCANNER);
+  }, [baseNavigate, routeName, pagerTab]);
+  const onMap = useCallback(() => {
+    if (
+      routeTabActive &&
+      (active === 'HomeTabPager' || active === 'RouteResults' || active === 'RouteNavigation')
+    ) {
+      return;
+    }
+    baseNavigate(HOME_TAB.MAP);
+  }, [baseNavigate, routeTabActive, active]);
+  const onProfile = useCallback(() => {
+    if (profileTabActive && active === 'HomeTabPager' && pagerTab === HOME_TAB.PROFILE) return;
+    baseNavigate(HOME_TAB.PROFILE, { initialTab: 'posts' });
+  }, [baseNavigate, profileTabActive, active, pagerTab]);
 
   if (!visible) return null;
 
@@ -185,9 +205,18 @@ function LightBottomTabBar() {
       style={[styles.wrap, { paddingBottom: insets.bottom + LIGHT_TAB_BAR_FLOAT_GAP }]}
       pointerEvents="box-none"
     >
+      {insets.bottom > 0 && !transparentSafeUnderlay ? (
+        <View
+          pointerEvents="none"
+          style={[styles.bottomSafeFill, { height: insets.bottom, backgroundColor: screenUnderBar }]}
+        />
+      ) : null}
       <View
-        style={[styles.bar, { backgroundColor: barFill, borderColor: barBorder }]}
-        {...barPanResponder.panHandlers}
+        style={[
+          styles.bar,
+          { backgroundColor: barFill, borderColor: barBorder },
+          isLight ? styles.barLightShadow : null,
+        ]}
       >
         <Pressable
           onPress={onHome}
@@ -209,10 +238,18 @@ function LightBottomTabBar() {
           accessibilityRole="button"
           accessibilityLabel="Feed"
         >
-          <Ionicons
-            name="albums-outline"
-            size={24}
-            color={active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED ? iconActiveTint : iconInactive}
+          <ExpoImage
+            source={FEED_TAB_ICON}
+            style={[
+              styles.feedTabIcon,
+              {
+                tintColor:
+                  active === 'HomeTabPager' && pagerTab === HOME_TAB.FEED ? iconActiveTint : iconInactive,
+              },
+            ]}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={0}
           />
         </Pressable>
         <Pressable
@@ -226,7 +263,7 @@ function LightBottomTabBar() {
           accessibilityRole="button"
           accessibilityLabel="Camera"
         >
-          <Ionicons name="camera-outline" size={30} color={fabIconTint} />
+          <Ionicons name="scan-outline" size={30} color={fabIconTint} />
         </Pressable>
         <Pressable
           onPress={onMap}
@@ -268,6 +305,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 18,
   },
+  bottomSafeFill: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -287,15 +330,25 @@ const styles = StyleSheet.create({
         shadowRadius: 12,
       },
       android: {
-        elevation: 6,
+        elevation: 4,
       },
     }),
   },
+  barLightShadow: Platform.select({
+    android: {
+      elevation: 2,
+    },
+    default: {},
+  }),
   sideSlot: {
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  feedTabIcon: {
+    width: 24,
+    height: 22,
   },
   pressed: {
     opacity: 0.72,

@@ -26,6 +26,7 @@ const upload = multer({
             'audio/mpeg',
             'audio/wav',
             'audio/x-wav',
+            'audio/x-caf',
         ].includes(file.mimetype) || (file.mimetype === 'application/octet-stream' && audioExt);
         cb(null, ok);
     },

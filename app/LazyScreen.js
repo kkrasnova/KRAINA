@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
+import { getAppThemeSync } from './themeStorage';
 
 /** Кеш завантажених lazy-модулів (той самий loader → той самий компонент). */
 const lazyComponentCache = new Map();
 
-function resolveLazyModule(mod) {
-  if (mod && mod.default) return mod.default;
-  return mod;
+function resolveLazyComponent(mod) {
+  const candidate = mod?.default ?? mod;
+  if (typeof candidate === 'function') return candidate;
+  if (__DEV__) {
+    console.warn('[LazyScreen] lazy module did not export a component', mod);
+  }
+  return null;
 }
 
 /**
@@ -31,8 +37,9 @@ export function prefetchLazyLoader(loader) {
   }
   const pending = loader()
     .then((mod) => {
-      const Component = resolveLazyModule(mod);
-      lazyComponentCache.set(loader, Component);
+      const Component = resolveLazyComponent(mod);
+      if (Component) lazyComponentCache.set(loader, Component);
+      else lazyComponentCache.delete(loader);
       return Component;
     })
     .catch((err) => {
@@ -85,8 +92,9 @@ export default function LazyScreen({ loader, fallback, ...rest }) {
     }
     loader()
       .then((mod) => {
-        const Component = resolveLazyModule(mod);
-        lazyComponentCache.set(loader, Component);
+        const Component = resolveLazyComponent(mod);
+        if (Component) lazyComponentCache.set(loader, Component);
+        else lazyComponentCache.delete(loader);
         finish(Component);
       })
       .catch((err) => {
@@ -100,9 +108,7 @@ export default function LazyScreen({ loader, fallback, ...rest }) {
   const Component = CachedRef.current;
   if (!Component || typeof Component !== 'function') {
     return fallback || (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#E1FF00" />
-      </View>
+      <View style={[styles.center, { backgroundColor: getAppThemeSync() === 'light' ? LIGHT_BAR_BG : APP_SCREEN_BG }]} />
     );
   }
 
@@ -114,6 +120,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: APP_SCREEN_BG,
   },
 });

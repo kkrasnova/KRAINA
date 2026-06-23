@@ -1,33 +1,43 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { FlashList } from '@shopify/flash-list';
-import { View, Text, StyleSheet, TextInput, Pressable, Alert, Image, RefreshControl } from 'react-native';
+import { View, StyleSheet, Alert, RefreshControl, DeviceEventEmitter, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
-
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { st } from './chatsI18n';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { socialListIncomingRequests, socialAcceptRequest, socialDeclineRequest } from './socialApi';
 import { hasSocialApi } from './socialApi';
+import { KRAINA_SOCIAL_GRAPH_CHANGED } from './socialFollowSyncEvents';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme } from './themeAccent';
 import { errorToUserText } from './errorText';
+import {
+  SocialPeopleSearchBar,
+  SocialListActionBtn,
+  SocialPersonRow,
+  SocialPeopleEmptyState,
+  socialPeopleListColors,
+  socialPersonDisplayName,
+} from './socialPeopleListUi';
 
 export default function ProfileInvitesPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
+  const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const [q, setQ] = useState('');
   const [invites, setInvites] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
-  const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
+  const { textMain, muted, border } = socialPeopleListColors(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const shell = {
@@ -41,20 +51,20 @@ export default function ProfileInvitesPage({ navigation, route }) {
     if (withSpinner) setRefreshing(true);
     try {
       const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
-    if (!hasSocialApi()) {
-      setInvites([]);
-      return;
+      setAppTheme(t === 'light' ? 'light' : 'dark');
+      if (!hasSocialApi()) {
+        setInvites([]);
+        return;
+      }
+      try {
+        const inv = await socialListIncomingRequests();
+        setInvites(Array.isArray(inv) ? inv : []);
+      } catch {
+        setInvites([]);
+      }
+    } finally {
+      if (withSpinner) setRefreshing(false);
     }
-    try {
-      const inv = await socialListIncomingRequests();
-      setInvites(Array.isArray(inv) ? inv : []);
-    } catch {
-      setInvites([]);
-    }
-  } finally {
-    if (withSpinner) setRefreshing(false);
-  }
   }, []);
 
   useFocusEffect(
@@ -63,8 +73,17 @@ export default function ProfileInvitesPage({ navigation, route }) {
     }, [reload]),
   );
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_GRAPH_CHANGED, () => {
+      void reload();
+    });
+    return () => sub.remove();
+  }, [reload]);
+
   const filtered = q.trim()
-    ? invites.filter((x) => `${x.display_name || ''} ${x.username || ''}`.toLowerCase().includes(q.trim().toLowerCase()))
+    ? invites.filter((x) =>
+        `${x.display_name || ''} ${x.username || ''}`.toLowerCase().includes(q.trim().toLowerCase()),
+      )
     : invites;
 
   const accept = async (item) => {
@@ -85,40 +104,55 @@ export default function ProfileInvitesPage({ navigation, route }) {
     }
   };
 
+  const headerRight = (
+    <Pressable
+      onPress={() => navigation.navigate('StartChat', shell)}
+      hitSlop={12}
+      style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, padding: 4 }]}
+      accessibilityRole="button"
+      accessibilityLabel={st(language, 'startChatTitle')}
+    >
+      <Ionicons name="paper-plane-outline" size={22} color={isLight ? '#1E1E1E' : '#FFFFFF'} />
+    </Pressable>
+  );
+
+  const listEmpty = (
+    <SocialPeopleEmptyState
+      icon="mail-open-outline"
+      title={langUk ? 'Немає запрошень' : 'No invitations'}
+      subtitle={langUk ? 'Нові запити зʼявляться тут' : 'New requests will appear here'}
+      isLight={isLight}
+      textMain={textMain}
+      muted={muted}
+    />
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: screenBg }]}>
       <AppTopBar
         appTheme={appTheme}
         leftMode="back"
         onBackPress={() => navigation.goBack()}
-        centerSubtitle={pf(language, 'invitesTitle')}
+        replaceCenterTitle={pf(language, 'invitesTitle')}
+        rightSlot={headerRight}
         hideSendButton
       />
-      <View
-        style={[
-          styles.searchWrap,
-          {
-            borderColor: accent,
-            backgroundColor: isLight ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.08)',
-          },
-        ]}
-      >
-        <TextInput
-          value={q}
-          onChangeText={setQ}
-          placeholder={pf(language, 'search')}
-          placeholderTextColor={isLight ? '#888' : '#777'}
-          style={[styles.searchInput, { color: textMain }]}
-        />
-        <Ionicons name="search-outline" size={22} color={accent} />
-      </View>
+      <SocialPeopleSearchBar
+        value={q}
+        onChangeText={setQ}
+        placeholder={pf(language, 'search')}
+        isLight={isLight}
+        accent={accent}
+        textMain={textMain}
+        muted={muted}
+      />
       <FlashList
         data={filtered}
-        keyExtractor={(item) => item.user_id}
+        keyExtractor={(item) => String(item.user_id)}
         estimatedItemSize={72}
         contentContainerStyle={{
           paddingHorizontal: 20,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 20,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 20),
         }}
         refreshControl={
           <RefreshControl
@@ -127,44 +161,45 @@ export default function ProfileInvitesPage({ navigation, route }) {
             tintColor={accent}
           />
         }
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.row,
-              { borderBottomColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' },
-            ]}
-          >
-            {item.avatar_url ? (
-              <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-            ) : (
-              <View
-                style={[
-                  styles.avatar,
-                  { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' },
-                ]}
-              />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.name, { color: textMain }]}>{item.display_name || item.username}</Text>
-              <Text style={{ color: isLight ? '#888' : '#777', fontSize: 13 }}>@{item.username}</Text>
-            </View>
-            <View style={styles.actions}>
-              <Pressable
-                style={({ pressed }) => [styles.iconBtn, styles.addBtn, pressed && { opacity: 0.85 }]}
-                android_ripple={ripple}
-                onPress={() => accept(item)}
-              >
-                <Ionicons name="add" size={22} color="#FFF" />
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.iconBtn, styles.delBtn, pressed && { opacity: 0.85 }]}
-                android_ripple={ripple}
-                onPress={() => decline(item)}
-              >
-                <Ionicons name="close" size={18} color="#FFF" />
-              </Pressable>
-            </View>
-          </View>
+        ListEmptyComponent={listEmpty}
+        renderItem={({ item, index }) => (
+          <SocialPersonRow
+            avatarUrl={item.avatar_url}
+            displayName={socialPersonDisplayName(item)}
+            onPressName={() => {
+              const username = String(item.username || '').replace(/^@/, '').trim();
+              if (!username) return;
+              navigation.push('SocialUserProfile', {
+                ...shell,
+                username,
+                preloadedProfile: item,
+              });
+            }}
+            actions={
+              <>
+                <SocialListActionBtn
+                  icon="add"
+                  onPress={() => accept(item)}
+                  ripple={ripple}
+                  isLight={isLight}
+                  accessibilityLabel={langUk ? 'Прийняти' : 'Accept'}
+                />
+                <SocialListActionBtn
+                  icon="close"
+                  variant="danger"
+                  onPress={() => decline(item)}
+                  ripple={ripple}
+                  isLight={isLight}
+                  accessibilityLabel={langUk ? 'Відхилити' : 'Decline'}
+                />
+              </>
+            }
+            isLight={isLight}
+            textMain={textMain}
+            border={border}
+            isLast={index === filtered.length - 1}
+            ripple={ripple}
+          />
         )}
       />
     </View>
@@ -173,39 +208,4 @@ export default function ProfileInvitesPage({ navigation, route }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  searchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginTop: 12,
-    marginBottom: 8,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  searchInput: { flex: 1, fontSize: 16 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
-  name: { flex: 1, fontSize: 16 },
-  actions: { flexDirection: 'row', gap: 10 },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addBtn: { backgroundColor: '#1E1E1E' },
-  delBtn: { backgroundColor: '#EB4335' },
 });

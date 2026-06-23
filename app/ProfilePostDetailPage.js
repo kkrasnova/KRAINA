@@ -16,11 +16,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme } from './themeAccent';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { pf } from './profileI18n';
+import { ft } from './feedI18n';
 import {
   getPostLikeState,
   togglePostLike,
@@ -29,18 +30,22 @@ import {
   POST_ID,
 } from './profileStorage';
 import {
-  hasFeedApiToken,
+  ensureFeedSocialReady,
   feedListMyPosts,
   feedPatchPostArchive,
   feedDeletePost,
   feedTogglePostLike,
 } from './feedApi';
+import { hasBackendSession } from './backendAuthApi';
+import { isLocalFeedPostId, isServerFeedPostId } from './feedPostSyncBridge';
+import { getUserFeedPosts } from './feedLocalStorage';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { useAuthStore } from './auth/authStore';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
 import { errorToUserText } from './errorText';
 
-const POST_IMG = require('./assets/kling_20260405_IMAGE____________5495_1.png');
+const POST_IMG = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
 
 function formatPostAge(iso, language, langUk) {
   if (!iso) return '';
@@ -71,7 +76,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
   const [mediaIndex, setMediaIndex] = useState(0);
   const [authorAvatarUri, setAuthorAvatarUri] = useState(null);
   const [menu, setMenu] = useState(false);
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [menuBusy, setMenuBusy] = useState(false);
 
   const isLight = appTheme === 'light';
@@ -84,7 +89,11 @@ export default function ProfilePostDetailPage({ navigation, route }) {
   const coverUrl = (feedPost?.media_urls && feedPost.media_urls[0]) || routeCover;
   const mediaUrls = Array.isArray(feedPost?.media_urls) ? feedPost.media_urls.filter(Boolean) : [];
   const canArchive =
-    hasFeedApiToken() && feedPost != null && postId != null && String(postId).trim() !== '' && String(postId) !== POST_ID;
+    hasBackendSession() &&
+    feedPost != null &&
+    postId != null &&
+    isServerFeedPostId(String(postId)) &&
+    String(postId) !== POST_ID;
   const canDeleteBackendPost =
     postId != null && String(postId).trim() !== '' && String(postId) !== POST_ID;
 
@@ -102,11 +111,8 @@ export default function ProfilePostDetailPage({ navigation, route }) {
     setAppTheme(t === 'light' ? 'light' : 'dark');
 
     await useAuthStore.getState().hydrate();
-    if (!useAuthStore.getState().accessToken) {
-      await useAuthStore.getState().refreshSession().catch(() => {});
-    }
-    const token = useAuthStore.getState().accessToken;
-    if (token) {
+    await ensureFeedSocialReady(user);
+    if (hasBackendSession()) {
       try {
         await useAuthStore.getState().loadProfileMeIfStale();
       } catch {
@@ -116,7 +122,10 @@ export default function ProfilePostDetailPage({ navigation, route }) {
 
     const pid = postId;
     const useFeed =
-      hasFeedApiToken() && pid != null && String(pid).trim() !== '' && String(pid) !== POST_ID;
+      hasBackendSession() &&
+      pid != null &&
+      isServerFeedPostId(String(pid)) &&
+      String(pid) !== POST_ID;
 
     let loaded = null;
     if (useFeed) {
@@ -125,6 +134,28 @@ export default function ProfilePostDetailPage({ navigation, route }) {
         loaded = (Array.isArray(posts) ? posts : []).find((p) => String(p.id) === String(pid)) || null;
       } catch {
         loaded = null;
+      }
+    }
+    if (!loaded && pid && isLocalFeedPostId(pid)) {
+      try {
+        const locals = await getUserFeedPosts(user);
+        const local = (Array.isArray(locals) ? locals : []).find((p) => String(p.id) === String(pid));
+        if (local) {
+          const media_urls = (Array.isArray(local.uris) ? local.uris : local.uri ? [local.uri] : [])
+            .map((u) => resolveFeedMediaUrl(u))
+            .filter(Boolean);
+          loaded = {
+            id: String(local.id),
+            media_urls,
+            content_text: local.caption || '',
+            place_label: local.place || '',
+            created_at: local.createdAt ? new Date(local.createdAt).toISOString() : null,
+            likes_count: 0,
+            liked_by_viewer: false,
+          };
+        }
+      } catch {
+        /* */
       }
     }
     setFeedPost(loaded);
@@ -178,14 +209,18 @@ export default function ProfilePostDetailPage({ navigation, route }) {
 
   const onLike = async () => {
     const useFeed =
-      hasFeedApiToken() &&
+      hasBackendSession() &&
       postId != null &&
-      String(postId).trim() !== '' &&
+      isServerFeedPostId(String(postId)) &&
       String(postId) !== POST_ID;
     if (useFeed) {
-      const out = await feedTogglePostLike(String(postId));
-      setLikes({ liked: !!out.liked, count: Number(out.likes_count) || 0 });
-      emitFeedMediaUpdated({ postId: String(postId) });
+      try {
+        const out = await feedTogglePostLike(String(postId));
+        setLikes({ liked: !!out.liked, count: Number(out.likes_count) || 0 });
+        emitFeedMediaUpdated({ postId: String(postId) });
+      } catch (e) {
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      }
       return;
     }
     setLikes(await togglePostLike(postId));
@@ -224,7 +259,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
       />
       <ScrollView
         contentContainerStyle={{
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 20,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 20),
         }}
         {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
       >
@@ -312,9 +347,9 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                   navigation.navigate('ProfileComments', {
                     ...shell,
                     useBackendComments:
-                      hasFeedApiToken() &&
+                      hasBackendSession() &&
                       postId != null &&
-                      String(postId).trim() !== '' &&
+                      isServerFeedPostId(String(postId)) &&
                       String(postId) !== POST_ID,
                   })
                 }

@@ -24,8 +24,13 @@ import { Image as ExpoImage } from 'expo-image';
 import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
 import { getCachedOrRemoteAudioUri } from './audioGuideCache';
 import {
+  normalizePlaybackUri,
+  resolveLandmarkAudioScript,
   startLandmarkNarration,
 } from './landmarkTts';
+import { buildSlideAudioScripts } from './landmarkSlideAudioTexts';
+import { useLandmarkSlideAudioguide } from './useLandmarkSlideAudioguide';
+import { LandmarkAudioGuideControls } from './LandmarkAudioGuideControls';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { appLangBase } from './appLang';
@@ -35,7 +40,7 @@ import { getSession } from './db';
 import { ls } from './landmarkScannerI18n';
 import { lq } from './landmarkQuizI18n';
 import { hasPlayableStoryQuiz } from './landmarkQuizUtils';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { ACCENT_BLUE, accentForTheme, onAccentButtonText } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { buildMiniExtract } from './landmarkIdentify';
@@ -44,6 +49,15 @@ import {
   parseCityFromSubtitle,
   shouldRecordVisitFromLandmarkRoute,
 } from './visitStatsStorage';
+import { applyPhysicalVisitReward } from './physicalVisitRewards';
+import {
+  distanceMetersFromCoords,
+  isWithinPhysicalVisitRadiusMeters,
+  PHYSICAL_VISIT_RADIUS_M,
+} from './landmarkProximity';
+import * as Location from 'expo-location';
+import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
+import { getLandmarkInRegion, getRegion, landmarkTitle } from './routeRegionsData';
 import {
   toggleSavedLandmark,
   isLandmarkSaved,
@@ -56,79 +70,44 @@ import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import { RenderProfiler } from './performanceMetrics';
 import { createLandmarkPagerPanResponder, LANDMARK_SCROLL_PULL_DISMISS_PX } from './landmarkPagerSwipe';
-import { resolveHeroThumbRef, HERO_THUMB_MAP } from './krainaHeroThumbs';
+import { resolveHeroThumbRef } from './krainaHeroThumbs';
+import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
+import { introPagesFromStory, homeHeroLayoutFromStory } from './homeLandmarkResultParams';
+import { splitIntroBodyAtHero, INTRO_BODY_HERO_MARKER } from './landmarkTextUtils';
 import { shellPush } from './shellNavigate';
 import { useAuthStore } from './auth/authStore';
+import {
+  runAfterParamMenuDismiss,
+  shareLandmarkPublication,
+  shareLandmarkLocation,
+  reportLandmarkIssue,
+} from './landmarkParamMenuActions';
 
-/** Fallback hero thumbs for Maidan intro sub-pages (survives stale nav params). */
-const MAIDAN_INTRO_PAGE_HERO = {
-  'intro-2': 'maidanKozyeBolotoMap',
-  'intro-4': 'maidanGudovskyHistoric',
-  'intro-5': 'maidanHolovposhtamtTragedy',
-  'intro-6': 'maidanCityDumaPostcard',
-  'intro-7': 'maidan',
-  'intro-8': 'maidanLyadskiGates',
-  'intro-9': 'maidanZeroKilometerGlobe',
-  'intro-10': 'maidanRevolutionGranite1990',
-  'intro-11': 'maidanOrangeRevolution2004',
-  'intro-12': 'maidan',
-};
-
-/** Same as above, keyed by introPart when nav params are stale. */
-const MAIDAN_INTRO_PART_HERO = {
-  2: 'maidanKozyeBolotoMap',
-  4: 'maidanGudovskyHistoric',
-  5: 'maidanHolovposhtamtTragedy',
-  6: 'maidanCityDumaPostcard',
-  7: 'maidan',
-  8: 'maidanLyadskiGates',
-  9: 'maidanZeroKilometerGlobe',
-  10: 'maidanRevolutionGranite1990',
-  11: 'maidanOrangeRevolution2004',
-  12: 'maidan',
-};
-
-const MAIDAN_INTRO_PAGE_SECONDARY_HERO = {
-  'intro-6': 'maidanKhreshchatykRuins',
-  'intro-10': 'maidanRevolutionGraniteCamp',
-};
+import {
+  TextWithOptionalUrls,
+  TextWithEmphasis,
+  LandmarkIntroFormattedBody,
+} from './landmarkResultTextComponents';
+import {
+  resolveAssetAspect,
+  fitAssetWithinBox,
+  LandmarkIllustrationLightbox,
+  IntroPhotoTap,
+  AuthStylePrimaryCta,
+} from './landmarkResultDisplayComponents';
 
 /** Crop anchor for intro hero photos (object-position). */
-const MAIDAN_INTRO_PAGE_HERO_POSITION = {
-  'intro-5': { left: '72%', top: '50%' },
-  'intro-6': { left: '50%', top: '34%' },
-  'intro-8': { left: '50%', top: '2%' },
-};
-
-/** Fit mode for intro hero photos (`cover` default). */
-const MAIDAN_INTRO_PAGE_HERO_FIT = {};
-
-const MAIDAN_INTRO_PAGE_COMPARE_TOP_INSET = {
-  'intro-2': 22,
-  'intro-3': 22,
-  'intro-7': 22,
-};
-
-const MAIDAN_INTRO_PAGE_SECONDARY_HERO_POSITION = {
-  'intro-6': { left: '50%', top: '40%' },
-};
-
-/** Taller hero only on selected Maidan intro pages. */
-const MAIDAN_INTRO_PAGE_HERO_HEIGHT = {
-  'intro-2': { ratio: 0.4, max: 340 },
-  'intro-5': { ratio: 0.68, max: 600 },
-  'intro-6': { ratio: 0.48, max: 400 },
-  'intro-7': { ratio: 0.62, max: 560 },
-  'intro-8': { ratio: 0.46, max: 380 },
-  'intro-9': { ratio: 0.44, max: 380 },
-  'intro-10': { ratio: 0.44, max: 380 },
-};
-
-/** Shorter second photo on selected Maidan intro pages. */
-const MAIDAN_INTRO_PAGE_SECONDARY_HERO_HEIGHT = {
-  'intro-6': { ratio: 0.3, max: 260 },
-  'intro-10': { ratio: 0.4, max: 340 },
-};
+function resolveHeroPosition(page, variant = 'primary') {
+  const key =
+    variant === 'secondary'
+      ? 'secondaryHeroPosition'
+      : variant === 'tertiary'
+        ? 'tertiaryHeroPosition'
+        : 'heroPosition';
+  const pos = page?.[key];
+  if (pos && typeof pos === 'object') return pos;
+  return 'center';
+}
 
 /** Ті самі кольори, що кнопка «Вхід» / «Реєстрація» у ThirdPage (`authOnboardCta*`). */
 const AUTH_CTA_ACCENT = '#E1FF00';
@@ -172,295 +151,11 @@ const PARAM_MENU_SHEET_DARK = '#141414';
 const PARAM_MENU_SHEET_LIGHT = '#FFFFFF';
 const PARAM_MENU_REPORT = '#EB4335';
 
-function TextWithOptionalUrls({ children, style, linkColor, emphasisColor }) {
-  const text = String(children ?? '');
-  if (!/(https?:\/\/)/i.test(text) && !/\*\*/.test(text)) {
-    return <Text style={style}>{text}</Text>;
-  }
-  const parts = text.split(/(https?:\/\/[^\s]+)/gi);
-  return (
-    <Text style={style}>
-      {parts.map((part, i) =>
-        /^https?:\/\//i.test(part) ? (
-          <Text
-            key={`u-${i}`}
-            style={{ color: linkColor, textDecorationLine: 'underline' }}
-            onPress={() => WebBrowser.openBrowserAsync(part).catch(() => {})}
-          >
-            {part}
-          </Text>
-        ) : (
-          <TextWithEmphasis key={`t-${i}`} text={part} emphasisColor={emphasisColor} />
-        ),
-      )}
-    </Text>
-  );
-}
-
-function TextWithEmphasis({ text, emphasisColor }) {
-  const segments = useMemo(() => {
-    const src = String(text || '');
-    if (!/\*\*/.test(src)) return [{ type: 'plain', text: src }];
-    const out = [];
-    const re = /\*\*([^*]+)\*\*/g;
-    let last = 0;
-    let match;
-    while ((match = re.exec(src)) !== null) {
-      if (match.index > last) out.push({ type: 'plain', text: src.slice(last, match.index) });
-      out.push({ type: 'emphasis', text: match[1] });
-      last = match.index + match[0].length;
-    }
-    if (last < src.length) out.push({ type: 'plain', text: src.slice(last) });
-    return out.length ? out : [{ type: 'plain', text: src }];
-  }, [text]);
-
-  return (
-    <>
-      {segments.map((seg, i) =>
-        seg.type === 'emphasis' ? (
-          <Text key={`e-${i}`} style={{ color: emphasisColor, fontWeight: '600' }}>
-            {seg.text}
-          </Text>
-        ) : (
-          seg.text
-        ),
-      )}
-    </>
-  );
-}
-
-function isIntroSectionHeading(block) {
-  const t = String(block || '').trim();
-  if (!t || t.length > 96) return false;
-  const sentences = t.split(/(?<=[.!?…])\s+/).filter(Boolean);
-  if (sentences.length !== 1) return false;
-  if (t.length > 72 && /[,;:—–-]/.test(t)) return false;
-  return true;
-}
-
-function parseIntroBodyBlocks(text) {
-  return String(text || '')
-    .split(/\n\s*\n/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => ({
-      type: isIntroSectionHeading(block) ? 'heading' : 'paragraph',
-      text: block,
-    }));
-}
-
-const LandmarkIntroFormattedBody = React.memo(function LandmarkIntroFormattedBody({
-  text,
-  isLight,
-  accent,
-  titleColor,
-  bodyColor,
-  bodyLinkColor,
-  emphasisColor,
-  brandFontSans,
-  brandFontHeadMedium,
-  leadOnly = false,
-  uniformParagraphs = false,
-}) {
-  const blocks = useMemo(() => parseIntroBodyBlocks(text), [text]);
-  const mutedBody = isLight ? '#4A4A4A' : 'rgba(242,242,234,0.88)';
-
-  return (
-    <View style={styles.introFormattedBody}>
-      {blocks.map((block, idx) => {
-        if (block.type === 'heading') {
-          return (
-            <View key={`h-${idx}`} style={styles.introSectionHeadingWrap}>
-              <View style={[styles.introSectionHeadingRule, { backgroundColor: accent }]} />
-              <Text
-                style={[
-                  styles.introSectionHeading,
-                  brandFontHeadMedium,
-                  { color: titleColor },
-                ]}
-              >
-                {block.text}
-              </Text>
-            </View>
-          );
-        }
-        const isLead = !uniformParagraphs && idx === 0;
-        const isEmphasisLead = leadOnly && idx === 0 && !uniformParagraphs;
-        return (
-          <TextWithOptionalUrls
-            key={`p-${idx}`}
-            style={[
-              styles.introParagraph,
-              isLead && styles.introLeadParagraph,
-              isEmphasisLead && styles.introEmphasisParagraph,
-              brandFontSans,
-              { color: uniformParagraphs || isLead ? bodyColor : mutedBody },
-            ]}
-            linkColor={bodyLinkColor}
-            emphasisColor={emphasisColor}
-          >
-            {block.text}
-          </TextWithOptionalUrls>
-        );
-      })}
-    </View>
-  );
-});
-
-function fitAssetWithinBox(source, maxWidth, maxHeight) {
-  const resolved = typeof source === 'number' ? Image.resolveAssetSource(source) : null;
-  if (!resolved?.width || !resolved?.height) {
-    return { width: maxWidth, height: maxHeight };
-  }
-  const assetScale = Number(resolved.scale) || 1;
-  const nativeWidthPt = resolved.width / assetScale;
-  const aspect = resolved.width / Math.max(1, resolved.height);
-  let width = Math.min(maxWidth, nativeWidthPt);
-  let height = width / aspect;
-  if (height > maxHeight) {
-    height = maxHeight;
-    width = height * aspect;
-  }
-  // У lightbox дозволяємо масштабувати портретні ілюстрації до ширини екрана.
-  if (width < maxWidth * 0.98 && height < maxHeight * 0.98) {
-    const scaleUp = Math.min(maxWidth / width, maxHeight / height);
-    if (scaleUp > 1.02) {
-      width = Math.min(maxWidth, Math.round(width * scaleUp));
-      height = Math.min(maxHeight, Math.round(width / aspect));
-    }
-  }
-  return { width: Math.round(width), height: Math.round(height) };
-}
-
-function LandmarkIllustrationLightbox({ visible, source, caption, onClose }) {
-  const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
-  const zoomScaleRef = useRef(1);
-  const scrollRef = useRef(null);
-  const imageSize = useMemo(() => {
-    const captionReserve = caption ? 96 : 48;
-    const maxW = width - 8;
-    const maxH = height - insets.top - insets.bottom - captionReserve;
-    return fitAssetWithinBox(source, maxW, Math.max(320, maxH));
-  }, [source, width, height, insets.top, insets.bottom, caption]);
-
-  useEffect(() => {
-    if (!visible) {
-      zoomScaleRef.current = 1;
-    }
-  }, [visible]);
-
-  const handleClose = useCallback(() => {
-    zoomScaleRef.current = 1;
-    onClose();
-  }, [onClose]);
-
-  const tryCloseOnTap = useCallback(() => {
-    if (zoomScaleRef.current <= 1.02) handleClose();
-  }, [handleClose]);
-
-  if (!visible || !source) return null;
-
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={handleClose}>
-      <View style={styles.illustrationLightboxRoot}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={tryCloseOnTap} accessibilityRole="button" />
-        <ScrollView
-          ref={scrollRef}
-          style={styles.illustrationLightboxScroll}
-          contentContainerStyle={styles.illustrationLightboxScrollContent}
-          maximumZoomScale={Platform.OS === 'ios' ? 4 : 1}
-          minimumZoomScale={1}
-          centerContent
-          bouncesZoom
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          onScroll={(e) => {
-            zoomScaleRef.current = Number(e.nativeEvent?.zoomScale) || 1;
-          }}
-          scrollEventThrottle={16}
-        >
-          <Pressable onPress={tryCloseOnTap} accessibilityRole="imagebutton">
-            <ExpoImage
-              source={source}
-              style={imageSize}
-              contentFit="contain"
-              contentPosition="center"
-              cachePolicy="memory-disk"
-              transition={0}
-              allowDownscaling
-              accessibilityIgnoresInvertColors
-            />
-          </Pressable>
-        </ScrollView>
-        {caption ? (
-          <Text
-            style={[styles.illustrationLightboxCaption, { bottom: Math.max(insets.bottom, 20) + 12 }]}
-            pointerEvents="none"
-          >
-            {caption}
-          </Text>
-        ) : null}
-        <Pressable
-          style={[styles.illustrationLightboxClose, { top: insets.top + 8 }]}
-          onPress={handleClose}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-        >
-          <Ionicons name="close" size={28} color="#FFFFFF" />
-        </Pressable>
-      </View>
-    </Modal>
-  );
-}
-
-/** CTA як на вході: темна — лайм-стек; світла — синій без жовтого «ореолу» (нейтральна тінь). */
-function AuthStylePrimaryCta({ onPress, label, androidRipple = rippleOnDarkSurface, isLight }) {
-  const outerBorder = isLight ? 'rgba(2, 18, 235, 0.22)' : 'rgba(225, 255, 0, 0.45)';
-  const backBg = isLight ? '#1c2d66' : AUTH_CTA_BACK;
-  const frontBg = isLight ? ACCENT_BLUE : AUTH_CTA_ACCENT;
-  const frontBorder = isLight ? '#2544c4' : AUTH_CTA_FRONT_BORDER;
-  const shadowCol = isLight ? 'rgba(0, 0, 0, 0.28)' : AUTH_CTA_BACK;
-  const shadowOpacity = isLight ? 0.2 : 0.32;
-  const elevation = isLight ? 3 : 5;
-  const txtColor = onAccentButtonText(!!isLight);
-  const outerBorderW = isLight ? 3 : 5;
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.authCtaOuter, { borderColor: outerBorder, borderWidth: outerBorderW }]}
-      android_ripple={androidRipple}
-    >
-      {({ pressed }) => (
-        <>
-          <View style={[styles.authCtaBack, { backgroundColor: backBg }]} />
-          <View
-            style={[
-              styles.authCtaFront,
-              {
-                backgroundColor: frontBg,
-                borderColor: frontBorder,
-                shadowColor: shadowCol,
-                shadowOpacity,
-                elevation,
-                transform: [{ translateY: pressed ? 0 : -8 }],
-              },
-            ]}
-          >
-            <Text style={[styles.authCtaText, { color: txtColor }]}>{label}</Text>
-          </View>
-        </>
-      )}
-    </Pressable>
-  );
-}
-
 export default function LandmarkResultPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   const photoUri = resolveOfflineUriSync(route?.params?.photoUri);
   const defaultHeroPhotoSource = useMemo(() => {
@@ -476,8 +171,44 @@ export default function LandmarkResultPage({ navigation, route }) {
     const raw = route?.params?.introContinuation;
     return typeof raw === 'string' ? raw.trim() : '';
   }, [route?.params?.introContinuation]);
+  const visitLandmarkSaveParam = route?.params?.visitLandmarkSave;
+  const homeHeroLayout = useMemo(() => {
+    const fromRoute = homeHeroLayoutFromStory({
+      homeHeroHeightRatio: route?.params?.homeHeroHeightRatio,
+      homeHeroHeightMax: route?.params?.homeHeroHeightMax,
+      homeHeroContentPosition: route?.params?.homeHeroContentPosition,
+      homeHeroContentFit: route?.params?.homeHeroContentFit,
+    });
+    if (visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
+      const lm = getLandmarkInRegion(
+        visitLandmarkSaveParam.regionId,
+        visitLandmarkSaveParam.landmarkId,
+      );
+      return { ...homeHeroLayoutFromStory(lm?.story), ...fromRoute };
+    }
+    return fromRoute;
+  }, [
+    route?.params?.homeHeroHeightRatio,
+    route?.params?.homeHeroHeightMax,
+    route?.params?.homeHeroContentPosition,
+    route?.params?.homeHeroContentFit,
+    visitLandmarkSaveParam,
+  ]);
   const introPages = useMemo(() => {
-    const raw = route?.params?.introPages;
+    let raw = route?.params?.introPages;
+    if (visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
+      const lm = getLandmarkInRegion(
+        visitLandmarkSaveParam.regionId,
+        visitLandmarkSaveParam.landmarkId,
+      );
+      const fresh = introPagesFromStory(lm?.story, language, {
+        regionId: visitLandmarkSaveParam.regionId,
+        landmarkId: visitLandmarkSaveParam.landmarkId,
+      });
+      if (Array.isArray(fresh) && fresh.length > 0) {
+        raw = fresh;
+      }
+    }
     if (!Array.isArray(raw)) return [];
     return raw
       .map((page) => {
@@ -514,8 +245,19 @@ export default function LandmarkResultPage({ navigation, route }) {
             };
           }
         }
-        const body = typeof page?.body === 'string' ? page.body.trim() : '';
-        if (!body) return null;
+        const bodyRaw = typeof page?.body === 'string' ? page.body.trim() : '';
+        const bodyAfterHeroFromPage =
+          typeof page?.bodyAfterHero === 'string' ? page.bodyAfterHero.trim() : '';
+        const splitSource =
+          bodyRaw.includes(INTRO_BODY_HERO_MARKER)
+            ? bodyRaw
+            : bodyAfterHeroFromPage
+              ? `${bodyRaw}${INTRO_BODY_HERO_MARKER}${bodyAfterHeroFromPage}`
+              : bodyRaw;
+        const split = splitIntroBodyAtHero(splitSource);
+        const body = split.body;
+        const bodyAfterHero = split.bodyAfterHero;
+        if (!body && !bodyAfterHero) return null;
         const heroThumb = typeof page?.heroThumb === 'string' ? page.heroThumb.trim() : '';
         const secondaryHeroThumb =
           typeof page?.secondaryHeroThumb === 'string' ? page.secondaryHeroThumb.trim() : '';
@@ -527,12 +269,38 @@ export default function LandmarkResultPage({ navigation, route }) {
           typeof page?.secondaryPhotoAsset === 'number'
             ? page.secondaryPhotoAsset
             : resolveHeroThumbRef(secondaryHeroThumb) || undefined;
+        const illustrationThumb =
+          typeof page?.illustrationThumb === 'string' ? page.illustrationThumb.trim() : '';
         const illustrationAsset =
-          typeof page?.illustrationAsset === 'number' ? page.illustrationAsset : undefined;
+          typeof page?.illustrationAsset === 'number'
+            ? page.illustrationAsset
+            : resolveHeroThumbRef(illustrationThumb) || undefined;
         const illustrationLink =
-          typeof page?.illustrationLink === 'string' ? page.illustrationLink.trim() : '';
+          typeof page?.illustrationLink === 'string'
+            ? page.illustrationLink.trim()
+            : String(page?.illustrationLinkUk || page?.illustrationLinkEn || '').trim();
         const illustrationCaption =
-          typeof page?.illustrationCaption === 'string' ? page.illustrationCaption.trim() : '';
+          typeof page?.illustrationCaption === 'string'
+            ? page.illustrationCaption.trim()
+            : String(page?.illustrationCaptionUk || page?.illustrationCaptionEn || '').trim();
+        const heroCaption =
+          typeof page?.heroCaption === 'string'
+            ? page.heroCaption.trim()
+            : String(page?.heroCaptionUk || page?.heroCaptionEn || '').trim();
+        const secondaryHeroCaption =
+          typeof page?.secondaryHeroCaption === 'string'
+            ? page.secondaryHeroCaption.trim()
+            : String(page?.secondaryHeroCaptionUk || page?.secondaryHeroCaptionEn || '').trim();
+        const tertiaryHeroThumb =
+          typeof page?.tertiaryHeroThumb === 'string' ? page.tertiaryHeroThumb.trim() : '';
+        const tertiaryPhotoAsset =
+          typeof page?.tertiaryPhotoAsset === 'number'
+            ? page.tertiaryPhotoAsset
+            : resolveHeroThumbRef(tertiaryHeroThumb) || undefined;
+        const tertiaryHeroCaption =
+          typeof page?.tertiaryHeroCaption === 'string'
+            ? page.tertiaryHeroCaption.trim()
+            : String(page?.tertiaryHeroCaptionUk || page?.tertiaryHeroCaptionEn || '').trim();
         const pageUri = typeof page?.photoUri === 'string' ? page.photoUri.trim() : '';
         const photoUri =
           pageUri ||
@@ -545,8 +313,17 @@ export default function LandmarkResultPage({ navigation, route }) {
         const compareHeroTopInset = Number(page?.compareHeroTopInset);
         const heroHeightRatio = Number(page?.heroHeightRatio);
         const heroHeightMax = Number(page?.heroHeightMax);
+        const secondaryHeroHeightRatio = Number(page?.secondaryHeroHeightRatio);
+        const secondaryHeroHeightMax = Number(page?.secondaryHeroHeightMax);
+        const heroStackGap = Number(page?.heroStackGap);
+        const heroCaptionGap = Number(page?.heroCaptionGap);
+        const heroTextGap = Number(page?.heroTextGap);
+        const secondaryStackGap = Number(page?.secondaryStackGap);
         return {
           body,
+          ...(bodyAfterHero
+            ? { bodyAfterHero, introHeroAfterText: true }
+            : {}),
           ...(hasCompare
             ? {
                 ...(compareBeforeAsset ? { compareBeforeAsset } : {}),
@@ -572,19 +349,74 @@ export default function LandmarkResultPage({ navigation, route }) {
           ...(secondaryPhotoAsset ? { secondaryPhotoAsset } : {}),
           ...(Number.isFinite(heroHeightRatio) && heroHeightRatio > 0 ? { heroHeightRatio } : {}),
           ...(Number.isFinite(heroHeightMax) && heroHeightMax > 0 ? { heroHeightMax } : {}),
+          ...(Number.isFinite(secondaryHeroHeightRatio) && secondaryHeroHeightRatio > 0
+            ? { secondaryHeroHeightRatio }
+            : {}),
+          ...(Number.isFinite(secondaryHeroHeightMax) && secondaryHeroHeightMax > 0
+            ? { secondaryHeroHeightMax }
+            : {}),
+          ...(Number.isFinite(heroStackGap) && heroStackGap >= 0 ? { heroStackGap } : {}),
+          ...(Number.isFinite(heroCaptionGap) && heroCaptionGap >= 0 ? { heroCaptionGap } : {}),
+          ...(Number.isFinite(heroTextGap) && heroTextGap >= 0 ? { heroTextGap } : {}),
+          ...(Number.isFinite(secondaryStackGap) && secondaryStackGap >= 0
+            ? { secondaryStackGap }
+            : {}),
           ...(photoUri ? { photoUri } : {}),
           ...(illustrationAsset ? { illustrationAsset } : {}),
           ...(illustrationLink ? { illustrationLink } : {}),
           ...(illustrationCaption ? { illustrationCaption } : {}),
+          ...(heroCaption ? { heroCaption } : {}),
+          ...(secondaryHeroCaption ? { secondaryHeroCaption } : {}),
+          ...(tertiaryHeroThumb ? { tertiaryHeroThumb } : {}),
+          ...(tertiaryPhotoAsset ? { tertiaryPhotoAsset } : {}),
+          ...(tertiaryHeroCaption ? { tertiaryHeroCaption } : {}),
+          ...(page.introNoHero ? { introNoHero: true } : {}),
           ...(page.introFullBleedPhoto ? { introFullBleedPhoto: true } : {}),
           ...(page.introHeroAfterText ? { introHeroAfterText: true } : {}),
           ...(page.introHeroBleedTop ? { introHeroBleedTop: true } : {}),
           ...(page.introFactCard ? { introFactCard: true } : {}),
           ...(page.introHeroInsetRounded ? { introHeroInsetRounded: true } : {}),
+          ...(page.introCompareRounded ? { introCompareRounded: true } : {}),
+          ...(page.introHeroSideBySide ? { introHeroSideBySide: true } : {}),
+          ...(page.heroPosition && typeof page.heroPosition === 'object'
+            ? { heroPosition: page.heroPosition }
+            : {}),
+          ...(page.compareBeforePosition && typeof page.compareBeforePosition === 'object'
+            ? { compareBeforePosition: page.compareBeforePosition }
+            : {}),
+          ...(page.compareAfterPosition && typeof page.compareAfterPosition === 'object'
+            ? { compareAfterPosition: page.compareAfterPosition }
+            : {}),
+          ...(page.secondaryHeroPosition && typeof page.secondaryHeroPosition === 'object'
+            ? { secondaryHeroPosition: page.secondaryHeroPosition }
+            : {}),
+          ...(typeof page.heroFit === 'string' && page.heroFit.trim()
+            ? { heroFit: page.heroFit.trim() }
+            : {}),
+          ...(Number.isFinite(Number(page?.sideBySideCellGap)) && Number(page.sideBySideCellGap) >= 0
+            ? { sideBySideCellGap: Number(page.sideBySideCellGap) }
+            : {}),
+          ...(Number.isFinite(Number(page?.sideBySideCenterOffsetTop)) &&
+          Number(page.sideBySideCenterOffsetTop) >= 0
+            ? { sideBySideCenterOffsetTop: Number(page.sideBySideCenterOffsetTop) }
+            : {}),
+          ...(Number.isFinite(Number(page?.sideBySideOuterFlex)) && Number(page.sideBySideOuterFlex) > 0
+            ? { sideBySideOuterFlex: Number(page.sideBySideOuterFlex) }
+            : {}),
+          ...(Number.isFinite(Number(page?.sideBySideCenterFlex)) &&
+          Number(page.sideBySideCenterFlex) > 0
+            ? { sideBySideCenterFlex: Number(page.sideBySideCenterFlex) }
+            : {}),
+          ...(Number.isFinite(Number(page?.sideBySideRowPaddingHorizontal)) &&
+          Number(page.sideBySideRowPaddingHorizontal) >= 0
+            ? {
+                sideBySideRowPaddingHorizontal: Number(page.sideBySideRowPaddingHorizontal),
+              }
+            : {}),
         };
       })
       .filter(Boolean);
-  }, [route?.params?.introPages]);
+  }, [route?.params?.introPages, visitLandmarkSaveParam, language]);
   const headerTitle = useMemo(() => {
     const h = typeof route?.params?.headerTitle === 'string' ? route.params.headerTitle.trim() : '';
     return h || title;
@@ -600,6 +432,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   const wikipediaUrl = route?.params?.wikipediaUrl;
   const source = route?.params?.source;
   const startPhaseParam = route?.params?.startPhase;
+  const isLavraHomeMini =
+    startPhaseParam === 'home' && route?.params?.visitLandmarkSave?.landmarkId === 'lavra';
   const audioGuideUrl = useMemo(() => {
     const u = typeof route?.params?.audioGuideUrl === 'string' ? route.params.audioGuideUrl.trim() : '';
     const resolved = resolveOfflineUriSync(u);
@@ -608,6 +442,7 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const audioPlayerRef = useRef(null);
   const fileAudioActiveRef = useRef(false);
+  const fileAudioDoneCancelRef = useRef(null);
   const visitRecordedRef = useRef(false);
 
   const miniExtract = useMemo(() => {
@@ -640,15 +475,46 @@ export default function LandmarkResultPage({ navigation, route }) {
     const previewLines = Number(route?.params?.previewBodyLines);
     const isHomeLandmark = startPhaseParam === 'home';
     if (hasExplicitMini) {
-      return isHomeLandmark
-        ? Math.min(winH * 0.34, 292)
-        : Math.min(winH * 0.52, 440);
+      if (isHomeLandmark) {
+        if (isLavraHomeMini) {
+          return Math.min(winH * 0.38, 330);
+        }
+        return Math.min(winH * 0.34, 292);
+      }
+      return Math.min(winH * 0.52, 440);
     }
     if (Number.isFinite(previewLines) && previewLines > PREVIEW_BODY_LINES) {
       return Math.min(winH * 0.46, 400);
     }
     return Math.min(winH * 0.36, 320);
-  }, [winH, route?.params?.previewBodyLines, route?.params?.miniExtract, startPhaseParam]);
+  }, [winH, route?.params?.previewBodyLines, route?.params?.miniExtract, startPhaseParam, isLavraHomeMini]);
+  const miniHeroClipHeight = useMemo(() => {
+    const ratio = Number(homeHeroLayout.homeHeroHeightRatio);
+    const max = Number(homeHeroLayout.homeHeroHeightMax);
+    const fit = homeHeroLayout.homeHeroContentFit;
+    const source = defaultHeroPhotoSource;
+
+    if (fit === 'contain' && source) {
+      const resolved = typeof source === 'number' ? Image.resolveAssetSource(source) : null;
+      if (resolved?.width && resolved?.height) {
+        const aspect = resolved.width / resolved.height;
+        const heightFromWidth = winW / aspect;
+        const cap = Number.isFinite(max) && max > 0 ? max : Math.round(winH * 0.78);
+        return Math.min(cap, Math.max(240, Math.round(heightFromWidth)));
+      }
+    }
+
+    if (!Number.isFinite(ratio) || ratio <= 0) return null;
+    const cap = Number.isFinite(max) && max > 0 ? max : Math.round(winH * 0.55);
+    return Math.min(cap, Math.max(220, Math.round(winH * ratio)));
+  }, [
+    homeHeroLayout.homeHeroHeightRatio,
+    homeHeroLayout.homeHeroHeightMax,
+    homeHeroLayout.homeHeroContentFit,
+    defaultHeroPhotoSource,
+    winW,
+    winH,
+  ]);
   /** Вхід нижньої панелі: з’являється знизу. */
   const miniPanelEnterY = useRef(new Animated.Value(280)).current;
   /** Інтерактивний свайп картки вгору (від’ємне значення — тягнемо вгору). */
@@ -670,10 +536,18 @@ export default function LandmarkResultPage({ navigation, route }) {
     return undefined;
   }, [phase, miniSheetMaxH, winH, miniPanelEnterY, miniTopEnterY, miniSheetDragY, miniSheetDragX]);
 
+  useEffect(() => {
+    void prefetchLandmarkResultParams(route?.params || {});
+  }, [
+    route?.params?.photoAsset,
+    route?.params?.photoUri,
+    route?.params?.visitLandmarkSave?.landmarkId,
+  ]);
+
   const [speaking, setSpeaking] = useState(false);
   const [paramsMenuOpen, setParamsMenuOpen] = useState(false);
   const [landmarkSaved, setLandmarkSaved] = useState(false);
-  const [illustrationLightboxOpen, setIllustrationLightboxOpen] = useState(false);
+  const [introPhotoLightbox, setIntroPhotoLightbox] = useState(null);
 
   useEffect(() => {
     let c = false;
@@ -690,34 +564,6 @@ export default function LandmarkResultPage({ navigation, route }) {
     setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    visitRecordedRef.current = false;
-  }, [title, subtitle]);
-
-  useEffect(() => {
-    if (visitRecordedRef.current) return;
-    if (!shouldRecordVisitFromLandmarkRoute(route)) return;
-    const city =
-      (typeof route?.params?.visitCity === 'string' && route.params.visitCity.trim()) ||
-      parseCityFromSubtitle(subtitle);
-    if (!city) return;
-    visitRecordedRef.current = true;
-    const rawCat = typeof route?.params?.visitCategory === 'string' ? route.params.visitCategory.trim() : '';
-    const cat = ['monument', 'park', 'museum', 'other'].includes(rawCat) ? rawCat : 'other';
-    const kmRaw = route?.params?.visitKm;
-    const km = kmRaw != null && Number.isFinite(Number(kmRaw)) ? Number(kmRaw) : null;
-    void recordLocationVisit({ city, category: cat, label: title, km });
-  }, [
-    title,
-    subtitle,
-    route,
-    route?.params?.visitCity,
-    route?.params?.visitCategory,
-    route?.params?.visitKm,
-    route?.params?.fromScanner,
-    route?.params?.countAsPhysicalVisit,
-  ]);
-
   const visitLandmarkSave = route?.params?.visitLandmarkSave;
   const routeUser = route?.params?.user;
   const authStoreUser = useAuthStore((s) => s.user);
@@ -733,8 +579,84 @@ export default function LandmarkResultPage({ navigation, route }) {
   const visitSaveKey = visitLandmarkSave
     ? `${visitLandmarkSave.countryId}|${visitLandmarkSave.regionId}|${visitLandmarkSave.landmarkId}`
     : '';
+  const shareLocationCoords = useMemo(() => {
+    if (visitLat != null && visitLng != null) {
+      return { lat: visitLat, lng: visitLng };
+    }
+    if (visitLandmarkSave?.regionId && visitLandmarkSave?.landmarkId) {
+      const lm = getLandmarkInRegion(visitLandmarkSave.regionId, visitLandmarkSave.landmarkId);
+      if (lm && Number.isFinite(lm.lat) && Number.isFinite(lm.lng)) {
+        return { lat: lm.lat, lng: lm.lng };
+      }
+    }
+    return { lat: undefined, lng: undefined };
+  }, [visitLat, visitLng, visitLandmarkSave]);
   const quizLandmarkKey = visitSaveKey || `t:${String(headerTitle || title || '').slice(0, 120)}`;
   const storyQuiz = route?.params?.storyQuiz;
+
+  useEffect(() => {
+    visitRecordedRef.current = false;
+  }, [title, subtitle, route?.params?.visitKm, route?.params?.countAsPhysicalVisit]);
+
+  useEffect(() => {
+    if (shouldRecordVisitFromLandmarkRoute(route)) return;
+    if (route?.params?.fromScanner === true) return;
+    if (visitLat == null || visitLng == null) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const distM = distanceMetersFromCoords(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          visitLat,
+          visitLng,
+        );
+        if (cancelled || distM == null) return;
+        if (isWithinPhysicalVisitRadiusMeters(distM)) {
+          navigation.setParams({
+            visitKm: distM / 1000,
+            countAsPhysicalVisit: true,
+          });
+        }
+      } catch {
+        /* optional GPS */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visitLat, visitLng, navigation, route, route?.params?.fromScanner, route?.params?.visitKm]);
+
+  useEffect(() => {
+    if (visitRecordedRef.current) return;
+    if (!shouldRecordVisitFromLandmarkRoute(route)) return;
+    const city =
+      (typeof route?.params?.visitCity === 'string' && route.params.visitCity.trim()) ||
+      parseCityFromSubtitle(subtitle);
+    if (!city) return;
+    visitRecordedRef.current = true;
+    const rawCat = typeof route?.params?.visitCategory === 'string' ? route.params.visitCategory.trim() : '';
+    const cat = ['monument', 'park', 'museum', 'other'].includes(rawCat) ? rawCat : 'other';
+    const kmRaw = route?.params?.visitKm;
+    const km = kmRaw != null && Number.isFinite(Number(kmRaw)) ? Number(kmRaw) : null;
+    void recordLocationVisit({ city, category: cat, label: title, km });
+    void applyPhysicalVisitReward(quizLandmarkKey);
+  }, [
+    title,
+    subtitle,
+    route,
+    route?.params?.visitCity,
+    route?.params?.visitCategory,
+    route?.params?.visitKm,
+    route?.params?.countAsPhysicalVisit,
+    quizLandmarkKey,
+  ]);
   const adminFactSlides = useMemo(() => {
     const candidateArrays = [
       route?.params?.factSlides,
@@ -883,6 +805,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, []);
 
   const stopFileAudio = useCallback(async () => {
+    fileAudioDoneCancelRef.current?.();
+    fileAudioDoneCancelRef.current = null;
     fileAudioActiveRef.current = false;
     const player = audioPlayerRef.current;
     if (!player) return;
@@ -896,7 +820,7 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const playLocalAudioUri = useCallback(
     async (localUri) => {
-      const uri = String(localUri || '').trim();
+      const uri = normalizePlaybackUri(localUri);
       if (!uri) throw new Error('audio_empty_uri');
       Speech.stop();
       await setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE);
@@ -909,8 +833,75 @@ export default function LandmarkResultPage({ navigation, route }) {
     [ensureLandmarkAudioPlayer],
   );
 
+  const playFileAudioUntilDone = useCallback(
+    (localUri) =>
+      new Promise((resolve, reject) => {
+        const uri = normalizePlaybackUri(localUri);
+        if (!uri) {
+          reject(new Error('audio_empty_uri'));
+          return;
+        }
+        fileAudioDoneCancelRef.current?.();
+        fileAudioDoneCancelRef.current = null;
+        Speech.stop();
+        void setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE)
+          .then(() => {
+            const player = ensureLandmarkAudioPlayer();
+            let settled = false;
+            let listener = null;
+            let timeoutId = null;
+
+            const finish = (fn) => {
+              if (settled) return;
+              settled = true;
+              if (timeoutId != null) clearTimeout(timeoutId);
+              listener?.remove?.();
+              if (fileAudioDoneCancelRef.current === cancel) {
+                fileAudioDoneCancelRef.current = null;
+              }
+              fileAudioActiveRef.current = false;
+              fn();
+            };
+
+            const cancel = () => finish(() => reject(new Error('audio_cancelled')));
+            fileAudioDoneCancelRef.current = cancel;
+
+            timeoutId = setTimeout(() => {
+              finish(() => reject(new Error('audio_playback_timeout')));
+            }, 10 * 60 * 1000);
+
+            listener = player.addListener('playbackStatusUpdate', (status) => {
+              if (settled) return;
+              if (status.error) {
+                finish(() => reject(new Error(String(status.error))));
+                return;
+              }
+              if (status.isLoaded && status.duration > 0 && status.currentTime >= status.duration - 0.15) {
+                finish(() => resolve());
+                return;
+              }
+              if (status.didJustFinish) {
+                finish(() => resolve());
+              }
+            });
+
+            try {
+              player.replace(uri);
+              fileAudioActiveRef.current = true;
+              player.play();
+            } catch (e) {
+              finish(() => reject(e));
+            }
+          })
+          .catch(reject);
+      }),
+    [ensureLandmarkAudioPlayer],
+  );
+
   useEffect(() => {
     return () => {
+      fileAudioDoneCancelRef.current?.();
+      fileAudioDoneCancelRef.current = null;
       Speech.stop();
       fileAudioActiveRef.current = false;
       audioPlayerRef.current?.remove?.();
@@ -1225,7 +1216,13 @@ export default function LandmarkResultPage({ navigation, route }) {
           type: 'intro',
           introPart: i + 2,
           body: page.body,
-          photoAsset: page.photoAsset,
+          bodyAfterHero: page.bodyAfterHero,
+          photoAsset:
+            typeof page.photoAsset === 'number'
+              ? page.photoAsset
+              : resolveHeroThumbRef(
+                  typeof page.heroThumb === 'string' ? page.heroThumb.trim() : '',
+                ) || undefined,
           photoUri: page.photoUri,
           heroThumb: page.heroThumb,
           secondaryHeroThumb: page.secondaryHeroThumb,
@@ -1233,6 +1230,11 @@ export default function LandmarkResultPage({ navigation, route }) {
           illustrationAsset: page.illustrationAsset,
           illustrationLink: page.illustrationLink,
           illustrationCaption: page.illustrationCaption,
+          heroCaption: page.heroCaption,
+          secondaryHeroCaption: page.secondaryHeroCaption,
+          tertiaryHeroThumb: page.tertiaryHeroThumb,
+          tertiaryPhotoAsset: page.tertiaryPhotoAsset,
+          tertiaryHeroCaption: page.tertiaryHeroCaption,
           compareBeforeAsset: page.compareBeforeAsset,
           compareAfterAsset: page.compareAfterAsset,
           compareBeforeThumb: page.compareBeforeThumb,
@@ -1244,10 +1246,30 @@ export default function LandmarkResultPage({ navigation, route }) {
           compareHeroTopInset: page.compareHeroTopInset,
           heroHeightRatio: page.heroHeightRatio,
           heroHeightMax: page.heroHeightMax,
+          secondaryHeroHeightRatio: page.secondaryHeroHeightRatio,
+          secondaryHeroHeightMax: page.secondaryHeroHeightMax,
+          heroStackGap: page.heroStackGap,
+          heroCaptionGap: page.heroCaptionGap,
+          heroTextGap: page.heroTextGap,
+          secondaryStackGap: page.secondaryStackGap,
+          heroPosition: page.heroPosition,
+          compareBeforePosition: page.compareBeforePosition,
+          compareAfterPosition: page.compareAfterPosition,
+          secondaryHeroPosition: page.secondaryHeroPosition,
+          tertiaryHeroPosition: page.tertiaryHeroPosition,
+          heroFit: page.heroFit,
           introFullBleedPhoto: page.introFullBleedPhoto,
+          introNoHero: page.introNoHero,
           introHeroAfterText: page.introHeroAfterText,
           introHeroBleedTop: page.introHeroBleedTop,
           introHeroInsetRounded: page.introHeroInsetRounded,
+          introCompareRounded: page.introCompareRounded,
+          introHeroSideBySide: page.introHeroSideBySide,
+          sideBySideCellGap: page.sideBySideCellGap,
+          sideBySideCenterOffsetTop: page.sideBySideCenterOffsetTop,
+          sideBySideOuterFlex: page.sideBySideOuterFlex,
+          sideBySideCenterFlex: page.sideBySideCenterFlex,
+          sideBySideRowPaddingHorizontal: page.sideBySideRowPaddingHorizontal,
         });
         if (hasStoryQuiz && i + 2 === 7) {
           pages.push({ id: 'quiz', type: 'quiz' });
@@ -1268,15 +1290,14 @@ export default function LandmarkResultPage({ navigation, route }) {
     });
     return pages;
   }, [hasStoryQuiz, postQuizSections, introContinuation, introPages]);
+  const slideScripts = useMemo(
+    () => buildSlideAudioScripts(pageSections, fullBodyText),
+    [pageSections, fullBodyText],
+  );
   const currentPage = pageSections[activeSectionIndex] || pageSections[0];
   const heroPhotoSource = useMemo(() => {
     if (currentPage?.type === 'intro' && currentPage.introPart > 1) {
-      const pageHeroKey =
-        MAIDAN_INTRO_PAGE_HERO[currentPage?.id] || MAIDAN_INTRO_PART_HERO[currentPage.introPart];
-      if (pageHeroKey) {
-        const forced = HERO_THUMB_MAP[pageHeroKey] || resolveHeroThumbRef(pageHeroKey);
-        if (forced) return forced;
-      }
+      if (currentPage.introNoHero) return null;
       if (typeof currentPage.photoAsset === 'number') return currentPage.photoAsset;
       const heroThumb =
         typeof currentPage.heroThumb === 'string' ? currentPage.heroThumb.trim() : '';
@@ -1284,20 +1305,24 @@ export default function LandmarkResultPage({ navigation, route }) {
       if (typeof thumbAsset === 'number') return thumbAsset;
       const subUri = typeof currentPage.photoUri === 'string' ? currentPage.photoUri.trim() : '';
       if (subUri) return { uri: subUri };
+      if (visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
+        const lm = getLandmarkInRegion(
+          visitLandmarkSaveParam.regionId,
+          visitLandmarkSaveParam.landmarkId,
+        );
+        const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+        const storyKey = langUk ? 'introPagesUk' : 'introPagesEn';
+        const storyPage = lm?.story?.[storyKey]?.[currentPage.introPart - 2];
+        const storyThumb =
+          typeof storyPage?.heroThumb === 'string' ? storyPage.heroThumb.trim() : '';
+        const storyAsset = resolveHeroThumbRef(storyThumb);
+        if (typeof storyAsset === 'number') return storyAsset;
+      }
     }
     return defaultHeroPhotoSource;
-  }, [currentPage, defaultHeroPhotoSource]);
-  const isMaidanDumaIntroPage =
-    currentPage?.id === 'intro-6' || currentPage?.introPart === 6;
+  }, [currentPage, defaultHeroPhotoSource, visitLandmarkSaveParam, language]);
   const secondaryHeroPhotoSource = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
-    const pageHeroKey =
-      MAIDAN_INTRO_PAGE_SECONDARY_HERO[currentPage?.id] ||
-      (currentPage.introPart === 6 ? 'maidanKhreshchatykRuins' : null);
-    if (pageHeroKey) {
-      const forced = HERO_THUMB_MAP[pageHeroKey] || resolveHeroThumbRef(pageHeroKey);
-      if (forced) return forced;
-    }
     if (typeof currentPage.secondaryPhotoAsset === 'number') return currentPage.secondaryPhotoAsset;
     const secondaryHeroThumb =
       typeof currentPage.secondaryHeroThumb === 'string' ? currentPage.secondaryHeroThumb.trim() : '';
@@ -1305,18 +1330,18 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (typeof thumbAsset === 'number') return thumbAsset;
     return null;
   }, [currentPage]);
-  const introPrimaryPhotoSource = useMemo(() => {
-    if (isMaidanDumaIntroPage) {
-      return HERO_THUMB_MAP.maidanCityDumaPostcard || heroPhotoSource;
-    }
-    return heroPhotoSource;
-  }, [isMaidanDumaIntroPage, heroPhotoSource]);
-  const introSecondaryPhotoSource = useMemo(() => {
-    if (isMaidanDumaIntroPage) {
-      return HERO_THUMB_MAP.maidanKhreshchatykRuins || secondaryHeroPhotoSource;
-    }
-    return secondaryHeroPhotoSource;
-  }, [isMaidanDumaIntroPage, secondaryHeroPhotoSource]);
+  const introPrimaryPhotoSource = heroPhotoSource;
+  const introSecondaryPhotoSource = secondaryHeroPhotoSource;
+  const tertiaryHeroPhotoSource = useMemo(() => {
+    if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
+    if (typeof currentPage.tertiaryPhotoAsset === 'number') return currentPage.tertiaryPhotoAsset;
+    const tertiaryHeroThumb =
+      typeof currentPage.tertiaryHeroThumb === 'string' ? currentPage.tertiaryHeroThumb.trim() : '';
+    const thumbAsset = resolveHeroThumbRef(tertiaryHeroThumb);
+    if (typeof thumbAsset === 'number') return thumbAsset;
+    return null;
+  }, [currentPage]);
+  const introTertiaryPhotoSource = tertiaryHeroPhotoSource;
   const currentIllustration = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
     if (typeof currentPage.illustrationAsset !== 'number') return null;
@@ -1348,6 +1373,14 @@ export default function LandmarkResultPage({ navigation, route }) {
       afterAsset,
       beforeUri,
       afterUri,
+      beforePosition:
+        currentPage.compareBeforePosition && typeof currentPage.compareBeforePosition === 'object'
+          ? currentPage.compareBeforePosition
+          : null,
+      afterPosition:
+        currentPage.compareAfterPosition && typeof currentPage.compareAfterPosition === 'object'
+          ? currentPage.compareAfterPosition
+          : null,
     };
   }, [currentPage]);
   const introCompareLayout = useMemo(() => {
@@ -1359,13 +1392,8 @@ export default function LandmarkResultPage({ navigation, route }) {
     const heightMax =
       Number.isFinite(maxH) && maxH > 0 ? maxH : INTRO_COMPARE_HEIGHT_MAX;
     const topInsetRaw = Number(currentPage?.compareHeroTopInset);
-    const topInsetFallback = MAIDAN_INTRO_PAGE_COMPARE_TOP_INSET[currentPage?.id];
     const topInset =
-      Number.isFinite(topInsetRaw) && topInsetRaw > 0
-        ? Math.round(topInsetRaw)
-        : Number.isFinite(topInsetFallback) && topInsetFallback > 0
-          ? topInsetFallback
-          : 0;
+      Number.isFinite(topInsetRaw) && topInsetRaw > 0 ? Math.round(topInsetRaw) : 0;
     return {
       topInset,
       height: Math.min(
@@ -1384,19 +1412,14 @@ export default function LandmarkResultPage({ navigation, route }) {
   const introSubPageHeroHeight = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
     if (currentIntroCompare || !introPrimaryPhotoSource) return null;
-    const customHeight = MAIDAN_INTRO_PAGE_HERO_HEIGHT[currentPage?.id];
     const ratioRaw = Number(currentPage?.heroHeightRatio);
     const maxRaw = Number(currentPage?.heroHeightMax);
     const ratio =
-      Number.isFinite(ratioRaw) && ratioRaw > 0
-        ? ratioRaw
-        : customHeight?.ratio ?? INTRO_SUB_HERO_HEIGHT_RATIO;
-    const maxH =
-      Number.isFinite(maxRaw) && maxRaw > 0
-        ? maxRaw
-        : customHeight?.max ?? 540;
-    return Math.min(maxH, Math.max(320, Math.round(winH * ratio)));
-  }, [currentPage, currentIntroCompare, heroPhotoSource, winH]);
+      Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : INTRO_SUB_HERO_HEIGHT_RATIO;
+    const maxH = Number.isFinite(maxRaw) && maxRaw > 0 ? maxRaw : 540;
+    const minH = currentPage?.introHeroSideBySide ? 200 : 320;
+    return Math.min(maxH, Math.max(minH, Math.round(winH * ratio)));
+  }, [currentPage, currentIntroCompare, introPrimaryPhotoSource, winH]);
   const introHeroTopInset = introCompareLayout?.topInset ?? 0;
   const introHeroHeight = useMemo(() => {
     if (introCompareLayout) return introCompareLayout.height;
@@ -1411,52 +1434,51 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (currentPage.introPart > 1) return String(currentPage.body || '').trim();
     return fullBodyText;
   }, [currentPage, fullBodyText]);
+  const currentIntroBodyAfter = useMemo(() => {
+    if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return '';
+    return String(currentPage.bodyAfterHero || '').trim();
+  }, [currentPage]);
   const isIntroSubPage = currentPage?.type === 'intro' && currentPage?.introPart > 1;
   const isIntroFullBleedPhotoPage =
     currentPage?.type === 'intro' && currentPage.introFullBleedPhoto === true;
   const isIntroHeroAfterTextPage =
-    currentPage?.type === 'intro' &&
-    (currentPage.introHeroAfterText || currentPage?.id === 'intro-9');
+    currentPage?.type === 'intro' && currentPage.introHeroAfterText === true;
   const isIntroHeroBleedTopPage =
-    currentPage?.type === 'intro' &&
-    (currentPage.introHeroBleedTop === true ||
-      currentPage?.id === 'intro-4' ||
-      currentPage?.introPart === 4 ||
-      currentPage?.id === 'intro-5' ||
-      currentPage?.introPart === 5 ||
-      currentPage?.id === 'intro-6' ||
-      currentPage?.introPart === 6 ||
-      currentPage?.id === 'intro-10' ||
-      currentPage?.introPart === 10);
-  const isMaidanCompareIntroPage =
+    currentPage?.type === 'intro' && currentPage.introHeroBleedTop === true;
+  const isIntroCompareRoundedPage =
     currentPage?.type === 'intro' &&
     !!currentIntroCompare &&
-    (currentPage?.id === 'intro-3' || currentPage?.introPart === 3);
-  const isMaidanMapIntroPage =
+    currentPage.introCompareRounded === true;
+  const isIntroIllustrationPage =
+    currentPage?.type === 'intro' && !!currentIllustration;
+  const isIntroHeroSideBySidePage =
     currentPage?.type === 'intro' &&
-    (currentPage?.id === 'intro-2' || currentPage?.introPart === 2);
+    currentPage.introHeroSideBySide === true &&
+    !!introPrimaryPhotoSource &&
+    !!introSecondaryPhotoSource &&
+    !currentIntroCompare;
   const isIntroHeroInsetRoundedPage =
-    currentPage?.type === 'intro' &&
-    (currentPage.introHeroInsetRounded === true ||
-      currentPage?.id === 'intro-2' ||
-      currentPage?.introPart === 2 ||
-      currentPage?.id === 'intro-7' ||
-      currentPage?.introPart === 7);
+    currentPage?.type === 'intro' && currentPage.introHeroInsetRounded === true;
   const isIntroHeroInsetRoundedHeroFirstPage =
     isIntroHeroInsetRoundedPage && !isIntroHeroAfterTextPage;
+  const isIntroNoHeroPage =
+    currentPage?.type === 'intro' && currentPage.introNoHero === true;
   const introScrollTopPad =
-    isIntroSubPage && isIntroHeroBleedTopPage
+    isIntroSubPage && isIntroHeroBleedTopPage && !isIntroNoHeroPage
       ? 0
       : isIntroSubPage &&
-          (isMaidanCompareIntroPage ||
-            isMaidanMapIntroPage ||
+          (isIntroCompareRoundedPage ||
+            isIntroIllustrationPage ||
             isIntroHeroInsetRoundedHeroFirstPage)
-        ? Math.max(insets.top + 66, 82)
-      : isIntroSubPage && isIntroHeroAfterTextPage
-        ? Math.max(insets.top + 98, 116)
-        : isIntroSubPage
-          ? introHeaderClearance
-          : 0;
+        ? Math.max(
+            insets.top + (isIntroHeroSideBySidePage ? 74 : 66),
+            isIntroHeroSideBySidePage ? 90 : 82,
+          )
+        : isIntroSubPage && isIntroHeroAfterTextPage
+          ? Math.max(insets.top + 72, 88)
+          : isIntroSubPage
+            ? introHeaderClearance
+            : 0;
   const isIntroFirstPage = currentPage?.type === 'intro' && Number(currentPage?.introPart || 1) === 1;
   useEffect(() => {
     isIntroFirstPageRef.current = isIntroFirstPage;
@@ -1465,8 +1487,8 @@ export default function LandmarkResultPage({ navigation, route }) {
     currentPageTypeRef.current = currentPage?.type || 'intro';
   }, [currentPage?.type]);
   const introScrollBottomPad = Math.max(insets.bottom + 88, 112);
-  const quizHeaderClearance = Math.max(insets.top + 90, 108);
-  const quizScrollBottomPad = Math.max(insets.bottom + 104, 128);
+  const quizHeaderClearance = Math.max(insets.top + 68, 84);
+  const quizScrollBottomPad = Math.max(insets.bottom + 88, 108);
   const quizViewportMinHeight = useMemo(
     () => Math.max(320, Math.round(winH - quizScrollBottomPad - quizHeaderClearance)),
     [winH, quizScrollBottomPad, quizHeaderClearance],
@@ -1480,6 +1502,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   const isIntroFirstPageRef = useRef(false);
   const currentPageTypeRef = useRef('intro');
   const introPullDismissArmedRef = useRef(false);
+  /** true лише поки палець на екрані — щоб вихід давав свідоме протягування, а не інерційний відскок. */
+  const introScrollDraggingRef = useRef(false);
   const [fullReadScrollY, setFullReadScrollY] = useState(0);
   const introSectionYRef = useRef(0);
   const introSectionHRef = useRef(0);
@@ -1489,17 +1513,59 @@ export default function LandmarkResultPage({ navigation, route }) {
   const fullReadViewportHRef = useRef(0);
   const fullReadContentHRef = useRef(0);
 
-  const audioScriptText = useMemo(() => {
-    const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-    const raw = langUk ? route?.params?.audioScriptUk : route?.params?.audioScriptEn;
-    return typeof raw === 'string' ? raw.trim() : '';
-  }, [language, route?.params?.audioScriptUk, route?.params?.audioScriptEn]);
+  const audioScriptText = useMemo(
+    () => resolveLandmarkAudioScript(route, language),
+    [
+      language,
+      route?.params?.audioScriptUk,
+      route?.params?.audioScriptEn,
+      route?.params?.visitLandmarkSave?.landmarkId,
+      route?.params?.visitLandmarkSave?.regionId,
+    ],
+  );
   const textForTts = useMemo(() => {
     if (audioScriptText) return audioScriptText;
     return phase === 'mini' ? (miniExtract || extract) : fullBodyText;
   }, [audioScriptText, phase, miniExtract, extract, fullBodyText]);
+  const shortNarrationFallback = useMemo(() => {
+    const short = (phase === 'mini' ? miniExtract || extract : extract || miniExtract) || '';
+    return String(short).trim();
+  }, [phase, miniExtract, extract]);
+  const miniAudioText = useMemo(
+    () => String(miniExtract || extract || audioScriptText || '').trim(),
+    [miniExtract, extract, audioScriptText],
+  );
+  const hasSlideAudioguide = useMemo(
+    () =>
+      slideScripts.some((entry) => entry.text) ||
+      (phase === 'mini' && !!miniAudioText),
+    [slideScripts, phase, miniAudioText],
+  );
 
-  const toggleSpeech = useCallback(async () => {
+  const runLandmarkNarration = useCallback(
+    async (text) => {
+      const primary = String(text || '').trim();
+      const fallbackTexts =
+        shortNarrationFallback && shortNarrationFallback !== primary
+          ? [shortNarrationFallback]
+          : [];
+      return startLandmarkNarration({
+        Speech,
+        text: primary,
+        fallbackTexts,
+        appLanguage: language,
+        playFileAudio: playLocalAudioUri,
+        callbacks: {
+          onDone: () => setSpeaking(false),
+          onStopped: () => setSpeaking(false),
+          onError: () => setSpeaking(false),
+        },
+      });
+    },
+    [language, playLocalAudioUri, shortNarrationFallback],
+  );
+
+  const toggleSpeechLegacy = useCallback(async () => {
     const filePlaying = fileAudioActiveRef.current || !!audioPlayerRef.current?.playing;
     if (audioGuideUrl) {
       if (filePlaying) {
@@ -1518,20 +1584,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         const t = (textForTts || '').trim();
         if (t) {
           try {
-            const mode = await startLandmarkNarration({
-              Speech,
-              text: t,
-              appLanguage: language,
-              playFileAudio: playLocalAudioUri,
-              callbacks: {
-                onDone: () => setSpeaking(false),
-                onStopped: () => setSpeaking(false),
-                onError: () => {
-                  setSpeaking(false);
-                  Alert.alert('', ls(language, 'audioGuideError'));
-                },
-              },
-            });
+            const mode = await runLandmarkNarration(t);
             if (mode) return;
           } catch (fallbackErr) {
             if (__DEV__) console.warn('[audioGuide] tts fallback', fallbackErr?.message);
@@ -1555,22 +1608,8 @@ export default function LandmarkResultPage({ navigation, route }) {
 
     setSpeaking(true);
     try {
-      const mode = await startLandmarkNarration({
-        Speech,
-        text: t,
-        appLanguage: language,
-        playFileAudio: playLocalAudioUri,
-        callbacks: {
-          onDone: () => setSpeaking(false),
-          onStopped: () => setSpeaking(false),
-          onError: () => {
-            setSpeaking(false);
-            Alert.alert('', ls(language, 'audioGuideError'));
-          },
-        },
-      });
+      const mode = await runLandmarkNarration(t);
       if (!mode) {
-        setSpeaking(false);
         Alert.alert('', ls(language, 'audioGuideError'));
       }
     } catch (e) {
@@ -1579,7 +1618,7 @@ export default function LandmarkResultPage({ navigation, route }) {
       if (__DEV__) console.warn('[audioGuide]', e?.message);
       Alert.alert('', ls(language, 'audioGuideError'));
     }
-  }, [audioGuideUrl, language, playLocalAudioUri, stopFileAudio, textForTts]);
+  }, [audioGuideUrl, language, playLocalAudioUri, runLandmarkNarration, stopFileAudio, textForTts]);
 
   const resetMiniSheetDrag = useCallback(() => {
     miniSheetDragY.stopAnimation();
@@ -1765,6 +1804,64 @@ export default function LandmarkResultPage({ navigation, route }) {
     [pageSections.length],
   );
 
+  const onAudioguideError = useCallback(() => {
+    Alert.alert('', ls(language, 'audioGuideError'));
+  }, [language]);
+
+  const slideAudioguide = useLandmarkSlideAudioguide({
+    Speech,
+    language,
+    phase,
+    slideScripts,
+    miniText: miniAudioText,
+    activeSectionIndex,
+    activeSectionIndexRef,
+    goToSectionIndex,
+    playFileAudioUntilDone,
+    stopFileAudio,
+    onPlaybackError: onAudioguideError,
+  });
+
+  const toggleSpeech = useCallback(async () => {
+    if (hasSlideAudioguide) {
+      await slideAudioguide.toggle();
+      return;
+    }
+    await toggleSpeechLegacy();
+  }, [hasSlideAudioguide, slideAudioguide, toggleSpeechLegacy]);
+
+  useEffect(() => {
+    setSpeaking(slideAudioguide.isSpeaking);
+  }, [slideAudioguide.isSpeaking]);
+
+  useEffect(() => {
+    if (!slideAudioguide.isPaused || phase === 'mini') return;
+    slideAudioguide.syncPausedIndex(activeSectionIndex);
+  }, [activeSectionIndex, slideAudioguide.isPaused, phase, slideAudioguide.syncPausedIndex]);
+
+  const audioFabIcon = slideAudioguide.isSpeaking
+    ? 'pause'
+    : slideAudioguide.isPaused
+      ? 'play'
+      : speaking
+        ? 'pause'
+        : 'headset';
+  const audioFabActive = slideAudioguide.isSpeaking || slideAudioguide.isPaused || speaking;
+
+  const showAudioControls =
+    hasSlideAudioguide && slideAudioguide.isActive && phase === 'full' && pageSections.length > 1;
+
+  const goToSectionIndexWithAudio = useCallback(
+    (index) => {
+      if (slideAudioguide.isActive) {
+        void slideAudioguide.seekToSlide(index);
+        return;
+      }
+      goToSectionIndex(index);
+    },
+    [slideAudioguide, goToSectionIndex],
+  );
+
   const goToAdjacentSection = useCallback(
     (dir) => {
       const current = Number.isFinite(activeSectionIndexRef.current)
@@ -1802,7 +1899,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         {Array.from({ length: sectionDotCount }).map((_, idx) => (
           <Pressable
             key={`dot-${idx}`}
-            onPress={() => goToSectionIndex(idx)}
+            onPress={() => goToSectionIndexWithAudio(idx)}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel={`${idx + 1} / ${sectionDotCount}`}
@@ -1865,10 +1962,19 @@ export default function LandmarkResultPage({ navigation, route }) {
     fullReadContentHRef.current = Number.isFinite(nextH) ? Math.max(0, nextH) : 0;
   }, []);
 
+  const openIntroPhotoLightbox = useCallback((source, caption = '') => {
+    if (!source) return;
+    setIntroPhotoLightbox({
+      source,
+      caption: String(caption || '').trim(),
+    });
+  }, []);
+
   useEffect(() => {
-    setIllustrationLightboxOpen(false);
+    setIntroPhotoLightbox(null);
     setCompareDragLock(false);
     introPullDismissArmedRef.current = false;
+    introScrollDraggingRef.current = false;
     introScrollYRef.current = 0;
     requestAnimationFrame(() => {
       introPageScrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -2022,6 +2128,7 @@ export default function LandmarkResultPage({ navigation, route }) {
     introScrollYRef.current = Math.max(0, rawY);
     if (
       isIntroFirstPageRef.current &&
+      introScrollDraggingRef.current &&
       rawY < -LANDMARK_SCROLL_PULL_DISMISS_PX &&
       !introPullDismissArmedRef.current
     ) {
@@ -2030,7 +2137,12 @@ export default function LandmarkResultPage({ navigation, route }) {
     }
   }, []);
 
+  const onIntroScrollBeginDrag = useCallback(() => {
+    introScrollDraggingRef.current = true;
+  }, []);
+
   const onIntroScrollEnd = useCallback(() => {
+    introScrollDraggingRef.current = false;
     introPullDismissArmedRef.current = false;
   }, []);
 
@@ -2039,12 +2151,13 @@ export default function LandmarkResultPage({ navigation, route }) {
       isIntroFirstPage
         ? {
             onScroll: onIntroScroll,
+            onScrollBeginDrag: onIntroScrollBeginDrag,
             onScrollEndDrag: onIntroScrollEnd,
             onMomentumScrollEnd: onIntroScrollEnd,
-            scrollEventThrottle: 32,
+            scrollEventThrottle: 16,
           }
         : {},
-    [isIntroFirstPage, onIntroScroll, onIntroScrollEnd],
+    [isIntroFirstPage, onIntroScroll, onIntroScrollBeginDrag, onIntroScrollEnd],
   );
 
   const fullBackPanResponder = useMemo(
@@ -2239,35 +2352,124 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const onParamSharePublication = useCallback(() => {
     dismissParamsMenu();
-    const msg = `${headerTitle}\n\n${shareBody.slice(0, 2000)}`.trim();
-    const payload =
-      Platform.OS === 'ios'
-        ? { message: msg, title: headerTitle }
-        : { message: msg, title: headerTitle, subject: headerTitle };
-    Share.share(payload).catch(() => {});
-  }, [dismissParamsMenu, headerTitle, shareBody]);
+    const body = fullBodyText || shareBody;
+    runAfterParamMenuDismiss(() => {
+      void shareLandmarkPublication({
+        language,
+        headerTitle,
+        subtitle,
+        body,
+      });
+    });
+  }, [dismissParamsMenu, headerTitle, subtitle, fullBodyText, shareBody, language]);
 
   const onParamShareLocation = useCallback(() => {
     dismissParamsMenu();
-    const url =
-      visitLat != null && visitLng != null
-        ? `https://www.google.com/maps/search/?api=1&query=${visitLat},${visitLng}`
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(headerTitle)}`;
-    const message = `${headerTitle}\n${url}`;
-    const payload =
-      Platform.OS === 'ios' ? { message, title: headerTitle } : { message, title: headerTitle, subject: headerTitle };
-    Share.share(payload).catch(() => {});
-  }, [dismissParamsMenu, visitLat, visitLng, headerTitle]);
+    const { lat, lng } = shareLocationCoords;
+    runAfterParamMenuDismiss(() => {
+      void shareLandmarkLocation({
+        language,
+        headerTitle,
+        visitLat: lat,
+        visitLng: lng,
+      });
+    });
+  }, [dismissParamsMenu, shareLocationCoords, headerTitle, language]);
 
   const onParamReport = useCallback(() => {
     dismissParamsMenu();
-    Alert.alert(ls(language, 'paramMenuReport'), ls(language, 'paramMenuReportHint'));
-  }, [dismissParamsMenu, language]);
+    const { lat, lng } = shareLocationCoords;
+    runAfterParamMenuDismiss(() => {
+      void reportLandmarkIssue({
+        language,
+        headerTitle,
+        subtitle,
+        landmarkKey: quizLandmarkKey,
+        visitLat: lat,
+        visitLng: lng,
+      });
+    });
+  }, [
+    dismissParamsMenu,
+    language,
+    headerTitle,
+    subtitle,
+    quizLandmarkKey,
+    shareLocationCoords,
+  ]);
 
   const onParamRoute = useCallback(() => {
     dismissParamsMenu();
+    const langUk = String(language || 'uk').split(/[-_]/)[0].toLowerCase() === 'uk';
+    let point = null;
+
+    if (visitLandmarkSave?.regionId && visitLandmarkSave?.landmarkId) {
+      const lm = getLandmarkInRegion(visitLandmarkSave.regionId, visitLandmarkSave.landmarkId);
+      const region = getRegion(visitLandmarkSave.regionId);
+      if (lm && Number.isFinite(lm.lat) && Number.isFinite(lm.lng)) {
+        point = {
+          id: String(lm.id),
+          title: landmarkTitle(lm, langUk),
+          city: region ? (langUk ? region.titleUk : region.titleEn) : '',
+          country: region?.flag || '',
+          category: lm.category || 'other',
+          lat: lm.lat,
+          lng: lm.lng,
+        };
+      }
+    } else if (visitLat != null && visitLng != null) {
+      point = {
+        id: visitSaveKey || `pin_${visitLat}_${visitLng}`,
+        title: String(headerTitle || title || '').trim(),
+        city:
+          (typeof route?.params?.visitCity === 'string' && route.params.visitCity.trim()) ||
+          parseCityFromSubtitle(subtitle) ||
+          '',
+        country: '',
+        category:
+          typeof route?.params?.visitCategory === 'string' ? route.params.visitCategory : 'other',
+        lat: visitLat,
+        lng: visitLng,
+        ...(typeof route?.params?.photoUri === 'string' && route.params.photoUri.trim()
+          ? { cover_image_url: route.params.photoUri.trim() }
+          : {}),
+      };
+    }
+
+    if (point) {
+      navigation.navigate(HOME_TAB_ROUTE, {
+        user: routeUser || authStoreUser,
+        language,
+        appTheme,
+        ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
+        tabIndex: HOME_TAB.MAP,
+        routeFinderExtras: {
+          mapInitialRoutePoint: point,
+        },
+      });
+      return;
+    }
     openMapsRoute();
-  }, [dismissParamsMenu, openMapsRoute]);
+  }, [
+    dismissParamsMenu,
+    visitLandmarkSave,
+    visitLat,
+    visitLng,
+    visitSaveKey,
+    headerTitle,
+    title,
+    subtitle,
+    route?.params?.visitCity,
+    route?.params?.visitCategory,
+    route?.params?.photoUri,
+    language,
+    navigation,
+    routeUser,
+    authStoreUser,
+    appTheme,
+    countryIdParam,
+    openMapsRoute,
+  ]);
 
   const onParamWiki = useCallback(() => {
     dismissParamsMenu();
@@ -2285,7 +2487,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   const miniSheetTitle = isHomeMiniPanel ? String(title || headerTitle).trim() : headerTitle;
   const miniSheetTagline = isHomeMiniPanel && panelTagline ? panelTagline : sheetTagline;
   const miniSheetBody = explicitMiniExtract || miniExtract || extract;
-  const miniBodyUnlimited = !!explicitMiniExtract;
+  const miniBodyUnlimited = !!explicitMiniExtract && !isHomeMiniPanel;
+  const miniBodyLineLimit = isLavraHomeMini ? 3 : previewBodyLines;
 
   const paramMenuRipple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const paramRowLabelColor = isLight ? '#1E1E1E' : FIGMA_CREAM;
@@ -2434,12 +2637,43 @@ export default function LandmarkResultPage({ navigation, route }) {
       <RenderProfiler id="LandmarkResultPage">
       <View style={styles.screen} {...miniPhaseSwipeHandlers}>
         {heroPhotoSource ? (
-          <Image
-            source={heroPhotoSource}
-            style={styles.miniHeroImage}
-            resizeMode="cover"
-            pointerEvents="none"
-          />
+          miniHeroClipHeight ? (
+            <View
+              style={[
+                styles.heroClip,
+                isLight && styles.heroClipLight,
+                { height: miniHeroClipHeight },
+              ]}
+              pointerEvents="none"
+            >
+              <ExpoImage
+                source={heroPhotoSource}
+                style={styles.hero}
+                contentFit={homeHeroLayout.homeHeroContentFit || 'cover'}
+                contentPosition={
+                  homeHeroLayout.homeHeroContentFit === 'contain'
+                    ? 'center'
+                    : homeHeroLayout.homeHeroContentPosition || 'top'
+                }
+                cachePolicy="memory-disk"
+                transition={0}
+                allowDownscaling
+                accessibilityIgnoresInvertColors
+              />
+            </View>
+          ) : (
+            <ExpoImage
+              source={heroPhotoSource}
+              style={styles.miniHeroImage}
+              contentFit="cover"
+              contentPosition={homeHeroLayout.homeHeroContentPosition || 'top'}
+              cachePolicy="memory-disk"
+              transition={0}
+              allowDownscaling
+              pointerEvents="none"
+              accessibilityIgnoresInvertColors
+            />
+          )
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
         )}
@@ -2465,6 +2699,7 @@ export default function LandmarkResultPage({ navigation, route }) {
           style={[
             styles.miniBottomStack,
             isLight && styles.miniBottomStackLight,
+            isLavraHomeMini ? { bottom: Math.max(insets.bottom, 10) } : null,
             {
               transform: [
                 { translateY: Animated.add(miniPanelEnterY, miniSheetDragY) },
@@ -2475,16 +2710,22 @@ export default function LandmarkResultPage({ navigation, route }) {
         >
           <View style={styles.miniFabStraddle} pointerEvents="box-none">
             <Pressable
-              style={[styles.audioFabMini, isLight && styles.audioFabMiniLight]}
+              style={[
+                styles.audioFabMini,
+                isLight && styles.audioFabMiniLight,
+                audioFabActive && styles.audioFabMiniActive,
+                audioFabActive && isLight && styles.audioFabMiniActiveLight,
+                audioFabActive && !isLight && { borderColor: accent, shadowColor: accent },
+              ]}
               onPress={toggleSpeech}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={ls(language, 'audioGuide')}
             >
               <Ionicons
-                name={speaking ? 'pause' : 'headset'}
-                size={18}
-                color={speaking ? accent : isLight ? ACCENT_BLUE : '#1E1E1E'}
+                name={audioFabIcon}
+                size={audioFabActive ? 20 : 18}
+                color={audioFabActive ? accent : isLight ? ACCENT_BLUE : '#1E1E1E'}
               />
             </Pressable>
           </View>
@@ -2492,33 +2733,51 @@ export default function LandmarkResultPage({ navigation, route }) {
             style={[
               styles.miniSheet,
               isLight ? styles.miniSheetLight : styles.miniSheetShadowDark,
+              !isLight && { borderWidth: 1, borderColor: accent },
+              !isLight &&
+                Platform.OS === 'ios' && {
+                  shadowColor: accent,
+                  shadowOffset: { width: 0, height: -6 },
+                  shadowOpacity: 0.24,
+                  shadowRadius: 18,
+                },
               {
                 maxHeight: miniSheetMaxH,
-                paddingBottom: isLight ? 16 : Math.max(insets.bottom, 16),
-                marginBottom: isLight ? Math.max(insets.bottom, 12) : Math.max(insets.bottom, 8),
+                paddingBottom: isLavraHomeMini
+                  ? Math.max(insets.bottom + 4, 18)
+                  : isLight
+                    ? 16
+                    : Math.max(insets.bottom, 16),
+                marginBottom: isLavraHomeMini
+                  ? Math.max(insets.bottom + 2, 12)
+                  : isLight
+                    ? Math.max(insets.bottom, 12)
+                    : Math.max(insets.bottom, 8),
               },
             ]}
             accessibilityRole="adjustable"
             accessibilityLabel={ls(language, 'miniSwipeHint')}
           >
             {Platform.OS === 'ios' && !isLight ? (
-              <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFill} />
+              <BlurView intensity={68} tint="dark" style={StyleSheet.absoluteFill} />
             ) : null}
             <View
               style={[
                 styles.miniSheetTint,
                 isLight
                   ? styles.miniSheetTintLight
-                  : { backgroundColor: 'rgba(30,30,30,0.82)' },
+                  : { backgroundColor: 'rgba(22,22,22,0.84)' },
               ]}
             />
+            {!isLight ? <View style={styles.miniSheetTopHighlight} pointerEvents="none" /> : null}
             <View style={styles.miniSheetInner}>
               <View style={styles.miniSheetHandleRow}>
                 <View style={styles.miniSheetHandleHit} />
-                <Ionicons
-                  name="chevron-up"
-                  size={24}
-                  color={isLight ? 'rgba(2, 18, 235, 0.42)' : 'rgba(255,255,255,0.55)'}
+                <View
+                  style={[
+                    styles.miniSheetHandlePill,
+                    isLight ? styles.miniSheetHandlePillLight : styles.miniSheetHandlePillDark,
+                  ]}
                 />
               </View>
               <View style={styles.miniSheetBottomContent}>
@@ -2541,7 +2800,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                   style={[styles.miniBody, styles.miniBodyClamp, brandFontSans, { color: bodyColor }]}
                   {...(miniBodyUnlimited
                     ? {}
-                    : { numberOfLines: previewBodyLines, ellipsizeMode: 'tail' })}
+                    : { numberOfLines: miniBodyLineLimit, ellipsizeMode: 'tail' })}
                 >
                   {miniSheetBody}
                 </Text>
@@ -2607,10 +2866,14 @@ export default function LandmarkResultPage({ navigation, route }) {
         brandFontHeadMedium={brandFontHeadMedium}
         leadOnly={isIntroSubPage}
         uniformParagraphs={isIntroSubPage}
+        compactPreHero={isIntroSubPage && (isIntroHeroAfterTextPage || isIntroHeroSideBySidePage)}
+        compactTop={isIntroHeroSideBySidePage}
       />
       {currentIllustration ? (
         <Pressable
-          onPress={() => setIllustrationLightboxOpen(true)}
+          onPress={() =>
+            openIntroPhotoLightbox(currentIllustration.asset, currentIllustration.caption)
+          }
           style={styles.introIllustrationLinkWrap}
           android_ripple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
         >
@@ -2638,40 +2901,73 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const introHeroCard = (variant = 'primary') => {
     const source = variant === 'secondary' ? introSecondaryPhotoSource : introPrimaryPhotoSource;
-    const secondaryHeightConfig = MAIDAN_INTRO_PAGE_SECONDARY_HERO_HEIGHT[currentPage?.id];
+    const secondaryRatioRaw = Number(currentPage?.secondaryHeroHeightRatio);
+    const secondaryMaxRaw = Number(currentPage?.secondaryHeroHeightMax);
     const height =
       variant === 'secondary'
-        ? secondaryHeightConfig
+        ? Number.isFinite(secondaryRatioRaw) && secondaryRatioRaw > 0
           ? Math.min(
-              secondaryHeightConfig.max,
-              Math.max(200, Math.round(winH * secondaryHeightConfig.ratio)),
+              Number.isFinite(secondaryMaxRaw) && secondaryMaxRaw > 0 ? secondaryMaxRaw : 420,
+              Math.max(200, Math.round(winH * secondaryRatioRaw)),
             )
           : Math.min(420, Math.max(260, Math.round(winH * 0.44)))
         : introHeroHeight;
     if (!source && variant === 'secondary') return null;
-    const heroPosition =
-      variant === 'secondary'
-        ? MAIDAN_INTRO_PAGE_SECONDARY_HERO_POSITION[currentPage?.id] || 'center'
-        : MAIDAN_INTRO_PAGE_HERO_POSITION[currentPage?.id] || 'center';
+    const heroPosition = resolveHeroPosition(currentPage, variant);
     const heroFit =
       variant === 'secondary'
         ? 'cover'
-        : MAIDAN_INTRO_PAGE_HERO_FIT[currentPage?.id] || 'cover';
-    const insetRoundedGap = MAIDAN_INTRO_PAGE_COMPARE_TOP_INSET[currentPage?.id] ?? 12;
+        : typeof currentPage?.heroFit === 'string' && currentPage.heroFit.trim()
+          ? currentPage.heroFit.trim()
+          : 'cover';
+    const heroCaption =
+      variant === 'secondary'
+        ? String(currentPage?.secondaryHeroCaption || '').trim()
+        : String(currentPage?.heroCaption || '').trim();
+    const stackGapRaw =
+      variant === 'secondary'
+        ? Number(currentPage?.secondaryStackGap)
+        : Number(currentPage?.heroStackGap);
+    const insetRoundedGap =
+      Number.isFinite(stackGapRaw) && stackGapRaw >= 0 ? stackGapRaw : 12;
     const stackGap =
-      isMaidanDumaIntroPage && variant === 'secondary'
-        ? 0
-        : variant === 'primary'
-          ? isIntroHeroBleedTopPage
-            ? 0
-            : isMaidanMapIntroPage ||
-                isMaidanCompareIntroPage ||
-                (isIntroHeroInsetRoundedHeroFirstPage && variant === 'primary')
-              ? insetRoundedGap
-              : isIntroHeroAfterTextPage
-                ? 20
-                : introHeroTopInset
-          : 10;
+      variant === 'secondary'
+        ? Number.isFinite(stackGapRaw) && stackGapRaw >= 0
+          ? stackGapRaw
+          : 10
+        : isIntroHeroBleedTopPage
+          ? Number.isFinite(stackGapRaw) && stackGapRaw > 0
+            ? stackGapRaw
+            : 0
+          : isIntroCompareRoundedPage ||
+              isIntroIllustrationPage ||
+              (isIntroHeroInsetRoundedHeroFirstPage && variant === 'primary')
+            ? insetRoundedGap
+            : isIntroHeroAfterTextPage
+              ? Number.isFinite(stackGapRaw) && stackGapRaw >= 0
+                ? stackGapRaw
+                : 8
+              : introHeroTopInset;
+    const useContainRoundedHero =
+      heroFit === 'contain' &&
+      variant === 'primary' &&
+      !currentIntroCompare &&
+      (isIntroHeroInsetRoundedPage || isIntroHeroAfterTextPage);
+    const heroAssetAspect = source ? resolveAssetAspect(source) : 1;
+    const containHeroLayout = useContainRoundedHero
+      ? (() => {
+          const horizontalPad = isIntroHeroInsetRoundedPage ? 40 : 0;
+          const maxW = Math.max(1, Math.round(winW - horizontalPad));
+          const maxImgH = Math.max(1, Math.round(height));
+          let imgW = maxW;
+          let imgH = Math.round(imgW / Math.max(0.01, heroAssetAspect));
+          if (imgH > maxImgH) {
+            imgH = maxImgH;
+            imgW = Math.round(imgH * heroAssetAspect);
+          }
+          return { width: imgW, height: imgH };
+        })()
+      : null;
     return (
     <View
       style={[
@@ -2680,18 +2976,32 @@ export default function LandmarkResultPage({ navigation, route }) {
           height,
           marginHorizontal: currentIntroCompare
             ? INTRO_COMPARE_HPAD
-            : isIntroHeroInsetRoundedPage && variant === 'primary'
+            : isIntroHeroInsetRoundedPage
               ? 20
               : 0,
           marginTop: stackGap,
+          position: 'relative',
         },
-        isLight && styles.fullReadHeroCardLight,
+        isLight &&
+          !useContainRoundedHero &&
+          (heroFit === 'contain'
+            ? styles.fullReadHeroSideBySideCellLight
+            : styles.fullReadHeroCardLight),
+        useContainRoundedHero && styles.fullReadHeroCardContainOuter,
+        useContainRoundedHero && isLight && styles.fullReadHeroSideBySideCellLight,
         currentIntroCompare && styles.fullReadHeroCardCompare,
         currentIntroCompare && isLight && styles.fullReadHeroCardCompareLight,
-        isMaidanCompareIntroPage && styles.fullReadHeroCardCompareRoundedAll,
+        isIntroCompareRoundedPage && styles.fullReadHeroCardCompareRoundedAll,
         variant === 'secondary' && styles.fullReadHeroCardSecondary,
         isIntroHeroAfterTextPage && variant === 'primary' && styles.fullReadHeroCardInsetRounded,
-        isIntroHeroInsetRoundedPage && variant === 'primary' && styles.fullReadHeroCardInsetRounded,
+        isIntroHeroInsetRoundedPage && styles.fullReadHeroCardInsetRounded,
+        useContainRoundedHero &&
+          containHeroLayout && {
+            width: containHeroLayout.width,
+            height: containHeroLayout.height,
+            alignSelf: 'center',
+            marginHorizontal: 0,
+          },
         isIntroHeroBleedTopPage && variant === 'primary' && styles.fullReadHeroCardBleedTop,
       ]}
     >
@@ -2701,24 +3011,70 @@ export default function LandmarkResultPage({ navigation, route }) {
           afterSource={currentIntroCompare.afterAsset}
           beforeUri={currentIntroCompare.beforeUri}
           afterUri={currentIntroCompare.afterUri}
+          beforeContentPosition={currentIntroCompare.beforePosition || 'center'}
+          afterContentPosition={currentIntroCompare.afterPosition || 'center'}
           initialPosition={0.5}
           containerHeight={introHeroHeight}
           isLight={isLight}
           nestedInScroll
           onDragStateChange={setCompareDragLock}
+          onPhotoPress={() => {
+            const src =
+              currentIntroCompare.afterAsset ||
+              currentIntroCompare.beforeAsset ||
+              (currentIntroCompare.afterUri ? { uri: currentIntroCompare.afterUri } : null) ||
+              (currentIntroCompare.beforeUri ? { uri: currentIntroCompare.beforeUri } : null);
+            openIntroPhotoLightbox(src, heroCaption);
+          }}
           style={[
             styles.fullReadHeroCompare,
-            isMaidanCompareIntroPage && styles.fullReadHeroCompareRounded,
+            isIntroCompareRoundedPage && styles.fullReadHeroCompareRounded,
           ]}
         />
       ) : source ? (
+        useContainRoundedHero ? (
+          <IntroPhotoTap
+            source={source}
+            caption={heroCaption}
+            onOpen={openIntroPhotoLightbox}
+            language={language}
+            style={[
+              styles.fullReadHeroInsetContainCell,
+              containHeroLayout,
+              isLight && styles.fullReadHeroSideBySideCellLight,
+            ]}
+          >
+            <ExpoImage
+              source={source}
+              style={containHeroLayout}
+              contentFit="contain"
+              contentPosition={heroPosition}
+              cachePolicy="memory-disk"
+              transition={0}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
+            />
+          </IntroPhotoTap>
+        ) : (
+        <IntroPhotoTap
+          source={source}
+          caption={heroCaption}
+          onOpen={openIntroPhotoLightbox}
+          language={language}
+          style={styles.fullReadHeroImgPressable}
+        >
         <ExpoImage
           source={source}
           style={[
             styles.fullReadHeroImg,
-            variant === 'primary' && isIntroTextShort
+            (isIntroHeroAfterTextPage || isIntroHeroInsetRoundedPage) &&
+              styles.fullReadHeroImgInsetRounded,
+            variant === 'primary' &&
+              isIntroTextShort &&
+              !isIntroHeroAfterTextPage &&
+              !isIntroHeroInsetRoundedPage
               ? { transform: [{ translateY: 22 + introAutoShift }] }
-              : { transform: [{ translateY: 0 }] },
+              : null,
           ]}
           contentFit={heroFit}
           contentPosition={heroPosition}
@@ -2727,10 +3083,164 @@ export default function LandmarkResultPage({ navigation, route }) {
           allowDownscaling
           accessibilityIgnoresInvertColors
         />
+        </IntroPhotoTap>
+        )
       ) : (
         <View style={[styles.fullReadHeroImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
       )}
     </View>
+    );
+  };
+
+  const introHeroSideBySideRow = () => {
+    const stackGapRaw = Number(currentPage?.heroStackGap);
+    const stackGap = Number.isFinite(stackGapRaw) && stackGapRaw >= 0 ? stackGapRaw : 12;
+    const heroTextGapRaw = Number(currentPage?.heroTextGap);
+    const heroTextGap =
+      Number.isFinite(heroTextGapRaw) && heroTextGapRaw >= 0 ? heroTextGapRaw : 16;
+    const sideBySideCellGapRaw = Number(currentPage?.sideBySideCellGap);
+    const cellGap =
+      Number.isFinite(sideBySideCellGapRaw) && sideBySideCellGapRaw >= 0
+        ? sideBySideCellGapRaw
+        : introTertiaryPhotoSource
+          ? 6
+          : 8;
+    const sideBySideCenterOffsetTopRaw = Number(currentPage?.sideBySideCenterOffsetTop);
+    const sideBySideCenterOffsetTop =
+      Number.isFinite(sideBySideCenterOffsetTopRaw) && sideBySideCenterOffsetTopRaw >= 0
+        ? sideBySideCenterOffsetTopRaw
+        : 0;
+    const outerFlexRaw = Number(currentPage?.sideBySideOuterFlex);
+    const centerFlexRaw = Number(currentPage?.sideBySideCenterFlex);
+    const hasTripleFlex =
+      introTertiaryPhotoSource &&
+      Number.isFinite(outerFlexRaw) &&
+      outerFlexRaw > 0 &&
+      Number.isFinite(centerFlexRaw) &&
+      centerFlexRaw > 0;
+    const sideBySideRowPaddingRaw = Number(currentPage?.sideBySideRowPaddingHorizontal);
+    const sideBySideRowPaddingHorizontal =
+      Number.isFinite(sideBySideRowPaddingRaw) && sideBySideRowPaddingRaw >= 0
+        ? sideBySideRowPaddingRaw
+        : null;
+    const heroFit =
+      typeof currentPage?.heroFit === 'string' && currentPage.heroFit.trim()
+        ? currentPage.heroFit.trim()
+        : 'cover';
+    const heroCaption = String(currentPage?.heroCaption || '').trim();
+    const secondaryHeroCaption = String(currentPage?.secondaryHeroCaption || '').trim();
+    const tertiaryHeroCaption = String(currentPage?.tertiaryHeroCaption || '').trim();
+    const heroCaptionGapRaw = Number(currentPage?.heroCaptionGap);
+    const heroCaptionGap =
+      Number.isFinite(heroCaptionGapRaw) && heroCaptionGapRaw >= 0 ? heroCaptionGapRaw : 2;
+    const useContainLayout = heroFit === 'contain';
+    const cellBgStyle = isLight ? styles.fullReadHeroSideBySideCellLight : null;
+    const cells = [
+      {
+        source: introPrimaryPhotoSource,
+        caption: heroCaption,
+        position: resolveHeroPosition(currentPage, 'primary'),
+      },
+      {
+        source: introSecondaryPhotoSource,
+        caption: secondaryHeroCaption,
+        position: resolveHeroPosition(currentPage, 'secondary'),
+      },
+    ];
+    if (introTertiaryPhotoSource) {
+      cells.push({
+        source: introTertiaryPhotoSource,
+        caption: tertiaryHeroCaption,
+        position: resolveHeroPosition(currentPage, 'tertiary'),
+      });
+    }
+    const renderCell = (cell, index) => {
+      const assetAspect = cell.source ? resolveAssetAspect(cell.source) : 1;
+      return (
+      <View key={`intro-side-cell-${index}`} style={[
+        styles.fullReadHeroSideBySideCol,
+        hasTripleFlex && (index === 0 || index === 2) ? { flex: outerFlexRaw } : null,
+        hasTripleFlex && index === 1 ? { flex: centerFlexRaw } : null,
+        introTertiaryPhotoSource &&
+        index === 1 &&
+        sideBySideCenterOffsetTop > 0
+          ? { marginTop: sideBySideCenterOffsetTop }
+          : null,
+      ]}>
+        <View
+          style={[
+            styles.fullReadHeroSideBySideCell,
+            !useContainLayout ? { height: introHeroHeight } : styles.fullReadHeroSideBySideCellContain,
+            cellBgStyle,
+          ]}
+        >
+          <IntroPhotoTap
+            source={cell.source}
+            caption={cell.caption}
+            onOpen={openIntroPhotoLightbox}
+            language={language}
+            style={styles.fullReadHeroSideBySideImgPressable}
+          >
+          <ExpoImage
+            source={cell.source}
+            style={[
+              styles.fullReadHeroSideBySideImg,
+              useContainLayout
+                ? {
+                    width: '100%',
+                    aspectRatio: assetAspect,
+                    maxHeight: introHeroHeight,
+                  }
+                : styles.fullReadHeroImg,
+            ]}
+            contentFit={heroFit}
+            contentPosition={cell.position}
+            cachePolicy="memory-disk"
+            transition={0}
+            allowDownscaling
+            accessibilityIgnoresInvertColors
+          />
+          </IntroPhotoTap>
+        </View>
+        {cell.caption ? (
+          <Text
+            style={[
+              styles.introHeroSideCaption,
+              introTertiaryPhotoSource
+                ? styles.introHeroSideCaptionTriple
+                : styles.introHeroSideCaptionDual,
+              { marginTop: heroCaptionGap },
+              brandFontSans,
+              { color: bodyColor },
+            ]}
+          >
+            {cell.caption}
+          </Text>
+        ) : null}
+      </View>
+    );
+    };
+    return (
+      <View
+        style={[
+          styles.fullReadHeroSideBySideRow,
+          {
+            marginTop: stackGap,
+            marginBottom: heroTextGap,
+            ...(sideBySideRowPaddingHorizontal != null
+              ? { paddingHorizontal: sideBySideRowPaddingHorizontal }
+              : {}),
+          },
+          isIntroHeroBleedTopPage && styles.fullReadHeroSideBySideRowBleedTop,
+        ]}
+      >
+        {cells.map((cell, index) => (
+          <React.Fragment key={`intro-side-gap-${index}`}>
+            {index > 0 ? <View style={{ width: cellGap }} /> : null}
+            {renderCell(cell, index)}
+          </React.Fragment>
+        ))}
+      </View>
     );
   };
 
@@ -2747,6 +3257,13 @@ export default function LandmarkResultPage({ navigation, route }) {
       {currentPage?.type === 'intro' && isIntroFullBleedPhotoPage ? (
         <View style={[styles.fullReadPage, styles.introFullBleedPage]}>
           {introPrimaryPhotoSource ? (
+            <IntroPhotoTap
+              source={introPrimaryPhotoSource}
+              caption={String(currentPage?.heroCaption || '').trim()}
+              onOpen={openIntroPhotoLightbox}
+              language={language}
+              style={styles.introFullBleedImgPressable}
+            >
             <ExpoImage
               source={introPrimaryPhotoSource}
               style={styles.introFullBleedImg}
@@ -2757,6 +3274,7 @@ export default function LandmarkResultPage({ navigation, route }) {
               allowDownscaling
               accessibilityIgnoresInvertColors
             />
+            </IntroPhotoTap>
           ) : (
             <View style={[styles.introFullBleedImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
           )}
@@ -2793,16 +3311,59 @@ export default function LandmarkResultPage({ navigation, route }) {
                 >
                   {introArticleBody}
                 </View>
-                {introPrimaryPhotoSource ? introHeroCard('primary') : null}
+                {introPrimaryPhotoSource || currentIntroCompare
+                  ? introHeroCard('primary')
+                  : null}
+                {currentIntroBodyAfter ? (
+                  <View style={[styles.introScrollTextBlock, { paddingTop: 8 }]}>
+                    <LandmarkIntroFormattedBody
+                      text={currentIntroBodyAfter}
+                      isLight={isLight}
+                      accent={accent}
+                      titleColor={titleColor}
+                      bodyColor={bodyColor}
+                      bodyLinkColor={bodyLinkColor}
+                      emphasisColor={emphasisColor}
+                      brandFontSans={brandFontSans}
+                      brandFontHeadMedium={brandFontHeadMedium}
+                      leadOnly
+                      uniformParagraphs
+                    />
+                  </View>
+                ) : null}
               </>
             ) : (
               <>
-                {introPrimaryPhotoSource ? introHeroCard('primary') : null}
-                {(isMaidanDumaIntroPage || introSecondaryPhotoSource) && introHeroCard('secondary')}
+                {isIntroHeroSideBySidePage ? (
+                  introHeroSideBySideRow()
+                ) : (
+                  <>
+                    {introPrimaryPhotoSource || currentIntroCompare
+                      ? introHeroCard('primary')
+                      : null}
+                    {!isIntroHeroSideBySidePage &&
+                    String(currentPage?.heroCaption || '').trim() ? (
+                      <Text
+                        style={[
+                          styles.introHeroSideCaption,
+                          styles.introHeroSingleCaption,
+                          brandFontSans,
+                          { color: bodyColor },
+                        ]}
+                      >
+                        {String(currentPage.heroCaption).trim()}
+                      </Text>
+                    ) : null}
+                    {introSecondaryPhotoSource ? introHeroCard('secondary') : null}
+                  </>
+                )}
                 <View
                   style={[
                     styles.introScrollTextBlock,
-                    !currentIntroCompare && !isIntroSubPage && { paddingTop: 12 + introAutoShift },
+                    isIntroHeroSideBySidePage && styles.introScrollTextBlockSideBySide,
+                    !currentIntroCompare &&
+                      !isIntroSubPage &&
+                      !isIntroHeroSideBySidePage && { paddingTop: 12 + introAutoShift },
                   ]}
                 >
                   {introArticleBody}
@@ -2850,7 +3411,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                   style={[
                     styles.quizPageTitle,
                     brandFontHeadMedium,
-                    { color: isLight ? '#0C2FA8' : '#E1FF00' },
+                    isLight ? styles.quizPageTitleLight : styles.quizPageTitleDark,
                   ]}
                 >
                   {language === 'uk' ? 'Вікторина' : 'Quiz'}
@@ -2993,6 +3554,20 @@ export default function LandmarkResultPage({ navigation, route }) {
           {readArticleColumn}
         </View>
 
+        <LandmarkAudioGuideControls
+          visible={showAudioControls}
+          slideIndex={slideAudioguide.slideIndex}
+          slideCount={pageSections.length}
+          accent={accent}
+          isLight={isLight}
+          language={language}
+          isPlaying={slideAudioguide.isSpeaking}
+          onToggle={toggleSpeech}
+          onSeek={slideAudioguide.seekToSlide}
+          onPrev={() => slideAudioguide.seekRelative(-1)}
+          onNext={() => slideAudioguide.seekRelative(1)}
+          bottomInset={Math.max(insets.bottom, 16) + 78}
+        />
         <View
           pointerEvents="box-none"
           style={[styles.bottomActionRow, { bottom: Math.max(insets.bottom, 16) + 18 }]}
@@ -3008,18 +3583,24 @@ export default function LandmarkResultPage({ navigation, route }) {
             accessibilityLabel={ls(language, 'audioGuide')}
           >
             <Ionicons
-              name={speaking ? 'pause' : 'headset'}
+              name={audioFabIcon}
               size={24}
-              color={speaking ? accent : isLight ? ACCENT_BLUE : '#1E1E1E'}
+              color={
+                slideAudioguide.isSpeaking || slideAudioguide.isPaused || speaking
+                  ? accent
+                  : isLight
+                    ? ACCENT_BLUE
+                    : '#1E1E1E'
+              }
             />
           </Pressable>
         </View>
       </View>
       <LandmarkIllustrationLightbox
-        visible={illustrationLightboxOpen}
-        source={currentIllustration?.asset}
-        caption={currentIllustration?.caption}
-        onClose={() => setIllustrationLightboxOpen(false)}
+        visible={!!introPhotoLightbox?.source}
+        source={introPhotoLightbox?.source}
+        caption={introPhotoLightbox?.caption}
+        onClose={() => setIntroPhotoLightbox(null)}
       />
       {landmarkParamsMenu}
     </RenderProfiler>
@@ -3038,8 +3619,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   heroClip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     width: '100%',
-    height: '40%',
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
     overflow: 'hidden',
@@ -3074,8 +3658,8 @@ const styles = StyleSheet.create({
   miniFabStraddle: {
     alignItems: 'flex-end',
     justifyContent: 'flex-end',
-    paddingRight: 18,
-    marginBottom: -32,
+    paddingRight: 20,
+    marginBottom: -36,
     zIndex: 10,
     overflow: 'visible',
   },
@@ -3108,11 +3692,11 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 14,
+        shadowOffset: { width: 0, height: -8 },
+        shadowOpacity: 0.38,
+        shadowRadius: 20,
       },
-      android: { elevation: 14 },
+      android: { elevation: 16 },
     }),
   },
   miniSheetShadowLight: {
@@ -3136,14 +3720,34 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 1,
     paddingHorizontal: 20,
-    paddingTop: 4,
+    paddingTop: 2,
     paddingBottom: 4,
     justifyContent: 'flex-start',
   },
+  miniSheetTopHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 28,
+    right: 28,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    zIndex: 2,
+  },
   miniSheetHandleRow: {
     alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  miniSheetHandlePill: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+  },
+  miniSheetHandlePillLight: {
+    backgroundColor: 'rgba(2, 18, 235, 0.22)',
+  },
+  miniSheetHandlePillDark: {
+    backgroundColor: 'rgba(255,255,255,0.38)',
   },
   miniSheetHandleHit: {
     position: 'absolute',
@@ -3157,7 +3761,8 @@ const styles = StyleSheet.create({
   },
   miniBody: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 23,
+    letterSpacing: 0.1,
   },
   miniBodyClamp: {
     marginBottom: 8,
@@ -3217,6 +3822,61 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 6,
   },
+  fullReadHeroSideBySideRow: {
+    flexDirection: 'row',
+    width: '100%',
+    paddingHorizontal: 20,
+    marginBottom: 0,
+  },
+  fullReadHeroSideBySideRowBleedTop: {
+    paddingHorizontal: 0,
+    marginHorizontal: 0,
+  },
+  fullReadHeroSideBySideCol: {
+    flex: 1,
+  },
+  fullReadHeroSideBySideCell: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  fullReadHeroSideBySideCellContain: {
+    alignItems: 'stretch',
+  },
+  fullReadHeroSideBySideImg: {
+    borderRadius: 16,
+  },
+  fullReadHeroSideBySideImgPressable: {
+    width: '100%',
+    flex: 1,
+  },
+  fullReadHeroImgPressable: {
+    width: '100%',
+    height: '100%',
+    flex: 1,
+  },
+  fullReadHeroSideBySideCellLight: {
+    backgroundColor: '#FFFFFF',
+  },
+  introHeroSideCaption: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    textAlign: 'center',
+    opacity: 0.82,
+  },
+  introHeroSideCaptionTriple: {
+    fontSize: 9,
+    lineHeight: 12,
+  },
+  introHeroSideCaptionDual: {
+    fontSize: 9,
+    lineHeight: 12,
+    paddingHorizontal: 1,
+  },
+  introHeroSingleCaption: {
+    marginHorizontal: 20,
+    marginBottom: 4,
+  },
   fullReadHeroCompare: {
     flex: 1,
     width: '100%',
@@ -3228,6 +3888,10 @@ const styles = StyleSheet.create({
   fullReadHeroImg: {
     width: '100%',
     height: '100%',
+  },
+  fullReadHeroImgInsetRounded: {
+    borderRadius: 20,
+    overflow: 'hidden',
   },
   introIllustrationLinkWrap: {
     marginTop: 16,
@@ -3280,13 +3944,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
   },
+  introScrollTextBlockSideBySide: {
+    paddingTop: 12,
+    marginTop: 0,
+  },
   introScrollTextBlockFirst: {
     paddingTop: 0,
     paddingBottom: 4,
   },
   introScrollTextBlockHeroFirst: {
-    paddingTop: 32,
-    paddingBottom: 20,
+    paddingTop: 28,
+    paddingBottom: 0,
   },
   fullReadHeroCardInsetRounded: {
     borderRadius: 20,
@@ -3297,6 +3965,25 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     alignSelf: 'stretch',
     marginBottom: 12,
+    overflow: 'hidden',
+  },
+  fullReadHeroCardContainOuter: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderRadius: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  fullReadHeroInsetContainCell: {
+    borderRadius: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    overflow: 'hidden',
   },
   fullReadHeroCardBleedTop: {
     marginTop: 0,
@@ -3311,6 +3998,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  introFullBleedImgPressable: {
+    ...StyleSheet.absoluteFillObject,
   },
   fullReadIntroScrollWrap: {
     flex: 1,
@@ -3346,13 +4036,13 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   quizPageBg: {
-    paddingHorizontal: 12,
+    paddingHorizontal: Platform.OS === 'android' ? 14 : 12,
   },
   quizPageBgLight: {
     backgroundColor: '#EAF1FF',
   },
   quizPageBgDark: {
-    backgroundColor: '#10192B',
+    backgroundColor: '#0D1520',
   },
   quizPageScroll: {
     flex: 1,
@@ -3373,23 +4063,42 @@ const styles = StyleSheet.create({
   },
   quizPageTitleRow: {
     marginTop: 0,
-    marginBottom: 10,
+    marginBottom: Platform.OS === 'android' ? 12 : 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   quizPageTitle: {
-    fontSize: 22,
-    lineHeight: 27,
-    letterSpacing: 0.6,
+    fontSize: Platform.OS === 'android' ? 19 : 18,
+    lineHeight: Platform.OS === 'android' ? 24 : 22,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
     textAlign: 'center',
+    ...Platform.select({
+      android: { includeFontPadding: false },
+    }),
+  },
+  quizPageTitleLight: {
+    color: '#0C2FA8',
+  },
+  quizPageTitleDark: {
+    color: '#E1FF00',
+    ...Platform.select({
+      ios: {
+        textShadowColor: 'rgba(225, 255, 0, 0.16)',
+        textShadowOffset: { width: 0, height: 0 },
+        textShadowRadius: 10,
+      },
+      android: {
+        letterSpacing: 1,
+      },
+    }),
   },
   quizPageInner: {
     flexGrow: 0,
     flexShrink: 1,
     justifyContent: 'center',
     paddingTop: 0,
-    paddingBottom: 0,
+    paddingBottom: Platform.OS === 'android' ? 4 : 0,
   },
   readFactsDeck: {
     marginTop: 0,
@@ -3486,31 +4195,57 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   audioFabMini: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: FIGMA_CREAM,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.52)',
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateY: -10 }],
+    transform: [{ translateY: -12 }],
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.22,
-        shadowRadius: 5,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.28,
+        shadowRadius: 8,
       },
-      android: { elevation: 5 },
+      android: { elevation: 7 },
     }),
   },
   audioFabMiniLight: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(2, 18, 235, 0.22)',
+    borderColor: 'rgba(2, 18, 235, 0.18)',
     ...Platform.select({
       ios: {
         shadowColor: '#0212EB',
-        shadowOpacity: 0.15,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.16,
+        shadowRadius: 10,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  audioFabMiniActive: {
+    backgroundColor: '#FAFAF4',
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.42,
+        shadowRadius: 12,
+      },
+      android: { elevation: 10 },
+    }),
+  },
+  audioFabMiniActiveLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(2, 18, 235, 0.42)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOpacity: 0.28,
+        shadowRadius: 12,
       },
     }),
   },
@@ -3587,7 +4322,9 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
+    lineHeight: 20,
     marginBottom: 10,
+    letterSpacing: 0.15,
   },
   fullReadSubtitle: {
     fontSize: 13,
@@ -3601,6 +4338,10 @@ const styles = StyleSheet.create({
   },
   introFormattedBody: {
     paddingTop: 2,
+  },
+  introFormattedBodyCompactTop: {
+    paddingTop: 0,
+    marginTop: 0,
   },
   introLeadParagraph: {
     fontSize: 17,
@@ -3617,9 +4358,15 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     marginBottom: 18,
   },
+  introParagraphPreHero: {
+    marginBottom: 8,
+  },
   introSectionHeadingWrap: {
     marginTop: 4,
     marginBottom: 22,
+  },
+  introSectionHeadingWrapPreHero: {
+    marginBottom: 8,
   },
   introSectionHeadingRule: {
     width: 36,

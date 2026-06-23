@@ -166,6 +166,8 @@ export function extractLandmarkStories(srcPath) {
     const idMatch = /^\s+id:\s*'([^']+)'/m.exec(curBlock);
     if (!idMatch) return;
     const lmId = idMatch[1];
+    const titleUk = readFieldString(curBlock, 'titleUk')?.value || '';
+    const titleEn = readFieldString(curBlock, 'titleEn')?.value || '';
     const desc = {
       uk: readFieldString(curBlock, 'descUk')?.value || '',
       en: readFieldString(curBlock, 'descEn')?.value || '',
@@ -226,6 +228,8 @@ export function extractLandmarkStories(srcPath) {
       key: `${regionId}:${lmId}`,
       regionId,
       landmarkId: lmId,
+      titleUk,
+      titleEn,
       desc,
       story,
     });

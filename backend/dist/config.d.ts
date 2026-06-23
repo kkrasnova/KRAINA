@@ -30,6 +30,8 @@ export declare const config: {
     jwtSecret: string;
     refreshPepper: string;
     googleClientId: string;
+    /** Web + iOS + Android OAuth client IDs accepted as id_token audience. */
+    googleClientIds: string[];
     appleClientId: string;
     publicBaseUrl: string;
     appVersion: string;
@@ -63,6 +65,7 @@ export declare const config: {
     corsOrigins: string[];
     trustProxy: number | boolean;
     apnsConfigured: boolean;
+    livekitConfigured: boolean;
     googleVisionApiKey: string;
     googleTtsApiKey: string;
 };

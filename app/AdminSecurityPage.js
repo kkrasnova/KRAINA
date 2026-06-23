@@ -17,7 +17,7 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { st } from './settingsI18n';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import {
   getAdminGateSecurityLog,
   getAdminGateBlockInfo,
@@ -94,12 +94,11 @@ export default function AdminSecurityPage({ navigation, route }) {
         onBackPress={() => navigation.goBack()}
         replaceCenterTitle={st(language, 'adminSecurityTitle')}
         hideSendButton
-        lightBarBackgroundColor={isLight ? '#FFFFFF' : undefined}
       />
       <ScrollView
         contentContainerStyle={{
           padding: 16,
-          paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 24,
+          paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 24),
         }}
         keyboardShouldPersistTaps="handled"
       >

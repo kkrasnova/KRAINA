@@ -39,6 +39,14 @@ function optList(name) {
         .map((s) => s.trim())
         .filter(Boolean);
 }
+function parseGoogleClientIds() {
+    const ids = [
+        ...optList('GOOGLE_CLIENT_ID'),
+        ...optList('GOOGLE_IOS_CLIENT_ID'),
+        ...optList('GOOGLE_ANDROID_CLIENT_ID'),
+    ];
+    return [...new Set(ids)];
+}
 function parseBoolEnv(name) {
     const v = (process.env[name] ?? '').trim().toLowerCase();
     if (!v)
@@ -91,6 +99,8 @@ export const config = {
     jwtSecret: req('JWT_SECRET'),
     refreshPepper: req('REFRESH_SECRET'),
     googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
+    /** Web + iOS + Android OAuth client IDs accepted as id_token audience. */
+    googleClientIds: parseGoogleClientIds(),
     appleClientId: process.env.APPLE_CLIENT_ID ?? '',
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000',
     appVersion: (() => {
@@ -137,6 +147,10 @@ export const config = {
     trustProxy: parseTrustProxy(),
     // Helper: true if APNs env vars are present (not necessarily valid)
     apnsConfigured: !!(opt('APNS_KEY_ID') && opt('APNS_TEAM_ID') && opt('APNS_TOPIC')),
+    // Helper: true when LiveKit credentials are present for audio/video calls
+    livekitConfigured: !!(opt('LIVEKIT_URL') &&
+        opt('LIVEKIT_API_KEY') &&
+        opt('LIVEKIT_API_SECRET')),
     googleVisionApiKey: visionConfig.apiKey,
     googleTtsApiKey: opt('GOOGLE_TTS_API_KEY'),
 };

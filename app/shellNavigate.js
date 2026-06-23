@@ -4,6 +4,7 @@ import { StackActions } from '@react-navigation/native';
 import { navigationRef, subscribeNavState } from './navigationRef';
 import { appLangBase } from './appLang';
 import { KRAINA_APP_LANGUAGE_CHANGED } from './appLanguageEvents';
+import { getAppThemeSync, resolveAppTheme } from './themeStorage';
 
 const APP_LANGUAGE_STORAGE_KEY = '@kraina_app_language';
 
@@ -54,7 +55,17 @@ function rebuildShellParamsCache() {
   cachedShellParams = merged;
 }
 
-subscribeNavState(rebuildShellParamsCache);
+let rebuildScheduled = false;
+function scheduleRebuildShellParamsCache() {
+  if (rebuildScheduled) return;
+  rebuildScheduled = true;
+  requestAnimationFrame(() => {
+    rebuildScheduled = false;
+    rebuildShellParamsCache();
+  });
+}
+
+subscribeNavState(scheduleRebuildShellParamsCache);
 
 function getShellParams() {
   if (!cachedShellParams.user && navigationRef.isReady()) {
@@ -63,15 +74,12 @@ function getShellParams() {
   return cachedShellParams;
 }
 
-function buildShellParams(extra = {}, themeOverride) {
+export function buildShellParamsForNavigate(extra = {}, themeOverride) {
   const shell = getShellParams();
   const lang = appLangBase(cachedAppLanguage || shell.language || 'uk');
-  const theme =
-    themeOverride === 'light' || themeOverride === 'dark'
-      ? themeOverride
-      : shell.appTheme === 'light' || shell.appTheme === 'dark'
-        ? shell.appTheme
-        : 'dark';
+  const theme = resolveAppTheme(
+    themeOverride === 'light' || themeOverride === 'dark' ? themeOverride : shell.appTheme,
+  );
   return {
     user: shell.user,
     language: lang,
@@ -79,6 +87,10 @@ function buildShellParams(extra = {}, themeOverride) {
     appTheme: theme,
     ...extra,
   };
+}
+
+function buildShellParams(extra = {}, themeOverride) {
+  return buildShellParamsForNavigate(extra, themeOverride);
 }
 
 function refreshLanguageCacheBestEffort() {

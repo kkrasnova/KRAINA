@@ -8,27 +8,69 @@ import {
   Pressable,
   Platform,
   KeyboardAvoidingView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
+import ProfileAvatarCircle from './ProfileAvatarCircle';
 
 import { pf } from './profileI18n';
-import { lightTabBarExtraScrollPadding } from './LightBottomTabBar';
+import { ft } from './feedI18n';
+import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { getPostComments, addPostComment, toggleCommentLike, POST_ID } from './profileStorage';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
-import { hasFeedApiToken, feedListPostComments, feedAddPostComment } from './feedApi';
+import {
+  ensureFeedSocialReady,
+  feedListPostComments,
+  feedAddPostComment,
+  feedToggleCommentLike,
+} from './feedApi';
+import { hasBackendSession } from './backendAuthApi';
+import { isServerFeedPostId } from './feedPostSyncBridge';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { errorToUserText } from './errorText';
+
+function formatCommentAge(iso, language) {
+  if (!iso) return '';
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return '';
+  const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
+  const diff = Date.now() - ms;
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return langUk ? 'щойно' : 'just now';
+  if (h < 24) return `${h} ${pf(language, 'hoursAgo')}`;
+  const d = Math.floor(h / 24);
+  return `${d} ${langUk ? 'дн.' : 'd'}`;
+}
+
+function mapBackendComment(row, language) {
+  return {
+    id: String(row.id),
+    author: `@${row.username || 'user'}`,
+    time: formatCommentAge(row.created_at, language),
+    text: row.content || '',
+    likes: Number(row.likes_count) || 0,
+    liked: !!row.liked_by_viewer,
+    avatarUrl: row.avatar_url ? resolveFeedMediaUrl(String(row.avatar_url)) : '',
+    _backend: true,
+  };
+}
 
 export default function ProfileCommentsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState('');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const [backendReady, setBackendReady] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
@@ -39,45 +81,36 @@ export default function ProfileCommentsPage({ navigation, route }) {
   const panelBorder = isLight ? '#6286E4' : accent;
 
   const postId = route?.params?.postId;
-  const useBackendComments =
-    route?.params?.useBackendComments === true &&
-    hasFeedApiToken() &&
-    postId != null &&
-    String(postId).trim() !== '' &&
-    String(postId) !== POST_ID;
-
-  const shell = {
-    user: route?.params?.user,
-    language,
-    ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-    appTheme,
-    ...(postId != null ? { postId } : {}),
-  };
+  const localUser = route?.params?.user;
 
   const reload = useCallback(async () => {
     const t = await getAppTheme();
     setAppTheme(t === 'light' ? 'light' : 'dark');
-    if (useBackendComments) {
+    const pid = String(postId || '');
+    const canUseBackend = pid && pid !== POST_ID && isServerFeedPostId(pid);
+
+    if (canUseBackend) {
+      setLoading(true);
       try {
-        const rows = await feedListPostComments(String(postId), 120);
-        setList(
-          (Array.isArray(rows) ? rows : []).map((row) => ({
-            id: String(row.id),
-            author: `@${row.username || 'user'}`,
-            time: row.created_at || '',
-            text: row.content || '',
-            likes: 0,
-            liked: false,
-            _backend: true,
-          })),
-        );
-      } catch {
+        const ready = await ensureFeedSocialReady(localUser);
+        setBackendReady(ready && hasBackendSession());
+        if (ready && hasBackendSession()) {
+          const rows = await feedListPostComments(pid, 120);
+          setList((Array.isArray(rows) ? rows : []).map((row) => mapBackendComment(row, language)));
+          return;
+        }
+      } catch (e) {
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
         setList([]);
+        return;
+      } finally {
+        setLoading(false);
       }
-      return;
     }
+
+    setBackendReady(false);
     setList(await getPostComments(postId));
-  }, [postId, useBackendComments]);
+  }, [postId, localUser, language]);
 
   useFocusEffect(
     useCallback(() => {
@@ -87,34 +120,64 @@ export default function ProfileCommentsPage({ navigation, route }) {
 
   const send = async () => {
     const t = draft.trim();
-    if (!t) return;
+    if (!t || sending) return;
+    setSending(true);
     setDraft('');
-    if (useBackendComments) {
+    if (backendReady && hasBackendSession()) {
       try {
         const row = await feedAddPostComment(String(postId), t);
-        setList((prev) => [
-          ...prev,
-          {
-            id: String(row.id),
-            author: `@${row.username || 'user'}`,
-            time: row.created_at || '',
-            text: row.content || '',
-            likes: 0,
-            liked: false,
-            _backend: true,
-          },
-        ]);
+        setList((prev) => [...prev, mapBackendComment(row, language)]);
         emitFeedMediaUpdated({ postId: String(postId) });
-      } catch {
-        /* */
+      } catch (e) {
+        setDraft(t);
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      } finally {
+        setSending(false);
       }
       return;
     }
-    setList(await addPostComment(postId, t));
+    try {
+      setList(await addPostComment(postId, t));
+    } finally {
+      setSending(false);
+    }
   };
 
   const onHeart = async (id) => {
-    if (useBackendComments) return;
+    if (backendReady && hasBackendSession()) {
+      const prev = list.find((c) => c.id === id);
+      if (!prev) return;
+      const wasLiked = !!prev.liked;
+      setList((rows) =>
+        rows.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                liked: !wasLiked,
+                likes: Math.max(0, (Number(c.likes) || 0) + (wasLiked ? -1 : 1)),
+              }
+            : c,
+        ),
+      );
+      try {
+        const out = await feedToggleCommentLike(id);
+        setList((rows) =>
+          rows.map((c) =>
+            c.id === id
+              ? { ...c, liked: !!out.liked, likes: Number(out.likes_count) || 0 }
+              : c,
+          ),
+        );
+      } catch (e) {
+        setList((rows) =>
+          rows.map((c) =>
+            c.id === id ? { ...c, liked: wasLiked, likes: Number(prev.likes) || 0 } : c,
+          ),
+        );
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      }
+      return;
+    }
     setList(await toggleCommentLike(postId, id));
   };
 
@@ -132,52 +195,54 @@ export default function ProfileCommentsPage({ navigation, route }) {
       />
       <View style={[styles.panel, { backgroundColor: panelBg, borderColor: panelBorder }]}>
         <View style={styles.panelBar} />
-        <FlashList
-          data={list}
-          keyExtractor={(item) => item.id}
-          estimatedItemSize={100}
-          contentContainerStyle={{ paddingTop: 4, paddingBottom: 12 }}
-          renderItem={({ item }) => (
-            <View
-              style={[
-                styles.comment,
-                { borderBottomColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)' },
-              ]}
-            >
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator color={accent} />
+          </View>
+        ) : (
+          <FlashList
+            data={list}
+            keyExtractor={(item) => item.id}
+            estimatedItemSize={100}
+            contentContainerStyle={{ paddingTop: 4, paddingBottom: 12 }}
+            ListEmptyComponent={
+              <Text style={[styles.empty, { color: textMuted }]}>{ft(language, 'postCommentsEmpty')}</Text>
+            }
+            renderItem={({ item }) => (
               <View
                 style={[
-                  styles.cAvatar,
-                  { backgroundColor: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)' },
+                  styles.comment,
+                  { borderBottomColor: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)' },
                 ]}
-              />
-              <View style={{ flex: 1 }}>
-                <View style={styles.cHead}>
-                  <Text style={[styles.cAuthor, { color: textMain }]}>{item.author}</Text>
-                  <Text style={[styles.cTime, { color: textMuted }]}> {item.time}</Text>
+              >
+                <ProfileAvatarCircle uri={item.avatarUrl || ''} size={36} isLight={isLight} style={styles.cAvatar} />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.cHead}>
+                    <Text style={[styles.cAuthor, { color: textMain }]}>{item.author}</Text>
+                    <Text style={[styles.cTime, { color: textMuted }]}> {item.time}</Text>
+                  </View>
+                  <Text style={[styles.cText, { color: textMain }]}>{item.text}</Text>
                 </View>
-                <Text style={[styles.cText, { color: textMain }]}>{item.text}</Text>
-                <Pressable>
-                  <Text style={[styles.reply, { color: accent }]}>{pf(language, 'reply')}</Text>
+                <Pressable style={styles.likeCol} onPress={() => onHeart(item.id)}>
+                  <Ionicons
+                    name={item.liked ? 'heart' : 'heart-outline'}
+                    size={20}
+                    color={item.liked ? '#EB4335' : textMain}
+                  />
+                  {(Number(item.likes) || 0) > 0 ? (
+                    <Text style={[styles.likeNum, { color: textMain }]}>{item.likes}</Text>
+                  ) : null}
                 </Pressable>
-                <Text style={[styles.viewRep, { color: textMuted }]}>{pf(language, 'viewReplies')}</Text>
               </View>
-              <Pressable style={styles.likeCol} onPress={() => onHeart(item.id)}>
-                <Ionicons
-                  name={item.liked ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={item.liked ? '#EB4335' : textMain}
-                />
-                <Text style={[styles.likeNum, { color: textMain }]}>{item.likes}</Text>
-              </Pressable>
-            </View>
-          )}
-        />
+            )}
+          />
+        )}
       </View>
       <View
         style={[
           styles.inputRow,
           {
-            paddingBottom: insets.bottom + lightTabBarExtraScrollPadding() + 8,
+            paddingBottom: lightTabBarScrollContentPadding(insets.bottom, 8),
             backgroundColor: screenBg,
           },
         ]}
@@ -185,7 +250,7 @@ export default function ProfileCommentsPage({ navigation, route }) {
         <TextInput
           value={draft}
           onChangeText={setDraft}
-          placeholder="@angelina Привіт, цікава локація"
+          placeholder={ft(language, 'postCommentPlaceholder')}
           placeholderTextColor={isLight ? '#888' : '#777'}
           style={[
             styles.input,
@@ -195,9 +260,19 @@ export default function ProfileCommentsPage({ navigation, route }) {
             },
           ]}
           multiline
+          maxLength={500}
+          editable={!sending}
         />
-        <Pressable style={[styles.sendBtn, { backgroundColor: accent }]} onPress={send}>
-          <Ionicons name="arrow-up" size={22} color={onAccentButtonText(isLight)} />
+        <Pressable
+          style={[styles.sendBtn, { backgroundColor: accent, opacity: sending ? 0.6 : 1 }]}
+          onPress={send}
+          disabled={sending || !draft.trim()}
+        >
+          {sending ? (
+            <ActivityIndicator color={onAccentButtonText(isLight)} size="small" />
+          ) : (
+            <Ionicons name="arrow-up" size={22} color={onAccentButtonText(isLight)} />
+          )}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -224,24 +299,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.12)',
     marginBottom: 10,
   },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 32 },
+  empty: { textAlign: 'center', paddingVertical: 24, fontSize: 14 },
   comment: {
     flexDirection: 'row',
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   cAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     marginRight: 10,
   },
   cHead: { flexDirection: 'row', flexWrap: 'wrap' },
   cAuthor: { fontSize: 14, fontWeight: '700' },
   cTime: { fontSize: 13 },
   cText: { fontSize: 14, lineHeight: 20, marginTop: 4 },
-  reply: { fontSize: 13, marginTop: 6 },
-  viewRep: { fontSize: 13, marginTop: 4 },
-  likeCol: { alignItems: 'center', marginLeft: 8 },
+  likeCol: { alignItems: 'center', marginLeft: 8, minWidth: 28 },
   likeNum: { fontSize: 12, marginTop: 2 },
   inputRow: {
     flexDirection: 'row',

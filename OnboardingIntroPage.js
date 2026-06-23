@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from 'expo-av';
+// import { Video, ResizeMode } from 'expo-av'; // Temporarily disabled
 import { useResponsive } from './useResponsive';
 import { rippleOnDarkSurface } from './androidFeedback';
 import LemonBannerGlow from './components/ui/LemonBannerGlow';

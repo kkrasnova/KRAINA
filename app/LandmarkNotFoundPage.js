@@ -17,7 +17,7 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { ls } from './landmarkScannerI18n';
-import { getAppTheme } from './themeStorage';
+import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { persistLandmarkStoryRequest } from './landmarkStoryRequest';
 
@@ -26,7 +26,7 @@ const COORD_RED = '#FF4D4D';
 export default function LandmarkNotFoundPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme || 'dark');
+  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const requestRef = route?.params?.requestRef || '';
   const photoUri = route?.params?.photoUri;
   const scanLatitude =
