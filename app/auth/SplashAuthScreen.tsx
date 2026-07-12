@@ -14,8 +14,8 @@ export default function SplashAuthScreen({ navigation }: Props) {
     (async () => {
       await hydrate();
       if (cancelled) return;
-      const token = useAuthStore.getState().accessToken;
-      if (token) {
+      const state = useAuthStore.getState();
+      if (state.user || state.accessToken || state.refreshToken) {
         navigation.replace('PostAuthHome');
       } else {
         navigation.replace('AuthMain');

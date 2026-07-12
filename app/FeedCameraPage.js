@@ -1,4 +1,4 @@
-import { resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -14,10 +14,10 @@ import {
   Vibration,
   TextInput,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
@@ -41,14 +41,12 @@ import { resetToHomeFeedTab } from './homeTabSwitch';
 import { useAuthStore } from './auth/authStore';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
 import { useSyncedAppLanguage } from './useAppLanguage';
-
-const isIosSimulator = Platform.OS === 'ios' && !Constants.isDevice;
-const isAndroidEmulator = Platform.OS === 'android' && !Constants.isDevice;
-const isSimulator = isIosSimulator;
+import { clearComposerDraft } from './feedComposerDraft';
+import { isAndroidEmulator, isVirtualDevice } from './virtualDevice';
 
 function CameraNativeMissing({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
-  const isLight = (resolveAppTheme(route?.params?.appTheme)) === 'light';
+  const { isLight } = useAppTheme(route?.params?.appTheme, route);
   const accent = accentForTheme(isLight);
   return (
     <View style={[styles.center, isLight && styles.centerLight, { paddingHorizontal: 24 }]}>
@@ -74,12 +72,12 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
     requestCameraPermissionsAsync,
   } = cameraMod;
   const insets = useSafeAreaInsets();
+  const { width: winW, height: winH } = useWindowDimensions();
   const isFocused = useIsFocused();
   const language = useSyncedAppLanguage(route, 'uk');
   const user = route?.params?.user;
   const countryId = route?.params?.countryId;
-  const appTheme = resolveAppTheme(route?.params?.appTheme);
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const accent = accentForTheme(isLight);
   const chromeIcon = isLight ? '#1E1E1E' : '#F2F2EA';
   const chromeBtnBg = isLight ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.42)';
@@ -95,17 +93,37 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   /** Підсвітка кадру (ліхтарик), лише задня камера. Знімок — auto flash. */
   const [torchOn, setTorchOn] = useState(false);
   const camRef = useRef(null);
-  const [ready, setReady] = useState(isSimulator || isAndroidEmulator);
   const [busy, setBusy] = useState(false);
   const [thumb, setThumb] = useState(null);
   const [cameraSession, setCameraSession] = useState(0);
   const [cameraError, setCameraError] = useState(null);
+  const [galleryFallback, setGalleryFallback] = useState(isVirtualDevice);
+  /** DEV-only діагностика життєвого циклу CameraView: 'waiting' | 'ready' | 'mounterr:<msg>'. */
+  const [camDebug, setCamDebug] = useState('waiting');
+  /** Тап по затвору = фото, утримання = відео. Камера завжди у 'video' (фото теж працює),
+   * мікрофон вмикаємо лише під час запису через mute. */
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
+  const recordingRef = useRef(false);
+  const holdActiveRef = useRef(false); // палець досі утримує затвор
+  const holdTimerRef = useRef(null);
+  const recordTickRef = useRef(null);
+  const HOLD_TO_RECORD_MS = 260;
+  const MIN_VIDEO_MS = 900; // коротше — вважаємо випадковим, ігноруємо
+  const MAX_VIDEO_SECS = 60;
   /** Інлайн-прев'ю історії — без окремого FeedStoryShare. */
   const [storyPreviewUri, setStoryPreviewUri] = useState(null);
   const [storyCaption, setStoryCaption] = useState('');
   const [publishBusy, setPublishBusy] = useState(false);
   const zoomRef = useRef(0);
   const pinchRef = useRef(null);
+  /** Скільки разів поспіль CameraView не змонтувалась — авто-ретрай перед fallback на галерею. */
+  const mountRetryRef = useRef(0);
+  const MAX_MOUNT_RETRIES = 2;
+  /** Камера змонтувалась без onMountError, але й onCameraReady не прийшов (застряглий перший
+   * кадр Fabric-в'юхи на New Arch → порожнє прев'ю). Один-два тихі перемонтажі «розганяють» сесію. */
+  const readyKickRef = useRef(0);
+  const MAX_READY_KICKS = 2;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -115,11 +133,10 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
     setZoom(0);
     pinchRef.current = null;
     if (facing === 'front') setTorchOn(false);
-    if (!isSimulator) setReady(false);
   }, [facing]);
 
   useEffect(() => {
-    if (permission?.granted || isSimulator) return;
+    if (permission?.granted || isVirtualDevice) return;
     let cancelled = false;
     (async () => {
       try {
@@ -155,7 +172,11 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   useEffect(() => {
     void ImagePicker.requestMediaLibraryPermissionsAsync().catch(() => {});
     void MediaLibrary.requestPermissionsAsync().catch(() => {});
-  }, []);
+    // Мікрофон — щоб відео (по утриманню затвора) було зі звуком.
+    if (typeof cameraMod.requestMicrophonePermissionsAsync === 'function') {
+      void cameraMod.requestMicrophonePermissionsAsync().catch(() => {});
+    }
+  }, [cameraMod]);
 
   useFocusEffect(
     useCallback(() => {
@@ -170,24 +191,19 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
         }
       })();
       void refreshCameraGate();
-      if (!isSimulator) setCameraError(null);
+      if (!isVirtualDevice) {
+        setCameraError(null);
+        mountRetryRef.current = 0;
+        readyKickRef.current = 0;
+        setCamDebug('waiting');
+        setCameraSession((s) => s + 1);
+      }
       return () => {
         cancelled = true;
         setTorchOn(false);
       };
     }, [refreshCameraGate]),
   );
-
-  /**
-   * Запасний таймер: якщо onCameraReady не спрацював за 1 с (типово для
-   * емулятора/повільних пристроїв), все одно прибираємо «Запуск камери…»
-   * і вмикаємо затвор, щоб екран не залипав на спінері.
-   */
-  useEffect(() => {
-    if (isSimulator || isAndroidEmulator || ready || cameraError) return;
-    const t = setTimeout(() => setReady(true), 1000);
-    return () => clearTimeout(t);
-  }, [ready, cameraError, cameraSession]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
@@ -241,6 +257,7 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
         setStoryPreviewUri(list[0]);
         return;
       }
+      clearComposerDraft();
       // Пост: повний флоу — один знімок → композер; кілька → медіа-пікер.
       if (list.length === 1) {
         navigation.navigate('FeedPostComposer', {
@@ -271,7 +288,7 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
       try {
         return await ImagePicker.launchImageLibraryAsync(pickerOptions);
       } catch (libErr) {
-        if (!isAndroidEmulator && !isSimulator) throw libErr;
+        if (!isVirtualDevice) throw libErr;
         const camPerm = await ImagePicker.requestCameraPermissionsAsync();
         if (!camPerm.granted) throw libErr;
         return await ImagePicker.launchCameraAsync({
@@ -305,12 +322,12 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
       }
       const isStory = forceStory ?? mode === 'story';
       const allowMulti = forcePostMulti ?? !isStory;
-      setBusy(true);
       try {
         const res = await launchMediaPicker({ isStory, allowMulti });
         if (res.canceled) return;
         const assets = res.assets || [];
         if (!assets.length) return;
+        setBusy(true);
         const persisted = [];
         for (const a of assets) {
           if (!a?.uri) continue;
@@ -334,6 +351,7 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
       void pickFromSystemLibrary({ forceStory: true });
       return;
     }
+    clearComposerDraft();
     navigation.navigate('FeedPostMediaPicker', {
       ...shell,
       publishVisibility,
@@ -366,7 +384,7 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   }, []);
 
   const toggleTorch = useCallback(() => {
-    if (facing !== 'back' || isSimulator) return;
+    if (facing !== 'back' || isVirtualDevice) return;
     setTorchOn((t) => {
       const next = !t;
       if (Platform.OS === 'android' && next) Vibration.vibrate(12);
@@ -375,18 +393,18 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   }, [facing]);
 
   const flipCamera = useCallback(() => {
-    if (isSimulator) return;
+    if (isVirtualDevice) return;
     setTorchOn(false);
-    setReady(false);
     setFacing((f) => (f === 'back' ? 'front' : 'back'));
     if (Platform.OS === 'android') Vibration.vibrate(10);
   }, []);
 
   const takePhoto = useCallback(async () => {
-    if (isSimulator || isAndroidEmulator) {
+    if (isVirtualDevice || galleryFallback || cameraError) {
       if (mode === 'story') {
         void pickFromSystemLibrary({ forceStory: true });
       } else {
+        clearComposerDraft();
         navigation.navigate('FeedPostMediaPicker', {
           ...shell,
           publishVisibility,
@@ -395,10 +413,6 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
       return;
     }
     if (busy) return;
-    if (!ready) {
-      Alert.alert('', fc(language, 'cameraNotReady'));
-      return;
-    }
     if (!camRef.current) {
       if (isAndroidEmulator) {
         await pickFromSystemLibrary();
@@ -440,16 +454,139 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
       setBusy(false);
     }
   }, [
-    ready,
     busy,
     mode,
     language,
+    galleryFallback,
+    cameraError,
     pickFromSystemLibrary,
     goAfterCapture,
     navigation,
     shell,
     publishVisibility,
   ]);
+
+  // ── Відео по утриманню затвора (камера завжди у 'video' → без гонок перемикання) ──
+  const stopRecordTick = useCallback(() => {
+    if (recordTickRef.current) {
+      clearInterval(recordTickRef.current);
+      recordTickRef.current = null;
+    }
+    setRecordSecs(0);
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    holdActiveRef.current = false;
+    try {
+      camRef.current?.stopRecording();
+    } catch {
+      /* recordAsync resolve обробить решту */
+    }
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    if (isVirtualDevice || galleryFallback || cameraError || busy) return;
+    if (recordingRef.current || !camRef.current) return;
+    holdActiveRef.current = true;
+    recordingRef.current = true;
+    setIsRecording(true); // → mute=false, підключається мікрофон
+    setTorchOn(false);
+    setRecordSecs(0);
+    if (Platform.OS === 'android') Vibration.vibrate(18);
+
+    // Даємо мікрофону підключитись (mute:false) і перевіряємо, чи палець ще утримує.
+    await new Promise((r) => setTimeout(r, 120));
+    if (!holdActiveRef.current || !camRef.current) {
+      recordingRef.current = false;
+      setIsRecording(false);
+      return;
+    }
+
+    const finish = () => {
+      stopRecordTick();
+      recordingRef.current = false;
+      holdActiveRef.current = false;
+      setIsRecording(false);
+    };
+    recordTickRef.current = setInterval(() => {
+      setRecordSecs((s) => {
+        const next = s + 1;
+        if (next >= MAX_VIDEO_SECS) {
+          try {
+            camRef.current?.stopRecording();
+          } catch {
+            /* */
+          }
+        }
+        return next;
+      });
+    }, 1000);
+
+    const startTs = Date.now();
+    try {
+      if (__DEV__) console.warn('[FeedCamVid] recordAsync start');
+      const result = await camRef.current.recordAsync({ maxDuration: MAX_VIDEO_SECS });
+      const durationMs = Date.now() - startTs;
+      if (__DEV__) console.warn('[FeedCamVid] done uri=', String(result?.uri), 'ms=', durationMs);
+      finish();
+      const uri = result?.uri;
+      if (uri && durationMs >= MIN_VIDEO_MS) {
+        setBusy(true);
+        const persisted = await persistCapturedImage(uri, { mimeType: 'video/mp4' });
+        setBusy(false);
+        if (__DEV__) console.warn('[FeedCamVid] persisted=', String(persisted));
+        if (persisted) {
+          if (Platform.OS === 'android') Vibration.vibrate(22);
+          goAfterCapture([persisted], { isStory: mode === 'story' });
+        }
+      } else if (__DEV__) {
+        console.warn('[FeedCamVid] discarded (no uri or too short)');
+      }
+    } catch (e) {
+      finish();
+      if (__DEV__) console.warn('[FeedCamVid] recordAsync ERROR', e?.message);
+    }
+  }, [busy, galleryFallback, cameraError, mode, goAfterCapture, stopRecordTick]);
+
+  // Прибирання таймерів при демонтажі.
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      if (recordTickRef.current) clearInterval(recordTickRef.current);
+    };
+  }, []);
+
+  const onShutterPressIn = useCallback(() => {
+    if (isVirtualDevice || galleryFallback || busy || cameraError) return;
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      void startRecording();
+    }, HOLD_TO_RECORD_MS);
+  }, [galleryFallback, busy, cameraError, startRecording]);
+
+  const onShutterPressOut = useCallback(() => {
+    if (holdTimerRef.current) {
+      // Відпустили до порогу утримання → це тап → фото.
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+      void takePhoto();
+      return;
+    }
+    if (recordingRef.current) {
+      // Утримання перейшло у відео → зупиняємо запис.
+      stopRecording();
+      return;
+    }
+    // Утримання не почало відео (віртуальний/fallback) → трактуємо як фото/галерею.
+    void takePhoto();
+  }, [takePhoto, stopRecording]);
+
+  const recordLabel = useMemo(() => {
+    const m = Math.floor(recordSecs / 60);
+    const s = recordSecs % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }, [recordSecs]);
 
   const retakeStory = useCallback(() => {
     setStoryPreviewUri(null);
@@ -496,22 +633,38 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   }, [storyPreviewUri, publishBusy, storyCaption, user, navigation, shell, language]);
 
   const retryCamera = useCallback(() => {
+    mountRetryRef.current = 0;
+    readyKickRef.current = 0;
+    setCamDebug('waiting');
     setCameraError(null);
-    setReady(false);
+    setGalleryFallback(isVirtualDevice);
     setCameraSession((s) => s + 1);
   }, []);
 
-  if (!permission) {
-    return (
-      <View style={[styles.center, isLight && styles.centerLight]}>
-        <ActivityIndicator color={accent} />
-      </View>
-    );
-  }
+  // Прев'ю не піднялось (немає ні onCameraReady, ні onMountError) — тихо перемонтовуємо в'юху,
+  // щоб зрушити застряглу камеру-сесію. Якщо камера справна, camDebug === 'ready' і kick не буде.
+  useEffect(() => {
+    if (isVirtualDevice || galleryFallback || cameraError) return;
+    if (camDebug === 'ready') return;
+    if (readyKickRef.current >= MAX_READY_KICKS) {
+      // Прев'ю не піднялось після перемонтажів — м'який fallback у галерею, щоб затвор
+      // відкривав галерею, а не лишався «мертвим». Якщо onCameraReady прийде — камера повернеться.
+      if (__DEV__) console.warn('[FeedCamera] preview never ready — falling back to gallery');
+      setGalleryFallback(true);
+      return;
+    }
+    const t = setTimeout(() => {
+      readyKickRef.current += 1;
+      if (__DEV__) console.warn('[FeedCamera] preview kick', readyKickRef.current);
+      setCameraSession((s) => s + 1);
+    }, 1600);
+    return () => clearTimeout(t);
+  }, [camDebug, galleryFallback, cameraError, cameraSession]);
 
-  const cameraUnlocked = isSimulator || !!permission?.granted || cameraAllowedOverride;
+  const cameraDenied =
+    permission != null && !permission.granted && !isVirtualDevice && !cameraAllowedOverride;
 
-  if (!cameraUnlocked) {
+  if (cameraDenied) {
     return (
       <View style={[styles.center, isLight && styles.centerLight, { paddingHorizontal: 24 }]}>
         <Text style={[styles.denied, isLight && styles.deniedLight]}>{fc(language, 'needCamera')}</Text>
@@ -616,12 +769,18 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
   const pinchTop = insets.top + 48;
   const zoomStepFine = facing === 'front' ? 0.1 : 0.08;
   const zoomLabel = formatZoomLabel(zoom);
-  const shutterReady = isSimulator || isAndroidEmulator || (ready && !cameraError);
+  const showVirtualPreview = isVirtualDevice || galleryFallback;
 
   return (
     <View style={[styles.screen, isLight && styles.screenLight]}>
-      <View style={[styles.cameraShell, isLight && styles.cameraShellLight]} pointerEvents="box-none" collapsable={false}>
-        {isSimulator ? (
+      <Pressable
+        style={[styles.cameraShell, isLight && styles.cameraShellLight]}
+        pointerEvents="box-none"
+        collapsable={false}
+        onPress={showVirtualPreview && !busy ? () => void takePhoto() : undefined}
+        disabled={!showVirtualPreview || busy}
+      >
+        {showVirtualPreview ? (
           <View style={[styles.simulatorPreview, isLight && styles.simulatorPreviewLight]}>
             {thumb ? (
               <Image source={{ uri: thumb }} style={styles.simulatorPreviewImg} blurRadius={Platform.OS === 'ios' ? 6 : 0} />
@@ -646,28 +805,44 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
             ref={camRef}
             style={[
               styles.cameraBase,
-              facing === 'front' && Platform.OS === 'ios' && styles.cameraFrontScale,
+              // Явні розміри екрана: під Fabric/New Arch absoluteFill інколи дає ширину 0
+              // → прев'ю невидиме (біле), хоча знімок робиться. Фіксуємо конкретні px.
+              { width: winW, height: winH },
             ]}
             facing={facing}
             zoom={zoom}
             flash={torchOn && facing === 'back' ? 'off' : 'auto'}
             enableTorch={torchOn && facing === 'back'}
             mirror={facing === 'front'}
-            mode="picture"
+            mode="video"
+            mute={!isRecording}
+            videoQuality="1080p"
             {...(Platform.OS === 'ios' ? { active: isFocused } : null)}
             {...(Platform.OS === 'android' ? { ratio: '16:9' } : null)}
             animateShutter={Platform.OS === 'ios'}
             onCameraReady={() => {
-              setReady(true);
+              if (__DEV__) console.warn('[FeedCamera] onCameraReady');
+              setCamDebug('ready');
+              mountRetryRef.current = 0;
               setCameraError(null);
+              setGalleryFallback(false);
             }}
             onMountError={(e) => {
-              setReady(false);
+              if (__DEV__) console.warn('[FeedCamera] onMountError', e?.message, JSON.stringify(e?.nativeEvent || {}));
+              setCamDebug('mounterr:' + (e?.message || 'unknown'));
+              // Транзієнтний збій першого кадру (частий на iOS/New Arch) — тихо
+              // перемонтовуємо камеру, а не «залипаємо» в сірому fallback назавжди.
+              if (!isVirtualDevice && mountRetryRef.current < MAX_MOUNT_RETRIES) {
+                mountRetryRef.current += 1;
+                setTimeout(() => setCameraSession((s) => s + 1), 350);
+                return;
+              }
+              setGalleryFallback(true);
               setCameraError(e?.message || fc(language, 'cameraError'));
             }}
           />
         )}
-      </View>
+      </Pressable>
 
       <LinearGradient
         pointerEvents="none"
@@ -676,6 +851,14 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
         }
         style={[styles.topFade, { height: insets.top + 72 }]}
       />
+
+      {__DEV__ ? (
+        <View style={[styles.debugBadge, { top: insets.top + 56 }]} pointerEvents="none">
+          <Text style={styles.debugBadgeText}>
+            {`cam:${camDebug} · perm:${permission?.status || '?'} · focus:${isFocused ? 1 : 0} · fb:${galleryFallback ? 1 : 0} · vd:${isVirtualDevice ? 1 : 0}`}
+          </Text>
+        </View>
+      ) : null}
 
       <View
         style={[styles.pinchLayer, { top: pinchTop, bottom: bottomChromeH }]}
@@ -705,14 +888,14 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
           styles.chromeBtnElevated,
           {
             top: insets.top + 10,
-            opacity: facing === 'back' && !isSimulator ? 1 : 0.35,
+            opacity: facing === 'back' && !isVirtualDevice ? 1 : 0.35,
             backgroundColor: torchOn ? `${accent}33` : chromeBtnBg,
             borderColor: torchOn ? accent : chromeBtnBorder,
           },
         ]}
         onPress={toggleTorch}
         hitSlop={10}
-        disabled={facing !== 'back' || isSimulator}
+        disabled={facing !== 'back' || isVirtualDevice}
         accessibilityRole="button"
         accessibilityLabel="Torch"
         accessibilityState={{ selected: torchOn }}
@@ -737,15 +920,24 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
         </View>
       ) : null}
 
-      {!isSimulator && !ready && !cameraError ? (
-        <View style={[styles.initOverlay, isLight && styles.initOverlayLight]} pointerEvents="none">
-          <ActivityIndicator color={accent} size="small" />
-          <Text style={[styles.initText, isLight && styles.initTextLight]}>{fc(language, 'cameraInitializing')}</Text>
+      {isRecording ? (
+        <View style={[styles.recordBadge, { top: insets.top + 12 }]} pointerEvents="none">
+          <View style={styles.recordDot} />
+          <Text style={styles.recordBadgeText}>{recordLabel}</Text>
+        </View>
+      ) : !showVirtualPreview && !cameraError && !busy ? (
+        <View
+          style={[styles.hintPill, isLight && styles.hintPillLight, { bottom: bottomChromeH + 6 }]}
+          pointerEvents="none"
+        >
+          <Text style={[styles.hintPillText, isLight && styles.hintPillTextLight]}>
+            {language === 'en' ? 'Tap — photo · hold — video' : 'Тап — фото · утримай — відео'}
+          </Text>
         </View>
       ) : null}
 
-      {cameraError ? (
-        <View style={[styles.initOverlay, isLight && styles.initOverlayLight]}>
+      {cameraError && !isVirtualDevice ? (
+        <View style={[styles.initOverlay, isLight && styles.initOverlayLight]} pointerEvents="box-none">
           <Ionicons name="warning-outline" size={32} color={isLight ? 'rgba(30,30,30,0.55)' : 'rgba(255,255,255,0.75)'} />
           <Text style={[styles.initText, isLight && styles.initTextLight]}>{cameraError}</Text>
           <Pressable style={[styles.btn, { backgroundColor: accent }]} onPress={retryCamera}>
@@ -855,21 +1047,25 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
               />
             </Pressable>
             <Pressable
-              onPress={takePhoto}
-              disabled={!shutterReady || busy}
+              onPressIn={onShutterPressIn}
+              onPressOut={onShutterPressOut}
+              disabled={busy && !isRecording}
+              accessibilityLabel={mode === 'story' ? fc(language, 'story') : fc(language, 'publication')}
+              accessibilityHint="Тап — фото, утримання — відео"
               style={({ pressed }) => [
                 styles.shutterOuter,
                 isLight && styles.shutterOuterLight,
                 mode === 'story' && { borderColor: accent },
-                (!shutterReady || busy) && { opacity: 0.45 },
-                pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+                isRecording && styles.shutterOuterRecording,
+                busy && !isRecording && { opacity: 0.45 },
+                pressed && !isRecording && { opacity: 0.9, transform: [{ scale: 0.94 }] },
               ]}
             >
               <View
                 style={[
-                  styles.shutterInner,
-                  isLight && styles.shutterInnerLight,
-                  mode === 'story' && { backgroundColor: accent },
+                  isRecording ? styles.shutterInnerRecording : styles.shutterInner,
+                  !isRecording && isLight && styles.shutterInnerLight,
+                  !isRecording && mode === 'story' && { backgroundColor: accent },
                 ]}
               />
             </Pressable>
@@ -882,13 +1078,13 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
                 zoom >= 1 && styles.zoomStepBtnDisabled,
               ]}
               accessibilityLabel="Zoom in"
-              disabled={zoom >= 1 || isSimulator}
+              disabled={zoom >= 1 || isVirtualDevice}
             >
               <Ionicons
                 name="add"
                 size={20}
                 color={
-                  zoom >= 1 || isSimulator
+                  zoom >= 1 || isVirtualDevice
                     ? isLight
                       ? 'rgba(30,30,30,0.22)'
                       : 'rgba(255,255,255,0.28)'
@@ -901,7 +1097,7 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
           <Pressable
             style={styles.sideBtn}
             onPress={flipCamera}
-            disabled={isSimulator}
+            disabled={isVirtualDevice || isRecording}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Flip camera"
@@ -909,7 +1105,7 @@ function FeedCameraPageInner({ navigation, route, cameraMod }) {
             <Ionicons
               name="camera-reverse-outline"
               size={28}
-              color={isSimulator ? (isLight ? 'rgba(30,30,30,0.28)' : 'rgba(255,255,255,0.35)') : chromeIcon}
+              color={isVirtualDevice || isRecording ? (isLight ? 'rgba(30,30,30,0.28)' : 'rgba(255,255,255,0.35)') : chromeIcon}
             />
           </Pressable>
         </View>
@@ -1078,6 +1274,24 @@ const styles = StyleSheet.create({
     android: { elevation: 12 },
     default: {},
   }),
+  debugBadge: {
+    position: 'absolute',
+    alignSelf: 'center',
+    left: 8,
+    right: 8,
+    zIndex: 40,
+    alignItems: 'center',
+  },
+  debugBadgeText: {
+    color: '#00FF88',
+    fontSize: 11,
+    fontWeight: '700',
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
   zoomBadge: {
     position: 'absolute',
     alignSelf: 'center',
@@ -1208,6 +1422,59 @@ const styles = StyleSheet.create({
   },
   shutterInnerLight: {
     backgroundColor: '#1E1E1E',
+  },
+  shutterOuterRecording: {
+    borderColor: '#FF3B30',
+  },
+  shutterInnerRecording: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#FF3B30',
+  },
+  recordBadge: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  recordDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#FF3B30',
+  },
+  recordBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  hintPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 14,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  hintPillLight: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+  },
+  hintPillText: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  hintPillTextLight: {
+    color: 'rgba(30,30,30,0.75)',
   },
   modePill: {
     flexDirection: 'row',

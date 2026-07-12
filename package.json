@@ -4,7 +4,7 @@
   "scripts": {
     "start:expo": "cd app && npm run start:expo",
     "start:expo:ui": "cd app && npm run start:expo:ui",
-    "db:up": "docker compose up -d",
+    "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "cd backend && npm run migrate",
     "firebase:deploy": "firebase deploy",
@@ -33,6 +33,9 @@
     "web": "cd app && npm run web",
     "android:run": "cd app && npm run android",
     "ios:run": "cd app && npm run ios",
+    "device:ios": "cd app && npm run ios:device:dev",
+    "device:android": "cd app && npm run android:device:dev",
+    "apk:debug": "cd app/android && ./gradlew :app:assembleDebug",
     "clean": "cd app && npm run clean",
     "clean:soft": "cd app && npm run clean:soft",
     "clean:start": "cd app && npm run clean:start",

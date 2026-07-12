@@ -71,6 +71,12 @@
 	<string>Додаток використовує геолокацію, щоб запропонувати країну за вашим місцезнаходженням.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Мікрофон потрібен, щоб записувати та надсилати голосові повідомлення в чаті.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Додатку потрібен доступ до локальної мережі, щоб підключатися до Metro під час розробки.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+	</array>
 	<key>NSMotionUsageDescription</key>
 	<string>Allow $(PRODUCT_NAME) to detect your current motion activity</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

@@ -78,6 +78,8 @@ async function resolveReadableMediaUri(uri, options = {}) {
   if (needsResolve) {
     try {
       const MediaLibrary = require('expo-media-library');
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (!perm.granted) return null;
       const assetRef = options.assetId || normalized;
       const info = await MediaLibrary.getAssetInfoAsync(assetRef, {
         shouldDownloadFromNetwork: true,
@@ -90,6 +92,22 @@ async function resolveReadableMediaUri(uri, options = {}) {
   }
 
   return normalized;
+}
+
+/** Лише file:// з непорожнім файлом — придатний для multipart upload. */
+export async function ensureUploadableImageUri(uri, options = {}) {
+  const persisted = await persistCapturedImage(uri, options);
+  const candidates = [];
+  if (persisted) candidates.push(persisted);
+  const normalized = normalizeLocalFileUri(uri);
+  if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+
+  for (const candidate of candidates) {
+    if (!isSandboxFileUri(candidate)) continue;
+    const info = await FileSystem.getInfoAsync(candidate, { size: true }).catch(() => null);
+    if (info?.exists && info.size > 0) return candidate;
+  }
+  return null;
 }
 
 /**

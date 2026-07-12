@@ -49,6 +49,18 @@ const S = {
     uk: 'Натисніть тут або кнопку камери внизу',
     en: 'Tap here or the camera button below',
   },
+  simulatorScanHint: {
+    uk: 'Камера недоступна в симуляторі.\nНатисніть рамку, щоб обрати фото.',
+    en: 'Camera is unavailable in the simulator.\nTap the frame to pick a photo.',
+  },
+  addFromGallery: {
+    uk: 'Обрати з галереї',
+    en: 'Pick from gallery',
+  },
+  cameraError: {
+    uk: 'Не вдалося запустити камеру. Спробуйте обрати фото з галереї.',
+    en: 'Could not start the camera. Try picking a photo from the gallery.',
+  },
   captureHint: {
     uk: 'AR-скан: наведіть пам’ятку в жовту рамку й натисніть затвор. Працює з Wikipedia; з ключем Vision — також за фото.',
     en: 'AR scan: frame the landmark in the yellow box and tap the shutter. Uses Wikipedia; with a Vision key also matches from the photo.',

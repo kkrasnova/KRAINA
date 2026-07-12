@@ -33,6 +33,7 @@ import {
   loadProfileEditPublicationPage,
   loadProfileGamificationHubPage,
   loadSocialConnectionsPage,
+  loadSocialUserProfilePage,
   loadSettingsPage,
   loadFeedCameraPage,
   loadFeedStoryViewerPage,
@@ -231,7 +232,7 @@ const DiscoverPeoplePage = (p) => (
   <LazyScreen loader={loadDiscoverPeoplePage} {...p} />
 );
 const SocialUserProfilePage = (p) => (
-  <LazyScreen loader={makeLazyLoader(() => require('./SocialUserProfilePage'))} {...p} />
+  <LazyScreen loader={loadSocialUserProfilePage} {...p} />
 );
 const SocialConnectionsPage = (p) => <LazyScreen loader={loadSocialConnectionsPage} {...p} />;
 const ProfilePageComponent = (p) => (
@@ -771,7 +772,7 @@ export default function App() {
                 name="Chats"
                 component={ChatsPage}
                 options={{
-                  contentStyle: { backgroundColor: appTheme === 'light' ? '#FFFFFF' : screenBg },
+                  contentStyle: { backgroundColor: effectiveAppTheme === 'light' ? '#FFFFFF' : screenBg },
                 }}
               />
               <Stack.Screen
@@ -779,7 +780,7 @@ export default function App() {
                 component={StartChatPage}
                 options={{
                   headerShown: false,
-                  contentStyle: { backgroundColor: appTheme === 'light' ? '#FFFFFF' : screenBg },
+                  contentStyle: { backgroundColor: effectiveAppTheme === 'light' ? '#FFFFFF' : screenBg },
                 }}
               />
               <Stack.Screen name="ChatThread" component={ChatThreadPage} options={{ headerShown: false }} />

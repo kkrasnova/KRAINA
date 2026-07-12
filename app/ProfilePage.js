@@ -7,6 +7,7 @@ import {
   Pressable,
   Image,
   Platform,
+  useWindowDimensions,
   Dimensions,
   Alert,
   DeviceEventEmitter,
@@ -30,8 +31,6 @@ import {
   getProfileBio,
   getProfileBirthDate,
   getProfileBirthPublic,
-  getProfileAvatarLocalUri,
-  clearProfileAvatarLocalUri,
   getSavedRoutes,
   KRAINA_SAVED_ROUTES_CHANGED,
 } from './profileStorage';
@@ -68,14 +67,16 @@ function prefetchDiscoverScreen() {
 import {
   hasFeedApiToken,
 } from './feedApi';
-import { getUserFeedPosts } from './feedLocalStorage';
+import { getUserFeedPosts, resolveFeedLocalUser } from './feedLocalStorage';
+import { hydrateLocalFeedPostStats } from './feedLocalInteractions';
+import { peekPostLikeState, warmPostLikeStateFromStats } from './feedInteractionHotCache';
 import { getVisitLog } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
 import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
 import { getPhysicalVisitBonusXpTotal } from './physicalVisitRewards';
 import ProfileLevelBadge from './ProfileLevelBadge';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
-import { KRAINA_PROFILE_ME_UPDATED, PROFILE_ME_SYNC_TTL_MS, refreshSocialProfileCounts } from './profileMeSync';
+import { KRAINA_PROFILE_ME_UPDATED, PROFILE_ME_SYNC_TTL_MS, refreshSocialProfileCounts, resolveOwnProfileDisplayFields } from './profileMeSync';
 import { KRAINA_SOCIAL_GRAPH_CHANGED } from './socialFollowSyncEvents';
 import { ensureBackendSession } from './syncBackendSessionBridge';
 import { KRAINA_PROFILE_AVATAR_CHANGED } from './profileStorage';
@@ -83,11 +84,13 @@ import { useAuthStore } from './auth/authStore';
 import ProfileSavedRouteCard from './ProfileSavedRouteCard';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
+import { KRAINA_FEED_MEDIA_UPDATED, feedDeleteIdSet } from './feedSyncEvents';
+import { filterDeletedFeedPostRows, getDeletedFeedPostIdSet } from './feedDeletedTombstones';
 import {
   mapLocalPostsToGrid,
   mergeGridPostRows,
   localPostToGridRow,
+  pickBestGridUri,
 } from './profilePostsGrid';
 import {
   PROFILE_POSTS_CACHE_UPDATED,
@@ -97,7 +100,9 @@ import {
   warmProfilePostsCache,
   writeProfilePostsCache,
 } from './profilePostsCache';
-import ProfileAvatarCircle, { resolveProfileAvatarUri } from './ProfileAvatarCircle';
+import { retryAllUnsyncedLocalFeedPosts } from './feedPostSyncBridge';
+import ProfileAvatarCircle, { resolveProfileAvatarUri, useViewerProfileAvatarUri } from './ProfileAvatarCircle';
+import { rememberProfileAvatarUrl } from './profileAvatarHotCache';
 import { storyAvatarRingStyle } from './storyTrayUtils';
 import { RenderProfiler } from './performanceMetrics';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
@@ -121,8 +126,6 @@ function formatBirthLabel(iso, lang) {
 }
 
 const COLS = 3;
-const W = Dimensions.get('window').width;
-const CELL = (W - POST_GRID_EDGE * 2 - POST_GRID_GAP * (COLS - 1)) / COLS;
 
 /** Вкладки профілю — лише іконки; підписи в accessibilityLabel і в контенті вкладки. */
 const PROFILE_TABS = [
@@ -162,6 +165,11 @@ function readCachedProfileFields() {
 }
 
 export default function ProfilePage({ navigation, route, isTabActive = true }) {
+  const { width: windowWidth } = useWindowDimensions();
+  const cellSize = useMemo(() => {
+    const w = windowWidth > 0 ? windowWidth : Dimensions.get('window').width;
+    return Math.max(1, (w - POST_GRID_EDGE * 2 - POST_GRID_GAP * (COLS - 1)) / COLS);
+  }, [windowWidth]);
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
@@ -189,7 +197,6 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
   const [gridPosts, setGridPosts] = useState([]);
   const [selfStories, setSelfStories] = useState([]);
   const [selfStoryHasUnviewed, setSelfStoryHasUnviewed] = useState(false);
-  const [localAvatarUri, setLocalAvatarUri] = useState('');
   const [gamify, setGamify] = useState(() => computeGamificationFromVisits([]));
   const [refreshing, setRefreshing] = useState(false);
 
@@ -221,13 +228,24 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
         ? String(route.params.profileUserId) ===
           String(authUserId || profileMeUserId || user?.id || '')
         : true;
-  const profileAvatarUrl = resolveProfileAvatarUri({
-    isOwnProfile,
-    accessToken,
-    profileAvatarUrlRaw,
-    localAvatarUri,
-    userAvatar: user?.avatar,
-  });
+
+  const feedLocalUser = useMemo(
+    () =>
+      resolveFeedLocalUser(user, {
+        authUser,
+        profileUserId: profileMeUserId,
+      }),
+    [user, authUser, profileMeUserId],
+  );
+  const viewerAvatarUri = useViewerProfileAvatarUri(feedLocalUser || authUser || user);
+  const profileAvatarUrl = isOwnProfile
+    ? viewerAvatarUri
+    : resolveProfileAvatarUri({
+        isOwnProfile: false,
+        accessToken,
+        profileAvatarUrlRaw,
+        userAvatar: user?.avatar,
+      });
 
   const ownServerGamify =
     isOwnProfile &&
@@ -253,19 +271,31 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     user?.id ||
     null;
   const profileCacheKey = useMemo(
-    () => profilePostsCacheKey(effectiveUser, isOwnProfile, profileUsername || ''),
-    [effectiveUser, isOwnProfile, profileUsername],
+    () => profilePostsCacheKey(feedLocalUser || effectiveUser, isOwnProfile, profileUsername || ''),
+    [feedLocalUser, effectiveUser, isOwnProfile, profileUsername],
   );
 
   const syncProfileMediaFromPayload = useCallback(
-    (payload, { persist = true } = {}) => {
+    (payload, { persist = true, merge = false } = {}) => {
       if (!payload) return;
-      setGridPosts(Array.isArray(payload.gridPosts) ? payload.gridPosts : []);
+      const storageUser = feedLocalUser || effectiveUser;
+      const nextGrid = filterDeletedFeedPostRows(
+        storageUser,
+        Array.isArray(payload.gridPosts) ? payload.gridPosts : [],
+      );
+      const nextPayload = { ...payload, gridPosts: nextGrid };
+      if (merge) {
+        setGridPosts((prev) =>
+          filterDeletedFeedPostRows(storageUser, mergeGridPostRows(prev, nextGrid)),
+        );
+      } else {
+        setGridPosts(nextGrid);
+      }
       setSelfStories(Array.isArray(payload.selfStories) ? payload.selfStories : []);
       setSelfStoryHasUnviewed(!!payload.selfStoryHasUnviewed);
-      if (persist) writeProfilePostsCache(profileCacheKey, payload);
+      if (persist) writeProfilePostsCache(profileCacheKey, nextPayload);
     },
-    [profileCacheKey],
+    [profileCacheKey, feedLocalUser, effectiveUser],
   );
 
   const avatarStoryInteractive = Boolean(effectiveUserId && (hasActiveStory || isOwnProfile));
@@ -279,21 +309,69 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     [gridPosts],
   );
 
+  useEffect(() => {
+    if (profileAvatarUrlRaw) rememberProfileAvatarUrl(String(profileAvatarUrlRaw));
+  }, [profileAvatarUrlRaw]);
+
+  useEffect(() => {
+    if (viewerAvatarUri) rememberProfileAvatarUrl(viewerAvatarUri);
+  }, [viewerAvatarUri]);
+
+  const gridPostIdsSig = useMemo(
+    () => profileGridItems.map((p) => String(p.id)).join('|'),
+    [profileGridItems],
+  );
+
+  useEffect(() => {
+    if (!feedLocalUser || !gridPostIdsSig) return undefined;
+    let cancelled = false;
+    void (async () => {
+      const ids = gridPostIdsSig.split('|').filter(Boolean);
+      const stats = await hydrateLocalFeedPostStats(feedLocalUser, ids);
+      if (cancelled) return;
+      warmPostLikeStateFromStats(stats, ids);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [feedLocalUser, gridPostIdsSig]);
+
   const applyOptimisticFeedPayload = useCallback(
     (payload) => {
       if (!isOwnProfile) return;
+      if (payload?.kind === 'delete') {
+        const ids = feedDeleteIdSet(payload);
+        if (ids.size) {
+          setGridPosts((prev) => prev.filter((row) => !ids.has(String(row.id))));
+        }
+        return;
+      }
       if (payload?.kind === 'post' && payload?.post && !payload?.synced) {
         const row = localPostToGridRow(payload.post);
-        if (row) setGridPosts((prev) => mergeGridPostRows(prev, [row]));
+        if (row) {
+          setGridPosts((prev) => mergeGridPostRows(prev, [row]));
+        }
       }
       if (payload?.synced && payload?.localPostId && payload?.postId) {
         const localId = String(payload.localPostId);
         const backendId = String(payload.postId);
+        const remoteUrls = Array.isArray(payload.mediaUrls)
+          ? payload.mediaUrls.filter(Boolean).map((u) => resolveFeedMediaUrl(String(u)))
+          : [];
+        const remoteUri = remoteUrls[0] || '';
         setGridPosts((prev) => {
           const existing = prev.find((row) => String(row.id) === localId);
           if (!existing) return prev;
           return [
-            { ...existing, id: backendId },
+            {
+              ...existing,
+              id: backendId,
+              uri: pickBestGridUri(existing.uri, remoteUri),
+              mediaCount: Math.max(
+                Number(existing.mediaCount) || 1,
+                remoteUrls.length || (remoteUri ? 1 : 0),
+              ),
+            },
             ...prev.filter((row) => {
               const id = String(row.id);
               return id !== localId && id !== backendId;
@@ -303,10 +381,10 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       }
       const cached = readProfilePostsCache(profileCacheKey);
       if (cached?.gridPosts?.length) {
-        syncProfileMediaFromPayload(cached, { persist: false });
+        setGridPosts((prev) => mergeGridPostRows(prev, cached.gridPosts));
       }
     },
-    [isOwnProfile, profileCacheKey, syncProfileMediaFromPayload],
+    [isOwnProfile, profileCacheKey],
   );
 
   const refreshProfileMedia = useCallback(async () => {
@@ -317,19 +395,33 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
         : !isOwnProfile && user?.username
           ? String(user.username)
           : '';
+    const storageUser = feedLocalUser || effectiveUser;
+    if (isOwnProfile && storageUser) {
+      void retryAllUnsyncedLocalFeedPosts(storageUser).catch(() => {});
+    }
     try {
       const payload = await fetchProfilePostsPayload({
-        user: effectiveUser,
+        user: storageUser,
         isOwnProfile,
         effectiveUserId,
         remoteUsername,
-        effectiveUser,
+        effectiveUser: storageUser,
       });
+      if (!payload?.gridPosts?.length && storageUser) {
+        const localOnly = filterDeletedFeedPostRows(
+          storageUser,
+          mapLocalPostsToGrid(await getUserFeedPosts(storageUser)),
+        );
+        if (localOnly.length) {
+          payload.gridPosts = mergeGridPostRows(localOnly, payload.gridPosts || []);
+        }
+      }
       syncProfileMediaFromPayload(payload);
     } catch {
       try {
-        const localOnly = mapLocalPostsToGrid(
-          effectiveUserId ? await getUserFeedPosts(effectiveUser) : [],
+        const localOnly = filterDeletedFeedPostRows(
+          storageUser,
+          mapLocalPostsToGrid(storageUser ? await getUserFeedPosts(storageUser) : []),
         );
         syncProfileMediaFromPayload({
           gridPosts: localOnly,
@@ -339,16 +431,24 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       } catch {
         const cached = readProfilePostsCache(profileCacheKey);
         if (cached?.gridPosts?.length) {
-          syncProfileMediaFromPayload(cached, { persist: false });
+          syncProfileMediaFromPayload(cached, { persist: false, merge: true });
         }
       }
     }
-  }, [isOwnProfile, effectiveUser, effectiveUserId, user?.username, syncProfileMediaFromPayload, profileCacheKey]);
+  }, [isOwnProfile, effectiveUser, feedLocalUser, effectiveUserId, user?.username, syncProfileMediaFromPayload, profileCacheKey]);
 
   const applySocialCounts = useCallback((counts) => {
     if (!counts || typeof counts !== 'object') return;
     if (Number.isFinite(Number(counts.followersCount))) setFollowersCount(Number(counts.followersCount));
     if (Number.isFinite(Number(counts.followingCount))) setFollowingCount(Number(counts.followingCount));
+  }, []);
+
+  const applyOwnProfileFields = useCallback(async (pm) => {
+    const fields = await resolveOwnProfileDisplayFields(pm);
+    setName(fields.name);
+    setCity(fields.city);
+    setBioPreview(fields.bio);
+    setBirthIso(fields.birthIso);
   }, []);
 
   const reload = useCallback(async (withSpinner = false) => {
@@ -374,35 +474,41 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       }
       if (useAuthStore.getState().accessToken) {
         try {
-          await useAuthStore.getState().loadProfileMeIfStale(isOwnProfile ? 0 : PROFILE_ME_SYNC_TTL_MS);
+          await useAuthStore.getState().loadProfileMeIfStale(PROFILE_ME_SYNC_TTL_MS);
         } catch {
           /* */
         }
       }
       const token = useAuthStore.getState().accessToken;
       const pm = useAuthStore.getState().profileMe?.profile;
-      const n =
-        token && pm?.display_name != null && String(pm.display_name).trim()
-          ? String(pm.display_name).trim()
-          : await getProfileDisplayName(routeUser?.name || routeUser?.email || '');
-      const c =
-        token && pm?.location_label != null && String(pm.location_label).trim()
-          ? String(pm.location_label).trim()
-          : await getProfileCity();
-      const bioRaw =
-        token && pm?.bio != null && String(pm.bio).trim()
-          ? String(pm.bio).trim()
-          : (await getProfileBio()).trim();
-      setBioPreview(bioRaw);
-      const birthLocal = (await getProfileBirthDate()).trim().slice(0, 10);
-      const birthPublicLocal = await getProfileBirthPublic();
-      const birthRaw =
-        token && pm?.birth_date && pm?.birth_date_public
-          ? String(pm.birth_date).slice(0, 10)
-          : birthPublicLocal && birthLocal
-            ? birthLocal
-            : null;
-      setBirthIso(birthRaw);
+      if (isOwnProfile) {
+        await applyOwnProfileFields(pm);
+      } else {
+        const n =
+          token && pm?.display_name != null && String(pm.display_name).trim()
+            ? String(pm.display_name).trim()
+            : await getProfileDisplayName(routeUser?.name || routeUser?.email || '');
+        const c =
+          token && pm?.location_label != null && String(pm.location_label).trim()
+            ? String(pm.location_label).trim()
+            : await getProfileCity();
+        const bioRaw =
+          token && pm?.bio != null && String(pm.bio).trim()
+            ? String(pm.bio).trim()
+            : (await getProfileBio()).trim();
+        const birthLocal = (await getProfileBirthDate()).trim().slice(0, 10);
+        const birthPublicLocal = await getProfileBirthPublic();
+        const birthRaw =
+          token && pm?.birth_date && pm?.birth_date_public
+            ? String(pm.birth_date).slice(0, 10)
+            : birthPublicLocal && birthLocal
+              ? birthLocal
+              : null;
+        setBioPreview(bioRaw);
+        setBirthIso(birthRaw);
+        setName(n);
+        setCity(c);
+      }
       const [sv, places] = await Promise.all([getSavedRoutes(), getSavedLandmarks()]);
       try {
         const [visitLog, quizBonusXp, physicalBonusXp] = await Promise.all([
@@ -414,27 +520,13 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       } catch {
         setGamify(computeGamificationFromVisits([]));
       }
-      setName(n);
-      setCity(c);
       if (!isOwnProfile) {
         setFollowersCount(Number(pm?.followers_count) || 0);
         setFollowingCount(Number(pm?.following_count) || 0);
       }
       setSaved(Array.isArray(sv) ? sv : []);
       setSavedPlaces(Array.isArray(places) ? places : []);
-      try {
-        const serverAvatarEmpty =
-          token && pm && !String(pm.avatar_url || '').trim();
-        if (serverAvatarEmpty) {
-          await clearProfileAvatarLocalUri();
-          setLocalAvatarUri('');
-        } else {
-          const avLocal = await getProfileAvatarLocalUri();
-          setLocalAvatarUri(avLocal);
-        }
-      } catch {
-        setLocalAvatarUri('');
-      }
+      if (pm?.avatar_url) rememberProfileAvatarUrl(String(pm.avatar_url));
 
       const resolvedUserId =
         (isOwnProfile && pm?.user_id ? String(pm.user_id) : null) ||
@@ -450,17 +542,29 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
               ? String(routeUser.username)
               : '';
         const payload = await fetchProfilePostsPayload({
-          user: resolvedEffectiveUser || routeUser,
+          user: feedLocalUser || resolvedEffectiveUser || routeUser,
           isOwnProfile,
           effectiveUserId: resolvedUserId,
           remoteUsername,
-          effectiveUser: resolvedEffectiveUser || routeUser,
+          effectiveUser: feedLocalUser || resolvedEffectiveUser || routeUser,
         });
+        if (!payload?.gridPosts?.length && (feedLocalUser || resolvedEffectiveUser || routeUser)) {
+          const storageUser = feedLocalUser || resolvedEffectiveUser || routeUser;
+          const localOnly = filterDeletedFeedPostRows(
+            storageUser,
+            mapLocalPostsToGrid(await getUserFeedPosts(storageUser)),
+          );
+          if (localOnly.length) {
+            payload.gridPosts = mergeGridPostRows(localOnly, payload.gridPosts || []);
+          }
+        }
         syncProfileMediaFromPayload(payload);
       } catch {
         try {
-          const localOnly = mapLocalPostsToGrid(
-            resolvedUserId ? await getUserFeedPosts(resolvedEffectiveUser || routeUser) : [],
+          const storageUser = feedLocalUser || resolvedEffectiveUser || routeUser;
+          const localOnly = filterDeletedFeedPostRows(
+            storageUser,
+            mapLocalPostsToGrid(storageUser ? await getUserFeedPosts(storageUser) : []),
           );
           const cached = readProfilePostsCache(profileCacheKey);
           syncProfileMediaFromPayload({
@@ -489,24 +593,32 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     user?.id,
     isOwnProfile,
     effectiveUserId,
+    feedLocalUser,
     profileCacheKey,
     syncProfileMediaFromPayload,
+    applyOwnProfileFields,
   ]);
 
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
+  const skipProfileReloadUntilRef = useRef(0);
 
   useEffect(() => {
+    const storageUser = feedLocalUser || effectiveUser;
+    if (storageUser) void getDeletedFeedPostIdSet(storageUser);
     const cached = readProfilePostsCache(profileCacheKey);
     if (cached?.gridPosts?.length) {
       syncProfileMediaFromPayload(cached, { persist: false });
     }
-    void getUserFeedPosts(effectiveUser).then((locals) => {
-      const localRows = mapLocalPostsToGrid(locals);
+    if (!storageUser) return;
+    void getUserFeedPosts(storageUser).then((locals) => {
+      const localRows = filterDeletedFeedPostRows(storageUser, mapLocalPostsToGrid(locals));
       if (!localRows.length) return;
-      setGridPosts((prev) => mergeGridPostRows(prev, localRows));
+      setGridPosts((prev) =>
+        filterDeletedFeedPostRows(storageUser, mergeGridPostRows(prev, localRows)),
+      );
     });
-    void warmProfilePostsCache(effectiveUser, {
+    void warmProfilePostsCache(storageUser, {
       isOwnProfile,
       effectiveUserId,
       username: profileUsername,
@@ -515,6 +627,7 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     });
   }, [
     profileCacheKey,
+    feedLocalUser,
     effectiveUser,
     isOwnProfile,
     effectiveUserId,
@@ -526,7 +639,7 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     const sub = DeviceEventEmitter.addListener(PROFILE_POSTS_CACHE_UPDATED, ({ key }) => {
       if (key !== profileCacheKey) return;
       const cached = readProfilePostsCache(key);
-      if (cached) syncProfileMediaFromPayload(cached, { persist: false });
+      if (cached) syncProfileMediaFromPayload(cached, { persist: false, merge: true });
     });
     return () => sub.remove();
   }, [profileCacheKey, syncProfileMediaFromPayload]);
@@ -597,6 +710,7 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
   useFocusEffect(
     useCallback(() => {
       if (!isTabActive) return undefined;
+      if (Date.now() < skipProfileReloadUntilRef.current) return undefined;
       void reloadRef.current();
       return undefined;
     }, [isTabActive]),
@@ -619,6 +733,11 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
         applySocialCounts(payload.counts);
         return;
       }
+      if (payload?.source === 'profile_edit') {
+        const pm = useAuthStore.getState().profileMe?.profile;
+        void applyOwnProfileFields(pm);
+        return;
+      }
       if (payload?.source === 'loadProfileMe' || payload?.source === 'social_counts') {
         const pm = useAuthStore.getState().profileMe?.profile;
         if (pm) {
@@ -626,6 +745,9 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
             followersCount: Number(pm.followers_count) || 0,
             followingCount: Number(pm.following_count) || 0,
           });
+          if (payload?.source === 'loadProfileMe') {
+            void applyOwnProfileFields(pm);
+          }
         }
       }
     };
@@ -646,17 +768,22 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       subAvatar.remove();
       subSession.remove();
     };
-  }, [isOwnProfile, applySocialCounts, reload]);
+  }, [isOwnProfile, applySocialCounts, reload, applyOwnProfileFields]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
+      if (payload?.kind === 'interaction') return;
       const updatedUserId = payload?.userId ? String(payload.userId) : '';
       const ownerMatch =
         isOwnProfile ||
         !updatedUserId ||
         (effectiveUserId && String(effectiveUserId) === updatedUserId);
       if (!ownerMatch) return;
+      if (payload?.kind === 'delete') {
+        skipProfileReloadUntilRef.current = Date.now() + 8000;
+      }
       applyOptimisticFeedPayload(payload);
+      if (payload?.kind === 'delete') return;
       void refreshProfileMedia();
     });
     return () => sub.remove();
@@ -736,7 +863,7 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     if (!user?.id || !isOwnProfile) return;
     navigation.navigate('FeedCamera', {
       ...shell,
-      publishVisibility: 'followers',
+      publishVisibility: 'public',
       cameraInitialMode: 'story',
     });
   }, [navigation, shell, user?.id, isOwnProfile]);
@@ -767,7 +894,6 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     profileUsername,
     name,
     profileAvatarUrl,
-    localAvatarUri,
     user?.avatar,
     selfStories.length,
     selfStoryHasUnviewed,
@@ -785,7 +911,7 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     // FeedCamera re-checks auth on mount and handles missing token itself.
     navigation.navigate('FeedCamera', {
       ...shell,
-      publishVisibility: 'followers',
+      publishVisibility: 'public',
       cameraInitialMode: 'story',
     });
     void (async () => {
@@ -895,8 +1021,12 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        alwaysBounceHorizontal={false}
+        directionalLockEnabled
         contentContainerStyle={{
           paddingBottom: tabBottomPad,
+          width: '100%',
         }}
         refreshControl={
           <RefreshControl
@@ -1164,8 +1294,8 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
         </View>
 
         {tab === 'posts' ? (
-          <View style={styles.grid}>
-            {profileGridItems.length === 0 ? (
+          profileGridItems.length === 0 ? (
+            <View style={styles.emptyPostsSection}>
               <View
                 style={[
                   styles.emptyPostsWrap,
@@ -1231,75 +1361,75 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
                   </Text>
                 </Pressable>
               </View>
-            ) : (
-              profileGridItems.map((it) => {
+            </View>
+          ) : (
+            <View style={styles.grid}>
+              {profileGridItems.map((it) => {
                 const phBg = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.07)';
                 const tileBorder = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)';
                 const multi = (it.mediaCount || 1) > 1;
 
-                const onPress = () =>
+                const onPress = () => {
+                  const hot = peekPostLikeState(String(it.id));
                   openProfileScreen('ProfilePostDetail', {
                     postId: it.id,
                     coverUrl: it.uri,
+                    ...(hot.has
+                      ? { liked: hot.liked, likesCount: hot.likes_count }
+                      : {}),
                   });
+                };
 
                 return (
-                  <View
+                  <Pressable
                     key={it.id}
-                    style={[
-                      styles.postTileOuter,
+                    onPress={onPress}
+                    style={({ pressed }) => [
                       {
-                        width: CELL,
-                        height: CELL,
+                        width: cellSize,
+                        height: cellSize,
                         borderRadius: TILE_RADIUS,
+                        overflow: 'hidden',
+                        borderColor: tileBorder,
+                        borderWidth: StyleSheet.hairlineWidth,
+                        backgroundColor: phBg,
                       },
+                      pressed && { opacity: 0.88 },
                     ]}
                   >
-                    <Pressable
-                      onPress={onPress}
-                      style={({ pressed }) => [
-                        styles.postTileFace,
-                        {
-                          borderRadius: TILE_RADIUS,
-                          borderColor: tileBorder,
-                          backgroundColor: phBg,
-                        },
-                        pressed && { opacity: 0.88 },
-                      ]}
-                    >
-                      {it.uri ? (
-                        <ExpoImage
-                          source={{ uri: it.uri }}
-                          style={styles.postTileImage}
-                          contentFit="cover"
-                          cachePolicy="memory-disk"
-                          transition={0}
+                    {it.uri ? (
+                      <ExpoImage
+                        source={{ uri: it.uri }}
+                        style={{ width: cellSize, height: cellSize }}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={String(it.id)}
+                        transition={120}
+                      />
+                    ) : (
+                      <View style={[styles.postTilePlaceholder, { width: cellSize, height: cellSize }]}>
+                        <Ionicons
+                          name="image-outline"
+                          size={32}
+                          color={isLight ? 'rgba(30,30,30,0.22)' : 'rgba(255,255,255,0.28)'}
                         />
-                      ) : (
-                        <View style={styles.postTilePlaceholder}>
-                          <Ionicons
-                            name="image-outline"
-                            size={32}
-                            color={isLight ? 'rgba(30,30,30,0.22)' : 'rgba(255,255,255,0.28)'}
-                          />
-                        </View>
-                      )}
-                      {it.isVideo ? (
-                        <View style={styles.postTileBadgeVideo}>
-                          <Ionicons name="play" size={13} color="#FFFFFF" style={{ marginLeft: 1 }} />
-                        </View>
-                      ) : null}
-                      {multi ? (
-                        <View style={styles.postTileBadgeStack}>
-                          <Ionicons name="images-outline" size={15} color="#FFFFFF" />
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  </View>
+                      </View>
+                    )}
+                    {it.isVideo ? (
+                      <View style={styles.postTileBadgeVideo}>
+                        <Ionicons name="play" size={13} color="#FFFFFF" style={{ marginLeft: 1 }} />
+                      </View>
+                    ) : null}
+                    {multi ? (
+                      <View style={styles.postTileBadgeStack}>
+                        <Ionicons name="images-outline" size={15} color="#FFFFFF" />
+                      </View>
+                    ) : null}
+                  </Pressable>
                 );
-              })
-            )}
-          </View>
+              })}
+            </View>
+          )
         ) : tab === 'routes' ? (
           <View style={styles.routeList}>
             <Text style={[styles.tabSectionTitle, brandFontSansSemibold, { color: textMuted }]}>
@@ -1430,7 +1560,8 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
+  screen: { flex: 1, overflow: 'hidden' },
+  emptyPostsSection: { paddingHorizontal: GRID_H_PAD, paddingTop: 12, paddingBottom: 8 },
   /** Як `FeedPage` → `FeedHeader` → кнопка додавання (історії / зйомка). */
   profileAddHit: {
     minWidth: 44,
@@ -1439,12 +1570,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   profileAddPressed: { opacity: 0.65 },
-  headWrap: { paddingHorizontal: 16, paddingTop: 14 },
+  headWrap: { paddingHorizontal: 16, paddingTop: 10 },
   headCard: {
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   headRow: {
     flexDirection: 'row',
@@ -1474,7 +1606,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
   emptyPostsWrap: {
-    width: '100%',
+    alignSelf: 'stretch',
     marginTop: 4,
     borderRadius: 28,
     paddingVertical: 20,
@@ -1519,10 +1651,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   emptyPostsCtaText: { fontSize: 16 },
-  headText: { marginTop: 12 },
+  headText: { marginTop: 6 },
   nameRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   userName: { fontSize: 20, fontWeight: '700' },
@@ -1536,7 +1668,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12, marginTop: 2, textAlign: 'center' },
   editBtn: {
     marginHorizontal: 20,
-    marginTop: 18,
+    marginTop: 10,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',

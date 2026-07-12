@@ -134,10 +134,13 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
   user,
   homeLocationsEpoch,
 }) {
-  if (!visible) return null;
   const isLightMain = appTheme === 'light';
   return (
-    <>
+    <View
+      style={!visible ? styles.homeSectionsHidden : null}
+      pointerEvents={visible ? 'auto' : 'none'}
+      importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+    >
       <HomeCountryCarousel
         language={language}
         appTheme={appTheme}
@@ -159,7 +162,7 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
         categoryId="all"
         homeLocationsEpoch={homeLocationsEpoch}
       />
-    </>
+    </View>
   );
 });
 
@@ -497,6 +500,8 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
     Keyboard.dismiss();
   }, []);
 
+  const homeScrollRef = useRef(null);
+
   const searchVariant = isLightMain ? 'light' : 'dark';
   const searchPlaceholder = mt(language, 'homeSearchPlaceholder');
   const { height: windowHeight } = useWindowDimensions();
@@ -526,6 +531,7 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
               pointerEvents={countrySearchLocksScroll ? 'box-none' : 'auto'}
             >
               <ScrollView
+                ref={homeScrollRef}
                 style={styles.homeScroll}
                 contentContainerStyle={[
                   styles.scroll,
@@ -541,13 +547,16 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
                 keyboardDismissMode="on-drag"
                 onScrollBeginDrag={dismissKeyboardOnScroll}
                 scrollEnabled={!countrySearchLocksScroll}
+                scrollEventThrottle={16}
                 nestedScrollEnabled
                 removeClippedSubviews={false}
-                showsVerticalScrollIndicator
+                showsVerticalScrollIndicator={!countrySearchLocksScroll}
                 {...(Platform.OS === 'ios'
                   ? {
                       /** Уникаємо подвійного safe area з UIScrollView і обрізання нижнього контенту. */
                       contentInsetAdjustmentBehavior: 'never',
+                      automaticallyAdjustKeyboardInsets: false,
+                      directionalLockEnabled: !countrySearchLocksScroll,
                     }
                   : {})}
               >
@@ -568,19 +577,17 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
                     searchExpanded={countrySearchLocksScroll}
                   />
                 </View>
-                {!countrySearchLocksScroll ? (
-                  <MainPageHomeSections
-                    visible={showHomeSections}
-                    language={language}
-                    appTheme={appTheme}
-                    homeCountries={homeCountries}
-                    countryId={countryId}
-                    onHomePickCountry={onHomePickCountry}
-                    onOpenAllCountries={openAllCountriesLocations}
-                    user={user}
-                    homeLocationsEpoch={homeLocationsEpoch}
-                  />
-                ) : null}
+                <MainPageHomeSections
+                  visible={showHomeSections}
+                  language={language}
+                  appTheme={appTheme}
+                  homeCountries={homeCountries}
+                  countryId={countryId}
+                  onHomePickCountry={onHomePickCountry}
+                  onOpenAllCountries={openAllCountriesLocations}
+                  user={user}
+                  homeLocationsEpoch={homeLocationsEpoch}
+                />
               </ScrollView>
             </View>
           </View>
@@ -634,6 +641,12 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: HOME_SCROLL_PAD_H },
   scrollSearchOpen: {
     flexGrow: 1,
+  },
+  /** Згортаємо секції під час пошуку без unmount — зберігаємо позицію скролу. */
+  homeSectionsHidden: {
+    height: 0,
+    overflow: 'hidden',
+    opacity: 0,
   },
   homeHint: {
     fontSize: 14,

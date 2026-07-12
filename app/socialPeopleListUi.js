@@ -14,6 +14,12 @@ export function socialPersonDisplayName(item) {
   return username || name || '';
 }
 
+function resolveSocialAvatarUri(avatarUrl) {
+  const raw = String(avatarUrl || '').trim();
+  if (!raw || raw === 'null' || raw === 'undefined') return '';
+  return resolveFeedMediaUrl(raw);
+}
+
 export function SocialPeopleSearchBar({
   value,
   onChangeText,
@@ -97,6 +103,7 @@ export function SocialPersonRow({
   displayName,
   onPress,
   onPressName,
+  onPressNameIn,
   actions = null,
   isLight,
   textMain,
@@ -104,11 +111,12 @@ export function SocialPersonRow({
   isLast = false,
   ripple,
 }) {
-  const uri = avatarUrl ? resolveFeedMediaUrl(String(avatarUrl)) : '';
+  const uri = resolveSocialAvatarUri(avatarUrl);
   const rowBody = (
     <>
       <ProfileAvatarCircle uri={uri} size={44} isLight={isLight} />
       <Pressable
+        onPressIn={onPressNameIn}
         onPress={onPressName || onPress}
         disabled={!onPressName && !onPress}
         style={styles.namePress}

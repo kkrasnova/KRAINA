@@ -67,9 +67,18 @@ function mapAndroidEmulatorLoopback(url: string): string {
   });
 }
 
+/** iOS simulator: `localhost` may resolve to IPv6 (::1) while Node listens on IPv4 only. */
+function mapIosSimulatorLoopback(url: string): string {
+  if (Platform.OS !== 'ios' || !__DEV__ || Constants.isDevice || !isLoopbackHost(url)) {
+    return url;
+  }
+  return url.replace(/^(https?:\/\/)localhost(?=[:/]|$)/i, '$1127.0.0.1');
+}
+
 function resolveBaseUrl(raw: string): string {
   let url = raw || DEFAULT_LOCAL;
   url = mapAndroidEmulatorLoopback(url);
+  url = mapIosSimulatorLoopback(url);
   if (isLoopbackHost(url) && Constants.isDevice) {
     const host = devLanHost();
     if (host) {

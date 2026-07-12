@@ -16,7 +16,8 @@ import { markStart, markEnd } from './performanceMetrics';
 import { prefetchArchiveBundle, prefetchChatsBundle, prefetchDiscoverBundle, prefetchFeedBundle, prefetchProfileBundle } from './screenLoaders';
 import { setupCallKeep } from './callkeepService';
 import { installVoIPListeners } from './voipPushService';
-import { ensureBackendSession } from './syncBackendSessionBridge';
+import { ensureBackendSession, mergeBackendUserIntoLocalSession } from './syncBackendSessionBridge';
+import { retryAllUnsyncedLocalFeedPosts } from './feedPostSyncBridge';
 import { connectChatWebSocket } from './chatRealtime';
 import { isBackendJwt } from './backendAuthApi';
 import { warmChatsInboxCache, warmMutualsCache } from './chatsDataPrefetch';
@@ -60,11 +61,21 @@ export async function runAppBootstrap(opts, api) {
     clearMemoryCaches();
 
     // hydrate + локальна сесія паралельно — не чекаємо мережу для вибору маршруту
-    const [, session] = await Promise.all([
-      useAuthStore.getState().hydrate(),
-      getSession(),
-    ]);
+    const [, session] = await Promise.all([useAuthStore.getState().hydrate(), getSession()]);
     if (getCancelled()) return;
+    // Якщо очистили AsyncStorage (app data), але токени в Keychain лишились —
+    // user може відновитись з JWT (authStore). Це важливо, щоб не просити логін/реєстрацію заново.
+    const authStateAfterHydrate = useAuthStore.getState();
+    const userForBootstrap = session?.user || authStateAfterHydrate.user;
+
+    // Після очистки даних застосунку (AsyncStorage) відновлюємо локальну сесію з authStore/JWT.
+    if (!session?.user && authStateAfterHydrate.user?.id) {
+      try {
+        await mergeBackendUserIntoLocalSession();
+      } catch {
+        /* не блокуємо старт */
+      }
+    }
 
     // Дефернуті операції: не блокують навігацію
     void initOfflineRuntime().catch(() => {});
@@ -72,9 +83,9 @@ export async function runAppBootstrap(opts, api) {
     void loadAdminLocationBundleOnStartup().catch(() => {});
     void socialWarmupSearchCache().catch(() => {}); // ⚡ Префетч профілів для швидкого пошуку
 
-    // JWT-відновлення (до 7 с ретраїв) — у фоні; маршрут будується з локальної сесії
-    if (session?.user) {
-      const localUser = session.user;
+    // JWT-відновлення (до 7 с ретраїв) — у фоні; маршрут будується з локальної сесії (або user з authStore)
+    if (userForBootstrap) {
+      const localUser = userForBootstrap;
       const prefetchLang = String(localUser.appLanguage || 'uk').split(/[-_]/)[0].toLowerCase();
       const prefetchLangUk = prefetchLang === 'uk';
       seedChatsCachesIfMissing(localUser, prefetchLangUk);
@@ -94,28 +105,29 @@ export async function runAppBootstrap(opts, api) {
           void connectChatWebSocket(String(authAfter.user.id)).catch(() => {});
           void warmChatsInboxCache(localUser, prefetchLangUk).catch(() => {});
           void warmMutualsCache(localUser).catch(() => {});
+          void retryAllUnsyncedLocalFeedPosts(localUser).catch(() => {});
         }
       })();
     }
 
     if (getCancelled()) return;
-    if (session?.user) {
+    if (userForBootstrap) {
       const [language, countryIdRaw, theme, sub] = await Promise.all([
         AsyncStorage.getItem('@kraina_app_language'),
-        getSavedCountryIdForUser(session.user),
+        getSavedCountryIdForUser(userForBootstrap),
         getAppTheme(),
-        getSubscriptionState(session.user),
+        getSubscriptionState(userForBootstrap),
       ]);
       if (getCancelled()) return;
 
       let countryId = countryIdRaw;
-      if (!countryId && isAppAdminUser(session.user) && HOME_COUNTRY_ORDER[0]) {
+      if (!countryId && isAppAdminUser(userForBootstrap) && HOME_COUNTRY_ORDER[0]) {
         countryId = HOME_COUNTRY_ORDER[0];
-        void saveCountryForUser(session.user, countryId).catch(() => {});
+        void saveCountryForUser(userForBootstrap, countryId).catch(() => {});
       }
       let langForMain = 'en';
       const stored = language && typeof language === 'string' ? language : null;
-      const fromAccount = session.user.appLanguage;
+      const fromAccount = userForBootstrap.appLanguage;
       const raw = stored || fromAccount;
       if (raw && typeof raw === 'string') {
         const base = raw.split(/[-_]/)[0].toLowerCase();
@@ -125,7 +137,7 @@ export async function runAppBootstrap(opts, api) {
         AsyncStorage.setItem('@kraina_app_language', fromAccount).catch(() => {});
       }
       const baseParams = {
-        user: session.user,
+        user: userForBootstrap,
         language: langForMain,
         appTheme: theme,
         ...(countryId ? { countryId } : {}),

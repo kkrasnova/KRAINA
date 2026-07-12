@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSyncedAppLanguage } from './useAppLanguage';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { ACCENT_BLUE, accentForTheme } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { brandFontHeadMedium, brandFontSans } from './brandFont';
@@ -75,7 +75,7 @@ export default function LandmarkQuizContent({
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { isLight } = useAppTheme(route?.params?.appTheme, route);
   const storyQuiz = route?.params?.storyQuiz;
   const headerTitle = typeof route?.params?.headerTitle === 'string' ? route.params.headerTitle.trim() : '';
   const quizLandmarkKey = typeof route?.params?.quizLandmarkKey === 'string' ? route.params.quizLandmarkKey.trim() : '';
@@ -98,18 +98,6 @@ export default function LandmarkQuizContent({
     revealedRef.current = revealed;
   }, [revealed]);
 
-  useEffect(() => {
-    let c = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    return () => {
-      c = true;
-    };
-  }, []);
-
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const bg = isLight ? '#F2F2F2' : '#000000';

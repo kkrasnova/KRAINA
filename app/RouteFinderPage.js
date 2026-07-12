@@ -10,13 +10,12 @@ import {
   Alert,
   ActivityIndicator,
   Animated,
-  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { getAppTheme, THEME_CHANGED_EVENT, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { brandFontHeadBold, brandFontSansMedium, brandFontSansBold, brandFontSansSemibold } from './brandFont';
 
@@ -25,14 +24,20 @@ import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { resolveRegionIdFromQuery, resolveRegionIdFromOrigin } from './routeRegionsData';
 import { buildRoutePlan, haversineKm, buildRouteCoordinates, computeRouteTotalKm, isUserOriginNearRoute, optimizeStopOrder, computeUsedMinutes } from './routePlannerCore';
 import { stripRoutePlanForStorage } from './profileStorage';
-import { buildRoutePlanCacheId, writeRoutePlanCache } from './routePlanFileCache';
+import { regionFromStops } from './googleMapsRoute';
+import { geocodeAddress } from './googleGeocode';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { postSuggestAiRoute } from './aiRouteApi';
 import { fetchPublishedLocations } from './locationsApi';
 
-const ROUTE_TRANSPORT = 'walk';
 const ROUTE_BUDGET_TIER = 'medium';
+const TRANSPORT_OPTIONS = [
+  { id: 'walk', rpKey: 'walk', icon: 'walk-outline' },
+  { id: 'bike', rpKey: 'bike', icon: 'bicycle-outline' },
+  { id: 'car', rpKey: 'drive', icon: 'car-outline' },
+  { id: 'bus', rpKey: 'bus', icon: 'bus-outline' },
+];
 
 const TIME_OPTIONS = [
   { id: '1', hours: 1, key: 'time1h', icon: 'flash-outline' },
@@ -146,6 +151,7 @@ function textMatchScore(loc, query) {
 function speedKmhLocal(transport) {
   switch (transport) {
     case 'car': return 28;
+    case 'bike': return 16;
     case 'bus': return 18;
     case 'train': return 35;
     case 'walk':
@@ -172,7 +178,7 @@ async function readCurrentUserOrigin() {
   }
 }
 
-function buildPlanFromPublishedLocations({
+export function buildPlanFromPublishedLocations({
   rows,
   query,
   hours,
@@ -181,6 +187,7 @@ function buildPlanFromPublishedLocations({
   interests,
   userOrigin,
   budgetTier,
+  variant = 0,
 }) {
   // Adapt visit time and proximity radius for multi-day trips
   const visitMinutes = hours > 16 ? 50 : hours > 8 ? 45 : 35;
@@ -215,7 +222,8 @@ function buildPlanFromPublishedLocations({
   const budgetMin = Math.max(1, hours) * 60 * timeMult;
   const startPool = candidates.slice(0, Math.min(5, candidates.length));
   if (base) startPool.sort((a, b) => a.dist - b.dist);
-  const start = startPool[0].loc;
+  const startIdx = Math.abs(Number(variant) || 0) % startPool.length;
+  const start = startPool[startIdx].loc;
   const stops = [start];
   let usedTime = 0;
   let prevCoord = base && haversineKm(base, start) <= MAX_ORIGIN_KM ? base : null;
@@ -309,6 +317,7 @@ function buildPlanFromPublishedLocations({
     interests: interests || null,
     userOrigin: originNear ? base : null,
     originNearRegion: originNear,
+    mapRegion: regionFromStops(stops2),
     aiGenerated: false,
     generatedFromLocations: true,
     language,
@@ -322,7 +331,7 @@ function buildPlanFromPublishedLocations({
 export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const initialPlace = route?.params?.initialPlace;
   const [place, setPlace] = useState(() =>
     typeof initialPlace === 'string' && initialPlace.trim()
@@ -337,6 +346,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
   }, [route?.params?.initialPlace]);
   const [selectedTime, setSelectedTime] = useState('2');
   const hoursText = String(TIME_OPTIONS.find((t) => t.id === selectedTime)?.hours || 2);
+  const [selectedTransport, setSelectedTransport] = useState('walk');
   const [interests, setInterests] = useState({
     landmark: true,
     park: true,
@@ -351,7 +361,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
   const [aiBusy, setAiBusy] = useState(false);
   const [buildStep, setBuildStep] = useState('');
 
-  /* pulse animation for CTA — only when not showing full overlay */
+  /* pulse animation for CTA while idle */
   const ctaPulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (aiBusy) {
@@ -369,27 +379,6 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
   }, [aiBusy, ctaPulse]);
 
   useEffect(() => {
-    let c = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => {
-      c = true;
-      sub.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (route?.params?.appTheme === 'light' || route?.params?.appTheme === 'dark') {
-      setAppTheme(route.params.appTheme);
-    }
-  }, [route?.params?.appTheme]);
-
-  useEffect(() => {
     let cancelled = false;
     (async () => {
       const origin = await readCurrentUserOrigin();
@@ -405,7 +394,6 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
     return () => { cancelled = true; };
   }, []);
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const textMain = isLight ? '#141414' : '#F7F7F2';
   const textMuted = isLight ? '#5E5E5E' : '#9A9A9A';
@@ -456,7 +444,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
   const cacheAndNavigate = async (plan) => {
     try {
-      const cacheId = buildRoutePlanCacheId(plan.regionId, place, hoursText, ROUTE_BUDGET_TIER);
+      const cacheId = buildRoutePlanCacheId(plan.regionId, place, hoursText, ROUTE_BUDGET_TIER, selectedTransport);
       await writeRoutePlanCache(cacheId, {
         ...stripRoutePlanForStorage(plan),
         placeQuery: place,
@@ -477,7 +465,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
       budgetTier: ROUTE_BUDGET_TIER,
       interests: interestsPayload,
       freeOnly: false,
-      transport: ROUTE_TRANSPORT,
+      transport: selectedTransport,
     });
   };
 
@@ -505,7 +493,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
           rows,
           query: trimmedPlace,
           hours,
-          transport: ROUTE_TRANSPORT,
+          transport: selectedTransport,
           language,
           interests: interestsPayload,
           userOrigin: origin,
@@ -517,14 +505,23 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
       if (!plan?.stops?.length) {
         setBuildStep(rp(language, 'buildingStepRoute'));
-        const regionId = trimmedPlace
+        let regionId = trimmedPlace
           ? resolveRegionIdFromQuery(trimmedPlace)
           : resolveRegionIdFromOrigin(origin);
+        // If the text-based matcher mapped the query to a wrong default region,
+        // use Google Geocoding to pick the closest ROUTE_REGION by coordinates.
+        if (trimmedPlace) {
+          const hits = await geocodeAddress(trimmedPlace, language);
+          const hit = hits?.[0];
+          if (hit && Number.isFinite(hit.lat) && Number.isFinite(hit.lng)) {
+            regionId = resolveRegionIdFromOrigin({ lat: hit.lat, lng: hit.lng });
+          }
+        }
         plan = buildRoutePlan({
           regionId,
           query: trimmedPlace,
           hours,
-          transport: ROUTE_TRANSPORT,
+          transport: selectedTransport,
           budgetTier: ROUTE_BUDGET_TIER,
           interests: interestsPayload,
           variant: 0,
@@ -538,7 +535,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
         const res = await postSuggestAiRoute({
           place: trimmedPlace,
           hours,
-          transport: ROUTE_TRANSPORT,
+          transport: selectedTransport,
           interests: interestsPayload,
           budgetTier: ROUTE_BUDGET_TIER,
           language,
@@ -598,19 +595,6 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
   return (
     <View style={[s.screen, { backgroundColor: pageBg }]}>
-      {aiBusy ? (
-        <View style={s.buildOverlay} pointerEvents="auto">
-          <View style={[s.buildCard, { backgroundColor: surfaceBg, borderColor: cardBorder }]}>
-            <ActivityIndicator size="large" color={accent} />
-            <Text style={[s.buildTitle, brandFontSansBold, { color: textMain }]}>
-              {rp(language, 'aiBuilding')}
-            </Text>
-            {buildStep ? (
-              <Text style={[s.buildStep, brandFontSansMedium, { color: textMuted }]}>{buildStep}</Text>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
@@ -807,6 +791,40 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
             'interests',
           )}
 
+          {section(
+            <>
+              <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>{rp(language, 'transportSection')}</Text>
+              <View style={s.transportRow}>
+                {TRANSPORT_OPTIONS.map((t) => {
+                  const sel = selectedTransport === t.id;
+                  return (
+                    <Pressable
+                      key={t.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: sel }}
+                      onPress={() => setSelectedTransport(t.id)}
+                      style={({ pressed }) => [
+                        s.transportPill,
+                        {
+                          backgroundColor: sel ? selectedPillBg : pageBg,
+                          borderColor: sel ? accent : cardBorder,
+                        },
+                        pressed && { opacity: 0.9 },
+                      ]}
+                      android_ripple={ripple}
+                    >
+                      <Ionicons name={t.icon} size={18} color={sel ? onAccentButtonText(isLight) : textMuted} />
+                      <Text style={[s.transportPillTxt, brandFontSansSemibold, { color: sel ? onAccentButtonText(isLight) : textMain }]}>
+                        {rp(language, t.rpKey)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>,
+            'transport',
+          )}
+
           {/* ─── CTA Button ─── */}
           <Animated.View style={{ transform: [{ scale: ctaPulse }] }}>
             <Pressable
@@ -832,7 +850,7 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
                   <Ionicons name="map-outline" size={22} color={onAccentButtonText(isLight)} style={{ marginRight: 10 }} />
                 )}
                 <Text style={[s.ctaText, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
-                  {rp(language, 'generateRoute')}
+                  {aiBusy ? buildStep || rp(language, 'aiBuilding') : rp(language, 'generateRoute')}
                 </Text>
               </LinearGradient>
             </Pressable>
@@ -846,33 +864,6 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
 const s = StyleSheet.create({
   screen: { flex: 1 },
-  buildOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 50,
-    backgroundColor: 'rgba(0,0,0,0.42)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-  },
-  buildCard: {
-    width: '100%',
-    maxWidth: 320,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 28,
-    paddingHorizontal: 22,
-    alignItems: 'center',
-  },
-  buildTitle: {
-    fontSize: 17,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  buildStep: {
-    fontSize: 13,
-    marginTop: 6,
-    textAlign: 'center',
-  },
   sectionBlock: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,

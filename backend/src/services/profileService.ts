@@ -4,6 +4,7 @@ import { pool } from '../db/pool.js';
 import { getStorageProvider } from '../storage/index.js';
 import { computeExplorerLevel } from '../utils/level.js';
 import { currentPeriodMonth } from '../utils/period.js';
+import { listActiveStoriesForUser, listUserPostsForViewer } from './feedService.js';
 
 export interface ProfileDTO {
   id: string;
@@ -82,6 +83,8 @@ export interface PublicProfileFullDTO {
   followers: PublicProfilePersonDTO[];
   following: PublicProfilePersonDTO[];
   friends: PublicProfilePersonDTO[];
+  posts: Awaited<ReturnType<typeof listUserPostsForViewer>>;
+  stories: Awaited<ReturnType<typeof listActiveStoriesForUser>>;
 }
 
 export interface ProfileSearchHitDTO {
@@ -657,10 +660,27 @@ export async function getPublicProfileFullByUsername(
     ),
   ]);
 
+  let posts: PublicProfileFullDTO['posts'] = [];
+  let stories: PublicProfileFullDTO['stories'] = [];
+  try {
+    posts = await listUserPostsForViewer(viewerUserId, profile.username, 60);
+  } catch {
+    posts = [];
+  }
+  if (viewerUserId) {
+    try {
+      stories = await listActiveStoriesForUser(ownerId, viewerUserId);
+    } catch {
+      stories = [];
+    }
+  }
+
   return {
     profile,
     followers: followersR.rows.map((row) => mapPublicProfilePersonRow(row as Record<string, unknown>)),
     following: followingR.rows.map((row) => mapPublicProfilePersonRow(row as Record<string, unknown>)),
     friends: friendsR.rows.map((row) => mapPublicProfilePersonRow(row as Record<string, unknown>)),
+    posts,
+    stories,
   };
 }

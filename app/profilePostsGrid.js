@@ -1,6 +1,33 @@
 import { resolveFeedMediaUrl, pickFirstFeedMediaUrl } from './feedMediaUrl';
 import { isLocalFeedPostShadowedByApi } from './feedPostSyncBridge';
 
+function gridUriScore(uri) {
+  const s = String(uri || '').trim();
+  if (!s) return 0;
+  if (/^https?:\/\//i.test(s) && s.includes('/static/')) return 100;
+  if (/^https?:\/\//i.test(s)) return 80;
+  if (s.startsWith('file://') && s.includes('kraina_feed_media/')) return 60;
+  if (s.startsWith('file://')) return 50;
+  if (s.startsWith('content://') || s.startsWith('ph://') || s.startsWith('assets-library://')) {
+    return 10;
+  }
+  return 20;
+}
+
+/** Вибираємо URL, який найімовірніше відкриється в сітці профілю (серверний переважає над тимчасовим file://). */
+export function pickBestGridUri(a, b) {
+  const sa = String(a || '').trim();
+  const sb = String(b || '').trim();
+  if (!sa) return sb;
+  if (!sb) return sa;
+  return gridUriScore(sb) >= gridUriScore(sa) ? sb : sa;
+}
+
+/** Чи варто примусово оновити сітку з API (локальні URI могли протухнути). */
+export function profileGridNeedsRemoteHydration(rows) {
+  return (Array.isArray(rows) ? rows : []).some((row) => gridUriScore(row?.uri) < 80);
+}
+
 export function mapLocalPostsToGrid(arr) {
   return (Array.isArray(arr) ? arr : [])
     .map((p) => {
@@ -78,7 +105,18 @@ export function mergeGridPostRows(prev, incoming) {
   const map = new Map((Array.isArray(prev) ? prev : []).map((row) => [String(row.id), row]));
   for (const row of rows) {
     if (!row?.id) continue;
-    map.set(String(row.id), row);
+    const key = String(row.id);
+    const existing = map.get(key);
+    if (existing) {
+      map.set(key, {
+        ...existing,
+        ...row,
+        uri: pickBestGridUri(existing.uri, row.uri),
+        mediaCount: Math.max(Number(existing.mediaCount) || 1, Number(row.mediaCount) || 1),
+      });
+    } else {
+      map.set(key, row);
+    }
   }
   return Array.from(map.values());
 }

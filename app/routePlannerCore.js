@@ -59,12 +59,27 @@ function toRad(d) {
   return (d * Math.PI) / 180;
 }
 
+function coordLat(c) {
+  const v = c?.lat ?? c?.latitude;
+  return Number.isFinite(v) ? v : null;
+}
+
+function coordLng(c) {
+  const v = c?.lng ?? c?.longitude;
+  return Number.isFinite(v) ? v : null;
+}
+
 export function haversineKm(a, b) {
+  const aLat = coordLat(a);
+  const aLng = coordLng(a);
+  const bLat = coordLat(b);
+  const bLng = coordLng(b);
+  if (aLat == null || aLng == null || bLat == null || bLng == null) return 0;
   const R = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
   const h =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
@@ -75,6 +90,8 @@ function speedKmh(transport) {
   switch (transport) {
     case 'car':
       return 28;
+    case 'bike':
+      return 16;
     case 'bus':
       return 18;
     case 'train':
@@ -105,6 +122,11 @@ function pickStartLandmark(pool, query, variant) {
       bestScore = score;
       best = lm;
     }
+  }
+  // Запит лише про місто — чергуємо стартову точку, щоб «інший маршрут» дав інші комбінації.
+  if (bestScore <= 0) {
+    const v = Math.abs(Number(variant) || 0) % pool.length;
+    return [...pool.slice(v), ...pool.slice(0, v)];
   }
   const others = pool.filter((l) => l.id !== best.id);
   const n = others.length;
@@ -138,10 +160,20 @@ export function isUserOriginNearRoute(origin, stopsOrLandmarks) {
   return minKmFromOriginToPool(origin, stopsOrLandmarks) <= MAX_ORIGIN_KM_FOR_ROUTE;
 }
 
+function hasUserOriginCoords(userOrigin) {
+  return (
+    userOrigin &&
+    typeof userOrigin.lat === 'number' &&
+    typeof userOrigin.lng === 'number' &&
+    Number.isFinite(userOrigin.lat) &&
+    Number.isFinite(userOrigin.lng)
+  );
+}
+
 /** @param {{ lat: number, lng: number } | null | undefined} userOrigin */
 export function buildRouteCoordinates(userOrigin, stops) {
   const coordinates = [];
-  if (isUserOriginNearRoute(userOrigin, stops)) {
+  if (hasUserOriginCoords(userOrigin) && isUserOriginNearRoute(userOrigin, stops)) {
     coordinates.push({ latitude: userOrigin.lat, longitude: userOrigin.lng });
   }
   for (const s of stops) {
@@ -154,13 +186,26 @@ export function buildRouteCoordinates(userOrigin, stops) {
 export function computeRouteTotalKm(userOrigin, stops) {
   if (!stops.length) return 0;
   let totalKm = 0;
-  if (isUserOriginNearRoute(userOrigin, stops)) {
+  if (hasUserOriginCoords(userOrigin) && isUserOriginNearRoute(userOrigin, stops)) {
     totalKm += haversineKm(userOrigin, stops[0]);
   }
   for (let i = 1; i < stops.length; i += 1) {
     totalKm += haversineKm(stops[i - 1], stops[i]);
   }
   return totalKm;
+}
+
+/** Найкоротший порядок зупинок від поточної геолокації. */
+export function orderStopsFromUserOrigin(stops, userOrigin) {
+  if (!Array.isArray(stops) || !stops.length) return [];
+  if (!hasUserOriginCoords(userOrigin)) return [...stops];
+  if (stops.length === 2) {
+    const d0 = haversineKm(userOrigin, stops[0]);
+    const d1 = haversineKm(userOrigin, stops[1]);
+    return d0 <= d1 ? [...stops] : [stops[1], stops[0]];
+  }
+  if (stops.length >= 3) return optimizeStopOrder(stops, userOrigin);
+  return [...stops];
 }
 
 export function computeBearingDegrees(from, to) {
@@ -171,6 +216,176 @@ export function computeBearingDegrees(from, to) {
   const y = Math.sin(dLon) * Math.cos(lat2);
   const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
   return (Math.atan2(y, x) * (180 / Math.PI) + 360) % 360;
+}
+
+/** Зміщує точку вздовж азимуту на distanceM метрів. */
+export function offsetCoordinateMeters(coord, bearingDeg, distanceM) {
+  if (!coord || !Number.isFinite(distanceM) || distanceM === 0) return coord;
+  const lat1 = toRad(coord.latitude ?? coord.lat);
+  const lng1 = toRad(coord.longitude ?? coord.lng);
+  const brng = toRad(bearingDeg);
+  const angular = distanceM / 6371000;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angular) + Math.cos(lat1) * Math.sin(angular) * Math.cos(brng),
+  );
+  const lng2 =
+    lng1 +
+    Math.atan2(
+      Math.sin(brng) * Math.sin(angular) * Math.cos(lat1),
+      Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
+    );
+  return { latitude: (lat2 * 180) / Math.PI, longitude: (lng2 * 180) / Math.PI };
+}
+
+/** Рухає точку вперед уздовж полілінії на distanceM метрів. */
+export function advanceAlongPolyline(polyline, pos, distanceM) {
+  if (!Array.isArray(polyline) || polyline.length < 2 || !pos || !Number.isFinite(distanceM) || distanceM <= 0) {
+    return pos;
+  }
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < polyline.length; i += 1) {
+    const p = polyline[i];
+    const d = haversineKm(pos, p) * 1000;
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+  }
+  let remaining = distanceM;
+  let current = {
+    latitude: polyline[bestIdx].latitude,
+    longitude: polyline[bestIdx].longitude,
+  };
+  for (let i = bestIdx; i < polyline.length - 1 && remaining > 0; i += 1) {
+    const a = i === bestIdx ? current : polyline[i];
+    const b = polyline[i + 1];
+    const segM = haversineKm(a, b) * 1000;
+    if (segM <= 0.01) continue;
+    if (remaining <= segM) {
+      const frac = remaining / segM;
+      return {
+        latitude: a.latitude + (b.latitude - a.latitude) * frac,
+        longitude: a.longitude + (b.longitude - a.longitude) * frac,
+      };
+    }
+    remaining -= segM;
+    current = { latitude: b.latitude, longitude: b.longitude };
+  }
+  const last = polyline[polyline.length - 1];
+  return { latitude: last.latitude, longitude: last.longitude };
+}
+
+/** Найближча точка на полілінії до pos. */
+export function nearestPointOnPolyline(polyline, pos) {
+  if (!Array.isArray(polyline) || polyline.length < 2 || !pos) return pos;
+  const px = pos.longitude;
+  const py = pos.latitude;
+  let bestPoint = polyline[0];
+  let bestDistM = Infinity;
+  for (let i = 0; i < polyline.length - 1; i += 1) {
+    const a = polyline[i];
+    const b = polyline[i + 1];
+    const ax = a.longitude;
+    const ay = a.latitude;
+    const bx = b.longitude;
+    const by = b.latitude;
+    const mLng = 111320 * Math.cos((ay * Math.PI) / 180);
+    const mLat = 110540;
+    const abx = (bx - ax) * mLng;
+    const aby = (by - ay) * mLat;
+    const apx = (px - ax) * mLng;
+    const apy = (py - ay) * mLat;
+    const abLenSq = abx * abx + aby * aby;
+    let t = abLenSq > 0 ? (apx * abx + apy * aby) / abLenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + (bx - ax) * t;
+    const cy = ay + (by - ay) * t;
+    const km = haversineKm({ latitude: py, longitude: px }, { latitude: cy, longitude: cx });
+    const m = km * 1000;
+    if (m < bestDistM) {
+      bestDistM = m;
+      bestPoint = { latitude: cy, longitude: cx };
+    }
+  }
+  return bestPoint;
+}
+
+/**
+ * Розрізає полілінію в точці найближчого підходу до pos.
+ * @returns {{ remaining: object[], traveled: object[], snap: object }}
+ */
+export function slicePolylineFromPosition(polyline, pos) {
+  if (!Array.isArray(polyline) || polyline.length < 2 || !pos) {
+    return { remaining: polyline || [], traveled: [], snap: pos };
+  }
+  const px = pos.longitude;
+  const py = pos.latitude;
+  let bestSeg = 0;
+  let bestT = 0;
+  let bestDistM = Infinity;
+  let snap = polyline[0];
+
+  for (let i = 0; i < polyline.length - 1; i += 1) {
+    const a = polyline[i];
+    const b = polyline[i + 1];
+    const ax = a.longitude;
+    const ay = a.latitude;
+    const bx = b.longitude;
+    const by = b.latitude;
+    const mLng = 111320 * Math.cos((ay * Math.PI) / 180);
+    const mLat = 110540;
+    const abx = (bx - ax) * mLng;
+    const aby = (by - ay) * mLat;
+    const apx = (px - ax) * mLng;
+    const apy = (py - ay) * mLat;
+    const abLenSq = abx * abx + aby * aby;
+    let t = abLenSq > 0 ? (apx * abx + apy * aby) / abLenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + (bx - ax) * t;
+    const cy = ay + (by - ay) * t;
+    const m = haversineKm({ latitude: py, longitude: px }, { latitude: cy, longitude: cx }) * 1000;
+    if (m < bestDistM) {
+      bestDistM = m;
+      bestSeg = i;
+      bestT = t;
+      snap = { latitude: cy, longitude: cx };
+    }
+  }
+
+  const remaining = [snap];
+  for (let j = bestSeg + 1; j < polyline.length; j += 1) {
+    remaining.push(polyline[j]);
+  }
+
+  const traveled = [];
+  for (let j = 0; j <= bestSeg; j += 1) {
+    traveled.push(polyline[j]);
+  }
+  if (traveled.length) {
+    const last = traveled[traveled.length - 1];
+    if (
+      Math.abs(last.latitude - snap.latitude) > 1e-7 ||
+      Math.abs(last.longitude - snap.longitude) > 1e-7
+    ) {
+      traveled.push(snap);
+    }
+  }
+
+  return { remaining, traveled, snap };
+}
+
+/** Напрямок руху вздовж маршруту (градуси, 0 = північ). */
+export function bearingAlongPolyline(polyline, pos, aheadM = 24) {
+  if (!polyline?.length || !pos) return null;
+  const ahead = advanceAlongPolyline(polyline, pos, aheadM);
+  if (!ahead) return null;
+  if (haversineKm(pos, ahead) * 1000 < 2 && polyline.length >= 2) {
+    const a = polyline[Math.max(0, polyline.length - 2)];
+    const b = polyline[polyline.length - 1];
+    return computeBearingDegrees(a, b);
+  }
+  return computeBearingDegrees(pos, ahead);
 }
 
 export function estimateMinutesForKm(km, transport = 'walk') {

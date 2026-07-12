@@ -15,6 +15,8 @@ import {
   Easing,
   useWindowDimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 
 const FILE_B64 = FileSystem.EncodingType?.Base64 ?? 'base64';
@@ -32,6 +34,7 @@ import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { accentForTheme, ACCENT_LEMON } from './themeAccent';
 import { tryLoadExpoCamera } from './tryLoadExpoCamera';
 import { errorToUserText } from './errorText';
+import { isVirtualDevice } from './virtualDevice';
 
 function CameraNativeMissing({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
@@ -258,6 +261,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
   const { CameraView, useCameraPermissions, getCameraPermissionsAsync, requestCameraPermissionsAsync } =
     cameraMod;
   const insets = useSafeAreaInsets();
+  const { width: scanW, height: scanH } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const [permission, requestPermission] = useCameraPermissions();
   /** Після повернення з системних Налаштувань хук може лишатися «denied», хоча доступ уже видано. */
@@ -265,8 +269,18 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
   const [requestingPermission, setRequestingPermission] = useState(false);
   const camRef = useRef(null);
   const pendingCaptureRef = useRef(false);
-  const [ready, setReady] = useState(false);
+  /** Авто-ретрай монтування камери перед показом помилки (транзієнтний збій на iOS/New Arch). */
+  const mountRetryRef = useRef(0);
+  const MAX_MOUNT_RETRIES = 2;
+  /** onCameraReady реально прийшов (окремо від `ready`, який ставиться і по таймауту). */
+  const cameraReadyRef = useRef(false);
+  /** Перемонтаж застряглого прев'ю (є в'юха, але немає onCameraReady) — до 2 разів. */
+  const readyKickRef = useRef(0);
+  const MAX_READY_KICKS = 2;
+  const [ready, setReady] = useState(isVirtualDevice);
   const [busy, setBusy] = useState(false);
+  const [cameraSession, setCameraSession] = useState(0);
+  const [cameraError, setCameraError] = useState(null);
   const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   const refreshCameraGate = useCallback(async () => {
@@ -289,9 +303,62 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
       setReady(false);
       return;
     }
+    setCameraError(null);
+    setReady(isVirtualDevice);
+    mountRetryRef.current = 0;
+    readyKickRef.current = 0;
+    cameraReadyRef.current = false;
+    setCameraSession((s) => s + 1);
     void refreshCameraGate();
     void Location.requestForegroundPermissionsAsync().catch(() => {});
   }, [isTabActive, refreshCameraGate]);
+
+  useEffect(() => {
+    if (!isTabActive || isVirtualDevice) return;
+    if (permission?.granted) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const requestFn =
+          typeof requestCameraPermissionsAsync === 'function'
+            ? requestCameraPermissionsAsync
+            : requestPermission;
+        const r = await requestFn();
+        if (!cancelled && r?.granted) setCameraAllowedOverride(true);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTabActive, permission?.granted, requestCameraPermissionsAsync, requestPermission]);
+
+  useEffect(() => {
+    if (isVirtualDevice || !isTabActive || ready || cameraError) return;
+    const t = setTimeout(() => setReady(true), 1200);
+    return () => clearTimeout(t);
+  }, [isTabActive, ready, cameraError, cameraSession]);
+
+  // Прев'ю застрягло (в'юха є, onCameraReady не прийшов) — тихо перемонтовуємо, щоб зрушити сесію.
+  useEffect(() => {
+    if (isVirtualDevice || !isTabActive || cameraError) return;
+    if (cameraReadyRef.current) return;
+    if (readyKickRef.current >= MAX_READY_KICKS) {
+      // Прев'ю не піднялось — м'який сигнал помилки, щоб з'явився шлях «Додати з галереї»,
+      // а зйомка йшла через галерею (runCapture перевіряє cameraError).
+      if (__DEV__) console.warn('[LandmarkScanner] preview never ready — enabling gallery path');
+      setCameraError(ls(language, 'cameraError'));
+      return;
+    }
+    const t = setTimeout(() => {
+      if (cameraReadyRef.current) return;
+      readyKickRef.current += 1;
+      if (__DEV__) console.warn('[LandmarkScanner] preview kick', readyKickRef.current);
+      setCameraSession((s) => s + 1);
+    }, 1600);
+    return () => clearTimeout(t);
+  }, [isTabActive, cameraError, cameraSession, language]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
@@ -356,61 +423,8 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
 
-  const runCapture = useCallback(async () => {
-    if (busy) return;
-    if (!camRef.current || !ready) {
-      Alert.alert('', ls(language, 'cameraNotReady'));
-      pendingCaptureRef.current = false;
-      return;
-    }
-    setBusy(true);
-    try {
-      let latitude = null;
-      let longitude = null;
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          latitude = pos.coords.latitude;
-          longitude = pos.coords.longitude;
-        }
-      } catch {
-        /* ignore location */
-      }
-
-      const photo = await camRef.current.takePictureAsync({
-        quality: 0.85,
-        base64: true,
-        ...(Platform.OS === 'android' ? { skipProcessing: true } : { skipProcessing: false }),
-      });
-      let base64 = photo?.base64 && String(photo.base64).length > 80 ? photo.base64 : null;
-      const photoUri = photo?.uri;
-      if (!base64 && photoUri) {
-        try {
-          base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: FILE_B64 });
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (!base64 && !photoUri) {
-        Alert.alert('', ls(language, 'captureFailed'));
-        return;
-      }
-
-      const result = await identifyLandmark({
-        base64,
-        latitude,
-        longitude,
-        language,
-      });
-
-      if (Platform.OS === 'android') {
-        Vibration.vibrate(22);
-      }
-
+  const navigateWithScanResult = useCallback(
+    async (result, { photoUri, latitude, longitude }) => {
       if (result.notFound) {
         navigation.navigate('LandmarkNotFound', {
           user: route?.params?.user,
@@ -451,12 +465,139 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
           ? { visitLat: latitude, visitLng: longitude }
           : {}),
       });
+    },
+    [navigation, route, language, appTheme],
+  );
+
+  const processLandmarkScan = useCallback(
+    async ({ base64, photoUri }) => {
+      let latitude = null;
+      let longitude = null;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          latitude = pos.coords.latitude;
+          longitude = pos.coords.longitude;
+        }
+      } catch {
+        /* ignore location */
+      }
+
+      const result = await identifyLandmark({
+        base64,
+        latitude,
+        longitude,
+        language,
+      });
+
+      if (Platform.OS === 'android') {
+        Vibration.vibrate(22);
+      }
+
+      await navigateWithScanResult(result, { photoUri, latitude, longitude });
+    },
+    [language, navigateWithScanResult],
+  );
+
+  const pickFromGallery = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted && Platform.OS !== 'ios') {
+        Alert.alert('', ls(language, 'cameraDenied'), [
+          {
+            text: ls(language, 'openSettings'),
+            onPress: () => Linking.openSettings().catch(() => {}),
+          },
+          { text: ls(language, 'cancel'), style: 'cancel' },
+        ]);
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        base64: true,
+        allowsEditing: false,
+      });
+      if (res.canceled) return;
+      const asset = res.assets?.[0];
+      if (!asset?.uri) {
+        Alert.alert('', ls(language, 'captureFailed'));
+        return;
+      }
+      let base64 = asset.base64 && String(asset.base64).length > 80 ? asset.base64 : null;
+      const photoUri = asset.uri;
+      if (!base64 && photoUri) {
+        try {
+          base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: FILE_B64 });
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!base64 && !photoUri) {
+        Alert.alert('', ls(language, 'captureFailed'));
+        return;
+      }
+      await processLandmarkScan({ base64, photoUri });
     } catch (e) {
       Alert.alert('', errorToUserText(e, language));
     } finally {
       setBusy(false);
     }
-  }, [ready, busy, navigation, route, language, appTheme]);
+  }, [busy, language, processLandmarkScan]);
+
+  const runCapture = useCallback(async () => {
+    if (busy) return;
+    if (isVirtualDevice || cameraError) {
+      await pickFromGallery();
+      return;
+    }
+    if (!camRef.current || !ready) {
+      Alert.alert('', ls(language, 'cameraNotReady'));
+      pendingCaptureRef.current = false;
+      return;
+    }
+    setBusy(true);
+    try {
+      const photo = await camRef.current.takePictureAsync({
+        quality: 0.85,
+        base64: true,
+        // Для identifyLandmark нужен base64. На Android skipProcessing может
+        // приводить к отсутствию/пустому base64, поэтому оставляем обработку включенной.
+        skipProcessing: false,
+      });
+      let base64 = photo?.base64 && String(photo.base64).length > 80 ? photo.base64 : null;
+      const photoUri = photo?.uri;
+      if (!base64 && photoUri) {
+        try {
+          base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: FILE_B64 });
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (!base64 && !photoUri) {
+        Alert.alert('', ls(language, 'captureFailed'), [
+          { text: ls(language, 'addFromGallery'), onPress: () => void pickFromGallery() },
+          { text: ls(language, 'cancel'), style: 'cancel' },
+        ]);
+        return;
+      }
+
+      await processLandmarkScan({ base64, photoUri });
+    } catch (e) {
+      Alert.alert('', errorToUserText(e, language), [
+        { text: ls(language, 'addFromGallery'), onPress: () => void pickFromGallery() },
+        { text: ls(language, 'cancel'), style: 'cancel' },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }, [ready, busy, language, cameraError, pickFromGallery, processLandmarkScan]);
 
   useEffect(() => {
     if (!isTabActive) return;
@@ -484,7 +625,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
     );
   }
 
-  const cameraUnlocked = !!permission?.granted || cameraAllowedOverride;
+  const cameraUnlocked = isVirtualDevice || !!permission?.granted || cameraAllowedOverride;
 
   if (!cameraUnlocked) {
     return (
@@ -515,34 +656,82 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
     );
   }
 
+  const scanReady = isVirtualDevice || ready;
+  const scanHintKey = isVirtualDevice ? 'simulatorScanHint' : 'tapToScan';
+
   return (
     <View style={styles.screen}>
-      <CameraView
-        ref={camRef}
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        mode="picture"
-        active={isTabActive}
-        animateShutter
-        onCameraReady={() => setReady(true)}
-      />
+      {isVirtualDevice ? (
+        <View style={styles.simulatorPreview}>
+          <LinearGradient
+            colors={isLight ? ['#E4E6EC', '#D8DCE6', '#ECEFF4'] : ['#1a1a1a', '#0a0a0a', '#111111']}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={
+              isLight
+                ? ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.42)']
+                : ['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)']
+            }
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+      ) : (
+        <CameraView
+          key={`scanner-cam-${cameraSession}`}
+          ref={camRef}
+          // Явні розміри: під Fabric absoluteFill інколи дає ширину 0 → прев'ю біле.
+          style={[StyleSheet.absoluteFill, { width: scanW, height: scanH }]}
+          facing="back"
+          mode="picture"
+          active={isTabActive}
+          animateShutter
+          onCameraReady={() => {
+            if (__DEV__) console.warn('[LandmarkScanner] onCameraReady');
+            cameraReadyRef.current = true;
+            mountRetryRef.current = 0;
+            setReady(true);
+            setCameraError(null);
+          }}
+          onMountError={(e) => {
+            if (__DEV__) console.warn('[LandmarkScanner] onMountError', e?.message, JSON.stringify(e || {}));
+            if (!isVirtualDevice && mountRetryRef.current < MAX_MOUNT_RETRIES) {
+              mountRetryRef.current += 1;
+              setTimeout(() => setCameraSession((s) => s + 1), 350);
+              return;
+            }
+            setReady(false);
+            setCameraError(e?.message || ls(language, 'cameraError'));
+          }}
+        />
+      )}
       <CornerFrame
         color={accent}
         topInset={insets.top}
         bottomInset={lightTabBarScrollContentPadding(insets.bottom)}
         busy={busy}
-        captureDisabled={!ready}
+        captureDisabled={!scanReady && !cameraError}
         onCapturePress={() => {
           pendingCaptureRef.current = false;
           void runCapture();
         }}
       />
-      {!busy && ready ? (
+      {!busy && scanReady ? (
         <View
           pointerEvents="none"
           style={[styles.scanHintWrap, { bottom: lightTabBarScrollContentPadding(insets.bottom, 12) }]}
         >
-          <Text style={styles.scanHintText}>{ls(language, 'tapToScan')}</Text>
+          <Text style={styles.scanHintText}>{ls(language, scanHintKey)}</Text>
+        </View>
+      ) : null}
+      {cameraError && !isVirtualDevice ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.scanHintWrap, { bottom: lightTabBarScrollContentPadding(insets.bottom, 56) }]}
+        >
+          <Pressable onPress={() => void pickFromGallery()} hitSlop={8}>
+            <Text style={[styles.scanHintText, { color: accent }]}>{ls(language, 'addFromGallery')}</Text>
+          </Pressable>
         </View>
       ) : null}
       {insets.top > 0 ? <View style={{ height: insets.top }} pointerEvents="none" /> : null}
@@ -638,6 +827,10 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     fontWeight: '600',
+  },
+  simulatorPreview: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
   },
 });
 

@@ -16,10 +16,14 @@ import {
   Linking,
   DeviceEventEmitter,
 } from 'react-native';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurView } from 'expo-blur';
 import { getCachedOrRemoteAudioUri } from './audioGuideCache';
+import { normalizePlaybackUri } from './app/landmarkTts';
+import { useLandmarkSlideAudioguide } from './app/useLandmarkSlideAudioguide';
+import { buildSlideAudioScripts } from './app/landmarkSlideAudioTexts';
+import { prefetchLandmarkSlideAudio } from './app/landmarkAudioPrefetch';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { appLangBase } from './appLang';
@@ -170,7 +174,9 @@ export default function LandmarkResultPage({ navigation, route }) {
     return resolved || (/^https?:\/\//i.test(u) ? u : '');
   }, [route?.params?.audioGuideUrl]);
 
-  const soundRef = useRef(null);
+  const audioPlayerRef = useRef(null);
+  const fileAudioActiveRef = useRef(false);
+  const fileAudioDoneCancelRef = useRef(null);
   const visitRecordedRef = useRef(false);
 
   const miniExtract = useMemo(() => {
@@ -233,7 +239,7 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+    setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -408,29 +414,118 @@ export default function LandmarkResultPage({ navigation, route }) {
     return () => sub.remove();
   }, [visitSaveKey, visitLandmarkSave]);
 
+  const ensureLandmarkAudioPlayer = useCallback(() => {
+    if (!audioPlayerRef.current) {
+      const player = createAudioPlayer(null);
+      player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          fileAudioActiveRef.current = false;
+          setSpeaking(false);
+        }
+        if (status.error) {
+          fileAudioActiveRef.current = false;
+          setSpeaking(false);
+          if (__DEV__) console.warn('[audioGuide] playback', status.error);
+        }
+      });
+      audioPlayerRef.current = player;
+    }
+    return audioPlayerRef.current;
+  }, []);
+
   const stopFileAudio = useCallback(async () => {
-    const s = soundRef.current;
-    soundRef.current = null;
-    if (s) {
-      try {
-        await s.stopAsync();
-      } catch {
-        /* */
-      }
-      try {
-        await s.unloadAsync();
-      } catch {
-        /* */
-      }
+    fileAudioDoneCancelRef.current?.();
+    fileAudioDoneCancelRef.current = null;
+    fileAudioActiveRef.current = false;
+    const player = audioPlayerRef.current;
+    if (!player) return;
+    try {
+      player.pause();
+      await player.seekTo(0);
+    } catch {
+      /* */
     }
   }, []);
 
+  const playFileAudioUntilDone = useCallback(
+    (localUri) =>
+      new Promise((resolve, reject) => {
+        const uri = normalizePlaybackUri(localUri);
+        if (!uri) {
+          reject(new Error('audio_empty_uri'));
+          return;
+        }
+        fileAudioDoneCancelRef.current?.();
+        fileAudioDoneCancelRef.current = null;
+        Speech.stop?.();
+        const player = ensureLandmarkAudioPlayer();
+        let settled = false;
+        let listener = null;
+        let timeoutId = null;
+
+        const finish = (fn) => {
+          if (settled) return;
+          settled = true;
+          if (timeoutId != null) clearTimeout(timeoutId);
+          listener?.remove?.();
+          if (fileAudioDoneCancelRef.current === cancel) {
+            fileAudioDoneCancelRef.current = null;
+          }
+          fileAudioActiveRef.current = false;
+          fn();
+        };
+
+        const cancel = () => finish(() => reject(new Error('audio_cancelled')));
+        fileAudioDoneCancelRef.current = cancel;
+
+        timeoutId = setTimeout(() => {
+          finish(() => reject(new Error('audio_playback_timeout')));
+        }, 10 * 60 * 1000);
+
+        listener = player.addListener('playbackStatusUpdate', (status) => {
+          if (settled) return;
+          if (status.error) {
+            finish(() => reject(new Error(String(status.error))));
+            return;
+          }
+          if (
+            status.isLoaded &&
+            status.duration > 0 &&
+            status.currentTime >= status.duration - 0.15
+          ) {
+            finish(() => resolve());
+            return;
+          }
+          if (status.didJustFinish) {
+            finish(() => resolve());
+          }
+        });
+
+        try {
+          player.replace(uri);
+          fileAudioActiveRef.current = true;
+          player.play();
+        } catch (e) {
+          finish(() => reject(e));
+        }
+      }),
+    [ensureLandmarkAudioPlayer],
+  );
+
   useEffect(() => {
     return () => {
+      fileAudioDoneCancelRef.current?.();
+      fileAudioDoneCancelRef.current = null;
       Speech.stop();
-      stopFileAudio();
+      fileAudioActiveRef.current = false;
+      try {
+        audioPlayerRef.current?.remove?.();
+      } catch {
+        /* */
+      }
+      audioPlayerRef.current = null;
     };
-  }, [stopFileAudio]);
+  }, []);
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
@@ -727,10 +822,62 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const ttsLang = language === 'uk' ? 'uk-UA' : 'en-US';
   const textForTts = phase === 'mini' ? (miniExtract || extract) : fullBodyText;
+  const miniAudioText = String(miniExtract || extract || '').trim();
+  const slideScripts = useMemo(
+    () => buildSlideAudioScripts(pageSections, fullBodyText),
+    [pageSections, fullBodyText],
+  );
+  const hasSlideAudioguide = useMemo(
+    () =>
+      slideScripts.some((entry) => entry.text) ||
+      (phase === 'mini' && !!miniAudioText),
+    [slideScripts, phase, miniAudioText],
+  );
+
+  const onAudioguideError = useCallback(() => {
+    Alert.alert('', ls(language, 'audioGuideError'));
+  }, [language]);
+
+  useEffect(() => {
+    if (!hasSlideAudioguide) return undefined;
+    void prefetchLandmarkSlideAudio({
+      slideScripts,
+      miniText: miniAudioText,
+      language,
+      audioGuideUrl,
+      fromIndex: activeSectionIndex,
+    });
+    return undefined;
+  }, [
+    hasSlideAudioguide,
+    slideScripts,
+    miniAudioText,
+    language,
+    audioGuideUrl,
+    activeSectionIndex,
+  ]);
+
+  const slideAudioguide = useLandmarkSlideAudioguide({
+    Speech,
+    language,
+    phase,
+    slideScripts,
+    miniText: miniAudioText,
+    activeSectionIndex,
+    activeSectionIndexRef,
+    goToSectionIndex,
+    playFileAudioUntilDone,
+    stopFileAudio,
+    onPlaybackError: onAudioguideError,
+  });
 
   const toggleSpeech = useCallback(async () => {
+    if (hasSlideAudioguide) {
+      await slideAudioguide.toggle();
+      return;
+    }
     if (audioGuideUrl) {
-      if (soundRef.current) {
+      if (fileAudioActiveRef.current) {
         await stopFileAudio();
         setSpeaking(false);
         return;
@@ -738,19 +885,16 @@ export default function LandmarkResultPage({ navigation, route }) {
       Speech.stop();
       try {
         const localUri = await getCachedOrRemoteAudioUri(audioGuideUrl);
-        const { sound } = await Audio.Sound.createAsync({ uri: localUri }, { shouldPlay: false });
-        soundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate((st) => {
-          if (st.isLoaded && st.didJustFinish) {
-            setSpeaking(false);
-            soundRef.current?.unloadAsync().catch(() => {});
-            soundRef.current = null;
-          }
-        });
+        const uri = normalizePlaybackUri(localUri);
+        if (!uri) throw new Error('audio_empty_uri');
+        const player = ensureLandmarkAudioPlayer();
+        fileAudioActiveRef.current = true;
         setSpeaking(true);
-        await sound.playAsync();
+        player.replace(uri);
+        player.play();
       } catch (e) {
         setSpeaking(false);
+        fileAudioActiveRef.current = false;
         await stopFileAudio();
         if (__DEV__) console.warn('[audioGuide]', e?.message);
         Alert.alert('', ls(language, 'audioGuideError'));
@@ -773,7 +917,16 @@ export default function LandmarkResultPage({ navigation, route }) {
         onError: () => setSpeaking(false),
       });
     }
-  }, [audioGuideUrl, language, stopFileAudio, textForTts, ttsLang]);
+  }, [
+    hasSlideAudioguide,
+    slideAudioguide,
+    audioGuideUrl,
+    language,
+    stopFileAudio,
+    textForTts,
+    ttsLang,
+    ensureLandmarkAudioPlayer,
+  ]);
 
   const openFull = useCallback(() => {
     if (phase !== 'mini') return;
@@ -1054,7 +1207,8 @@ export default function LandmarkResultPage({ navigation, route }) {
       Alert.alert('', ls(language, 'paramMenuNeedLogin'));
       return;
     }
-    // Пряма публікація через камеру — без FeedPostComposer
+    // Прямий флоу: камера → знімок → FeedPostComposer (через FeedCamera.goAfterCapture,
+    // яка після першого фото навіґує у FeedPostComposer з uris:[persisted]).
     navigation.navigate('FeedCamera', {
       user: u,
       language,
@@ -1062,6 +1216,9 @@ export default function LandmarkResultPage({ navigation, route }) {
       ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
       publishVisibility: 'public',
       cameraInitialMode: 'post',
+      ...(visitLat != null && visitLng != null
+        ? { pickedLat: visitLat, pickedLng: visitLng, pickedLabel: headerTitle }
+        : {}),
     });
   }, [
     closeParamsMenu,
@@ -1070,6 +1227,9 @@ export default function LandmarkResultPage({ navigation, route }) {
     language,
     appTheme,
     countryIdParam,
+    visitLat,
+    visitLng,
+    headerTitle,
   ]);
 
   const onParamSave = useCallback(async () => {

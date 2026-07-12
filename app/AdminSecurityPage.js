@@ -14,6 +14,7 @@ import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
+import { useAppTheme } from './useAppTheme';
 import { st } from './settingsI18n';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
@@ -29,8 +30,7 @@ import {
 export default function AdminSecurityPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const appTheme = route?.params?.appTheme === 'light' ? 'light' : 'dark';
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [log, setLog] = useState([]);
   const [block, setBlock] = useState(null);
   const [installId, setInstallId] = useState('');

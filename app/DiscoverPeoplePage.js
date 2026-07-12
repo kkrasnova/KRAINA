@@ -25,16 +25,18 @@ import ProfileAvatarCircle from './ProfileAvatarCircle';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
 import {
   isDiscoverSearchAvailable,
-  socialGetCachedPublicProfileFull,
   socialGetCachedTopProfiles,
   socialInstantSearchProfiles,
-  socialPrefetchPublicProfileFull,
   socialSearchProfiles,
   socialListTopProfiles,
   socialWarmDiscoverSearch,
   socialFollowUsername,
   socialUnfollowUsername,
 } from './socialApi';
+import {
+  openSocialUserProfile,
+  prefetchSocialUserProfile,
+} from './socialProfileNav';
 import {
   KRAINA_SOCIAL_FOLLOW_CHANGED,
   KRAINA_SOCIAL_GRAPH_CHANGED,
@@ -245,16 +247,7 @@ export default function DiscoverPeoplePage({ navigation, route }) {
 
   const openUser = useCallback(
     (username, preloadedProfile = null) => {
-      const normalizedUsername = String(username || '').replace(/^@/, '').trim();
-      if (!normalizedUsername || !isNavigableSocialUsername(normalizedUsername)) return;
-      const cachedFull = socialGetCachedPublicProfileFull(normalizedUsername, 80);
-      navigation.push('SocialUserProfile', {
-        ...shell,
-        username: normalizedUsername,
-        ...(preloadedProfile ? { preloadedProfile } : {}),
-        ...(cachedFull ? { preloadedFull: cachedFull } : {}),
-      });
-      void socialPrefetchPublicProfileFull(normalizedUsername, 80);
+      openSocialUserProfile(navigation, shell, { username, row: preloadedProfile });
     },
     [navigation, shell],
   );
@@ -295,7 +288,7 @@ export default function DiscoverPeoplePage({ navigation, route }) {
           ]}
         >
           <Pressable
-            onPressIn={() => void socialPrefetchPublicProfileFull(item.username, 80)}
+            onPressIn={() => prefetchSocialUserProfile(item.username)}
             onPress={() => openUser(item.username, item)}
             style={({ pressed }) => [
               styles.row,

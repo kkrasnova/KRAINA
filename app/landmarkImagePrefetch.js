@@ -106,9 +106,21 @@ export function prefetchLandmarkResultParams(params) {
   if (!params || typeof params !== 'object') return Promise.resolve();
   const sources = [];
   if (typeof params.photoAsset === 'number') sources.push(params.photoAsset);
-  if (params.photoUri) sources.push({ uri: params.photoUri });
+  pushThumbRef(sources, params.heroThumb);
+  const remoteUri =
+    typeof params.photoUri === 'string' && /^https?:\/\//i.test(params.photoUri.trim())
+      ? params.photoUri.trim()
+      : '';
+  if (remoteUri) sources.push({ uri: remoteUri });
   if (Array.isArray(params.introPages)) {
     for (const page of params.introPages) pushIntroPageMedia(sources, page);
+  }
+  try {
+    const { prefetchLandmarkAudioFromParams } = require('./landmarkAudioPrefetch');
+    const language = params.language || 'uk';
+    void prefetchLandmarkAudioFromParams(params, language);
+  } catch {
+    /* optional */
   }
   return prefetchLandmarkImageSources(sources);
 }

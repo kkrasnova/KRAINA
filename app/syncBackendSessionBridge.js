@@ -256,6 +256,26 @@ export async function clearSessionRecoveryCredentials() {
   }
 }
 
+/** Повне очищення всіх секретів відновлення сесії (вихід / видалення акаунту з пристрою). */
+export async function clearAllAuthRecoverySecrets() {
+  await clearSessionRecoveryCredentials();
+  try {
+    await SecureStore.deleteItemAsync(GOOGLE_ID_TOKEN_RECOVERY_KEY, SECURE_STORE_KEYCHAIN);
+  } catch {
+    /* */
+  }
+  try {
+    await SecureStore.deleteItemAsync(REMEMBER_EMAIL_SECURE_KEY, SECURE_STORE_KEYCHAIN);
+    await SecureStore.deleteItemAsync(REMEMBER_PASSWORD_SECURE_KEY, SECURE_STORE_KEYCHAIN);
+    await SecureStore.deleteItemAsync(REMEMBER_EMAIL_SECURE_KEY_LEGACY);
+    await SecureStore.deleteItemAsync(REMEMBER_PASSWORD_SECURE_KEY_LEGACY);
+    await SecureStore.deleteItemAsync('kraina_remember_email_secure', SECURE_STORE_KEYCHAIN);
+    await SecureStore.deleteItemAsync('kraina_remember_password_secure', SECURE_STORE_KEYCHAIN);
+  } catch {
+    /* */
+  }
+}
+
 async function readRememberedCredentials(localUser) {
   try {
     const remember = await AsyncStorage.getItem(REMEMBER_ME_KEY);
@@ -308,7 +328,7 @@ async function backendSessionIsLive() {
     const authDead =
       e instanceof ApiError && (e.status === 401 || e.status === 403);
     if (authDead) {
-      await useAuthStore.getState().clearLocalSession();
+      await useAuthStore.getState().clearExpiredTokens();
       return false;
     }
     // Мережева помилка — не знищуємо сесію, вважаємо тимчасовим збоєм.

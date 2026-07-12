@@ -13,40 +13,35 @@ import {
   KeyboardAvoidingView,
   Share,
   PanResponder,
+  Linking,
+  DeviceEventEmitter,
+  Animated,
 } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import {
   createAudioPlayer,
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
   setAudioModeAsync,
-  useAudioRecorder,
-  useAudioRecorderState,
 } from 'expo-audio';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import {
-  APP_PLAYBACK_AUDIO_MODE,
-  configureBackgroundMusicFriendlyAudio,
-  VOICE_RECORDING_AUDIO_MODE,
-} from './audioSession';
+import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { useAppTheme } from './useAppTheme';
 
 import { RenderProfiler } from './performanceMetrics';
 import { runAfterInteractions } from './runAfterInteractions';
-import { st } from './chatsI18n';
-import { accentForTheme } from './themeAccent';
+import { st, chatIcebreakerKeys, formatChatIcebreaker } from './chatsI18n';
+import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { brandFontSans, brandFontSansSemibold } from './brandFont';
 import {
   getThreadById,
   markThreadRead,
   sendTextMessage,
   sendImageMessage,
-  sendVoiceMessage,
   deleteThread,
   deleteChatHistory,
 } from './chatService';
@@ -58,10 +53,10 @@ import {
   messagesListThreads,
   messagesClearThread,
   messagesDeleteThread,
-  messagesUploadVoice,
+  messagesUploadImage,
 } from './messageApi';
 import { initChatPushNotifications, teardownChatPushNotifications } from './chatPushService';
-import { feedUploadMediaFromUri } from './feedApi';
+import { persistCapturedImage } from './feedMediaPersist';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { getRegion } from './routeRegionsData';
 import { getSavedRoutes, stripRoutePlanForStorage } from './profileStorage';
@@ -69,12 +64,24 @@ import { pf } from './profileI18n';
 import { errorToUserText } from './errorText';
 import { readThreadCache, threadCacheKey, writeThreadCache } from './chatThreadCache';
 import {
-  isValidPeerAvatarUri,
   peerAvatarUriFromMeta,
   peerDisplayNameFromMeta,
   peerUsernameFromMeta,
 } from './chatPeerDisplay';
-import { formatVoiceDuration, mapBackendMessage } from './chatMessageTypes';
+import ProfileAvatarCircle from './ProfileAvatarCircle';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { mapBackendMessage } from './chatMessageTypes';
+import {
+  mergePendingImages,
+  readPendingOutboundMessages,
+  removePendingOutboundMessage,
+  savePendingOutboundMessage,
+} from './chatPendingOutbound';
+import { OFFLINE_NETWORK_CHANGED } from './offline/networkStatus';
+import {
+  buildSocialUserProfileParams,
+  prefetchSocialUserProfile,
+} from './socialProfileNav';
 
 /** Instagram DM */
 const IG_SCREEN_LIGHT = '#FFFFFF';
@@ -90,8 +97,8 @@ const IG_BAR_BG_LIGHT = '#FFFFFF';
 const IG_BAR_BG_DARK = '#000000';
 const BUBBLE_RADIUS = 22;
 const BUBBLE_RADIUS_STACK = 4;
-const MIN_VOICE_MS = 600;
 const VOICE_SPEEDS = [1, 1.5, 2];
+const MENU_SHEET_DISMISS_DRAG_PX = 52;
 
 function formatVoiceClock(totalSec) {
   const sec = Math.max(0, Math.floor(Number(totalSec) || 0));
@@ -195,6 +202,75 @@ function VoiceMessageBubble({
   );
 }
 
+function ChatThreadEmptyState({
+  language,
+  peerDisplayName,
+  peerUsername,
+  peerAvatarUrl,
+  isLight,
+  accent,
+  textMain,
+  muted,
+  disabled,
+  onPickIcebreaker,
+}) {
+  const peerLabel =
+    String(peerDisplayName || '').trim() ||
+    (peerUsername ? `@${String(peerUsername).replace(/^@/, '')}` : '');
+  const icebreakers = chatIcebreakerKeys().map((key) => ({
+    key,
+    text: formatChatIcebreaker(language, key, peerUsername || peerDisplayName),
+  }));
+
+  return (
+    <View style={styles.emptyThreadWrap}>
+      <View style={[styles.emptyThreadCard, isLight ? styles.emptyThreadCardLight : styles.emptyThreadCardDark]}>
+        <ProfileAvatarCircle uri={resolveFeedMediaUrl(peerAvatarUrl)} size={76} isLight={isLight} style={styles.emptyThreadAvatar} />
+        <Text style={[styles.emptyThreadTitle, brandFontSansSemibold, { color: textMain }]}>
+          {st(language, 'emptyThreadTitle')}
+        </Text>
+        <Text style={[styles.emptyThreadBody, brandFontSans, { color: muted }]}>
+          {st(language, 'emptyThreadBody')}
+        </Text>
+        {peerLabel ? (
+          <Text style={[styles.emptyThreadPeer, brandFontSansSemibold, { color: textMain }]} numberOfLines={1}>
+            {peerLabel}
+          </Text>
+        ) : null}
+        <View style={styles.icebreakerWrap}>
+          {icebreakers.map((item, index) => (
+            <Pressable
+              key={item.key}
+              disabled={disabled}
+              onPress={() => onPickIcebreaker(item.text)}
+              style={({ pressed }) => [
+                styles.icebreakerChip,
+                {
+                  backgroundColor: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.06)',
+                  borderColor: index === 0 ? accent : isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.14)',
+                  opacity: disabled ? 0.55 : pressed ? 0.82 : 1,
+                },
+                index === 0 && { borderWidth: 1.5 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.icebreakerChipText,
+                  brandFontSans,
+                  { color: index === 0 ? accent : textMain },
+                ]}
+                numberOfLines={2}
+              >
+                {item.text}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function igBubbleRadii(mine, isFirstInGroup, isLastInGroup) {
   if (mine) {
     return {
@@ -226,25 +302,6 @@ function messageGroupMeta(list, index) {
     showAvatar: !item.fromMe && !textStack(item, next),
     marginBottom: sameNext ? 2 : 10,
   };
-}
-
-function ChatPeerAvatar({ uri, size, isLight, style }) {
-  const dim = { width: size, height: size, borderRadius: size / 2 };
-  if (isValidPeerAvatarUri(uri)) {
-    return <Image source={{ uri }} style={[dim, style]} resizeMode="cover" />;
-  }
-  return (
-    <View
-      style={[
-        dim,
-        styles.peerAvatarFallback,
-        { backgroundColor: isLight ? '#D1D1D6' : '#3A3A3C' },
-        style,
-      ]}
-    >
-      <Ionicons name="person" size={Math.round(size * 0.48)} color={isLight ? '#8E8E93' : '#AEAEB2'} />
-    </View>
-  );
 }
 
 function applyPeerMeta(setters, meta) {
@@ -290,37 +347,38 @@ export default function ChatThreadPage({ navigation, route }) {
   );
   const [peerUserId, setPeerUserId] = useState(route?.params?.peerUserId || '');
   const useMessageApi = route?.params?.useMessageApi === true;
+
+  useEffect(() => {
+    if (peerUsername) prefetchSocialUserProfile(peerUsername);
+  }, [peerUsername]);
   const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [thread, setThread] = useState(() =>
     initialCache?.messages?.length ? { messages: initialCache.messages } : null,
   );
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingForMe, setPendingForMe] = useState(
     route?.params?.pendingForMe === true || initialCache?.pendingForMe === true,
   );
   const [acceptBusy, setAcceptBusy] = useState(false);
   const listRef = useRef(null);
-  const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recorderState = useAudioRecorderState(voiceRecorder, 200);
   const voicePlayerRef = useRef(null);
   const voiceRatesRef = useRef({});
   const [playingVoiceId, setPlayingVoiceId] = useState(null);
   const [voicePlayState, setVoicePlayState] = useState(null);
   const [voiceRates, setVoiceRates] = useState({});
-  const recordingBusyRef = useRef(false);
-  const voiceUploadingRef = useRef(false);
-  const pendingVoiceIdRef = useRef(null);
-  const voiceRecordingRef = useRef(false);
-  const isRecordingVoice = recorderState.isRecording;
-  const [voiceUploading, setVoiceUploading] = useState(false);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const closeMenuRef = useRef(closeMenu);
+  const menuSheetDragY = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     closeMenuRef.current = closeMenu;
   }, [closeMenu]);
+  useEffect(() => {
+    if (menuOpen) menuSheetDragY.setValue(0);
+  }, [menuOpen, menuSheetDragY]);
 
   const runMenuAction = useCallback(
     (action) => {
@@ -337,19 +395,29 @@ export default function ChatThreadPage({ navigation, route }) {
   const menuSheetPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, g) =>
-          g.dy > 10 && g.dy > Math.abs(g.dx) * 1.05,
-        onMoveShouldSetPanResponderCapture: (_, g) =>
-          g.dy > 16 && g.dy > Math.abs(g.dx) * 1.12,
-        onPanResponderTerminationRequest: () => true,
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponder: (_, g) => g.dy > 2 && g.dy >= Math.abs(g.dx) * 0.85,
+        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
+        onPanResponderTerminationRequest: (_, g) => !(g.dy > 4 && g.dy > Math.abs(g.dx)),
+        onPanResponderMove: (_, g) => {
+          menuSheetDragY.setValue(Math.max(0, g.dy));
+        },
         onPanResponderRelease: (_, g) => {
-          if (g.dy > 52 || g.vy > 0.3) {
+          if (g.dy > MENU_SHEET_DISMISS_DRAG_PX || g.vy > 0.24) {
+            menuSheetDragY.setValue(0);
             closeMenuRef.current();
+            return;
           }
+          Animated.spring(menuSheetDragY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 22,
+            stiffness: 280,
+          }).start();
         },
       }),
-    [],
+    [menuSheetDragY],
   );
 
   const shell = useMemo(
@@ -360,6 +428,27 @@ export default function ChatThreadPage({ navigation, route }) {
       appTheme: appTheme === 'light' ? 'light' : 'dark',
     }),
     [user, language, route?.params?.countryId, appTheme],
+  );
+
+  const peerCacheMeta = useCallback(
+    () => ({
+      peerName: peerUsername || peerDisplayName,
+      peerDisplayName,
+      peerUsername,
+      peerAvatarUrl,
+      pendingForMe,
+    }),
+    [peerUsername, peerDisplayName, peerAvatarUrl, pendingForMe],
+  );
+
+  const writeMessagesCache = useCallback(
+    (messages) => {
+      writeThreadCache(cacheKey, {
+        messages: Array.isArray(messages) ? messages : [],
+        ...peerCacheMeta(),
+      });
+    },
+    [cacheKey, peerCacheMeta],
   );
 
   const reload = useCallback(async () => {
@@ -393,13 +482,8 @@ export default function ChatThreadPage({ navigation, route }) {
         }
         const msgs = await messagesListMessages(threadId);
         const mapped = msgs.map((m) => mapBackendMessage(m, language));
-        const pendingVoiceId = pendingVoiceIdRef.current;
-        const pendingVoice =
-          pendingVoiceId &&
-          (thread?.messages || []).find((m) => m.id === pendingVoiceId && m.optimistic);
-        const merged = pendingVoice
-          ? [...mapped.filter((m) => m.id !== pendingVoiceId), pendingVoice]
-          : mapped;
+        const pendingImages = await readPendingOutboundMessages(threadId);
+        const merged = mergePendingImages(mapped, pendingImages);
         setThread({ messages: merged });
         writeThreadCache(cacheKey, {
           messages: merged,
@@ -412,7 +496,24 @@ export default function ChatThreadPage({ navigation, route }) {
         void messagesMarkRead(threadId);
       } catch (e) {
         if (__DEV__) console.warn('[ChatThread] api messages', e?.message);
-        if (!thread?.messages?.length) setThread({ messages: [] });
+        const pendingImages = await readPendingOutboundMessages(threadId);
+        if (pendingImages.length) {
+          setThread((prev) => {
+            const existing = prev?.messages?.length ? prev.messages : initialCache?.messages || [];
+            const merged = mergePendingImages(existing, pendingImages);
+            writeThreadCache(cacheKey, {
+              messages: merged,
+              peerName: peerUsername || peerDisplayName,
+              peerDisplayName,
+              peerUsername,
+              peerAvatarUrl,
+              pendingForMe,
+            });
+            return { messages: merged };
+          });
+        } else if (!thread?.messages?.length) {
+          setThread({ messages: [] });
+        }
       }
     } else {
       const th = await getThreadById(user, threadId, langUk);
@@ -452,23 +553,14 @@ export default function ChatThreadPage({ navigation, route }) {
     useCallback(() => {
       reloadRef.current();
       if (!useMessageApi) void markThreadRead(user, threadId, langUk);
-      void (async () => {
-        try {
-          /** Запитуємо дозвіл мікрофона ЗАВЧАСНО — щоб системний діалог
-           *  не з'являвся під час утримування кнопки запису. */
-          await requestRecordingPermissionsAsync();
-        } catch (e) {
-          if (__DEV__) console.warn('[ChatThread] mic permission', e?.message);
-        }
-      })();
       if (useMessageApi) {
         const timer = setInterval(() => {
-          if (!voiceUploadingRef.current) reloadRef.current();
+          reloadRef.current();
         }, 3000);
         return () => clearInterval(timer);
       }
       return undefined;
-    }, [user, threadId, langUk, useMessageApi, voiceRecorder]),
+    }, [user, threadId, langUk, useMessageApi]),
   );
 
   const accent = accentForTheme(isLight);
@@ -478,6 +570,12 @@ export default function ChatThreadPage({ navigation, route }) {
   const incomingBg = isLight ? IG_INCOMING_LIGHT : IG_INCOMING_DARK;
   const incomingText = isLight ? IG_INCOMING_TEXT_LIGHT : IG_INCOMING_TEXT_DARK;
   const outgoingBg = IG_BLUE;
+  const sheetBg = isLight ? '#FFFFFF' : '#2C2C2E';
+  const sheetHandleColor = isLight ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.35)';
+  const sheetRowBorder = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)';
+  const sheetDestructiveSoft = isLight ? '#FF3B30' : '#FF8A80';
+  const sheetDestructive = isLight ? '#D32F2F' : '#FF5252';
+  const sheetRipple = ripple;
   const canSend = draft.trim().length > 0 && !sending;
 
   const messages = thread?.messages || [];
@@ -649,137 +747,180 @@ export default function ChatThreadPage({ navigation, route }) {
     [playingVoiceId],
   );
 
+  const syncPendingImage = useCallback(
+    async (optimisticId, localUri, mimeType = '') => {
+      const remoteUrl = await messagesUploadImage(localUri, mimeType);
+      const sent = await messagesSendText(threadId, remoteUrl);
+      const mapped = mapBackendMessage(
+        {
+          id: sent?.id || optimisticId,
+          content: remoteUrl,
+          sent_at: new Date().toISOString(),
+          from_me: true,
+        },
+        language,
+      );
+      setThread((prev) => {
+        const messages = [...(prev?.messages || []).filter((m) => m.id !== optimisticId), mapped];
+        writeMessagesCache(messages);
+        return { messages };
+      });
+      await removePendingOutboundMessage(threadId, optimisticId);
+      return mapped;
+    },
+    [threadId, language, writeMessagesCache],
+  );
+
+  const flushPendingImages = useCallback(async () => {
+    if (!useMessageApi || !threadId) return;
+    const pending = await readPendingOutboundMessages(threadId);
+    for (const msg of pending) {
+      const localUri = msg.localUri || msg.imageUri;
+      if (!localUri) continue;
+      try {
+        await syncPendingImage(msg.id, localUri, msg.mimeType || '');
+      } catch {
+        break;
+      }
+    }
+  }, [useMessageApi, threadId, syncPendingImage]);
+
   const sendImageFromUri = useCallback(
-    async (uri) => {
+    async (uri, mimeType = '') => {
       if (!uri) return;
-      if (useMessageApi) {
-        const up = await feedUploadMediaFromUri(uri);
-        if (!up?.url && !up?.media_url) throw new Error('upload');
-        await messagesSendText(threadId, up.url || up.media_url);
-        await reload();
+      const localUri = await persistCapturedImage(uri, { mimeType });
+      if (!localUri) throw new Error('upload_failed');
+
+      const optimisticId = `imgopt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const optimistic = {
+        id: optimisticId,
+        createdAt: Date.now(),
+        fromMe: true,
+        type: 'image',
+        imageUri: localUri,
+        localUri,
+        mimeType,
+        optimistic: true,
+        uploading: !!useMessageApi,
+        pendingSync: false,
+      };
+
+      setThread((prev) => {
+        const messages = [...(prev?.messages || []), optimistic];
+        writeMessagesCache(messages);
+        return { messages };
+      });
+      scrollEnd();
+
+      if (!useMessageApi) {
+        const th = await sendImageMessage(user, threadId, localUri, langUk);
+        if (th) {
+          setThread(th);
+          writeMessagesCache(th.messages || []);
+        }
         return;
       }
-      const th = await sendImageMessage(user, threadId, uri, langUk);
-      if (th) {
-        setThread(th);
-        writeThreadCache(cacheKey, {
-          messages: th.messages || [],
-          peerName: peerUsername || peerDisplayName,
-          peerDisplayName,
-          peerUsername,
-          peerAvatarUrl,
-          pendingForMe,
+
+      try {
+        await syncPendingImage(optimisticId, localUri, mimeType);
+      } catch {
+        const pending = {
+          ...optimistic,
+          uploading: false,
+          pendingSync: true,
+        };
+        setThread((prev) => {
+          const messages = (prev?.messages || []).map((m) => (m.id === optimisticId ? pending : m));
+          writeMessagesCache(messages);
+          return { messages };
         });
+        await savePendingOutboundMessage(threadId, pending);
       }
     },
     [
       useMessageApi,
       threadId,
-      reload,
+      scrollEnd,
+      writeMessagesCache,
       user,
       langUk,
-      cacheKey,
-      peerUsername,
-      peerDisplayName,
-      peerAvatarUrl,
-      pendingForMe,
+      syncPendingImage,
     ],
   );
 
-  const replaceVoiceOptimistic = useCallback(
-    (optimisticId, nextMessage) => {
-      pendingVoiceIdRef.current = null;
-      setThread((prev) => {
-        const list = (prev?.messages || []).filter((m) => m.id !== optimisticId);
-        return { messages: [...list, nextMessage] };
+  const pickFromGallery = useCallback(async () => {
+    if (sending || imageUploading) return;
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted && Platform.OS !== 'ios') {
+        Alert.alert('', st(language, 'galleryDenied'));
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
       });
-      writeThreadCache(cacheKey, {
-        messages: [
-          ...((readThreadCache(cacheKey)?.messages || []).filter((m) => m.id !== optimisticId)),
-          nextMessage,
-        ],
-        peerName: peerUsername || peerDisplayName,
-        peerDisplayName,
-        peerUsername,
-        peerAvatarUrl,
-        pendingForMe,
-      });
-    },
-    [cacheKey, peerUsername, peerDisplayName, peerAvatarUrl, pendingForMe],
-  );
-
-  const sendVoiceFromUri = useCallback(
-    async (uri, durationMs, optimisticId) => {
-      if (!uri) return;
-      const duration = Math.max(0, Number(durationMs) || 0);
-      if (useMessageApi) {
-        let remoteUrl = null;
+      if (res.canceled || !res.assets?.length) return;
+      setImageUploading(true);
+      for (const asset of res.assets) {
+        if (!asset?.uri) continue;
         try {
-          remoteUrl = await messagesUploadVoice(uri);
-        } catch (uploadErr) {
-          if (__DEV__) console.warn('[ChatThread] backend voice upload', uploadErr?.message);
-          const up = await feedUploadMediaFromUri(uri);
-          remoteUrl = up?.url || up?.media_url || null;
+          await sendImageFromUri(asset.uri, asset.mimeType || '');
+        } catch (e) {
+          const code = String(e?.message || '').toLowerCase();
+          if (code === 'upload_failed' || code === 'empty_image') {
+            Alert.alert('', errorToUserText(e, language));
+            break;
+          }
         }
-        if (!remoteUrl) throw new Error('upload');
-        const payload = JSON.stringify({
-          type: 'kraina_voice',
-          url: remoteUrl,
-          durationMs: duration,
-        });
-        const sent = await messagesSendText(threadId, payload);
-        const mapped = mapBackendMessage(
-          {
-            id: sent?.id || `msg_${Date.now()}`,
-            content: payload,
-            sent_at: new Date().toISOString(),
-            from_me: true,
-          },
-          language,
-        );
-        if (optimisticId) {
-          replaceVoiceOptimistic(optimisticId, mapped);
-        } else {
-          setThread((prev) => ({ messages: [...(prev?.messages || []), mapped] }));
-        }
-        void messagesMarkRead(threadId);
-        return mapped;
       }
-      const th = await sendVoiceMessage(user, threadId, uri, duration, langUk);
-      if (!th) return null;
-      const saved = (th.messages || []).slice(-1)[0];
-      if (optimisticId && saved) {
-        replaceVoiceOptimistic(optimisticId, saved);
-      } else {
-        setThread(th);
-        writeThreadCache(cacheKey, {
-          messages: th.messages || [],
-          peerName: peerUsername || peerDisplayName,
-          peerDisplayName,
-          peerUsername,
-          peerAvatarUrl,
-          pendingForMe,
-        });
-      }
-      return saved;
-    },
-    [
-      useMessageApi,
-      threadId,
-      language,
-      user,
-      langUk,
-      cacheKey,
-      peerUsername,
-      peerDisplayName,
-      peerAvatarUrl,
-      pendingForMe,
-      replaceVoiceOptimistic,
-    ],
+    } catch (e) {
+      Alert.alert('', errorToUserText(e, language));
+    } finally {
+      setImageUploading(false);
+    }
+  }, [sending, imageUploading, language, sendImageFromUri]);
+
+  const flushPendingImagesRef = useRef(flushPendingImages);
+  flushPendingImagesRef.current = flushPendingImages;
+
+  useEffect(() => {
+    if (!useMessageApi || !threadId) return undefined;
+    let cancelled = false;
+    void (async () => {
+      const pending = await readPendingOutboundMessages(threadId);
+      if (cancelled || !pending.length) return;
+      setThread((prev) => {
+        const existing = prev?.messages || initialCache?.messages || [];
+        const merged = mergePendingImages(existing, pending);
+        writeMessagesCache(merged);
+        return { messages: merged };
+      });
+      void flushPendingImagesRef.current();
+    })();
+    const sub = DeviceEventEmitter.addListener(OFFLINE_NETWORK_CHANGED, (online) => {
+      if (online) void flushPendingImagesRef.current();
+    });
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [useMessageApi, threadId, writeMessagesCache]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (useMessageApi) void flushPendingImagesRef.current();
+    }, [useMessageApi]),
   );
 
   const onSend = async () => {
-    const t = draft.trim();
+    await sendMessageText(draft.trim());
+  };
+
+  const sendMessageText = useCallback(async (rawText) => {
+    const t = String(rawText || '').trim();
     if (!t || sending) return;
     if (!useMessageApi) {
       Alert.alert('', st(language, 'needBackendLogin'));
@@ -827,7 +968,57 @@ export default function ChatThreadPage({ navigation, route }) {
     } finally {
       setSending(false);
     }
-  };
+  }, [
+    sending,
+    useMessageApi,
+    language,
+    threadId,
+    reload,
+    user,
+    langUk,
+    cacheKey,
+    peerUsername,
+    peerDisplayName,
+    peerAvatarUrl,
+    pendingForMe,
+  ]);
+
+  const onPickIcebreaker = useCallback(
+    (text) => {
+      void sendMessageText(text);
+    },
+    [sendMessageText],
+  );
+
+  const listEmpty = useMemo(
+    () =>
+      pendingForMe ? null : (
+        <ChatThreadEmptyState
+          language={language}
+          peerDisplayName={peerDisplayName}
+          peerUsername={peerUsername}
+          peerAvatarUrl={peerAvatarUrl}
+          isLight={isLight}
+          accent={accent}
+          textMain={textMain}
+          muted={isLight ? '#8E8E93' : '#9A9A9A'}
+          disabled={sending}
+          onPickIcebreaker={onPickIcebreaker}
+        />
+      ),
+    [
+      pendingForMe,
+      language,
+      peerDisplayName,
+      peerUsername,
+      peerAvatarUrl,
+      isLight,
+      accent,
+      textMain,
+      sending,
+      onPickIcebreaker,
+    ],
+  );
 
   const openPeerProfile = useCallback(() => {
     let uname = String(peerUsername || '').replace(/^@/, '').trim();
@@ -835,11 +1026,11 @@ export default function ChatThreadPage({ navigation, route }) {
       Alert.alert('', st(language, 'profileSoon'));
       return;
     }
-    navigation.navigate('SocialUserProfile', {
-      ...shell,
-      username: uname,
-    });
-  }, [navigation, shell, peerUsername, threadId, language]);
+    const params = buildSocialUserProfileParams(shell, { username: uname });
+    if (!params) return;
+    navigation.navigate('SocialUserProfile', params);
+    prefetchSocialUserProfile(uname);
+  }, [navigation, shell, peerUsername, language]);
 
   const onAcceptRequest = async () => {
     setAcceptBusy(true);
@@ -869,7 +1060,7 @@ export default function ChatThreadPage({ navigation, route }) {
       const mine = item.fromMe;
       const group = messageGroupMeta(messages, index);
       const avatarNode = group.showAvatar ? (
-        <ChatPeerAvatar uri={peerAvatarUrl} size={28} isLight={isLight} style={{ marginRight: 8 }} />
+        <ProfileAvatarCircle uri={resolveFeedMediaUrl(peerAvatarUrl)} size={28} isLight={isLight} style={{ marginRight: 8 }} />
       ) : (
         <View style={styles.tinyAvatarSpacer} />
       );
@@ -897,11 +1088,25 @@ export default function ChatThreadPage({ navigation, route }) {
               <Pressable
                 style={styles.routeBtn}
                 onPress={() =>
-                  navigation.navigate(HOME_TAB_ROUTE, {
-                    ...shell,
-                    tabIndex: HOME_TAB.MAP,
-                    routeFinderExtras: { initialPlace: item.routeCard.title },
-                  })
+                  item?.routeCard?.plan
+                    ? navigation.navigate('RouteResults', {
+                        ...shell,
+                        routePlan: item.routeCard.plan,
+                        routeVariant: 0,
+                        placeQuery: item.routeCard.title,
+                        hoursText: item.routeCard.plan?.totalMinutes
+                          ? String(Math.max(1, Math.round(item.routeCard.plan.totalMinutes / 60)))
+                          : undefined,
+                        budgetTier: item.routeCard.plan?.budgetTier || 'medium',
+                        interests: item.routeCard.plan?.interests || null,
+                        freeOnly: !!item.routeCard.plan?.freeOnly,
+                        transport: item.routeCard.plan?.transport || 'walk',
+                      })
+                    : navigation.navigate(HOME_TAB_ROUTE, {
+                        ...shell,
+                        tabIndex: HOME_TAB.MAP,
+                        routeFinderExtras: { initialPlace: item.routeCard.title },
+                      })
                 }
               >
             <Text style={styles.routeBtnText}>{st(language, 'routeCta')}</Text>
@@ -920,7 +1125,14 @@ export default function ChatThreadPage({ navigation, route }) {
             ]}
           >
             {!mine ? avatarNode : null}
-            <Image source={{ uri: item.imageUri }} style={styles.chatImage} resizeMode="cover" />
+            <Image
+              source={{ uri: item.imageUri }}
+              style={[
+                styles.chatImage,
+                (item.optimistic || item.pendingSync || item.uploading) && { opacity: 0.88 },
+              ]}
+              resizeMode="cover"
+            />
           </View>
         );
       }
@@ -977,100 +1189,6 @@ export default function ChatThreadPage({ navigation, route }) {
     },
     [language, navigation, shell, isLight, peerAvatarUrl, peerDisplayName, outgoingBg, incomingBg, incomingText, messages, playingVoiceId, voicePlayState, voiceRates, playVoiceMessage, seekVoiceMessage, cycleVoiceRate],
   );
-
-  const pickFromGallery = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('', st(language, 'openGallery'));
-      return;
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-      allowsEditing: true,
-    });
-    if (!res.canceled && res.assets?.[0]?.uri) {
-      await sendImageFromUri(res.assets[0].uri);
-    }
-  };
-
-  const startVoiceRecording = useCallback(async () => {
-    if (recordingBusyRef.current || voiceUploadingRef.current || voiceRecordingRef.current) return;
-    recordingBusyRef.current = true;
-    try {
-      await setAudioModeAsync(VOICE_RECORDING_AUDIO_MODE);
-      try {
-        await voiceRecorder.prepareToRecordAsync();
-      } catch {
-        /* already prepared */
-      }
-      voiceRecordingRef.current = true;
-      await voiceRecorder.record();
-    } catch (e) {
-      voiceRecordingRef.current = false;
-      if (__DEV__) console.warn('[ChatThread] voice record start', e?.message);
-      Alert.alert('', st(language, 'needMicPermission'));
-    } finally {
-      recordingBusyRef.current = false;
-    }
-  }, [voiceRecorder, language]);
-
-  const finishVoiceRecording = useCallback(async () => {
-    if (!voiceRecordingRef.current) return;
-    voiceRecordingRef.current = false;
-    const optimisticId = `vopt_${Date.now()}`;
-    try {
-      await voiceRecorder.stop();
-      const status = voiceRecorder.getStatus?.() || recorderState;
-      const uri = voiceRecorder.uri;
-      const durationMs = status.durationMillis || recorderState.durationMillis || 0;
-      if (!uri || durationMs < MIN_VOICE_MS) return;
-
-      const optimistic = {
-        id: optimisticId,
-        createdAt: Date.now(),
-        fromMe: true,
-        type: 'voice',
-        voiceUri: uri,
-        durationMs,
-        optimistic: true,
-        uploading: true,
-      };
-      pendingVoiceIdRef.current = optimisticId;
-      setThread((prev) => ({
-        messages: [...(prev?.messages || []), optimistic],
-      }));
-      scrollEnd();
-
-      voiceUploadingRef.current = true;
-      setVoiceUploading(true);
-      void sendVoiceFromUri(uri, durationMs, optimisticId)
-        .then(() => scrollEnd())
-        .catch((e) => {
-          pendingVoiceIdRef.current = null;
-          setThread((prev) => ({
-            messages: (prev?.messages || []).filter((m) => m.id !== optimisticId),
-          }));
-          Alert.alert('', errorToUserText(e, language));
-        })
-        .finally(() => {
-          voiceUploadingRef.current = false;
-          setVoiceUploading(false);
-          void configureBackgroundMusicFriendlyAudio().catch(() => {});
-        });
-    } catch (e) {
-      Alert.alert('', errorToUserText(e, language));
-    } finally {
-      void configureBackgroundMusicFriendlyAudio().catch(() => {});
-    }
-  }, [
-    voiceRecorder,
-    recorderState,
-    recorderState.durationMillis,
-    sendVoiceFromUri,
-    scrollEnd,
-    language,
-  ]);
 
   const shareLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -1214,48 +1332,11 @@ export default function ChatThreadPage({ navigation, route }) {
           accessibilityRole="button"
           accessibilityLabel={peerDisplayName}
         >
-          <ChatPeerAvatar uri={peerAvatarUrl} size={36} isLight={isLight} style={styles.headAvatar} />
+          <ProfileAvatarCircle uri={resolveFeedMediaUrl(peerAvatarUrl)} size={36} isLight={isLight} style={styles.headAvatar} />
           <Text style={[styles.topTitle, { color: textMain }]} numberOfLines={1}>
             {peerDisplayName}
           </Text>
         </Pressable>
-        {useMessageApi && peerUserId ? (
-          <>
-            <Pressable
-              onPress={() =>
-                navigation.navigate('Call', {
-                  mode: 'outgoing',
-                  peerUserId,
-                  peerDisplayName,
-                  peerAvatarUrl,
-                  user,
-                  language,
-                })
-              }
-              hitSlop={12}
-              style={styles.circleBtn}
-            >
-              <Ionicons name="call-outline" size={20} color={textMain} />
-            </Pressable>
-            <Pressable
-              onPress={() =>
-                navigation.navigate('Call', {
-                  mode: 'outgoing',
-                  isVideo: true,
-                  peerUserId,
-                  peerDisplayName,
-                  peerAvatarUrl,
-                  user,
-                  language,
-                })
-              }
-              hitSlop={12}
-              style={styles.circleBtn}
-            >
-              <Ionicons name="videocam-outline" size={20} color={textMain} />
-            </Pressable>
-          </>
-        ) : null}
         <Pressable onPress={() => setMenuOpen(true)} hitSlop={12} style={styles.circleBtn}>
           <Ionicons name="ellipsis-vertical" size={20} color={textMain} />
         </Pressable>
@@ -1277,7 +1358,7 @@ export default function ChatThreadPage({ navigation, route }) {
               { backgroundColor: accent, opacity: acceptBusy ? 0.6 : pressed ? 0.9 : 1 },
             ]}
           >
-            <Text style={[styles.acceptBtnText, { color: '#1E1E1E' }]}>{st(language, 'acceptRequest')}</Text>
+            <Text style={[styles.acceptBtnText, { color: onAccentButtonText(isLight) }]}>{st(language, 'acceptRequest')}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -1298,13 +1379,10 @@ export default function ChatThreadPage({ navigation, route }) {
             paddingHorizontal: 12,
             paddingTop: 12,
             paddingBottom: 12,
+            ...(messages.length === 0 ? { flexGrow: 1, justifyContent: 'center' } : {}),
           }}
           onContentSizeChange={scrollEnd}
-          ListEmptyComponent={
-            <Text style={{ color: textMain, opacity: 0.5, textAlign: 'center', marginTop: 24 }}>
-              —
-            </Text>
-          }
+          ListEmptyComponent={listEmpty}
         />
         </RenderProfiler>
 
@@ -1318,15 +1396,6 @@ export default function ChatThreadPage({ navigation, route }) {
             },
           ]}
         >
-          {isRecordingVoice ? (
-            <View style={styles.recordingRow}>
-              <View style={styles.recordingDot} />
-              <Text style={styles.recordingText}>
-                {st(language, 'recordingVoice')}{' '}
-                {formatVoiceDuration(recorderState.durationMillis)}
-              </Text>
-            </View>
-          ) : null}
           <View style={styles.inputBarRow}>
             <TextInput
               value={draft}
@@ -1344,7 +1413,7 @@ export default function ChatThreadPage({ navigation, route }) {
               returnKeyType="send"
               submitBehavior="submit"
               enablesReturnKeyAutomatically
-              editable={!sending && !isRecordingVoice}
+              editable={!sending}
               blurOnSubmit={false}
               textAlignVertical="center"
               accessibilityLabel={st(language, 'messagePlaceholder')}
@@ -1353,33 +1422,18 @@ export default function ChatThreadPage({ navigation, route }) {
               }}
             />
             <Pressable
-              onPressIn={startVoiceRecording}
-              onPressOut={finishVoiceRecording}
-              delayPressIn={0}
-              disabled={voiceUploading}
-              style={[
-                styles.inputSideBtn,
-                (isRecordingVoice || voiceUploading) && { backgroundColor: 'rgba(229,57,53,0.15)' },
-              ]}
-              android_ripple={ripple}
-              accessibilityRole="button"
-              accessibilityLabel={st(language, 'holdToRecord')}
-            >
-              <Ionicons
-                name={isRecordingVoice || voiceUploading ? 'mic' : 'mic-outline'}
-                size={24}
-                color={isRecordingVoice || voiceUploading ? '#E53935' : textMain}
-              />
-            </Pressable>
-            <Pressable
-              onPress={pickFromGallery}
-              disabled={sending || isRecordingVoice}
-              style={styles.inputSideBtn}
+              onPress={() => void pickFromGallery()}
+              disabled={sending || imageUploading}
+              style={[styles.inputSideBtn, imageUploading && { opacity: 0.5 }]}
               android_ripple={ripple}
               accessibilityRole="button"
               accessibilityLabel={st(language, 'openGallery')}
             >
-              <Ionicons name="images-outline" size={24} color={textMain} />
+              {imageUploading ? (
+                <Ionicons name="hourglass-outline" size={24} color={textMain} />
+              ) : (
+                <Ionicons name="images-outline" size={24} color={textMain} />
+              )}
             </Pressable>
             {canSend ? (
               <Pressable
@@ -1404,70 +1458,81 @@ export default function ChatThreadPage({ navigation, route }) {
             accessibilityRole="button"
             accessibilityLabel={st(language, 'parameters')}
           />
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
-            <View style={styles.sheetHandleWrap} {...menuSheetPanResponder.panHandlers}>
-              <View style={styles.sheetHandle} />
+          <Animated.View
+            style={[
+              styles.sheet,
+              {
+                backgroundColor: sheetBg,
+                paddingBottom: insets.bottom + 16,
+                transform: [{ translateY: menuSheetDragY }],
+              },
+            ]}
+          >
+            <View style={styles.sheetDragZone} {...menuSheetPanResponder.panHandlers}>
+              <View style={styles.sheetHandleWrap}>
+                <View style={[styles.sheetHandle, { backgroundColor: sheetHandleColor }]} />
+              </View>
+              <Text style={[styles.sheetTitle, { color: textMain }]}>{st(language, 'parameters')}</Text>
             </View>
-            <Text style={styles.sheetTitle}>{st(language, 'parameters')}</Text>
             <Pressable
-              style={styles.sheetRow}
+              style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
               onPress={() => runMenuAction(pickFromGallery)}
-              android_ripple={rippleOnDarkSurface}
+              android_ripple={sheetRipple}
             >
-              <Ionicons name="images-outline" size={22} color="#FFF" style={{ marginRight: 14 }} />
-              <Text style={styles.sheetRowText}>{st(language, 'openGallery')}</Text>
+              <Ionicons name="images-outline" size={22} color={textMain} style={{ marginRight: 14 }} />
+              <Text style={[styles.sheetRowText, { color: textMain }]}>{st(language, 'openGallery')}</Text>
             </Pressable>
             <Pressable
-              style={styles.sheetRow}
+              style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
               onPress={() => runMenuAction(openPeerProfile)}
-              android_ripple={rippleOnDarkSurface}
+              android_ripple={sheetRipple}
             >
-              <Ionicons name="person-outline" size={22} color="#FFF" style={{ marginRight: 14 }} />
-              <Text style={styles.sheetRowText}>{st(language, 'viewProfile')}</Text>
+              <Ionicons name="person-outline" size={22} color={textMain} style={{ marginRight: 14 }} />
+              <Text style={[styles.sheetRowText, { color: textMain }]}>{st(language, 'viewProfile')}</Text>
             </Pressable>
             <Pressable
-              style={styles.sheetRow}
+              style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
               onPress={() => runMenuAction(shareContact)}
-              android_ripple={rippleOnDarkSurface}
+              android_ripple={sheetRipple}
             >
-              <Ionicons name="share-outline" size={22} color="#FFF" style={{ marginRight: 14 }} />
-              <Text style={styles.sheetRowText}>{st(language, 'shareContact')}</Text>
+              <Ionicons name="share-outline" size={22} color={textMain} style={{ marginRight: 14 }} />
+              <Text style={[styles.sheetRowText, { color: textMain }]}>{st(language, 'shareContact')}</Text>
             </Pressable>
             <Pressable
-              style={styles.sheetRow}
+              style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
               onPress={() => runMenuAction(shareLocation)}
-              android_ripple={rippleOnDarkSurface}
+              android_ripple={sheetRipple}
             >
-              <Ionicons name="location-outline" size={22} color="#FFF" style={{ marginRight: 14 }} />
-              <Text style={styles.sheetRowText}>{st(language, 'shareLocation')}</Text>
+              <Ionicons name="location-outline" size={22} color={textMain} style={{ marginRight: 14 }} />
+              <Text style={[styles.sheetRowText, { color: textMain }]}>{st(language, 'shareLocation')}</Text>
             </Pressable>
             {useMessageApi ? (
               <Pressable
-                style={styles.sheetRow}
+                style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
                 onPress={() => runMenuAction(shareSavedRoute)}
-                android_ripple={rippleOnDarkSurface}
+                android_ripple={sheetRipple}
               >
-                <Ionicons name="map-outline" size={22} color="#FFF" style={{ marginRight: 14 }} />
-                <Text style={styles.sheetRowText}>{pf(language, 'shareRouteInChat')}</Text>
+                <Ionicons name="map-outline" size={22} color={textMain} style={{ marginRight: 14 }} />
+                <Text style={[styles.sheetRowText, { color: textMain }]}>{pf(language, 'shareRouteInChat')}</Text>
               </Pressable>
             ) : null}
             <Pressable
-              style={styles.sheetRow}
+              style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
               onPress={() => runMenuAction(clearHistory)}
-              android_ripple={rippleOnDarkSurface}
+              android_ripple={sheetRipple}
             >
-              <Ionicons name="trash-outline" size={22} color="#FF8A80" style={{ marginRight: 14 }} />
-              <Text style={[styles.sheetRowText, { color: '#FF8A80' }]}>{st(language, 'clearMessages')}</Text>
+              <Ionicons name="trash-outline" size={22} color={sheetDestructiveSoft} style={{ marginRight: 14 }} />
+              <Text style={[styles.sheetRowText, { color: sheetDestructiveSoft }]}>{st(language, 'clearMessages')}</Text>
             </Pressable>
             <Pressable
-              style={styles.sheetRow}
+              style={[styles.sheetRow, { borderBottomColor: sheetRowBorder }]}
               onPress={() => runMenuAction(confirmDeleteChat)}
-              android_ripple={rippleOnDarkSurface}
+              android_ripple={sheetRipple}
             >
-              <Ionicons name="trash-outline" size={22} color="#FF5252" style={{ marginRight: 14 }} />
-              <Text style={[styles.sheetRowText, { color: '#FF5252' }]}>{st(language, 'deleteChat')}</Text>
+              <Ionicons name="trash-outline" size={22} color={sheetDestructive} style={{ marginRight: 14 }} />
+              <Text style={[styles.sheetRowText, { color: sheetDestructive }]}>{st(language, 'deleteChat')}</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </View>
@@ -1491,13 +1556,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topCenter: { flex: 1, alignItems: 'center' },
-  headAvatar: { marginBottom: 4 },
-  peerAvatarFallback: {
+  topCenter: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  topTitle: { fontSize: 15, fontWeight: '700', maxWidth: '85%', textAlign: 'center' },
+  headAvatar: { marginBottom: 4 },
+  topTitle: { fontSize: 15, fontWeight: '700', maxWidth: '100%', textAlign: 'center' },
   requestBanner: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -1612,24 +1678,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
-  recordingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 6,
-    gap: 8,
-  },
-  recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E53935',
-  },
-  recordingText: {
-    color: '#E53935',
-    fontSize: 13,
-    fontWeight: '600',
-  },
   inputSideBtn: {
     width: 40,
     height: 40,
@@ -1667,11 +1715,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   sheet: {
-    backgroundColor: '#2C2C2E',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 4,
+  },
+  sheetDragZone: {
+    paddingBottom: 2,
+    minHeight: 64,
   },
   sheetHandleWrap: {
     alignItems: 'center',
@@ -1682,11 +1733,9 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.35)',
     marginBottom: 10,
   },
   sheetTitle: {
-    color: '#FFF',
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
@@ -1697,7 +1746,67 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  sheetRowText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  sheetRowText: { fontSize: 16, fontWeight: '600' },
+  emptyThreadWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 24,
+  },
+  emptyThreadCard: {
+    alignItems: 'center',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    gap: 8,
+  },
+  emptyThreadCardLight: {
+    backgroundColor: 'rgba(2,18,235,0.04)',
+  },
+  emptyThreadCardDark: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  emptyThreadAvatar: {
+    marginBottom: 4,
+  },
+  emptyThreadTitle: {
+    fontSize: 20,
+    lineHeight: 26,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  emptyThreadBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 280,
+  },
+  emptyThreadPeer: {
+    fontSize: 15,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  icebreakerWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    width: '100%',
+  },
+  icebreakerChip: {
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '100%',
+  },
+  icebreakerChipText: {
+    fontSize: 14,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
 });

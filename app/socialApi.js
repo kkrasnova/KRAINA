@@ -3,6 +3,7 @@ import { getKrainaRestApiBase } from './krainaApiBase';
 import { useAuthStore } from './auth/authStore';
 import { ApiError } from './auth/types';
 import { backendAuthFetch, hasBackendSession } from './backendAuthApi';
+import { normalizeBackendAssetUrl } from './auth/config';
 import { SOCIAL_SYNC_TTL_MS, emitSocialFollowChanged, emitSocialGraphChanged } from './socialFollowSyncEvents';
 import { refreshSocialProfileCounts } from './profileMeSync';
 
@@ -186,6 +187,64 @@ export function socialGetCachedPublicProfileFull(username, limit = 80) {
   return hit.value;
 }
 
+function normalizeFullProfilePosts(posts) {
+  if (!Array.isArray(posts)) return [];
+  return posts.map((post) => {
+    if (!post || typeof post !== 'object') return post;
+    const media = Array.isArray(post.media_urls)
+      ? post.media_urls.map((u) => normalizeBackendAssetUrl(String(u || '')))
+      : [];
+    return {
+      ...post,
+      media_urls: media,
+      avatar_url:
+        post.avatar_url != null ? normalizeBackendAssetUrl(String(post.avatar_url)) : post.avatar_url,
+    };
+  });
+}
+
+function normalizeFullProfileStories(stories) {
+  if (!Array.isArray(stories)) return [];
+  return stories.map((story) => {
+    if (!story || typeof story !== 'object') return story;
+    return {
+      ...story,
+      media_url:
+        story.media_url != null ? normalizeBackendAssetUrl(String(story.media_url)) : story.media_url,
+      author_avatar_url:
+        story.author_avatar_url != null
+          ? normalizeBackendAssetUrl(String(story.author_avatar_url))
+          : story.author_avatar_url,
+    };
+  });
+}
+
+function mapBackendPublicProfileRow(p) {
+  if (!p || typeof p !== 'object') return null;
+  return {
+    user_id: String(p.user_id || ''),
+    username: String(p.username || 'user'),
+    display_name:
+      p.display_name != null && String(p.display_name).trim() !== ''
+        ? String(p.display_name).trim()
+        : null,
+    avatar_url: p.avatar_url != null ? String(p.avatar_url) : null,
+    bio: p.bio != null ? String(p.bio) : null,
+    location_label:
+      p.location_label != null && String(p.location_label).trim() !== ''
+        ? String(p.location_label).trim()
+        : null,
+    birth_date:
+      p.birth_date != null && String(p.birth_date).trim() !== ''
+        ? String(p.birth_date).slice(0, 10)
+        : null,
+    is_private: p.is_public === false,
+    followers_count: Number(p.followers_count || 0),
+    following_count: Number(p.following_count || 0),
+    is_following: p.is_following === true,
+  };
+}
+
 function toPublicRow(p) {
   return {
     user_id: p.id,
@@ -193,6 +252,16 @@ function toPublicRow(p) {
     display_name: p.display_name || p.displayName || null,
     avatar_url: p.avatar_url || p.avatar || null,
     bio: p.bio || null,
+    location_label:
+      p.location_label != null && String(p.location_label).trim() !== ''
+        ? String(p.location_label).trim()
+        : p.locationLabel != null && String(p.locationLabel).trim() !== ''
+          ? String(p.locationLabel).trim()
+          : null,
+    birth_date:
+      p.birth_date != null && String(p.birth_date).trim() !== ''
+        ? String(p.birth_date).slice(0, 10)
+        : null,
     is_private: !!p.is_private,
     followers_count: Number(p.followers_count || 0),
     following_count: Number(p.following_count || 0),
@@ -235,6 +304,14 @@ export function mapSocialListRowToProfile(row, fallbackUsername = '') {
           ? String(row.avatar)
           : null,
     bio: row.bio != null ? String(row.bio) : null,
+    location_label:
+      row.location_label != null && String(row.location_label).trim() !== ''
+        ? String(row.location_label).trim()
+        : null,
+    birth_date:
+      row.birth_date != null && String(row.birth_date).trim() !== ''
+        ? String(row.birth_date).slice(0, 10)
+        : null,
     is_private: row.is_public === false || !!row.is_private,
     followers_count: Number(row.followers_count || 0),
     following_count: Number(row.following_count || 0),
@@ -478,21 +555,11 @@ export async function socialGetPublicProfile(username) {
     try {
       const body = await apiAuthCall('GET', `/api/profile/${encodeURIComponent(u)}`);
       if (body && body.profile) {
-        const p = body.profile;
-        if (__DEV__) console.log(`[socialApi] profile API HIT @${u}`);
-        return {
-          user_id: String(p.user_id || ''),
-          username: String(p.username || 'user'),
-          display_name: p.display_name != null && String(p.display_name).trim() !== ''
-            ? String(p.display_name).trim()
-            : null,
-          avatar_url: p.avatar_url != null ? String(p.avatar_url) : null,
-          bio: p.bio != null ? String(p.bio) : null,
-          is_private: p.is_public === false,
-          followers_count: Number(p.followers_count || 0),
-          following_count: Number(p.following_count || 0),
-          is_following: p.is_following === true,
-        };
+        const mapped = mapBackendPublicProfileRow(body.profile);
+        if (mapped) {
+          if (__DEV__) console.log(`[socialApi] profile API HIT @${u}`);
+          return mapped;
+        }
       }
     } catch (e) {
       if (__DEV__) console.warn('[socialApi] profile API fallback', e?.message);
@@ -516,7 +583,12 @@ export async function socialGetPublicProfileFull(username, limit = 80) {
   const cacheKey = fullCacheKey(username, limit);
   const now = Date.now();
   const cached = fullProfileCache.get(cacheKey);
-  if (cached && now - cached.at < FULL_PROFILE_CACHE_TTL_MS) return cached.value;
+  if (cached && now - cached.at < FULL_PROFILE_CACHE_TTL_MS) {
+    if (cached.value && Array.isArray(cached.value.posts)) {
+      return cached.value;
+    }
+    fullProfileCache.delete(cacheKey);
+  }
 
   const u = String(username || '').replace(/^@/, '').trim();
   if (!u) throw new Error('profile_not_found');
@@ -542,23 +614,14 @@ export async function socialGetPublicProfileFull(username, limit = 80) {
           following_count: 0,
         });
         const result = {
-          profile: {
-            user_id: String(p.user_id || ''),
-            username: String(p.username || 'user'),
-            display_name: p.display_name != null && String(p.display_name).trim() !== ''
-              ? String(p.display_name).trim()
-              : null,
-            avatar_url: p.avatar_url != null ? String(p.avatar_url) : null,
-            bio: p.bio != null ? String(p.bio) : null,
-            is_private: p.is_public === false,
-            followers_count: Number(p.followers_count || 0),
-            following_count: Number(p.following_count || 0),
-            is_following: p.is_following === true,
-          },
+          profile: mapBackendPublicProfileRow(p),
           followers: Array.isArray(body.followers) ? body.followers.map(mapPerson) : [],
           following: Array.isArray(body.following) ? body.following.map(mapPerson) : [],
           friends: Array.isArray(body.friends) ? body.friends.map(mapPerson) : [],
+          posts: normalizeFullProfilePosts(body.posts),
+          stories: normalizeFullProfileStories(body.stories),
         };
+        if (!result.profile) throw new Error('profile_not_found');
         fullProfileCache.set(cacheKey, { at: now, value: result });
         return result;
       }
@@ -627,6 +690,8 @@ export async function socialGetPublicProfileFull(username, limit = 80) {
     followers,
     following,
     friends,
+    posts: [],
+    stories: [],
   };
   fullProfileCache.set(cacheKey, { at: now, value: result });
   return result;

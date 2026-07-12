@@ -1,0 +1,30 @@
+diff --git a/node_modules/@react-native-community/cli-tools/build/launchPackager.command b/node_modules/@react-native-community/cli-tools/build/launchPackager.command
+index 2e35879..454133a 100755
+--- a/node_modules/@react-native-community/cli-tools/build/launchPackager.command
++++ b/node_modules/@react-native-community/cli-tools/build/launchPackager.command
+@@ -4,9 +4,23 @@ THIS_DIR=$(cd -P "$(dirname "$(readlink "${BASH_SOURCE[0]}" || echo "${BASH_SOUR
+ 
+ source "$THIS_DIR/.packager.env"
+ cd "$PROJECT_ROOT"
+-"$REACT_NATIVE_PATH/cli.js" start --port $RCT_METRO_PORT
++
++METRO_PORT="${RCT_METRO_PORT:-8081}"
++
++metro_running() {
++  curl -sf "http://127.0.0.1:${METRO_PORT}/status" 2>/dev/null | grep -q 'packager-status:running'
++}
++
++if metro_running; then
++  echo ""
++  echo "Metro is already running on http://localhost:${METRO_PORT}"
++  echo "Close this window — no second packager is needed."
++else
++  "$REACT_NATIVE_PATH/cli.js" start --port "$METRO_PORT" --host 0.0.0.0
++fi
+ 
+ if [[ -z "$CI" ]]; then
+-  echo "Process terminated. Press <enter> to close the window"
++  echo ""
++  echo "Press <enter> to close the window"
+   read -r
+ fi

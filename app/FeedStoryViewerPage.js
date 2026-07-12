@@ -41,6 +41,7 @@ import { hasMessageApiToken, messagesOpenThread, messagesSendText } from './mess
 import { ApiError } from './auth/types';
 import { ACCENT_BLUE, ACCENT_LEMON, accentForTheme, onAccentButtonText } from './themeAccent';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
+import ProfileAvatarCircle from './ProfileAvatarCircle';
 import { emitFeedMediaUpdated } from './feedSyncEvents';
 import { useAuthStore } from './auth/authStore';
 
@@ -1026,11 +1027,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
 
           <View style={styles.headerRow} pointerEvents="box-none">
             <View style={styles.headerLeft}>
-              {authorAvatarUri ? (
-                <Image source={{ uri: authorAvatarUri }} style={styles.headerAvatar} />
-              ) : (
-                <View style={[styles.headerAvatar, styles.headerAvatarPh]} />
-              )}
+              <ProfileAvatarCircle uri={authorAvatarUri || ''} size={36} isLight={false} style={styles.headerAvatar} />
               <View style={styles.headerTextCol}>
                 <Text style={[styles.headerName, { color: headerPrimary }, headerNameShadow]} numberOfLines={1}>
                   {authorLine}
@@ -1307,11 +1304,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                     likers.map((v) => (
                       <View key={String(v.user_id)} style={styles.viewerRow}>
                         <Ionicons name="heart" size={14} color="#FF4D6A" style={{ marginRight: 6 }} />
-                        {v.avatar_url ? (
-                          <Image source={{ uri: resolveFeedMediaUrl(v.avatar_url) }} style={styles.viewerAva} />
-                        ) : (
-                          <View style={[styles.viewerAva, styles.viewerAvaPh]} />
-                        )}
+                        <ProfileAvatarCircle uri={resolveFeedMediaUrl(v.avatar_url || '')} size={40} isLight={false} style={styles.viewerAva} />
                         <Text style={styles.viewerName}>@{v.username || '—'}</Text>
                       </View>
                     ))
@@ -1322,11 +1315,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
                   ) : (
                     viewers.map((v) => (
                       <View key={String(v.viewer_id)} style={styles.viewerRow}>
-                        {v.avatar_url ? (
-                          <Image source={{ uri: resolveFeedMediaUrl(v.avatar_url) }} style={styles.viewerAva} />
-                        ) : (
-                          <View style={[styles.viewerAva, styles.viewerAvaPh]} />
-                        )}
+                        <ProfileAvatarCircle uri={resolveFeedMediaUrl(v.avatar_url || '')} size={40} isLight={false} style={styles.viewerAva} />
                         <Text style={styles.viewerName}>@{v.username || '—'}</Text>
                       </View>
                     ))
@@ -1400,8 +1389,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
-  headerAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, backgroundColor: '#333' },
-  headerAvatarPh: { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.2)' },
+  headerAvatar: { marginRight: 10 },
   headerTextCol: { flex: 1, minWidth: 0 },
   headerName: { fontSize: 15, fontWeight: '600', letterSpacing: -0.1 },
   headerUsername: { fontSize: 12, marginTop: 1, fontWeight: '600' },
@@ -1585,8 +1573,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: 'rgba(255,255,255,0.75)', fontSize: 13, fontWeight: '700', marginBottom: 8 },
   muted: { color: 'rgba(255,255,255,0.55)', marginVertical: 6 },
   viewerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
-  viewerAva: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
-  viewerAvaPh: { backgroundColor: '#444' },
+  viewerAva: { marginRight: 12 },
   viewerName: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   modalClose: { marginTop: 8, alignItems: 'center', paddingVertical: 12 },
   modalCloseTxt: { color: '#E1FF00', fontWeight: '700', fontSize: 16 },

@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Alert,
   useWindowDimensions,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker } from 'react-native-maps';
@@ -26,6 +27,7 @@ import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { geocodeAddress, reverseGeocodeLabel } from './googleGeocode';
 import { getGoogleMapsApiKey } from './googleMapsRoute';
 import { RenderProfiler } from './performanceMetrics';
+import { rememberComposerDraft } from './feedComposerDraft';
 
 export default function PostMapPickerPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -47,12 +49,21 @@ export default function PostMapPickerPage({ navigation, route }) {
   const mapRef = useRef(null);
   const debounceRef = useRef(null);
 
+  const draftPlace =
+    typeof route.params?.composerDraft?.place === 'string'
+      ? route.params.composerDraft.place.trim()
+      : '';
+
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   /** map mode: pin after user taps map */
-  const [pin, setPin] = useState(null);
-  const [placeName, setPlaceName] = useState('');
+  const [pin, setPin] = useState(() =>
+    pickerMode === 'map' && Number.isFinite(initialLat) && Number.isFinite(initialLng)
+      ? { latitude: initialLat, longitude: initialLng }
+      : null,
+  );
+  const [placeName, setPlaceName] = useState(draftPlace);
   const [busyConfirm, setBusyConfirm] = useState(false);
 
   const hasApiKey = getGoogleMapsApiKey().length > 0;
@@ -62,26 +73,26 @@ export default function PostMapPickerPage({ navigation, route }) {
     [initialLat, initialLng],
   );
 
-  const confirmToComposer = useCallback(
+  const finishPlacePick = useCallback(
     (lat, lng, label) => {
-      navigation.navigate({
-        name: 'FeedPostComposer',
-        params: {
-          pickedLat: lat,
-          pickedLng: lng,
-          pickedLabel: label,
-        },
-        merge: true,
+      const safeLabel = String(label || '').trim() || fc(language, 'userPin');
+      rememberComposerDraft({
+        mapLat: lat,
+        mapLng: lng,
+        place: safeLabel,
       });
+      Keyboard.dismiss();
+      navigation.goBack();
     },
-    [navigation],
+    [navigation, language],
   );
 
   const onPickCityRow = useCallback(
     (item) => {
-      confirmToComposer(item.lat, item.lng, item.label);
+      if (!item || !Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return;
+      finishPlacePick(item.lat, item.lng, item.label);
     },
-    [confirmToComposer],
+    [finishPlacePick],
   );
 
   useEffect(() => {
@@ -142,11 +153,11 @@ export default function PostMapPickerPage({ navigation, route }) {
         label = (await reverseGeocodeLabel(pin.latitude, pin.longitude, language)) || '';
       }
       if (!label) label = fc(language, 'userPin');
-      confirmToComposer(pin.latitude, pin.longitude, label);
+      finishPlacePick(pin.latitude, pin.longitude, label);
     } finally {
       setBusyConfirm(false);
     }
-  }, [pin, placeName, language, busyConfirm, confirmToComposer]);
+  }, [pin, placeName, language, busyConfirm, finishPlacePick]);
 
   const mapReadyCoord = pin || initialCoord;
 
@@ -156,6 +167,7 @@ export default function PostMapPickerPage({ navigation, route }) {
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
+        pointerEvents={pickerMode === 'city' ? 'none' : 'auto'}
         initialRegion={{
           latitude: initialCoord.latitude,
           longitude: initialCoord.longitude,
@@ -201,12 +213,21 @@ export default function PostMapPickerPage({ navigation, route }) {
             autoCorrect={false}
             editable={hasApiKey}
             onSubmitEditing={() => {
-              if (!hasApiKey) Alert.alert('', fc(language, 'geocodeNoKey'));
+              if (!hasApiKey) {
+                Alert.alert('', fc(language, 'geocodeNoKey'));
+                return;
+              }
+              if (pickerMode === 'city' && results.length === 1) {
+                onPickCityRow(results[0]);
+              }
             }}
           />
         </View>
 
-        <View style={[styles.resultsCard, { top: insets.top + 62, maxHeight: winH * 0.36, backgroundColor: cardBg }]}>
+        <View
+          style={[styles.resultsCard, { top: insets.top + 62, maxHeight: winH * 0.36, backgroundColor: cardBg }]}
+          pointerEvents="box-none"
+        >
           {!hasApiKey ? (
             <Text style={[styles.hint, { color: textMain }]}>{fc(language, 'geocodeNoKey')}</Text>
           ) : loading ? (
@@ -217,7 +238,8 @@ export default function PostMapPickerPage({ navigation, route }) {
             <FlatList
               data={results}
               keyExtractor={(it) => it.id}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="on-drag"
               removeClippedSubviews={Platform.OS === 'android'}
               maxToRenderPerBatch={10}
               windowSize={3}
@@ -229,7 +251,12 @@ export default function PostMapPickerPage({ navigation, route }) {
                     { borderBottomColor: rowBorder },
                     pressed && { opacity: 0.85 },
                   ]}
-                  onPress={() => (pickerMode === 'city' ? onPickCityRow(item) : onPickSearchForMap(item))}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    if (pickerMode === 'city') onPickCityRow(item);
+                    else onPickSearchForMap(item);
+                  }}
+                  hitSlop={6}
                   android_ripple={ripple}
                 >
                   <Text style={[styles.resultText, { color: textMain }]} numberOfLines={2}>

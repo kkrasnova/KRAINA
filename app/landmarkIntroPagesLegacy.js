@@ -44,6 +44,22 @@ export function introPagesFromStoryLegacy(story, langUk) {
       const illustrationThumb =
         typeof page?.illustrationThumb === 'string' ? page.illustrationThumb.trim() : '';
       const illustrationAsset = resolveHeroThumbRef(illustrationThumb);
+      const illustrationUri =
+        typeof page?.illustrationUri === 'string' && page.illustrationUri.trim()
+          ? resolveOfflineUriSync(page.illustrationUri.trim())
+          : undefined;
+      const compareBeforeUri =
+        typeof page?.compareBeforeUri === 'string' && page.compareBeforeUri.trim()
+          ? resolveOfflineUriSync(page.compareBeforeUri.trim())
+          : undefined;
+      const compareAfterUri =
+        typeof page?.compareAfterUri === 'string' && page.compareAfterUri.trim()
+          ? resolveOfflineUriSync(page.compareAfterUri.trim())
+          : undefined;
+      const secondaryPhotoUri =
+        typeof page?.secondaryPhotoUri === 'string' && page.secondaryPhotoUri.trim()
+          ? resolveOfflineUriSync(page.secondaryPhotoUri.trim())
+          : undefined;
       const illustrationLink = langUk
         ? String(page?.illustrationLinkUk || page?.illustrationLinkEn || '').trim()
         : String(page?.illustrationLinkEn || page?.illustrationLinkUk || '').trim();
@@ -116,7 +132,11 @@ export function introPagesFromStoryLegacy(story, langUk) {
           ? { secondaryStackGap }
           : {}),
         ...(photoUri ? { photoUri } : {}),
+        ...(secondaryPhotoUri ? { secondaryPhotoUri } : {}),
+        ...(compareBeforeUri ? { compareBeforeUri } : {}),
+        ...(compareAfterUri ? { compareAfterUri } : {}),
         ...(typeof illustrationAsset === 'number' ? { illustrationAsset } : {}),
+        ...(illustrationUri ? { illustrationUri } : {}),
         ...(illustrationLink ? { illustrationLink } : {}),
         ...(illustrationCaption ? { illustrationCaption } : {}),
         ...(heroCaption ? { heroCaption } : {}),

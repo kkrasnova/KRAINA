@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlashList } from '@shopify/flash-list';
 import {
   View,
@@ -10,19 +10,20 @@ import {
   KeyboardAvoidingView,
   Alert,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { useSyncedAppLanguage } from './useAppLanguage';
-import ProfileAvatarCircle from './ProfileAvatarCircle';
+import ProfileAvatarCircle, { useViewerProfileAvatarUri } from './ProfileAvatarCircle';
 
 import { pf } from './profileI18n';
 import { ft } from './feedI18n';
 import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { getPostComments, addPostComment, toggleCommentLike, POST_ID } from './profileStorage';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import {
   ensureFeedSocialReady,
@@ -31,10 +32,19 @@ import {
   feedToggleCommentLike,
 } from './feedApi';
 import { hasBackendSession } from './backendAuthApi';
-import { isServerFeedPostId } from './feedPostSyncBridge';
+import { isLocalFeedPostId, isServerFeedPostId, resolveBackendFeedPostId } from './feedPostSyncBridge';
+import { resolveFeedLocalUser } from './feedLocalStorage';
+import {
+  addLocalFeedPostComment,
+  getLocalFeedPostComments,
+  isLocalFeedCommentId,
+  toggleLocalFeedPostCommentLike,
+} from './feedLocalInteractions';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
-import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { emitFeedMediaUpdated, KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
+import { peekPostComments } from './feedInteractionHotCache';
 import { errorToUserText } from './errorText';
+import { useAuthStore } from './auth/authStore';
 
 function formatCommentAge(iso, language) {
   if (!iso) return '';
@@ -62,17 +72,39 @@ function mapBackendComment(row, language) {
   };
 }
 
+function mapLocalComment(row, language) {
+  const username =
+    row.username ||
+    row.author?.username ||
+    row.author?.display_name ||
+    'user';
+  return {
+    id: String(row.id),
+    author: `@${String(username).replace(/^@/, '')}`,
+    time: formatCommentAge(row.created_at, language),
+    text: row.content || '',
+    likes: Number(row.likes_count) || 0,
+    liked: !!row.liked_by_viewer,
+    avatarUrl: row.avatar_url ? resolveFeedMediaUrl(String(row.avatar_url)) : '',
+    _local: true,
+  };
+}
+
+function mapHotComment(row, language) {
+  if (!row) return null;
+  if (row.content != null && row.username != null) return mapBackendComment(row, language);
+  return mapLocalComment(row, language);
+}
+
 export default function ProfileCommentsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState('');
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [backendReady, setBackendReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const textMain = isLight ? '#333' : 'rgba(255,255,255,0.92)';
@@ -81,16 +113,63 @@ export default function ProfileCommentsPage({ navigation, route }) {
   const panelBorder = isLight ? '#6286E4' : accent;
 
   const postId = route?.params?.postId;
-  const localUser = route?.params?.user;
+  const routeUser = route?.params?.user;
+  const authUser = useAuthStore((s) => s.user);
+  const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
+  const profileMeDisplayName = useAuthStore((s) => {
+    const dn = s.profileMe?.profile?.display_name;
+    return dn != null && String(dn).trim() ? String(dn).trim() : '';
+  });
+  const feedLocalUser = useMemo(
+    () => resolveFeedLocalUser(routeUser, { authUser, profileUserId: profileMeUserId }),
+    [routeUser, authUser, profileMeUserId],
+  );
+  const localUser = feedLocalUser || routeUser;
+  const viewerUserId = profileMeUserId ? String(profileMeUserId) : String(localUser?.id || '');
+  const viewerAvatarUri = useViewerProfileAvatarUri(localUser);
 
   const reload = useCallback(async () => {
-    const t = await getAppTheme();
-    setAppTheme(t === 'light' ? 'light' : 'dark');
     const pid = String(postId || '');
+    const hot = peekPostComments(pid);
+
+    if (pid && isLocalFeedPostId(pid)) {
+      setBackendReady(false);
+      if (!hot.has) setLoading(true);
+      try {
+        const rows = await getLocalFeedPostComments(localUser, pid);
+        let merged = (Array.isArray(rows) ? rows : []).map((row) => mapLocalComment(row, language));
+        const backendId = await resolveBackendFeedPostId(pid, { user: localUser });
+        if (isServerFeedPostId(backendId)) {
+          const ready = await ensureFeedSocialReady(localUser);
+          setBackendReady(ready && hasBackendSession());
+          if (ready && hasBackendSession()) {
+            const serverRows = await feedListPostComments(backendId, 120);
+            const serverMapped = (Array.isArray(serverRows) ? serverRows : []).map((row) =>
+              mapBackendComment(row, language),
+            );
+            const seen = new Set(merged.map((c) => `${c.author}:${c.text}`));
+            for (const row of serverMapped) {
+              const key = `${row.author}:${row.text}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(row);
+              }
+            }
+          }
+        }
+        setList(merged);
+      } catch {
+        setList([]);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     const canUseBackend = pid && pid !== POST_ID && isServerFeedPostId(pid);
 
     if (canUseBackend) {
-      setLoading(true);
+      if (!hot.has) setLoading(true);
       try {
         const ready = await ensureFeedSocialReady(localUser);
         setBackendReady(ready && hasBackendSession());
@@ -112,22 +191,104 @@ export default function ProfileCommentsPage({ navigation, route }) {
     setList(await getPostComments(postId));
   }, [postId, localUser, language]);
 
+  useEffect(() => {
+    const pid = String(postId || '');
+    if (!pid) return;
+    const hot = peekPostComments(pid);
+    if (!hot.has || !hot.items.length) return;
+    setList((prev) => {
+      if (prev.length) return prev;
+      return hot.items.map((row) => mapHotComment(row, language)).filter(Boolean);
+    });
+  }, [postId, language]);
+
   useFocusEffect(
     useCallback(() => {
       reload();
     }, [reload]),
   );
 
+  useEffect(() => {
+    const pid = String(postId || '');
+    if (!pid) return undefined;
+    const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
+      if (payload?.kind && payload.kind !== 'interaction') return;
+      if (payload?.comments_count == null) return;
+      void (async () => {
+        const eventIds = new Set(
+          [payload?.postId, payload?.localPostId].map((v) => String(v || '')).filter(Boolean),
+        );
+        const backendId = await resolveBackendFeedPostId(pid, { user: localUser });
+        const profileIds = new Set([pid, backendId].filter(Boolean));
+        const matches = [...profileIds].some((id) => eventIds.has(id));
+        if (!matches) return;
+        void reload();
+      })();
+    });
+    return () => sub.remove();
+  }, [postId, reload, localUser]);
+
   const send = async () => {
     const t = draft.trim();
     if (!t || sending) return;
+    const pid = String(postId || '');
     setSending(true);
     setDraft('');
+
+    if (pid && isLocalFeedPostId(pid)) {
+      try {
+        const row = await addLocalFeedPostComment(localUser, pid, {
+          content: t,
+          author: {
+            userId: viewerUserId,
+            displayName:
+              profileMeDisplayName ||
+              localUser?.name ||
+              localUser?.email?.split('@')[0] ||
+              'User',
+            username: localUser?.username || '',
+            avatarUrl: viewerAvatarUri || null,
+          },
+        });
+        setList((prev) => [...prev, mapLocalComment(row, language)]);
+        emitFeedMediaUpdated({
+          kind: 'interaction',
+          postId: pid,
+          comments_count: list.length + 1,
+        });
+        void (async () => {
+          try {
+            const backendId = await resolveBackendFeedPostId(pid, { user: localUser });
+            if (!isServerFeedPostId(backendId)) return;
+            await feedAddPostComment(backendId, t);
+            emitFeedMediaUpdated({
+              kind: 'interaction',
+              postId: backendId,
+              localPostId: pid,
+              comments_count: list.length + 1,
+            });
+          } catch {
+            /* локальний коментар уже збережено */
+          }
+        })();
+      } catch (e) {
+        setDraft(t);
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     if (backendReady && hasBackendSession()) {
       try {
-        const row = await feedAddPostComment(String(postId), t);
+        const row = await feedAddPostComment(pid, t);
         setList((prev) => [...prev, mapBackendComment(row, language)]);
-        emitFeedMediaUpdated({ postId: String(postId) });
+        emitFeedMediaUpdated({
+          kind: 'interaction',
+          postId: pid,
+          comments_count: list.length + 1,
+        });
       } catch (e) {
         setDraft(t);
         Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
@@ -144,10 +305,43 @@ export default function ProfileCommentsPage({ navigation, route }) {
   };
 
   const onHeart = async (id) => {
+    const pid = String(postId || '');
+    const row = list.find((c) => c.id === id);
+    if (!row) return;
+
+    if ((pid && isLocalFeedPostId(pid)) || isLocalFeedCommentId(id)) {
+      const wasLiked = !!row.liked;
+      setList((rows) =>
+        rows.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                liked: !wasLiked,
+                likes: Math.max(0, (Number(c.likes) || 0) + (wasLiked ? -1 : 1)),
+              }
+            : c,
+        ),
+      );
+      try {
+        const out = await toggleLocalFeedPostCommentLike(localUser, pid, id);
+        setList((rows) =>
+          rows.map((c) =>
+            c.id === id ? { ...c, liked: !!out.liked, likes: Number(out.likes_count) || 0 } : c,
+          ),
+        );
+      } catch (e) {
+        setList((rows) =>
+          rows.map((c) =>
+            c.id === id ? { ...c, liked: wasLiked, likes: Number(row.likes) || 0 } : c,
+          ),
+        );
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      }
+      return;
+    }
+
     if (backendReady && hasBackendSession()) {
-      const prev = list.find((c) => c.id === id);
-      if (!prev) return;
-      const wasLiked = !!prev.liked;
+      const wasLiked = !!row.liked;
       setList((rows) =>
         rows.map((c) =>
           c.id === id
@@ -171,7 +365,7 @@ export default function ProfileCommentsPage({ navigation, route }) {
       } catch (e) {
         setList((rows) =>
           rows.map((c) =>
-            c.id === id ? { ...c, liked: wasLiked, likes: Number(prev.likes) || 0 } : c,
+            c.id === id ? { ...c, liked: wasLiked, likes: Number(row.likes) || 0 } : c,
           ),
         );
         Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));

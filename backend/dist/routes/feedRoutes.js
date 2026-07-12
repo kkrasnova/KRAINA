@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { authenticateToken } from '../middleware/authMiddleware.js';
+import { authenticateToken, optionalAuth } from '../middleware/authMiddleware.js';
 import { HttpError } from '../errors/HttpError.js';
 import { config } from '../config.js';
 import { withIdempotency } from '../middleware/idempotency.js';
@@ -222,11 +222,9 @@ router.post('/posts/:postId/comments', authenticateToken, withIdempotency, async
         next(e);
     }
 });
-router.get('/posts/user/:username', authenticateToken, async (req, res, next) => {
+router.get('/posts/user/:username', optionalAuth, async (req, res, next) => {
     try {
-        const id = req.authUser?.id;
-        if (!id)
-            throw new HttpError(401, 'token_invalid');
+        const id = req.authUser?.id ?? null;
         const limit = Math.min(80, Math.max(1, Number(req.query.limit) || 40));
         const username = String(req.params.username || '').trim();
         const posts = await listUserPostsForViewer(id, username, limit);

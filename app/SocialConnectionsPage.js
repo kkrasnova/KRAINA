@@ -25,6 +25,11 @@ import { KRAINA_SOCIAL_FOLLOW_CHANGED, KRAINA_SOCIAL_GRAPH_CHANGED, socialFollow
 import { resolveFeedMediaUrl } from './feedMediaUrl';
 import ProfileAvatarCircle from './ProfileAvatarCircle';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
+import {
+  openSocialUserProfile,
+  prefetchSocialUserProfile,
+  prefetchSocialUserProfileBundle,
+} from './socialProfileNav';
 
 const EMPTY_META = {
   followers: {
@@ -183,6 +188,16 @@ export default function SocialConnectionsPage({ navigation, route }) {
     [rows],
   );
 
+  useEffect(() => {
+    if (!visibleRows.length) return undefined;
+    const timer = setTimeout(() => {
+      visibleRows.slice(0, 10).forEach((row) => {
+        if (row.username) prefetchSocialUserProfile(row.username);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [visibleRows]);
+
   const reload = useCallback(async (force = false) => {
     const t = await getAppTheme();
     setAppTheme(t === 'light' ? 'light' : 'dark');
@@ -234,6 +249,7 @@ export default function SocialConnectionsPage({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      prefetchSocialUserProfileBundle();
       void reload();
     }, [reload]),
   );
@@ -299,13 +315,7 @@ export default function SocialConnectionsPage({ navigation, route }) {
 
   const openUser = useCallback(
     (row) => {
-      const uname = String(row?.username || '').replace(/^@/, '').trim();
-      if (!uname || !isNavigableSocialUsername(uname)) return;
-      navigation.push('SocialUserProfile', {
-        ...shell,
-        username: uname,
-        preloadedProfile: row,
-      });
+      openSocialUserProfile(navigation, shell, { row });
     },
     [navigation, shell],
   );
@@ -377,6 +387,7 @@ export default function SocialConnectionsPage({ navigation, route }) {
             return (
               <View style={[styles.row, { backgroundColor: cardBg, borderColor: border }, isLight && cardShadow]}>
                 <Pressable
+                  onPressIn={() => prefetchSocialUserProfile(item.username)}
                   onPress={() => openUser(item)}
                   style={styles.rowMain}
                   android_ripple={ripple}

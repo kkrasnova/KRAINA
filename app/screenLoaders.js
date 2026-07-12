@@ -1,6 +1,7 @@
 import { makeLazyLoader, prefetchLazyLoader } from './LazyScreen';
 import { prefetchArchivePosts, seedArchiveCacheIfMissing } from './archivePostsCache';
 import { seedProfilePostsCacheIfMissing, warmProfilePostsCache, profilePostsCacheKey } from './profilePostsCache';
+import { loadSocialUserProfilePage, prefetchSocialUserProfileBundle } from './socialProfileNav';
 
 let profileBundlePrefetchScheduled = false;
 let homeTabScreensPrefetchScheduled = false;
@@ -29,12 +30,14 @@ export const loadLandmarkScannerPage = makeLazyLoader(() => require('./LandmarkS
 export const loadLandmarkResultPage = makeLazyLoader(() => require('./LandmarkResultPage'));
 export const loadMapTabPage = makeLazyLoader(() => require('./MapTabPage'));
 export const loadProfilePage = makeLazyLoader(() => require('./ProfilePage'));
+export { loadSocialUserProfilePage } from './socialProfileNav';
 
 /** Попереднє завантаження екранів повідомлень (модуль + кеш тредів — без спінера при першому відкритті). */
 export function prefetchChatsBundle() {
   void prefetchLazyLoader(loadChatsPage);
   void prefetchLazyLoader(loadChatThreadPage);
   void prefetchLazyLoader(loadStartChatPage);
+  prefetchSocialUserProfileBundle();
   try {
     const { useAuthStore } = require('./auth/authStore');
     const { isBackendJwt } = require('./backendAuthApi');
@@ -85,6 +88,7 @@ export function prefetchProfileBundle(user) {
   if (!profileBundlePrefetchScheduled) {
     profileBundlePrefetchScheduled = true;
     const loaders = [
+      loadSocialUserProfilePage,
       loadProfilePage,
       loadProfileEditPage,
       loadProfileFriendsPage,
@@ -141,7 +145,8 @@ export function prefetchFeedBundle(user) {
 export function prefetchHomeTabScreens() {
   if (homeTabScreensPrefetchScheduled) return;
   homeTabScreensPrefetchScheduled = true;
-  const loaders = [loadFeedPage, loadMapTabPage, loadProfilePage, loadLandmarkResultPage];
+  void prefetchLazyLoader(loadMapTabPage);
+  const loaders = [loadFeedPage, loadProfilePage, loadLandmarkResultPage];
   loaders.forEach((loader, index) => {
     setTimeout(() => {
       void prefetchLazyLoader(loader);

@@ -1,16 +1,18 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
-  Image,
   FlatList,
   Modal,
   Platform,
   Alert,
+  useWindowDimensions,
+  DeviceEventEmitter,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Video, ResizeMode } from './expoAvCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -32,20 +34,42 @@ import {
 import {
   ensureFeedSocialReady,
   feedListMyPosts,
+  feedListUserPosts,
   feedPatchPostArchive,
-  feedDeletePost,
   feedTogglePostLike,
 } from './feedApi';
+import { deleteFeedPublication } from './feedPublicationDelete';
 import { hasBackendSession } from './backendAuthApi';
-import { isLocalFeedPostId, isServerFeedPostId } from './feedPostSyncBridge';
-import { getUserFeedPosts } from './feedLocalStorage';
+import { isLocalFeedPostId, isServerFeedPostId, resolveBackendFeedPostId } from './feedPostSyncBridge';
+import { getUserFeedPosts, resolveFeedLocalUser } from './feedLocalStorage';
+import {
+  getLocalFeedPostComments,
+  getLocalFeedPostLikeState,
+  resolveFeedPostLikeStateFromAliases,
+  setLocalFeedPostLikeState,
+  toggleLocalFeedPostLike,
+} from './feedLocalInteractions';
 import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { pickBestGridUri } from './profilePostsGrid';
+import ProfileAvatarCircle, { useViewerProfileAvatarUri } from './ProfileAvatarCircle';
 import { useAuthStore } from './auth/authStore';
 import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
-import { emitFeedMediaUpdated } from './feedSyncEvents';
+import { emitFeedMediaUpdated, KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
+import { peekPostLikeState } from './feedInteractionHotCache';
 import { errorToUserText } from './errorText';
 
 const POST_IMG = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
+
+function normalizeLoadedFeedPost(post) {
+  if (!post) return null;
+  const raw = Array.isArray(post.media_urls) ? post.media_urls : [];
+  const media_urls = raw.map((u) => resolveFeedMediaUrl(String(u))).filter(Boolean);
+  return {
+    ...post,
+    media_urls,
+    avatar_url: post.avatar_url ? resolveFeedMediaUrl(String(post.avatar_url)) : null,
+  };
+}
 
 function formatPostAge(iso, language, langUk) {
   if (!iso) return '';
@@ -59,25 +83,68 @@ function formatPostAge(iso, language, langUk) {
   return `${d} ${langUk ? 'дн.' : 'd'}`;
 }
 
+function readInitialLikes(postId, routeParams = {}) {
+  const pid = String(postId || '');
+  const ids = [pid, routeParams?.backendPostId].filter(Boolean);
+  const hot = peekPostLikeState(ids);
+  if (hot.has) return { liked: hot.liked, count: hot.likes_count };
+  if (routeParams?.liked != null) {
+    return {
+      liked: !!routeParams.liked,
+      count: Math.max(0, Number(routeParams.likesCount ?? routeParams.likes_count) || 0),
+    };
+  }
+  return { liked: false, count: 0 };
+}
+
+const CARD_H_MARGIN = 16;
+const DEFAULT_MEDIA_ASPECT = 4 / 5;
+const MIN_MEDIA_ASPECT = 0.72;
+const MAX_MEDIA_ASPECT = 1.78;
+
+function clampMediaAspect(ratio) {
+  const n = Number(ratio);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_MEDIA_ASPECT;
+  return Math.max(MIN_MEDIA_ASPECT, Math.min(n, MAX_MEDIA_ASPECT));
+}
+
 export default function ProfilePostDetailPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  const { width: screenW } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
   const postId = route?.params?.postId;
   const routeCover = route?.params?.coverUrl;
-  const user = route?.params?.user || {};
+  const peerUsername = String(route?.params?.peerUsername || '').trim();
+  const routeAuthorName = String(route?.params?.authorName || '').trim();
+  const routePeerAvatar = route?.params?.peerAvatarUrl
+    ? resolveFeedMediaUrl(String(route.params.peerAvatarUrl))
+    : '';
+  const routeUser = route?.params?.user || {};
+  const authUser = useAuthStore((s) => s.user);
+  const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
+  const profileMeDisplayName = useAuthStore((s) => {
+    const dn = s.profileMe?.profile?.display_name;
+    return dn != null && String(dn).trim() ? String(dn).trim() : '';
+  });
+  const feedLocalUser = useMemo(
+    () => resolveFeedLocalUser(routeUser, { authUser, profileUserId: profileMeUserId }),
+    [routeUser, authUser, profileMeUserId],
+  );
+  const user = feedLocalUser || routeUser;
+  const viewerAvatarUri = useViewerProfileAvatarUri(user);
 
-  const [likes, setLikes] = useState({ liked: false, count: 0 });
+  const [likes, setLikes] = useState(() => readInitialLikes(postId, route?.params));
   const [caption, setCaption] = useState('');
-  const [author, setAuthor] = useState('');
+  const [author, setAuthor] = useState(routeAuthorName);
   const [placeLine, setPlaceLine] = useState('');
   const [postedAt, setPostedAt] = useState(null);
   const [feedPost, setFeedPost] = useState(null);
   const [mediaIndex, setMediaIndex] = useState(0);
-  const [authorAvatarUri, setAuthorAvatarUri] = useState(null);
   const [menu, setMenu] = useState(false);
   const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [menuBusy, setMenuBusy] = useState(false);
+  const [mediaAspect, setMediaAspect] = useState(DEFAULT_MEDIA_ASPECT);
 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
@@ -86,16 +153,69 @@ export default function ProfilePostDetailPage({ navigation, route }) {
   const textMuted = isLight ? '#727272' : '#A8A8A8';
   const cardBg = isLight ? '#FFF' : '#1A1A1A';
 
-  const coverUrl = (feedPost?.media_urls && feedPost.media_urls[0]) || routeCover;
-  const mediaUrls = Array.isArray(feedPost?.media_urls) ? feedPost.media_urls.filter(Boolean) : [];
+  const resolvedRouteCover = routeCover ? resolveFeedMediaUrl(String(routeCover)) : '';
+  const mediaUrls = useMemo(() => {
+    const raw = Array.isArray(feedPost?.media_urls) ? feedPost.media_urls : [];
+    return raw.map((u) => resolveFeedMediaUrl(String(u))).filter(Boolean);
+  }, [feedPost]);
+  const coverUrl = useMemo(
+    () => pickBestGridUri(resolvedRouteCover, mediaUrls[0] || '') || resolvedRouteCover || mediaUrls[0] || '',
+    [resolvedRouteCover, mediaUrls],
+  );
+  const cardW = Math.max(1, Math.round(screenW - CARD_H_MARGIN * 2));
+  const slideAspect = clampMediaAspect(mediaAspect);
+  const slideStyle = useMemo(
+    () => [styles.postImg, { width: cardW, aspectRatio: slideAspect }],
+    [cardW, slideAspect],
+  );
+  const onMediaLoad = useCallback((e) => {
+    const { width, height } = e?.source || {};
+    if (width > 0 && height > 0) setMediaAspect(clampMediaAspect(width / height));
+  }, []);
+  const postAvatarUri = useMemo(() => {
+    if (peerUsername) {
+      const fromPost = feedPost?.avatar_url ? resolveFeedMediaUrl(String(feedPost.avatar_url)) : '';
+      return fromPost || routePeerAvatar || '';
+    }
+    return viewerAvatarUri || '';
+  }, [peerUsername, feedPost?.avatar_url, routePeerAvatar, viewerAvatarUri]);
   const canArchive =
+    !peerUsername &&
     hasBackendSession() &&
     feedPost != null &&
     postId != null &&
     isServerFeedPostId(String(postId)) &&
     String(postId) !== POST_ID;
-  const canDeleteBackendPost =
-    postId != null && String(postId).trim() !== '' && String(postId) !== POST_ID;
+  const canDeletePost =
+    !peerUsername &&
+    postId != null &&
+    String(postId).trim() !== '' &&
+    String(postId) !== POST_ID;
+
+  const onDeletePost = useCallback(() => {
+    if (!canDeletePost || menuBusy) return;
+    Alert.alert(pf(language, 'deletePostConfirmTitle'), pf(language, 'deletePostConfirmBody'), [
+      { text: pf(language, 'cancel'), style: 'cancel' },
+      {
+        text: pf(language, 'paramDelete'),
+        style: 'destructive',
+        onPress: async () => {
+          setMenuBusy(true);
+          try {
+            if (hasBackendSession()) {
+              await useAuthStore.getState().refreshSession().catch(() => {});
+            }
+            await deleteFeedPublication(user, String(postId));
+            navigation.goBack();
+          } catch (e) {
+            Alert.alert('', errorToUserText(e, language) || pf(language, 'deletePostFailed'));
+          } finally {
+            setMenuBusy(false);
+          }
+        },
+      },
+    ]);
+  }, [canDeletePost, menuBusy, language, user, postId, navigation]);
 
   const shell = {
     user,
@@ -131,7 +251,8 @@ export default function ProfilePostDetailPage({ navigation, route }) {
     if (useFeed) {
       try {
         const posts = await feedListMyPosts(80);
-        loaded = (Array.isArray(posts) ? posts : []).find((p) => String(p.id) === String(pid)) || null;
+        const found = (Array.isArray(posts) ? posts : []).find((p) => String(p.id) === String(pid)) || null;
+        loaded = normalizeLoadedFeedPost(found);
       } catch {
         loaded = null;
       }
@@ -144,36 +265,70 @@ export default function ProfilePostDetailPage({ navigation, route }) {
           const media_urls = (Array.isArray(local.uris) ? local.uris : local.uri ? [local.uri] : [])
             .map((u) => resolveFeedMediaUrl(u))
             .filter(Boolean);
+          const localId = String(local.id);
+          const [likeState, localComments] = await Promise.all([
+            getLocalFeedPostLikeState(user, localId),
+            getLocalFeedPostComments(user, localId),
+          ]);
           loaded = {
-            id: String(local.id),
+            id: localId,
             media_urls,
             content_text: local.caption || '',
             place_label: local.place || '',
             created_at: local.createdAt ? new Date(local.createdAt).toISOString() : null,
-            likes_count: 0,
-            liked_by_viewer: false,
+            likes_count: Number(likeState.likes_count) || 0,
+            liked_by_viewer: !!likeState.liked,
+            comments_count: Array.isArray(localComments) ? localComments.length : 0,
           };
         }
       } catch {
         /* */
       }
     }
+
+    if (!loaded && pid) {
+      const backendId = await resolveBackendFeedPostId(pid, { user });
+      if (isServerFeedPostId(backendId) && backendId !== String(pid)) {
+        try {
+          const posts = await feedListMyPosts(80);
+          const found =
+            (Array.isArray(posts) ? posts : []).find((p) => String(p.id) === String(backendId)) || null;
+          if (found) loaded = normalizeLoadedFeedPost(found);
+        } catch {
+          /* */
+        }
+      }
+    }
+    if (!loaded && peerUsername && pid) {
+      try {
+        const posts = await feedListUserPosts(peerUsername, 80);
+        const found =
+          (Array.isArray(posts) ? posts : []).find((p) => String(p.id) === String(pid)) || null;
+        if (found) loaded = normalizeLoadedFeedPost(found);
+      } catch {
+        /* */
+      }
+    }
+
     setFeedPost(loaded);
     setMediaIndex(0);
 
     if (loaded) {
-      setAuthorAvatarUri(loaded.avatar_url || null);
       const capDefault = loaded.content_text || pf(language, 'postCaption');
       setCaption(await getPostCaption(pid, capDefault));
       setPlaceLine(loaded.place_label || '');
       setPostedAt(loaded.created_at || null);
       const uname = (loaded.username || '').replace(/^@/, '');
-      const display = await getProfileDisplayName(user?.name || user?.email || uname || '');
-      const label = uname || display;
-      setAuthor((label.split(/\s+/)[0] || label).trim() || '—');
+      if (peerUsername) {
+        const display =
+          String(loaded.display_name || routeAuthorName || uname || peerUsername).trim() || peerUsername;
+        setAuthor(display);
+      } else {
+        const display = await getProfileDisplayName(user?.name || user?.email || uname || '');
+        const label = uname || display;
+        setAuthor((label.split(/\s+/)[0] || label).trim() || '—');
+      }
     } else if (useFeed) {
-      const pm = useAuthStore.getState().profileMe?.profile;
-      setAuthorAvatarUri(pm?.avatar_url || null);
       setCaption(await getPostCaption(pid, pf(language, 'postCaption')));
       setPlaceLine('');
       setPostedAt(null);
@@ -181,7 +336,6 @@ export default function ProfilePostDetailPage({ navigation, route }) {
       const short = n.split(/\s+/)[0] || n || '—';
       setAuthor(short);
     } else {
-      setAuthorAvatarUri(null);
       const cap = await getPostCaption(pid, pf(language, 'postCaption'));
       setCaption(cap);
       const n = await getProfileDisplayName(user?.name || user?.email || '');
@@ -191,15 +345,39 @@ export default function ProfilePostDetailPage({ navigation, route }) {
       setPostedAt(null);
     }
 
-    if (loaded) {
-      setLikes({
-        liked: !!loaded.liked_by_viewer,
-        count: Number(loaded.likes_count) || 0,
-      });
-    } else {
-      setLikes(await getPostLikeState(pid));
-    }
-  }, [language, postId, user?.name, user?.email, langUk]);
+    const backendId = await resolveBackendFeedPostId(pid, { user });
+    const aliasIds = [...new Set([String(pid || ''), String(backendId || '')].filter(Boolean))];
+    const hot = peekPostLikeState(aliasIds);
+    const mergedLikes = await resolveFeedPostLikeStateFromAliases(user, aliasIds, loaded || null);
+    const nextLikes = hot.has
+      ? { liked: hot.liked, count: hot.likes_count }
+      : {
+          liked: mergedLikes.liked || !!loaded?.liked_by_viewer,
+          count: Math.max(
+            mergedLikes.likes_count,
+            Number(loaded?.likes_count) || 0,
+          ),
+        };
+    setLikes((prev) => {
+      if (hot.has) return { liked: hot.liked, count: hot.likes_count };
+      return {
+        liked: nextLikes.liked || prev.liked,
+        count: Math.max(nextLikes.count, prev.count),
+      };
+    });
+  }, [language, postId, user, langUk, peerUsername, routeAuthorName]);
+
+  useEffect(() => {
+    setMediaAspect(DEFAULT_MEDIA_ASPECT);
+  }, [postId, coverUrl, mediaUrls.join('|')]);
+
+  useEffect(() => {
+    const next = readInitialLikes(postId, route?.params);
+    if (next.liked || next.count) setLikes((prev) => ({
+      liked: next.liked || prev.liked,
+      count: Math.max(next.count, prev.count),
+    }));
+  }, [postId, route?.params?.liked, route?.params?.likesCount, route?.params?.likes_count]);
 
   useFocusEffect(
     useCallback(() => {
@@ -207,18 +385,94 @@ export default function ProfilePostDetailPage({ navigation, route }) {
     }, [reload]),
   );
 
+  useEffect(() => {
+    const pid = String(postId || '');
+    if (!pid) return undefined;
+    const sub = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
+      if (payload?.kind && payload.kind !== 'interaction') return;
+      if (payload.liked == null && payload.likes_count == null) return;
+      void (async () => {
+        const eventIds = new Set(
+          [payload?.postId, payload?.localPostId].map((v) => String(v || '')).filter(Boolean),
+        );
+        const backendId = await resolveBackendFeedPostId(pid, { user });
+        const profileIds = new Set([pid, backendId].filter(Boolean));
+        const matches = [...profileIds].some((id) => eventIds.has(id));
+        if (!matches) return;
+        setLikes((prev) => ({
+          liked: payload.liked != null ? !!payload.liked : prev.liked,
+          count:
+            payload.likes_count != null
+              ? Math.max(0, Number(payload.likes_count) || 0)
+              : prev.count,
+        }));
+      })();
+    });
+    return () => sub.remove();
+  }, [postId, user]);
+
   const onLike = async () => {
+    const pid = String(postId || '');
     const useFeed =
-      hasBackendSession() &&
-      postId != null &&
-      isServerFeedPostId(String(postId)) &&
-      String(postId) !== POST_ID;
+      hasBackendSession() && pid && isServerFeedPostId(pid) && pid !== POST_ID;
     if (useFeed) {
       try {
-        const out = await feedTogglePostLike(String(postId));
-        setLikes({ liked: !!out.liked, count: Number(out.likes_count) || 0 });
-        emitFeedMediaUpdated({ postId: String(postId) });
+        const out = await feedTogglePostLike(pid);
+        const next = { liked: !!out.liked, count: Number(out.likes_count) || 0 };
+        setLikes(next);
+        await setLocalFeedPostLikeState(user, pid, { liked: next.liked, likes_count: next.count });
+        emitFeedMediaUpdated({
+          kind: 'interaction',
+          postId: pid,
+          liked: next.liked,
+          likes_count: next.count,
+        });
       } catch (e) {
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      }
+      return;
+    }
+    if (isLocalFeedPostId(pid)) {
+      const prev = likes;
+      const optimistic = prev.liked
+        ? { liked: false, count: Math.max(0, prev.count - 1) }
+        : { liked: true, count: prev.count + 1 };
+      setLikes(optimistic);
+      try {
+        const out = await toggleLocalFeedPostLike(user, pid);
+        const next = { liked: !!out.liked, count: Number(out.likes_count) || 0 };
+        setLikes(next);
+        await setLocalFeedPostLikeState(user, pid, { liked: next.liked, likes_count: next.count });
+        emitFeedMediaUpdated({
+          kind: 'interaction',
+          postId: pid,
+          liked: next.liked,
+          likes_count: next.count,
+        });
+        void (async () => {
+          try {
+            const backendId = await resolveBackendFeedPostId(pid, { user });
+            if (!isServerFeedPostId(backendId)) return;
+            const serverOut = await feedTogglePostLike(backendId);
+            const synced = { liked: !!serverOut.liked, count: Number(serverOut.likes_count) || 0 };
+            setLikes(synced);
+            await setLocalFeedPostLikeState(user, backendId, {
+              liked: synced.liked,
+              likes_count: synced.count,
+            });
+            emitFeedMediaUpdated({
+              kind: 'interaction',
+              postId: backendId,
+              localPostId: pid,
+              liked: synced.liked,
+              likes_count: synced.count,
+            });
+          } catch {
+            /* локальний лайк уже збережено */
+          }
+        })();
+      } catch (e) {
+        setLikes(prev);
         Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
       }
       return;
@@ -265,19 +519,14 @@ export default function ProfilePostDetailPage({ navigation, route }) {
       >
         <View style={[styles.card, { backgroundColor: cardBg }]}>
           <View style={styles.postHead}>
-            {authorAvatarUri ? (
-              <Image source={{ uri: authorAvatarUri }} style={styles.smAvatar} resizeMode="cover" />
-            ) : (
-              <View
-                style={[
-                  styles.smAvatar,
-                  !isLight && { backgroundColor: 'rgba(255,255,255,0.12)' },
-                ]}
-              />
-            )}
+            <ProfileAvatarCircle uri={postAvatarUri || ''} size={40} isLight={isLight} style={styles.smAvatar} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.postName, { color: textMain }]}>{author}</Text>
-              <Text style={[styles.postLoc, { color: textMuted }]}>{placeLine}</Text>
+              {placeLine ? (
+                <Text style={[styles.postLoc, { color: textMuted }]} numberOfLines={1}>
+                  {placeLine}
+                </Text>
+              ) : null}
             </View>
             <Pressable onPress={() => setMenu(true)} hitSlop={12}>
               <Ionicons name="ellipsis-vertical" size={20} color={textMain} />
@@ -291,8 +540,9 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                 pagingEnabled
                 keyExtractor={(it, i) => `${i}_${it}`}
                 showsHorizontalScrollIndicator={false}
+                getItemLayout={(_, index) => ({ length: cardW, offset: cardW * index, index })}
                 onMomentumScrollEnd={(e) => {
-                  const w = e?.nativeEvent?.layoutMeasurement?.width || 1;
+                  const w = e?.nativeEvent?.layoutMeasurement?.width || cardW;
                   const x = e?.nativeEvent?.contentOffset?.x || 0;
                   const idx = Math.max(0, Math.min(mediaUrls.length - 1, Math.round(x / w)));
                   setMediaIndex(idx);
@@ -307,13 +557,20 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                   return isVid ? (
                     <Video
                       source={{ uri: u }}
-                      style={styles.postImg}
+                      style={slideStyle}
                       resizeMode={ResizeMode.COVER}
                       useNativeControls
                       shouldPlay={false}
                     />
                   ) : (
-                    <Image source={{ uri: u }} style={styles.postImg} resizeMode="cover" />
+                    <ExpoImage
+                      source={{ uri: u }}
+                      style={slideStyle}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
+                      onLoad={onMediaLoad}
+                    />
                   );
                 }}
               />
@@ -326,11 +583,22 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                 ))}
               </View>
             </View>
+          ) : coverUrl ? (
+            <ExpoImage
+              source={{ uri: coverUrl }}
+              style={slideStyle}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={120}
+              onLoad={onMediaLoad}
+            />
           ) : (
-            <Image
-              source={coverUrl ? { uri: coverUrl } : POST_IMG}
-              style={styles.postImg}
-              resizeMode="cover"
+            <ExpoImage
+              source={POST_IMG}
+              style={slideStyle}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={0}
             />
           )}
           <View style={styles.actions}>
@@ -381,16 +649,19 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                 >
                   {pf(language, 'route')}
                 </Text>
+                <Ionicons name="arrow-forward" size={14} color={isLight ? '#FFF' : '#1E1E1E'} />
               </Pressable>
             </View>
           </View>
           <Text style={[styles.likeLine, { color: textMain }]}>
             {pf(language, 'likedBy')} <Text style={styles.bold}>{likes.count}</Text>
           </Text>
-          <Text style={[styles.caption, { color: textMain }]}>
-            <Text style={styles.bold}>{author}: </Text>
-            {caption}
-          </Text>
+          {caption ? (
+            <Text style={[styles.caption, { color: textMain }]}>
+              <Text style={styles.bold}>{author}: </Text>
+              {caption}
+            </Text>
+          ) : null}
           <Text style={[styles.time, { color: isLight ? '#999' : '#777' }]}>
             {postedAt ? formatPostAge(postedAt, language, langUk) : `2 ${pf(language, 'hoursAgo')}`}
           </Text>
@@ -410,9 +681,11 @@ export default function ProfilePostDetailPage({ navigation, route }) {
         >
           <View style={styles.sheetHandle} />
           <Text style={[styles.sheetTitle, { color: textMain }]}>{pf(language, 'parameters')}</Text>
-          {param(pf(language, 'paramEdit'), 'create-outline', () =>
-            navigation.navigate('ProfileEditPublication', shell),
-          )}
+          {!peerUsername
+            ? param(pf(language, 'paramEdit'), 'create-outline', () =>
+                navigation.navigate('ProfileEditPublication', shell),
+              )
+            : null}
           {canArchive
             ? param(pf(language, 'archivePost'), 'archive-outline', () =>
                 Alert.alert('', pf(language, 'archivePost'), [
@@ -441,43 +714,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
           {param(pf(language, 'paramNoComments'), 'ban-outline', () => Alert.alert('', pf(language, 'comingSoon')))}
           {param(pf(language, 'paramSharePost'), 'share-social-outline', () => Alert.alert('', pf(language, 'comingSoon')))}
           {param(pf(language, 'paramShareLoc'), 'location-outline', () => Alert.alert('', pf(language, 'comingSoon')))}
-          {param(
-            pf(language, 'paramDelete'),
-            'trash-outline',
-            () =>
-              Alert.alert('', pf(language, 'paramDelete'), [
-                { text: pf(language, 'cancel'), style: 'cancel' },
-                {
-                  text: pf(language, 'paramDelete'),
-                  style: 'destructive',
-                  onPress: async () => {
-                    if (!canDeleteBackendPost || menuBusy) {
-                      Alert.alert('', pf(language, 'needBackendSocial'));
-                      return;
-                    }
-                    setMenuBusy(true);
-                    try {
-                      await useAuthStore.getState().hydrate();
-                      if (!useAuthStore.getState().accessToken) {
-                        await useAuthStore.getState().refreshSession().catch(() => {});
-                      }
-                      if (!useAuthStore.getState().accessToken) {
-                        Alert.alert('', pf(language, 'needBackendSocial'));
-                        return;
-                      }
-                      await feedDeletePost(String(postId));
-                      Alert.alert('', pf(language, 'paramDelete'));
-                      navigation.goBack();
-                    } catch (e) {
-                      Alert.alert('', errorToUserText(e, language));
-                    } finally {
-                      setMenuBusy(false);
-                    }
-                  },
-                },
-              ]),
-            true,
-          )}
+          {canDeletePost ? param(pf(language, 'paramDelete'), 'trash-outline', onDeletePost, true) : null}
         </View>
       </Modal>
     </View>
@@ -487,7 +724,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   card: {
-    marginHorizontal: 16,
+    marginHorizontal: CARD_H_MARGIN,
     marginTop: 8,
     borderRadius: 20,
     overflow: 'hidden',
@@ -516,7 +753,7 @@ const styles = StyleSheet.create({
   },
   postName: { fontSize: 15, fontWeight: '700' },
   postLoc: { fontSize: 13, marginTop: 2 },
-  postImg: { width: '100%', aspectRatio: 1 },
+  postImg: { backgroundColor: '#F0F0F0' },
   mediaDots: {
     position: 'absolute',
     bottom: 10,

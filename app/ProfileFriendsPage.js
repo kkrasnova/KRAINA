@@ -23,7 +23,7 @@ import {
   isNavigableSocialUsername,
 } from './socialFollowSyncEvents';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { accentForTheme } from './themeAccent';
 import { errorToUserText } from './errorText';
 import { readMutualsCache } from './chatsDataPrefetch';
@@ -36,6 +36,11 @@ import {
   socialPeopleListColors,
   socialPersonDisplayName,
 } from './socialPeopleListUi';
+import {
+  openSocialUserProfile,
+  prefetchSocialUserProfile,
+  prefetchSocialUserProfileBundle,
+} from './socialProfileNav';
 
 export default function ProfileFriendsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -51,9 +56,7 @@ export default function ProfileFriendsPage({ navigation, route }) {
   const [followBusyMap, setFollowBusyMap] = useState({});
   const [followMap, setFollowMap] = useState({});
   const searchDebounceRef = useRef(null);
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
-
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const accent = accentForTheme(isLight);
   const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const { textMain, muted, border } = socialPeopleListColors(isLight);
@@ -70,8 +73,6 @@ export default function ProfileFriendsPage({ navigation, route }) {
     if (withSpinner) setRefreshing(true);
     try {
       const friends = getFriends();
-      const t = getAppTheme();
-      setAppTheme(t === 'light' ? 'light' : 'dark');
       setList(Array.isArray(friends) ? friends : []);
 
       if (hasMessageApiToken()) {
@@ -114,6 +115,7 @@ export default function ProfileFriendsPage({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      prefetchSocialUserProfileBundle();
       void reload();
     }, [reload]),
   );
@@ -174,6 +176,16 @@ export default function ProfileFriendsPage({ navigation, route }) {
     }
     return [];
   }, [mutuals, list]);
+
+  useEffect(() => {
+    if (!displayList.length) return undefined;
+    const timer = setTimeout(() => {
+      displayList.slice(0, 10).forEach((item) => {
+        if (item.username) prefetchSocialUserProfile(item.username);
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [displayList]);
 
   const filteredLocal = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -276,15 +288,7 @@ export default function ProfileFriendsPage({ navigation, route }) {
 
   const openFriendProfile = useCallback(
     (item) => {
-      const raw = String(item?.name || item?.username || '').trim();
-      const unameFromName = raw.startsWith('@') ? raw.slice(1) : raw;
-      const username = String(item?.username || unameFromName || '').replace(/^@/, '').trim();
-      if (!username || !isNavigableSocialUsername(username)) return;
-      navigation.push('SocialUserProfile', {
-        ...shell,
-        username,
-        preloadedProfile: item,
-      });
+      openSocialUserProfile(navigation, shell, { row: item });
     },
     [navigation, shell],
   );
@@ -457,6 +461,7 @@ export default function ProfileFriendsPage({ navigation, route }) {
               displayName={item.name}
               onPress={rowPress}
               onPressName={() => openFriendProfile(item)}
+              onPressNameIn={() => prefetchSocialUserProfile(item.username)}
               actions={actions}
               isLight={isLight}
               textMain={textMain}

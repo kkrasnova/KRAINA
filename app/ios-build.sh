@@ -4,11 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# React Native codegen artifacts are generated during pod install.
-if [ ! -f "$ROOT/ios/build/generated/ios/ReactCodegen/ReactCodegen.podspec" ]; then
-  echo "⚠️  Codegen artifacts missing — running pod install..."
-  (cd ios && pod install)
-fi
+# React Native codegen artifacts are generated before pod install / xcodebuild.
+bash "$ROOT/scripts/ios-codegen.sh"
 
 # ccache: пришвидшує повторні збірки Swift/ObjC коду
 if command -v ccache >/dev/null 2>&1; then

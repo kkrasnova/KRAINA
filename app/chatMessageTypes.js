@@ -48,6 +48,8 @@ export function mapBackendMessage(raw, language) {
           regionId,
           title: String(parsed.title || 'Route'),
           subtitle: language?.startsWith('uk') ? 'Маршрут' : 'Route',
+          // Keep the shared plan so tapping the card opens the exact route.
+          plan,
         },
       };
     }

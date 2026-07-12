@@ -62,10 +62,11 @@ export async function listRoutePlanCacheIds() {
 }
 
 /** Стабільний ключ для останнього маршруту з екрана побудови. */
-export function buildRoutePlanCacheId(regionId, placeQuery, hoursText, budgetTier) {
+export function buildRoutePlanCacheId(regionId, placeQuery, hoursText, budgetTier, transport = '') {
   const a = safeId(regionId);
   const b = safeId(placeQuery);
   const c = safeId(hoursText);
   const d = safeId(budgetTier);
-  return `last_${a}_${b}_${c}_${d}`;
+  const e = safeId(transport);
+  return `last_${a}_${b}_${c}_${d}_${e}`;
 }

@@ -23,6 +23,11 @@ export function hasBackendSession() {
   return result;
 }
 
+/** JWT є, але локальний user.id ще не гідратований — достатньо для read-only REST. */
+export function canUseBackendApi() {
+  return !!API_BASE_URL && hasBackendJwt();
+}
+
 async function parseApiError(res) {
   const data = await res.json().catch(() => ({}));
   throw new ApiError(res.status, data, data?.error || data?.message || res.statusText);
@@ -35,6 +40,8 @@ async function parseApiError(res) {
  * ⚡ Оптимізовано: 15s для login (критично), 30s для інших операцій.
  */
 const AUTH_FETCH_TIMEOUT_MS = 15000; // Скорочено з 60000
+/** Multipart upload (аватар, стрічка) — довший таймаут для cold start Render і великих фото. */
+const UPLOAD_FETCH_TIMEOUT_MS = 90000;
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
@@ -319,9 +326,11 @@ export async function backendAuthFetch(method, path, body, opts = {}) {
 }
 
 /** Multipart upload (voice, images) — не ставить Content-Type вручную. */
-export async function backendAuthUpload(path, formDataOrBuilder) {
+export async function backendAuthUpload(path, formDataOrBuilder, opts = {}) {
   const base = API_BASE_URL;
   if (!base) throw new ApiError(503, { error: 'API_UNAVAILABLE' }, 'API_UNAVAILABLE');
+
+  const timeoutMs = opts.timeoutMs ?? UPLOAD_FETCH_TIMEOUT_MS;
 
   let token = await getValidBackendAccessToken();
   if (!token) throw new ApiError(401, { error: 'UNAUTHORIZED' }, 'UNAUTHORIZED');
@@ -334,7 +343,7 @@ export async function backendAuthUpload(path, formDataOrBuilder) {
     return fetchWithNetworkRetry(
       `${base}${path}`,
       { method: 'POST', headers, body: buildBody() },
-      AUTH_FETCH_TIMEOUT_MS,
+      timeoutMs,
     );
   };
 
@@ -375,23 +384,30 @@ export async function backendPatchProfileMe(patch) {
 }
 
 export async function backendPostProfileAvatar(localUri, mimeType = '') {
-  const { normalizeLocalFileUri } = require('./feedMediaPersist');
-  const normalizedUri = normalizeLocalFileUri(localUri);
+  const { ensureUploadableImageUri } = require('./feedMediaPersist');
+  const normalizedUri = await ensureUploadableImageUri(localUri, { mimeType });
+  if (!normalizedUri) {
+    throw new ApiError(400, { error: 'invalid_format' }, 'invalid_format');
+  }
   const mime = String(mimeType || '').toLowerCase();
   const lower = String(normalizedUri || '').toLowerCase();
   const isPng = mime.includes('png') || /\.png(\?|$)/i.test(lower);
   const isWebp = mime.includes('webp') || /\.webp(\?|$)/i.test(lower);
   const type = isPng ? 'image/png' : isWebp ? 'image/webp' : 'image/jpeg';
   const ext = isPng ? 'png' : isWebp ? 'webp' : 'jpg';
-  return backendAuthUpload('/api/profile/me/avatar', () => {
-    const form = new FormData();
-    form.append('file', {
-      uri: normalizedUri,
-      type,
-      name: `avatar_${Date.now()}.${ext}`,
-    });
-    return form;
-  });
+  return backendAuthUpload(
+    '/api/profile/me/avatar',
+    () => {
+      const form = new FormData();
+      form.append('file', {
+        uri: normalizedUri,
+        type,
+        name: `avatar_${Date.now()}.${ext}`,
+      });
+      return form;
+    },
+    { timeoutMs: UPLOAD_FETCH_TIMEOUT_MS },
+  );
 }
 
 export async function backendDeleteProfileAvatar() {

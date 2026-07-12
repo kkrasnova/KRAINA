@@ -279,25 +279,33 @@ export async function listFriendsPosts(viewerId, limit = 40) {
 // Add: before_created_at?: string, before_id?: string params.
 // WHERE addition: AND (p.created_at, p.id) < ($beforeCreatedAt, $beforeId)
 export async function listUserPostsForViewer(viewerId, targetUsername, limit = 40) {
-    const uname = String(targetUsername || '')
+    const raw = String(targetUsername || '')
         .trim()
-        .replace(/^@/, '')
-        .replace(/[^a-zA-Z0-9_]/g, '');
+        .replace(/^@/, '');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw);
+    const uname = isUuid ? raw : raw.replace(/[^a-zA-Z0-9_]/g, '');
     if (!uname) {
         throw new HttpError(400, 'invalid_body');
     }
-    const pr = await pool.query(`SELECT user_id::text, is_public FROM profiles WHERE username = $1`, [uname]);
+    const pr = isUuid
+        ? await pool.query(`SELECT user_id::text, is_public, username FROM profiles WHERE user_id = $1::uuid`, [uname])
+        : await pool.query(`SELECT user_id::text, is_public, username FROM profiles WHERE lower(username) = lower($1)`, [uname]);
     if (!pr.rowCount) {
         throw new HttpError(404, 'profile_not_found');
     }
     const ownerId = String(pr.rows[0].user_id);
-    const isOwner = viewerId === ownerId;
-    const followR = await pool.query(`SELECT 1 FROM follows WHERE follower_id = $1::uuid AND following_id = $2::uuid`, [viewerId, ownerId]);
+    const isPublicProfile = pr.rows[0].is_public == null ? true : Boolean(pr.rows[0].is_public);
+    const queryViewerId = viewerId || '00000000-0000-0000-0000-000000000000';
+    const isOwner = viewerId != null && viewerId === ownerId;
+    const followR = viewerId
+        ? await pool.query(`SELECT 1 FROM follows WHERE follower_id = $1::uuid AND following_id = $2::uuid`, [viewerId, ownerId])
+        : { rowCount: 0 };
     const isFollower = !!followR.rowCount;
     const lim = Math.min(80, Math.max(1, limit));
-    const canSeeFollowersScope = isFollower;
+    // Публічний профіль: сітка видна всім (як Instagram). Приватний — лише підписникам.
+    const canSeeFollowersScope = isOwner || isFollower || isPublicProfile;
     const visClause = isOwner
-        ? 'TRUE'
+        ? `p.visibility <> 'private'`
         : `(p.visibility = 'public' OR (p.visibility = 'followers' AND $4::boolean))`;
     const r = await pool.query(`SELECT p.*, pr.username, pr.avatar_url,
         EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = $3::uuid) AS liked_by_viewer,
@@ -310,7 +318,7 @@ export async function listUserPostsForViewer(viewerId, targetUsername, limit = 4
        AND p.archived_at IS NULL
        AND ${visClause}
      ORDER BY p.created_at DESC
-     LIMIT $2`, isOwner ? [ownerId, lim, viewerId] : [ownerId, lim, viewerId, canSeeFollowersScope]);
+     LIMIT $2`, isOwner ? [ownerId, lim, queryViewerId] : [ownerId, lim, queryViewerId, canSeeFollowersScope]);
     return r.rows.map((row) => mapPostRow(row, {
         username: String(row.username),
         avatar_url: row.avatar_url == null ? null : String(row.avatar_url),
@@ -338,8 +346,12 @@ async function canViewerAccessPost(postId, viewerId) {
         return true;
     if (vis === 'public')
         return true;
-    if (vis === 'followers')
-        return Boolean(row.is_follower);
+    if (vis === 'followers') {
+        if (Boolean(row.is_follower))
+            return true;
+        const pr = await pool.query(`SELECT is_public FROM profiles WHERE user_id = $1::uuid`, [ownerId]);
+        return !!pr.rowCount && Boolean(pr.rows[0].is_public);
+    }
     return false;
 }
 export async function togglePostLike(postId, viewerId) {

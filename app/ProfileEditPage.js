@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -44,17 +44,26 @@ import {
 } from './profileStorage';
 import { useAuthStore } from './auth/authStore';
 import ProfileAvatarCircle, { resolveProfileAvatarUri } from './ProfileAvatarCircle';
-import { patchProfileMe, postProfileAvatar, deleteProfileAvatar, ensureProfileBackendSession } from './profileApi';
+import { patchProfileMe, postProfileAvatar, deleteProfileAvatar, ensureProfileBackendSession, applyProfileMeOptimisticPatch } from './profileApi';
 import { applyServerProfileToLocal } from './profileMeSync';
 import { ApiError } from './auth/types';
 import { emitProfileMeUpdated } from './profileMeSync';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { listRouteCitiesForProfilePicker } from './routeRegionsData';
 import { APP_LANGUAGE_OPTIONS } from './appLanguageOptions';
-import { persistCapturedImage, normalizeLocalFileUri } from './feedMediaPersist';
+import { ensureUploadableImageUri } from './feedMediaPersist';
 import { errorToUserText } from './errorText';
 
 const INPUT_BG_LIGHT = 'rgba(0,0,0,0.06)';
+const PROFILE_USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+
+function normalizeUsernameRaw(raw) {
+  return String(raw || '').trim().replace(/^@/, '');
+}
+
+function isValidProfileUsername(uRaw) {
+  return PROFILE_USERNAME_RE.test(uRaw);
+}
 const AVATAR_RING_SIZE = 100;
 const AVATAR_RING_BORDER = 3;
 const AVATAR_INNER_SIZE = AVATAR_RING_SIZE - AVATAR_RING_BORDER * 2;
@@ -197,6 +206,8 @@ export default function ProfileEditPage({ navigation, route }) {
   const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [localAvatarUri, setLocalAvatarUri] = useState('');
+  const saveTimerRef = useRef(null);
+  const saveInFlightRef = useRef(null);
 
   const profileMe = useAuthStore((s) => s.profileMe);
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -268,79 +279,116 @@ export default function ProfileEditPage({ navigation, route }) {
     setLocalAvatarUri(avLo || '');
   }, [user?.name]);
 
+  const mergeServerProfileIfEmpty = useCallback((p) => {
+    if (!p || typeof p !== 'object') return;
+    setUsername((prev) => {
+      const cur = normalizeUsernameRaw(prev);
+      if (cur) return prev;
+      return p.username ? `@${String(p.username).replace(/^@/, '')}` : prev;
+    });
+    setBio((prev) => (prev.trim() ? prev : p.bio != null ? String(p.bio) : prev));
+    setName((prev) =>
+      prev.trim()
+        ? prev
+        : p.display_name != null && String(p.display_name).trim()
+          ? String(p.display_name).trim()
+          : prev,
+    );
+    setCity((prev) =>
+      prev.trim()
+        ? prev
+        : p.location_label != null && String(p.location_label).trim()
+          ? String(p.location_label).trim()
+          : prev,
+    );
+    setBirthDate((prev) => (prev.trim() ? prev : p.birth_date ? String(p.birth_date).slice(0, 10) : prev));
+    setShowBirthPublic((prev) =>
+      prev ? prev : p.birth_date_public != null ? Boolean(p.birth_date_public) : prev,
+    );
+  }, []);
+
+  const uploadAvatarToServer = useCallback(
+    async (persisted, mime = 'image/jpeg') => {
+      const hasSession = await ensureProfileBackendSession(user);
+      if (!hasSession) return false;
+
+      setAvatarBusy(true);
+      try {
+        const res = await postProfileAvatar(useAuthStore.getState().accessToken, persisted, mime);
+        const serverUrl = res?.avatar_url ? String(res.avatar_url) : '';
+        if (serverUrl) {
+          applyProfileMeOptimisticPatch({ avatar_url: serverUrl });
+          await clearProfileAvatarLocalUri();
+          setLocalAvatarUri('');
+        }
+        emitProfileMeUpdated({ source: 'avatar_upload' });
+        void useAuthStore.getState().loadProfileMeIfStale(2500);
+        return !!serverUrl;
+      } catch (e) {
+        if (__DEV__) console.warn('[ProfileEdit] avatar upload:', e?.message);
+        return false;
+      } finally {
+        setAvatarBusy(false);
+      }
+    },
+    [user],
+  );
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       void (async () => {
-        const hasSession = await ensureProfileBackendSession(user);
-        if (cancelled) return;
         await load();
-        if (!hasSession || cancelled) return;
+        if (cancelled) return;
+        const cached = useAuthStore.getState().profileMe?.profile;
+        if (cached) mergeServerProfileIfEmpty(cached);
+
+        const hasSession = await ensureProfileBackendSession(user);
+        if (cancelled || !hasSession) return;
         try {
-          await useAuthStore.getState().loadProfileMe();
+          await useAuthStore.getState().loadProfileMeIfStale(4000);
           if (cancelled) return;
-          const p = useAuthStore.getState().profileMe?.profile;
-          if (!p) return;
-          if (p.username) {
-            const handle = `@${String(p.username).replace(/^@/, '')}`;
-            setUsername(handle);
-            await setProfileUsername(String(p.username).replace(/^@/, ''));
+          const fresh = useAuthStore.getState().profileMe?.profile;
+          if (!fresh) return;
+          mergeServerProfileIfEmpty(fresh);
+          if (fresh.username) {
+            await setProfileUsername(String(fresh.username).replace(/^@/, ''));
           }
-          if (p.bio != null) setBio(String(p.bio));
-          if (p.display_name != null && String(p.display_name).trim()) {
-            setName(String(p.display_name).trim());
-          }
-          if (p.location_label != null && String(p.location_label).trim()) {
-            setCity(String(p.location_label).trim());
-          }
-          if (p.birth_date) setBirthDate(String(p.birth_date).slice(0, 10));
-          if (p.birth_date_public != null) setShowBirthPublic(Boolean(p.birth_date_public));
-          await applyServerProfileToLocal(p);
+          await applyServerProfileToLocal(fresh);
         } catch {
           /* */
+        }
+        const pendingAvatar = await getProfileAvatarLocalUri();
+        if (!cancelled && pendingAvatar) {
+          await uploadAvatarToServer(pendingAvatar);
         }
       })();
       return () => {
         cancelled = true;
       };
-    }, [load, user]),
+    }, [load, user, mergeServerProfileIfEmpty, uploadAvatarToServer]),
   );
 
   const applyAvatarFromAsset = useCallback(
     async (asset) => {
       if (!asset?.uri) return;
       const mime = asset.mimeType || 'image/jpeg';
-      const persisted =
-        (await persistCapturedImage(asset.uri, { mimeType: mime })) ||
-        normalizeLocalFileUri(asset.uri);
-      if (!persisted) return;
+      const persisted = await ensureUploadableImageUri(asset.uri, {
+        mimeType: mime,
+        assetId: asset.assetId,
+      });
+      if (!persisted) {
+        Alert.alert('', pf(localeForUi, 'avatarUploadError'));
+        return;
+      }
 
       await setProfileAvatarLocalUri(persisted);
       setLocalAvatarUri(persisted);
       emitProfileMeUpdated({ source: 'avatar_pick_local' });
 
-      const hasSession = await ensureProfileBackendSession(user);
-      if (!hasSession) {
-        Alert.alert('', pf(localeForUi, 'profileSyncLoginRequired'));
-        return;
-      }
-      setAvatarBusy(true);
-      try {
-        await postProfileAvatar(useAuthStore.getState().accessToken, persisted, mime);
-        await clearProfileAvatarLocalUri();
-        setLocalAvatarUri('');
-        await useAuthStore.getState().loadProfileMe();
-        const p = useAuthStore.getState().profileMe?.profile;
-        if (p) await applyServerProfileToLocal(p);
-        emitProfileMeUpdated({ source: 'avatar_upload' });
-      } catch (e) {
-        const msg = errorToUserText(e, localeForUi);
-        Alert.alert('', msg || pf(localeForUi, 'avatarUploadError'));
-      } finally {
-        setAvatarBusy(false);
-      }
+      await uploadAvatarToServer(persisted, mime);
     },
-    [localeForUi, user],
+    [localeForUi, uploadAvatarToServer],
   );
 
   const pickAvatar = useCallback(async () => {
@@ -351,13 +399,12 @@ export default function ProfileEditPage({ navigation, route }) {
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-      allowsEditing: true,
-      aspect: [1, 1],
+      mediaTypes: ['images'],
+      quality: 0.82,
+      allowsEditing: false,
     });
     if (res.canceled || !res.assets?.[0]) return;
-    await applyAvatarFromAsset(res.assets[0]);
+    void applyAvatarFromAsset(res.assets[0]);
   }, [avatarBusy, applyAvatarFromAsset, localeForUi]);
 
   const takeAvatarPhoto = useCallback(async () => {
@@ -368,13 +415,12 @@ export default function ProfileEditPage({ navigation, route }) {
       return;
     }
     const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.85,
-      allowsEditing: true,
-      aspect: [1, 1],
+      mediaTypes: ['images'],
+      quality: 0.82,
+      allowsEditing: false,
     });
     if (res.canceled || !res.assets?.[0]) return;
-    await applyAvatarFromAsset(res.assets[0]);
+    void applyAvatarFromAsset(res.assets[0]);
   }, [avatarBusy, applyAvatarFromAsset, localeForUi]);
 
   const confirmRemoveAvatar = useCallback(() => {
@@ -395,10 +441,9 @@ export default function ProfileEditPage({ navigation, route }) {
               return;
             }
             await deleteProfileAvatar(useAuthStore.getState().accessToken);
-            await useAuthStore.getState().loadProfileMe();
-            const p = useAuthStore.getState().profileMe?.profile;
-            if (p) await applyServerProfileToLocal(p);
+            applyProfileMeOptimisticPatch({ avatar_url: null });
             emitProfileMeUpdated({ source: 'avatar_remove' });
+            void useAuthStore.getState().loadProfileMeIfStale(2500);
           } catch (e) {
             const msg = errorToUserText(e, localeForUi);
             Alert.alert('', msg || pf(localeForUi, 'avatarUploadError'));
@@ -431,82 +476,54 @@ export default function ProfileEditPage({ navigation, route }) {
     appTheme,
   };
 
-  const persistUsernameField = useCallback(
-    async (rawValue) => {
-      const uRaw = String(rawValue || '').trim().replace(/^@/, '');
-      if (uRaw.length > 0 && uRaw.length < 3) return;
-      await setProfileUsername(uRaw);
-      let hasSession = await ensureProfileBackendSession(user);
-      if (!hasSession || uRaw.length < 3) return;
-      try {
-        await patchProfileMe(useAuthStore.getState().accessToken, { username: uRaw });
-        await useAuthStore.getState().loadProfileMe();
-        const saved = useAuthStore.getState().profileMe?.profile?.username;
-        if (saved) setUsername(`@${String(saved).replace(/^@/, '')}`);
-        emitProfileMeUpdated({ source: 'username_edit' });
-      } catch (e) {
-        const isNetwork =
-          e instanceof ApiError && (e.status === 0 || String(e.message || '').toUpperCase() === 'NETWORK_ERROR');
-        if (isNetwork) {
-          hasSession = await ensureProfileBackendSession(user);
-          if (hasSession) {
-            try {
-              await patchProfileMe(useAuthStore.getState().accessToken, { username: uRaw });
-              await useAuthStore.getState().loadProfileMe();
-              const saved = useAuthStore.getState().profileMe?.profile?.username;
-              if (saved) setUsername(`@${String(saved).replace(/^@/, '')}`);
-              emitProfileMeUpdated({ source: 'username_edit' });
-              return;
-            } catch (retryErr) {
-              const msg = errorToUserText(retryErr, localeForUi);
-              if (msg) Alert.alert('', msg);
-              return;
-            }
-          }
-        }
-        const msg = errorToUserText(e, localeForUi);
-        if (msg) Alert.alert('', msg);
-      }
-    },
-    [localeForUi, user],
-  );
-
-  const onSave = async () => {
-    const uRaw = username.trim().replace(/^@/, '');
-    if (uRaw.length > 0 && uRaw.length < 3) {
-      Alert.alert('', pf(localeForUi, 'editUsernameShort'));
-      return;
-    }
-    const bd = birthDate.trim();
-    if (bd) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(bd)) {
-        Alert.alert('', pf(localeForUi, 'invalidBirthDate'));
-        return;
-      }
-      const [y, m, d] = bd.split('-').map(Number);
-      const dt = new Date(Date.UTC(y, m - 1, d));
-      if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
-        Alert.alert('', pf(localeForUi, 'invalidBirthDate'));
-        return;
-      }
-    }
-    await setProfileDisplayName(name);
-    await setProfileUsername(username.replace(/^@/, ''));
-    await setProfileBio(bio);
-    await setProfileCity(city);
-    await setProfileBirthDate(bd);
-    await setProfileBirthPublic(showBirthPublic);
-    const hasSession = await ensureProfileBackendSession(user);
-    if (hasSession) {
-      const patchBody = {
-        username: uRaw.length >= 3 ? uRaw : undefined,
-        bio: bio.trim() || null,
-        language: localeForUi,
-        display_name: name.trim() || null,
-        birth_date: bd || null,
-        birth_date_public: showBirthPublic,
-        location_label: city.trim() || null,
+  const flushProfileSave = useCallback(
+    async (overrides = {}) => {
+      const snapshot = {
+        name,
+        username,
+        bio,
+        city,
+        birthDate,
+        showBirthPublic,
+        ...overrides,
       };
+      const uRaw = normalizeUsernameRaw(snapshot.username);
+      const bd = String(snapshot.birthDate || '').trim();
+      if (bd) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(bd)) return false;
+        const [y, m, d] = bd.split('-').map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, d));
+        if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+          return false;
+        }
+      }
+
+      await Promise.all([
+        setProfileDisplayName(snapshot.name),
+        setProfileUsername(uRaw),
+        setProfileBio(snapshot.bio),
+        setProfileCity(snapshot.city),
+        setProfileBirthDate(bd),
+        setProfileBirthPublic(snapshot.showBirthPublic),
+      ]);
+
+      const patchBody = {
+        bio: String(snapshot.bio || '').trim() || null,
+        language: localeForUi,
+        display_name: String(snapshot.name || '').trim() || null,
+        birth_date: bd || null,
+        birth_date_public: !!snapshot.showBirthPublic,
+        location_label: String(snapshot.city || '').trim() || null,
+      };
+      if (uRaw.length >= 3 && isValidProfileUsername(uRaw)) {
+        patchBody.username = uRaw;
+      }
+      applyProfileMeOptimisticPatch(patchBody);
+      emitProfileMeUpdated({ source: 'profile_edit' });
+
+      const hasSession = await ensureProfileBackendSession(user);
+      if (!hasSession) return true;
+
       try {
         try {
           await patchProfileMe(useAuthStore.getState().accessToken, patchBody);
@@ -519,19 +536,73 @@ export default function ProfileEditPage({ navigation, route }) {
             throw e;
           }
         }
-        await useAuthStore.getState().loadProfileMe();
-        const p = useAuthStore.getState().profileMe?.profile;
-        if (p) await applyServerProfileToLocal(p);
-        emitProfileMeUpdated({ source: 'profile_edit' });
+        void useAuthStore.getState().loadProfileMeIfStale(2000);
+        const saved = useAuthStore.getState().profileMe?.profile?.username;
+        if (saved) setUsername(`@${String(saved).replace(/^@/, '')}`);
+        return true;
       } catch (e) {
         const msg = errorToUserText(e, localeForUi);
-        Alert.alert('', msg || 'API');
+        if (msg) Alert.alert('', msg);
+        return false;
+      }
+    },
+    [name, username, bio, city, birthDate, showBirthPublic, localeForUi, user],
+  );
+
+  const scheduleProfileSave = useCallback(
+    (overrides = {}, delayMs = 350) => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        if (saveInFlightRef.current) {
+          saveInFlightRef.current = saveInFlightRef.current.finally(() => flushProfileSave(overrides));
+        } else {
+          saveInFlightRef.current = flushProfileSave(overrides).finally(() => {
+            saveInFlightRef.current = null;
+          });
+        }
+      }, delayMs);
+    },
+    [flushProfileSave],
+  );
+
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    },
+    [],
+  );
+
+  const persistUsernameField = useCallback(
+    async (rawValue) => {
+      const uRaw = normalizeUsernameRaw(rawValue);
+      if (uRaw.length > 0 && uRaw.length < 3) return;
+      if (uRaw.length >= 3 && !isValidProfileUsername(uRaw)) {
+        Alert.alert('', pf(localeForUi, 'editUsernameShort'));
         return;
       }
-    } else {
-      emitProfileMeUpdated({ source: 'profile_edit_local' });
-      Alert.alert('', pf(localeForUi, 'profileSyncLoginRequired'));
+      await flushProfileSave({ username: uRaw.length ? `@${uRaw}` : '' });
+    },
+    [flushProfileSave, localeForUi],
+  );
+
+  const onDone = async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
+    const uRaw = normalizeUsernameRaw(username);
+    if (uRaw.length > 0 && (uRaw.length < 3 || !isValidProfileUsername(uRaw))) {
+      Alert.alert('', pf(localeForUi, 'editUsernameShort'));
+      return;
+    }
+    const bd = birthDate.trim();
+    if (bd && !/^\d{4}-\d{2}-\d{2}$/.test(bd)) {
+      Alert.alert('', pf(localeForUi, 'invalidBirthDate'));
+      return;
+    }
+    const ok = await flushProfileSave();
+    if (ok === false) return;
     navigation.goBack();
   };
 
@@ -540,7 +611,13 @@ export default function ProfileEditPage({ navigation, route }) {
       <AppTopBar
         appTheme={appTheme}
         leftMode="back"
-        onBackPress={() => navigation.goBack()}
+        onBackPress={() => {
+          if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+          }
+          void flushProfileSave().finally(() => navigation.goBack());
+        }}
         centerSubtitle={pf(localeForUi, 'editProfile')}
         hideSendButton
       />
@@ -614,7 +691,11 @@ export default function ProfileEditPage({ navigation, route }) {
           </Text>
           <TextInput
             value={name}
-            onChangeText={setName}
+            onChangeText={(v) => {
+              setName(v);
+              scheduleProfileSave({ name: v });
+            }}
+            onBlur={() => void flushProfileSave()}
             style={[
               styles.input,
               brandFontSans,
@@ -629,7 +710,10 @@ export default function ProfileEditPage({ navigation, route }) {
           </Text>
           <TextInput
             value={username}
-            onChangeText={setUsername}
+            onChangeText={(v) => {
+              setUsername(v);
+              scheduleProfileSave({ username: v }, 600);
+            }}
             onBlur={() => {
               void persistUsernameField(username);
             }}
@@ -647,7 +731,11 @@ export default function ProfileEditPage({ navigation, route }) {
           </Text>
           <TextInput
             value={bio}
-            onChangeText={setBio}
+            onChangeText={(v) => {
+              setBio(v);
+              scheduleProfileSave({ bio: v });
+            }}
+            onBlur={() => void flushProfileSave()}
             style={[
               styles.input,
               styles.inputMultiline,
@@ -716,7 +804,10 @@ export default function ProfileEditPage({ navigation, route }) {
             </Text>
             <Switch
               value={showBirthPublic}
-              onValueChange={setShowBirthPublic}
+              onValueChange={(v) => {
+                setShowBirthPublic(v);
+                scheduleProfileSave({ showBirthPublic: v }, 0);
+              }}
               trackColor={{
                 false: isLight ? '#CCC' : '#555',
                 true: isLight ? 'rgba(2,18,235,0.35)' : 'rgba(225,255,0,0.35)',
@@ -778,7 +869,11 @@ export default function ProfileEditPage({ navigation, route }) {
           </Text>
           <TextInput
             value={city}
-            onChangeText={setCity}
+            onChangeText={(v) => {
+              setCity(v);
+              scheduleProfileSave({ city: v });
+            }}
+            onBlur={() => void flushProfileSave()}
             style={[
               styles.input,
               styles.inputLastInCard,
@@ -818,10 +913,10 @@ export default function ProfileEditPage({ navigation, route }) {
               pressed && { opacity: 0.92 },
             ]}
             android_ripple={ripple}
-            onPress={onSave}
+            onPress={onDone}
           >
             <Text style={[styles.btnBlackText, { color: onAccentButtonText(isLight) }, brandFontSansSemibold]}>
-              {pf(localeForUi, 'save')}
+              {pf(localeForUi, 'pickBirthDateDone')}
             </Text>
           </Pressable>
         </View>
@@ -861,6 +956,7 @@ export default function ProfileEditPage({ navigation, route }) {
                 onPress={() => {
                   setBirthDate('');
                   setBirthPickerOpen(false);
+                  scheduleProfileSave({ birthDate: '' }, 0);
                 }}
                 style={({ pressed }) => [styles.sheetGhostBtn, pressed && { opacity: 0.85 }]}
                 android_ripple={ripple}
@@ -897,7 +993,9 @@ export default function ProfileEditPage({ navigation, route }) {
                   return;
                 }
                 setBirthDate(formatBirthIso(sel));
+                setShowBirthPublic(true);
                 setBirthPickerOpen(false);
+                scheduleProfileSave({ birthDate: formatBirthIso(sel), showBirthPublic: true }, 0);
               }}
               style={({ pressed }) => [
                 styles.sheetPrimaryBtn,
@@ -948,6 +1046,7 @@ export default function ProfileEditPage({ navigation, route }) {
                   onPress={() => {
                     setCity(item.label);
                     setCityModalOpen(false);
+                    scheduleProfileSave({ city: item.label }, 0);
                   }}
                   android_ripple={ripple}
                 >

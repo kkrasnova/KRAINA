@@ -78,7 +78,7 @@ export default function SettingsPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const language = useSyncedAppLanguage(route, 'uk');
-  const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme);
+  const { appTheme, isLight: light, screenBg } = useAppTheme(route?.params?.appTheme, route);
 
   const shellParams = useMemo(
     () => ({

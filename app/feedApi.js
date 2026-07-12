@@ -1,8 +1,9 @@
 import { useAuthStore } from './auth/authStore';
 import { db, firebaseEnabled } from './firebaseConfig';
 import { ttlMemo, ttlInvalidate } from './ttlCache';
-import { backendAuthFetch, backendAuthUpload, hasBackendSession } from './backendAuthApi';
+import { backendAuthFetch, backendAuthUpload, hasBackendSession, canUseBackendApi } from './backendAuthApi';
 import { normalizeLocalFileUri } from './feedMediaPersist';
+import { normalizeBackendAssetUrl } from './auth/config';
 import { Platform } from 'react-native';
 
 // Стрічка/пости/сторіс працюють на РЕАЛЬНОМУ REST-бекенді (PostgreSQL) для справжніх
@@ -81,9 +82,25 @@ function uid() {
   return String(useAuthStore.getState().user?.id || '');
 }
 
+function normalizePostRow(post) {
+  if (!post || typeof post !== 'object') return post;
+  const media = Array.isArray(post.media_urls)
+    ? post.media_urls.map((u) => normalizeBackendAssetUrl(String(u || '')))
+    : [];
+  return {
+    ...post,
+    media_urls: media,
+    avatar_url: normalizeBackendAssetUrl(String(post.avatar_url || '')),
+  };
+}
+
+function normalizePostList(posts) {
+  return Array.isArray(posts) ? posts.map(normalizePostRow) : [];
+}
+
 /** Чи доступний «реальний» бекенд стрічки: backend JWT або (як запас) Firebase. */
 export function hasFeedApiToken() {
-  return hasBackendSession() || (firebaseEnabled && !!db && !!uid());
+  return canUseBackendApi() || hasBackendSession() || (firebaseEnabled && !!db && !!uid());
 }
 
 /**
@@ -92,11 +109,12 @@ export function hasFeedApiToken() {
  * лишає стрічку порожньою, а публікацію — з помилкою, аж до перезапуску застосунку.
  */
 export async function ensureFeedApiReady(localUser) {
-  if (hasBackendSession()) return true;
+  if (canUseBackendApi() || hasBackendSession()) return true;
   if (!useAuthStore.getState().hydrated) {
     await useAuthStore.getState().hydrate();
   }
   if (hasBackendSession()) return true;
+  if (canUseBackendApi()) return true;
   try {
     const { ensureBackendSession } = require('./syncBackendSessionBridge');
     return await ensureBackendSession(localUser);
@@ -420,7 +438,7 @@ export async function feedListMyPosts(limit = 60) {
   const lim = Math.max(1, Number(limit) || 60);
   if (hasBackendSession()) {
     const data = await backendAuthFetch('GET', `${FEED}/posts/me?limit=${lim}`);
-    return Array.isArray(data?.posts) ? data.posts : [];
+    return normalizePostList(data?.posts);
   }
   return fsListPostsByField('user_id', uid(), lim);
 }
@@ -429,13 +447,13 @@ export async function feedListUserPosts(usernameOrId, limit = 40) {
   const lim = Math.max(1, Number(limit) || 40);
   const raw = String(usernameOrId || '').replace(/^@/, '').trim();
   if (!raw) return [];
-  if (hasBackendSession()) {
+  if (canUseBackendApi() || hasBackendSession()) {
     try {
       const data = await backendAuthFetch(
         'GET',
         `${FEED}/posts/user/${encodeURIComponent(raw)}?limit=${lim}`,
       );
-      return Array.isArray(data?.posts) ? data.posts : [];
+      return normalizePostList(data?.posts);
     } catch (e) {
       if (__DEV__) console.warn('[feedApi] listUserPosts', e?.message);
       return [];
@@ -444,13 +462,41 @@ export async function feedListUserPosts(usernameOrId, limit = 40) {
   return fsListUserPosts(raw, lim);
 }
 
+/** Пости користувача для екрану профілю: username, потім fallback на user_id. */
+export async function feedListProfileUserPosts(username, userId, limit = 40) {
+  const lim = Math.max(1, Number(limit) || 40);
+  const uname = String(username || '').replace(/^@/, '').trim();
+  const uidArg = String(userId || '').trim();
+  const useBackend = canUseBackendApi() || hasBackendSession();
+  let apiPosts = [];
+  if (useBackend) {
+    if (uname) {
+      apiPosts = await feedListUserPosts(uname, lim);
+    }
+    if (!apiPosts.length && uidArg && uidArg !== uname) {
+      apiPosts = await feedListUserPosts(uidArg, lim);
+    }
+  }
+  if (apiPosts.length) return apiPosts;
+  if (!useBackend || firebaseEnabled) {
+    if (uname) {
+      const fsByName = await fsListUserPosts(uname, lim);
+      if (fsByName.length) return fsByName;
+    }
+    if (uidArg && uidArg !== uname) {
+      return fsListUserPosts(uidArg, lim);
+    }
+  }
+  return [];
+}
+
 export async function feedListFriendsPosts(limit = 40) {
   const lim = Math.max(1, Number(limit) || 40);
   if (hasBackendSession()) {
     const me = uid() || 'anon';
     return ttlMemo(`feed:friends:${me}:${lim}`, 8000, async () => {
       const data = await backendAuthFetch('GET', `${FEED}/posts/friends?limit=${lim}`);
-      return Array.isArray(data?.posts) ? data.posts : [];
+      return normalizePostList(data?.posts);
     });
   }
   return fsListWorldPosts(lim);
@@ -462,7 +508,7 @@ export async function feedListWorldPosts(limit = 40) {
     const me = uid() || 'anon';
     return ttlMemo(`feed:world:api:${me}:${lim}`, 8000, async () => {
       const data = await backendAuthFetch('GET', `${FEED}/posts/world?limit=${lim}`);
-      return Array.isArray(data?.posts) ? data.posts : [];
+      return normalizePostList(data?.posts);
     });
   }
   return fsListWorldPosts(lim);
@@ -472,7 +518,7 @@ export async function feedListMyArchivedPosts(limit = 40) {
   const lim = Math.max(1, Number(limit) || 40);
   if (hasBackendSession()) {
     const data = await backendAuthFetch('GET', `${FEED}/posts/me/archived?limit=${lim}`);
-    return Array.isArray(data?.posts) ? data.posts : [];
+    return normalizePostList(data?.posts);
   }
   return fsListMyArchivedPosts(lim);
 }
@@ -778,7 +824,7 @@ export async function feedListStoriesTray() {
 
 export async function feedListStoriesForUser(userId) {
   if (!userId) return [];
-  if (hasBackendSession()) {
+  if (canUseBackendApi() || hasBackendSession()) {
     try {
       const data = await backendAuthFetch(
         'GET',
