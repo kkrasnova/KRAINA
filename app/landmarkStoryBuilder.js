@@ -13,6 +13,11 @@ import { stripIntroEmphasis } from './landmarkTextUtils';
  * @property {string} [illustrationCaptionUk]
  * @property {string} [illustrationCaptionEn]
  * @property {boolean} [introNoHero]
+ * @property {string} [photoUri]
+ * @property {string} [secondaryPhotoUri]
+ * @property {string} [compareBeforeUri]
+ * @property {string} [compareAfterUri]
+ * @property {string} [illustrationUri]
  */
 
 /**
@@ -55,6 +60,12 @@ function mergePage(layout, media, body, langUk) {
         }
       : {}),
     ...(m.illustrationThumb ? { illustrationThumb: m.illustrationThumb } : {}),
+    ...(m.photoUri ? { photoUri: m.photoUri } : {}),
+    ...(m.secondaryPhotoUri ? { secondaryPhotoUri: m.secondaryPhotoUri } : {}),
+    ...(m.compareBeforeUri && m.compareAfterUri
+      ? { compareBeforeUri: m.compareBeforeUri, compareAfterUri: m.compareAfterUri }
+      : {}),
+    ...(m.illustrationUri ? { illustrationUri: m.illustrationUri } : {}),
     ...(illustrationLink
       ? langUk
         ? { illustrationLinkUk: illustrationLink }

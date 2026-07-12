@@ -100,6 +100,12 @@ const S = {
   archivePost: { uk: 'Архівувати публікацію', en: 'Archive post' },
   restorePost: { uk: 'Повернути з архіву', en: 'Restore from archive' },
   postArchived: { uk: 'Публікацію перенесено в архів', en: 'Post moved to archive' },
+  deletePostConfirmTitle: { uk: 'Видалити публікацію?', en: 'Delete post?' },
+  deletePostConfirmBody: {
+    uk: 'Публікацію буде видалено без можливості відновлення.',
+    en: 'This post will be permanently deleted.',
+  },
+  deletePostFailed: { uk: 'Не вдалося видалити публікацію', en: 'Could not delete post' },
   postRestored: { uk: 'Публікацію повернуто', en: 'Post restored' },
   archiveTitle: { uk: 'Архів', en: 'Archive' },
   archiveEmpty: { uk: 'Архів порожній', en: 'Archive is empty' },

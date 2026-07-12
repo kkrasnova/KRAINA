@@ -4,14 +4,25 @@ import { fillBundleMissingLangs, pickI18n } from './i18nBundle';
 const STR = {
   mapTab: { uk: 'Карта', en: 'Map' },
   plannerTab: { uk: 'Маршрут', en: 'Route' },
-  searchPlaceholder: { uk: 'Пошук місця…', en: 'Search for a place…' },
+  searchPlaceholder: { uk: 'Місто, адреса, заклад…', en: 'City, address, place…' },
   searchHint: {
-    uk: 'Введіть від 2 символів — каталог KRAÏNA або будь-яка адреса',
-    en: 'Type at least 2 characters — KRAÏNA catalog or any address',
+    uk: 'Введіть від 2 символів — знайдемо будь-де у світі',
+    en: 'Type 2+ characters — search anywhere in the world',
   },
+  searchWorldSource: { uk: 'По всьому світу', en: 'Worldwide' },
+  searchCatalogSource: { uk: 'KRAÏNA', en: 'KRAÏNA' },
   tapMapHint: { uk: 'Торкніться карти, щоб додати точку', en: 'Tap the map to add a point' },
+  routeReadyHint: {
+    uk: 'Маршрут готовий — натисніть «Іти» внизу',
+    en: 'Route is ready — tap Go at the bottom',
+  },
+  needOneMore: {
+    uk: 'Додайте ще одну точку на карті',
+    en: 'Add one more point on the map',
+  },
   customPoint: { uk: 'Обрана точка', en: 'Selected point' },
   startWalk: { uk: 'Почати прогулянку', en: 'Start walking' },
+  goWalk: { uk: 'Іти', en: 'Go' },
   openInMaps: { uk: 'Відкрити в Google Maps', en: 'Open in Google Maps' },
   noResults: { uk: 'Нічого не знайдено', en: 'Nothing found' },
   searchFailed: {
@@ -26,7 +37,7 @@ const STR = {
   },
   routePoints: { uk: 'Точки маршруту', en: 'Route points' },
   addHint: { uk: 'Торкніться маркера або рядка в списку', en: 'Tap a marker or a list row' },
-  buildRoute: { uk: 'Побудувати шлях', en: 'Build route' },
+  buildRoute: { uk: 'Показати на карті', en: 'Show on map' },
   clearRoute: { uk: 'Скинути', en: 'Clear' },
   openCard: { uk: 'Картка', en: 'Details' },
   recenter: { uk: 'Моя позиція', en: 'My location' },

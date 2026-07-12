@@ -51,6 +51,12 @@ export default function HomeTabPagerPage({ navigation, route }) {
     const bootUser = route.params?.user;
     const task = InteractionManager.runAfterInteractions(() => {
       prefetchHomeTabScreens();
+      setMountedTabs((prev) => {
+        if (prev.has(3)) return prev;
+        const next = new Set(prev);
+        next.add(3);
+        return next;
+      });
       if (bootUser) {
         prefetchFeedBundle(bootUser);
         prefetchProfileBundle(bootUser);
@@ -205,8 +211,9 @@ export default function HomeTabPagerPage({ navigation, route }) {
         style={styles.flex}
         initialPage={tabIndex}
         onPageSelected={onPageSelected}
-        overdrag
+        overdrag={false}
         offscreenPageLimit={1}
+        {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
       >
         <View
           key="0"

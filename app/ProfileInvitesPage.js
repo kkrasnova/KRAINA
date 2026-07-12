@@ -13,7 +13,7 @@ import { socialListIncomingRequests, socialAcceptRequest, socialDeclineRequest }
 import { hasSocialApi } from './socialApi';
 import { KRAINA_SOCIAL_GRAPH_CHANGED } from './socialFollowSyncEvents';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { accentForTheme } from './themeAccent';
 import { errorToUserText } from './errorText';
 import {
@@ -24,6 +24,11 @@ import {
   socialPeopleListColors,
   socialPersonDisplayName,
 } from './socialPeopleListUi';
+import {
+  openSocialUserProfile,
+  prefetchSocialUserProfile,
+  prefetchSocialUserProfileBundle,
+} from './socialProfileNav';
 
 export default function ProfileInvitesPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -32,9 +37,7 @@ export default function ProfileInvitesPage({ navigation, route }) {
   const [q, setQ] = useState('');
   const [invites, setInvites] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
-
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const accent = accentForTheme(isLight);
   const screenBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
   const { textMain, muted, border } = socialPeopleListColors(isLight);
@@ -50,8 +53,6 @@ export default function ProfileInvitesPage({ navigation, route }) {
   const reload = useCallback(async (withSpinner = false) => {
     if (withSpinner) setRefreshing(true);
     try {
-      const t = await getAppTheme();
-      setAppTheme(t === 'light' ? 'light' : 'dark');
       if (!hasSocialApi()) {
         setInvites([]);
         return;
@@ -69,6 +70,7 @@ export default function ProfileInvitesPage({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      prefetchSocialUserProfileBundle();
       void reload();
     }, [reload]),
   );
@@ -166,15 +168,8 @@ export default function ProfileInvitesPage({ navigation, route }) {
           <SocialPersonRow
             avatarUrl={item.avatar_url}
             displayName={socialPersonDisplayName(item)}
-            onPressName={() => {
-              const username = String(item.username || '').replace(/^@/, '').trim();
-              if (!username) return;
-              navigation.push('SocialUserProfile', {
-                ...shell,
-                username,
-                preloadedProfile: item,
-              });
-            }}
+            onPressName={() => openSocialUserProfile(navigation, shell, { row: item })}
+            onPressNameIn={() => prefetchSocialUserProfile(item.username)}
             actions={
               <>
                 <SocialListActionBtn

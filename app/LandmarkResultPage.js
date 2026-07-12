@@ -22,13 +22,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurView } from 'expo-blur';
 import { Image as ExpoImage } from 'expo-image';
 import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
-import { getCachedOrRemoteAudioUri } from './audioGuideCache';
+import { getCachedOrRemoteAudioUri, prefetchAudioGuideUrl } from './audioGuideCache';
 import {
   normalizePlaybackUri,
+  pickBestVoiceIdentifier,
   resolveLandmarkAudioScript,
   startLandmarkNarration,
+  ttsLocaleForContent,
 } from './landmarkTts';
 import { buildSlideAudioScripts } from './landmarkSlideAudioTexts';
+import { prefetchLandmarkSlideAudio } from './landmarkAudioPrefetch';
 import { useLandmarkSlideAudioguide } from './useLandmarkSlideAudioguide';
 import { LandmarkAudioGuideControls } from './LandmarkAudioGuideControls';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -70,9 +73,10 @@ import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import { RenderProfiler } from './performanceMetrics';
 import { createLandmarkPagerPanResponder, LANDMARK_SCROLL_PULL_DISMISS_PX } from './landmarkPagerSwipe';
-import { resolveHeroThumbRef } from './krainaHeroThumbs';
+import { HERO_THUMB_MAP, resolveHeroThumbRef } from './krainaHeroThumbs';
 import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
-import { introPagesFromStory, homeHeroLayoutFromStory } from './homeLandmarkResultParams';
+import { introPagesFromStory, homeHeroLayoutFromStory, resolveLandmarkHeroPhotoSource, resolveLandmarkHeroPhotoSourceFromLandmark, normalizeExpoImageSource } from './homeLandmarkResultParams';
+import { resolveHomeLandmarkThumbSource } from './homeLandmarkDisplay';
 import { splitIntroBodyAtHero, INTRO_BODY_HERO_MARKER } from './landmarkTextUtils';
 import { shellPush } from './shellNavigate';
 import { useAuthStore } from './auth/authStore';
@@ -158,12 +162,67 @@ export default function LandmarkResultPage({ navigation, route }) {
   const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
 
   const photoUri = resolveOfflineUriSync(route?.params?.photoUri);
+  const visitLandmarkSaveParam = route?.params?.visitLandmarkSave;
+  const catalogLandmark = useMemo(() => {
+    if (!visitLandmarkSaveParam?.regionId || !visitLandmarkSaveParam?.landmarkId) return null;
+    return getLandmarkInRegion(visitLandmarkSaveParam.regionId, visitLandmarkSaveParam.landmarkId);
+  }, [visitLandmarkSaveParam?.regionId, visitLandmarkSaveParam?.landmarkId]);
   const defaultHeroPhotoSource = useMemo(() => {
-    const asset = route?.params?.photoAsset;
-    if (typeof asset === 'number') return asset;
-    if (photoUri) return { uri: photoUri };
-    return null;
-  }, [route?.params?.photoAsset, photoUri]);
+    const resolved =
+      resolveLandmarkHeroPhotoSource({
+        photoAsset: route?.params?.photoAsset,
+        photoUri: route?.params?.photoUri,
+        heroThumb: route?.params?.heroThumb,
+        lm: catalogLandmark,
+      }) ||
+      (catalogLandmark ? resolveLandmarkHeroPhotoSourceFromLandmark(catalogLandmark) : null);
+    return resolved || HERO_THUMB_MAP.t1;
+  }, [
+    route?.params?.photoAsset,
+    route?.params?.photoUri,
+    route?.params?.heroThumb,
+    catalogLandmark,
+  ]);
+  const [miniHeroFallback, setMiniHeroFallback] = useState(null);
+  const [miniHeroUseRnImage, setMiniHeroUseRnImage] = useState(false);
+  useEffect(() => {
+    setMiniHeroFallback(null);
+    setMiniHeroUseRnImage(false);
+  }, [defaultHeroPhotoSource, visitLandmarkSaveParam?.landmarkId]);
+  const miniHeroPhotoSource = miniHeroFallback || defaultHeroPhotoSource;
+  const miniHeroExpoSource = useMemo(
+    () => normalizeExpoImageSource(miniHeroPhotoSource) || miniHeroPhotoSource,
+    [miniHeroPhotoSource],
+  );
+  const miniHeroImageKey = useMemo(() => {
+    if (typeof miniHeroPhotoSource === 'number') {
+      return Image.resolveAssetSource(miniHeroPhotoSource)?.uri || `asset:${miniHeroPhotoSource}`;
+    }
+    if (miniHeroPhotoSource?.uri) return String(miniHeroPhotoSource.uri);
+    const landmarkId = String(visitLandmarkSaveParam?.landmarkId || '').trim();
+    if (landmarkId) return `mini-hero:${landmarkId}`;
+    return 'mini-hero:fallback';
+  }, [miniHeroPhotoSource, visitLandmarkSaveParam?.landmarkId]);
+  const onMiniHeroError = useCallback(() => {
+    if (miniHeroUseRnImage) return;
+    if (!miniHeroFallback) {
+      if (catalogLandmark) {
+        const thumb = resolveHomeLandmarkThumbSource(catalogLandmark);
+        if (thumb && thumb !== defaultHeroPhotoSource) {
+          setMiniHeroFallback(thumb);
+          return;
+        }
+      }
+      if (defaultHeroPhotoSource !== HERO_THUMB_MAP.t1) {
+        setMiniHeroFallback(HERO_THUMB_MAP.t1);
+        return;
+      }
+    } else if (miniHeroFallback !== HERO_THUMB_MAP.t1) {
+      setMiniHeroFallback(HERO_THUMB_MAP.t1);
+      return;
+    }
+    setMiniHeroUseRnImage(true);
+  }, [miniHeroUseRnImage, miniHeroFallback, catalogLandmark, defaultHeroPhotoSource]);
   const title = route?.params?.title || '';
   const subtitle = route?.params?.subtitle;
   const extract = route?.params?.extract || '';
@@ -171,7 +230,6 @@ export default function LandmarkResultPage({ navigation, route }) {
     const raw = route?.params?.introContinuation;
     return typeof raw === 'string' ? raw.trim() : '';
   }, [route?.params?.introContinuation]);
-  const visitLandmarkSaveParam = route?.params?.visitLandmarkSave;
   const homeHeroLayout = useMemo(() => {
     const fromRoute = homeHeroLayoutFromStory({
       homeHeroHeightRatio: route?.params?.homeHeroHeightRatio,
@@ -179,12 +237,8 @@ export default function LandmarkResultPage({ navigation, route }) {
       homeHeroContentPosition: route?.params?.homeHeroContentPosition,
       homeHeroContentFit: route?.params?.homeHeroContentFit,
     });
-    if (visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
-      const lm = getLandmarkInRegion(
-        visitLandmarkSaveParam.regionId,
-        visitLandmarkSaveParam.landmarkId,
-      );
-      return { ...homeHeroLayoutFromStory(lm?.story), ...fromRoute };
+    if (catalogLandmark) {
+      return { ...homeHeroLayoutFromStory(catalogLandmark?.story), ...fromRoute };
     }
     return fromRoute;
   }, [
@@ -193,15 +247,12 @@ export default function LandmarkResultPage({ navigation, route }) {
     route?.params?.homeHeroContentPosition,
     route?.params?.homeHeroContentFit,
     visitLandmarkSaveParam,
+    catalogLandmark,
   ]);
   const introPages = useMemo(() => {
     let raw = route?.params?.introPages;
-    if (visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
-      const lm = getLandmarkInRegion(
-        visitLandmarkSaveParam.regionId,
-        visitLandmarkSaveParam.landmarkId,
-      );
-      const fresh = introPagesFromStory(lm?.story, language, {
+    if (catalogLandmark && visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
+      const fresh = introPagesFromStory(catalogLandmark?.story, language, {
         regionId: visitLandmarkSaveParam.regionId,
         landmarkId: visitLandmarkSaveParam.landmarkId,
       });
@@ -416,7 +467,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         };
       })
       .filter(Boolean);
-  }, [route?.params?.introPages, visitLandmarkSaveParam, language]);
+  }, [route?.params?.introPages, visitLandmarkSaveParam, catalogLandmark, language]);
   const headerTitle = useMemo(() => {
     const h = typeof route?.params?.headerTitle === 'string' ? route.params.headerTitle.trim() : '';
     return h || title;
@@ -489,6 +540,8 @@ export default function LandmarkResultPage({ navigation, route }) {
     return Math.min(winH * 0.36, 320);
   }, [winH, route?.params?.previewBodyLines, route?.params?.miniExtract, startPhaseParam, isLavraHomeMini]);
   const miniHeroClipHeight = useMemo(() => {
+    if (startPhaseParam === 'home') return null;
+
     const ratio = Number(homeHeroLayout.homeHeroHeightRatio);
     const max = Number(homeHeroLayout.homeHeroHeightMax);
     const fit = homeHeroLayout.homeHeroContentFit;
@@ -508,6 +561,7 @@ export default function LandmarkResultPage({ navigation, route }) {
     const cap = Number.isFinite(max) && max > 0 ? max : Math.round(winH * 0.55);
     return Math.min(cap, Math.max(220, Math.round(winH * ratio)));
   }, [
+    startPhaseParam,
     homeHeroLayout.homeHeroHeightRatio,
     homeHeroLayout.homeHeroHeightMax,
     homeHeroLayout.homeHeroContentFit,
@@ -1298,29 +1352,25 @@ export default function LandmarkResultPage({ navigation, route }) {
   const heroPhotoSource = useMemo(() => {
     if (currentPage?.type === 'intro' && currentPage.introPart > 1) {
       if (currentPage.introNoHero) return null;
-      if (typeof currentPage.photoAsset === 'number') return currentPage.photoAsset;
-      const heroThumb =
-        typeof currentPage.heroThumb === 'string' ? currentPage.heroThumb.trim() : '';
-      const thumbAsset = resolveHeroThumbRef(heroThumb);
-      if (typeof thumbAsset === 'number') return thumbAsset;
-      const subUri = typeof currentPage.photoUri === 'string' ? currentPage.photoUri.trim() : '';
-      if (subUri) return { uri: subUri };
-      if (visitLandmarkSaveParam?.regionId && visitLandmarkSaveParam?.landmarkId) {
-        const lm = getLandmarkInRegion(
-          visitLandmarkSaveParam.regionId,
-          visitLandmarkSaveParam.landmarkId,
-        );
+      const fromPage = resolveLandmarkHeroPhotoSource({
+        photoAsset: currentPage.photoAsset,
+        photoUri: currentPage.photoUri,
+        heroThumb: currentPage.heroThumb,
+      });
+      if (fromPage) return fromPage;
+      if (catalogLandmark) {
         const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
         const storyKey = langUk ? 'introPagesUk' : 'introPagesEn';
-        const storyPage = lm?.story?.[storyKey]?.[currentPage.introPart - 2];
+        const storyPage = catalogLandmark?.story?.[storyKey]?.[currentPage.introPart - 2];
         const storyThumb =
           typeof storyPage?.heroThumb === 'string' ? storyPage.heroThumb.trim() : '';
         const storyAsset = resolveHeroThumbRef(storyThumb);
         if (typeof storyAsset === 'number') return storyAsset;
       }
+      if (catalogLandmark) return resolveLandmarkHeroPhotoSourceFromLandmark(catalogLandmark);
     }
     return defaultHeroPhotoSource;
-  }, [currentPage, defaultHeroPhotoSource, visitLandmarkSaveParam, language]);
+  }, [currentPage, defaultHeroPhotoSource, catalogLandmark, language]);
   const secondaryHeroPhotoSource = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
     if (typeof currentPage.secondaryPhotoAsset === 'number') return currentPage.secondaryPhotoAsset;
@@ -1541,6 +1591,32 @@ export default function LandmarkResultPage({ navigation, route }) {
       (phase === 'mini' && !!miniAudioText),
     [slideScripts, phase, miniAudioText],
   );
+
+  useEffect(() => {
+    ensureLandmarkAudioPlayer();
+    void setAudioModeAsync(APP_PLAYBACK_AUDIO_MODE).catch(() => {});
+    void pickBestVoiceIdentifier(Speech, ttsLocaleForContent(language));
+    if (audioGuideUrl) void prefetchAudioGuideUrl(audioGuideUrl);
+  }, [ensureLandmarkAudioPlayer, audioGuideUrl, language]);
+
+  useEffect(() => {
+    if (!hasSlideAudioguide) return undefined;
+    void prefetchLandmarkSlideAudio({
+      slideScripts,
+      miniText: miniAudioText,
+      language,
+      audioGuideUrl,
+      fromIndex: activeSectionIndex,
+    });
+    return undefined;
+  }, [
+    hasSlideAudioguide,
+    slideScripts,
+    miniAudioText,
+    language,
+    audioGuideUrl,
+    activeSectionIndex,
+  ]);
 
   const runLandmarkNarration = useCallback(
     async (text) => {
@@ -2633,10 +2709,45 @@ export default function LandmarkResultPage({ navigation, route }) {
   );
 
   if (phase === 'mini') {
+    const miniHeroFrameStyle = { width: winW, height: winH };
+    const miniHeroContentPosition =
+      homeHeroLayout.homeHeroContentFit === 'contain'
+        ? 'center'
+        : homeHeroLayout.homeHeroContentPosition || 'center';
+    const renderMiniHeroImage = (imageStyle, frameDims) => {
+      const sizedStyle = frameDims ? [imageStyle, frameDims] : imageStyle;
+      if (miniHeroUseRnImage) {
+        return (
+          <Image
+            key={miniHeroImageKey}
+            source={miniHeroPhotoSource}
+            style={sizedStyle}
+            resizeMode="cover"
+            accessibilityIgnoresInvertColors
+          />
+        );
+      }
+      return (
+        <ExpoImage
+          key={miniHeroImageKey}
+          source={miniHeroExpoSource}
+          style={sizedStyle}
+          contentFit={homeHeroLayout.homeHeroContentFit || 'cover'}
+          contentPosition={miniHeroContentPosition}
+          cachePolicy="memory-disk"
+          transition={0}
+          allowDownscaling
+          onError={onMiniHeroError}
+          pointerEvents="none"
+          accessibilityIgnoresInvertColors
+        />
+      );
+    };
+
     return (
       <RenderProfiler id="LandmarkResultPage">
       <View style={styles.screen} {...miniPhaseSwipeHandlers}>
-        {heroPhotoSource ? (
+        {miniHeroPhotoSource ? (
           miniHeroClipHeight ? (
             <View
               style={[
@@ -2646,33 +2757,12 @@ export default function LandmarkResultPage({ navigation, route }) {
               ]}
               pointerEvents="none"
             >
-              <ExpoImage
-                source={heroPhotoSource}
-                style={styles.hero}
-                contentFit={homeHeroLayout.homeHeroContentFit || 'cover'}
-                contentPosition={
-                  homeHeroLayout.homeHeroContentFit === 'contain'
-                    ? 'center'
-                    : homeHeroLayout.homeHeroContentPosition || 'top'
-                }
-                cachePolicy="memory-disk"
-                transition={0}
-                allowDownscaling
-                accessibilityIgnoresInvertColors
-              />
+              {renderMiniHeroImage(styles.hero)}
             </View>
           ) : (
-            <ExpoImage
-              source={heroPhotoSource}
-              style={styles.miniHeroImage}
-              contentFit="cover"
-              contentPosition={homeHeroLayout.homeHeroContentPosition || 'top'}
-              cachePolicy="memory-disk"
-              transition={0}
-              allowDownscaling
-              pointerEvents="none"
-              accessibilityIgnoresInvertColors
-            />
+            <View style={styles.miniHeroFrame} pointerEvents="none">
+              {renderMiniHeroImage(styles.miniHeroImage, miniHeroFrameStyle)}
+            </View>
           )
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
@@ -3464,13 +3554,18 @@ export default function LandmarkResultPage({ navigation, route }) {
               allowDownscaling
               accessibilityIgnoresInvertColors
             />
-          ) : (
-            <Image
-              source={{ uri: currentPage.slide?.photoUri }}
+          ) : currentPage.slide?.photoUri ? (
+            <ExpoImage
+              source={{ uri: currentPage.slide.photoUri }}
               style={[styles.readFactImage, styles.readFactImageBleed]}
-              resizeMode="cover"
+              contentFit="cover"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={0}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
             />
-          )}
+          ) : null}
           {currentPage.type === 'fact' ? (
             <View style={styles.readFactOverlay} />
           ) : null}
@@ -3617,6 +3712,10 @@ const styles = StyleSheet.create({
   },
   miniHeroImage: {
     ...StyleSheet.absoluteFillObject,
+  },
+  miniHeroFrame: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
   },
   heroClip: {
     position: 'absolute',

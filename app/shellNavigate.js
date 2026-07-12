@@ -4,7 +4,7 @@ import { StackActions } from '@react-navigation/native';
 import { navigationRef, subscribeNavState } from './navigationRef';
 import { appLangBase } from './appLang';
 import { KRAINA_APP_LANGUAGE_CHANGED } from './appLanguageEvents';
-import { getAppThemeSync, resolveAppTheme } from './themeStorage';
+import { getAppThemeSync, resolveAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
 
 const APP_LANGUAGE_STORAGE_KEY = '@kraina_app_language';
 
@@ -30,6 +30,10 @@ function normalizeLang(raw) {
 DeviceEventEmitter.addListener(KRAINA_APP_LANGUAGE_CHANGED, (v) => {
   const n = normalizeLang(v);
   if (n) cachedAppLanguage = n;
+});
+
+DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, () => {
+  cachedShellParams = { ...cachedShellParams, appTheme: getAppThemeSync() };
 });
 
 function walkRoutes(state, visitor) {

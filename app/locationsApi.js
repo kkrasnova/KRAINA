@@ -38,7 +38,12 @@ export async function searchLocationsPublished(q, limit = 20) {
     });
 
     const rows = allLocations
-      .filter((row) => `${row.name || ''} ${row.country || ''} ${row.city || ''}`.toLowerCase().includes(queryText))
+      .filter((row) => {
+        const hay = `${row.title || ''} ${row.name || ''} ${row.city || ''} ${row.country || ''} ${row.address || ''}`
+          .toLowerCase()
+          .trim();
+        return hay.includes(queryText);
+      })
       .slice(0, Math.max(1, Number(limit) || 20));
 
     return { rows, networkError: false };

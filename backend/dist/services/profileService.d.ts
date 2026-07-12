@@ -1,3 +1,4 @@
+import { listActiveStoriesForUser, listUserPostsForViewer } from './feedService.js';
 export interface ProfileDTO {
     id: string;
     user_id: string;
@@ -62,6 +63,8 @@ export interface PublicProfileFullDTO {
     followers: PublicProfilePersonDTO[];
     following: PublicProfilePersonDTO[];
     friends: PublicProfilePersonDTO[];
+    posts: Awaited<ReturnType<typeof listUserPostsForViewer>>;
+    stories: Awaited<ReturnType<typeof listActiveStoriesForUser>>;
 }
 export interface ProfileSearchHitDTO {
     user_id: string;

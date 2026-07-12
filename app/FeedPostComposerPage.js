@@ -1,11 +1,11 @@
-import { resolveAppTheme } from './themeStorage';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useAppTheme } from './useAppTheme';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
-  Image,
   TextInput,
   FlatList,
   useWindowDimensions,
@@ -14,6 +14,7 @@ import {
   Alert,
   KeyboardAvoidingView,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Video, ResizeMode } from './expoAvCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -21,7 +22,7 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { fc } from './feedComposerI18n';
-import { prependUserFeedPost, removeUserFeedPost, saveFeedPostBackendIdMap } from './feedLocalStorage';
+import { prependUserFeedPost, removeUserFeedPost, saveFeedPostBackendIdMap, resolveFeedLocalUser } from './feedLocalStorage';
 import {
   hasFeedApiToken,
   ensureFeedApiReady,
@@ -41,6 +42,21 @@ import { registerPendingFeedPostSync } from './feedPostSyncBridge';
 import { emitDeviceGalleryChanged } from './deviceGallerySync';
 import { errorToUserText } from './errorText';
 import { RenderProfiler } from './performanceMetrics';
+import {
+  buildComposerDraft,
+  clearComposerDraft,
+  composerDraftFromRouteParams,
+  recallComposerDraft,
+  rememberComposerDraft,
+} from './feedComposerDraft';
+
+function resolveInitialComposerDraft(route) {
+  return (
+    composerDraftFromRouteParams(route?.params) ||
+    recallComposerDraft() ||
+    buildComposerDraft()
+  );
+}
 
 export default function FeedPostComposerPage({ navigation, route }) {
   const uris = route.params?.uris || [];
@@ -49,41 +65,91 @@ export default function FeedPostComposerPage({ navigation, route }) {
   const { width } = useWindowDimensions();
   const language = useSyncedAppLanguage(route, 'uk');
   const authUser = useAuthStore((s) => s.user);
+  const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
   const user = route?.params?.user || authUser;
+  const feedLocalUser = resolveFeedLocalUser(user, { authUser, profileUserId: profileMeUserId });
   const countryId = route?.params?.countryId;
-  const appTheme = resolveAppTheme(route?.params?.appTheme);
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? 'rgba(30,30,30,0.5)' : 'rgba(255,255,255,0.35)';
 
-  const [caption, setCaption] = useState('');
-  const [place, setPlace] = useState('');
-  const [mapLat, setMapLat] = useState(null);
-  const [mapLng, setMapLng] = useState(null);
+  const initialDraft = useMemo(() => resolveInitialComposerDraft(route), []);
+  const [caption, setCaption] = useState(initialDraft.caption);
+  const [place, setPlace] = useState(initialDraft.place);
+  const [mapLat, setMapLat] = useState(initialDraft.mapLat);
+  const [mapLng, setMapLng] = useState(initialDraft.mapLng);
   const [busy, setBusy] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [savedRoutes, setSavedRoutes] = useState([]);
   const [routeModal, setRouteModal] = useState(false);
-  const [routePick, setRoutePick] = useState(null);
+  const [routePick, setRoutePick] = useState(initialDraft.routePick);
   const langUk = language.split(/[-_]/)[0].toLowerCase() === 'uk';
   const mediaListRef = useRef(null);
+  const draftHydratedRef = useRef(false);
 
-  const shell = {
-    user,
-    language,
-    appTheme,
-    ...(countryId != null ? { countryId } : {}),
-    uris,
-  };
+  const composerDraft = useMemo(
+    () => buildComposerDraft({ caption, place, mapLat, mapLng, routePick }),
+    [caption, place, mapLat, mapLng, routePick],
+  );
+
+  const shell = useMemo(
+    () => ({
+      user,
+      language,
+      appTheme,
+      ...(countryId != null ? { countryId } : {}),
+      uris,
+      composerDraft,
+    }),
+    [user, language, appTheme, countryId, uris, composerDraft],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const fromRoute = composerDraftFromRouteParams(route.params);
+      const fromMemory = recallComposerDraft();
+      const draft = fromMemory || fromRoute;
+      if (!draft) return;
+      if (!draftHydratedRef.current) {
+        draftHydratedRef.current = true;
+        setCaption(draft.caption);
+        setPlace(draft.place);
+        setMapLat(draft.mapLat);
+        setMapLng(draft.mapLng);
+        setRoutePick(draft.routePick);
+        return;
+      }
+      setCaption((prev) => (prev.trim() ? prev : draft.caption));
+      if (draft.mapLat != null && draft.mapLng != null) {
+        setMapLat(draft.mapLat);
+        setMapLng(draft.mapLng);
+      }
+      if (draft.place.trim()) {
+        setPlace(draft.place);
+      }
+      setRoutePick((prev) => (prev != null ? prev : draft.routePick));
+    }, [route.params?.composerDraft]),
+  );
+
+  useEffect(() => {
+    rememberComposerDraft(composerDraft);
+    navigation.setParams({ composerDraft });
+  }, [composerDraft, navigation]);
 
   useEffect(() => {
     const { pickedLat, pickedLng, pickedLabel } = route.params || {};
     if (pickedLat != null && pickedLng != null) {
+      const label = pickedLabel ? String(pickedLabel).trim() : '';
       setMapLat(pickedLat);
       setMapLng(pickedLng);
-      if (pickedLabel) setPlace(pickedLabel);
+      if (label) setPlace(label);
+      rememberComposerDraft({
+        mapLat: pickedLat,
+        mapLng: pickedLng,
+        ...(label ? { place: label } : {}),
+      });
       navigation.setParams({
         pickedLat: undefined,
         pickedLng: undefined,
@@ -91,6 +157,13 @@ export default function FeedPostComposerPage({ navigation, route }) {
       });
     }
   }, [route.params?.pickedLat, route.params?.pickedLng, route.params?.pickedLabel, navigation]);
+
+  const clearPlaceMark = useCallback(() => {
+    setPlace('');
+    setMapLat(null);
+    setMapLng(null);
+    rememberComposerDraft({ place: '', mapLat: null, mapLng: null });
+  }, []);
 
   useEffect(() => {
     let c = false;
@@ -108,14 +181,14 @@ export default function FeedPostComposerPage({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    const activeUser = user || authUser;
+    const activeUser = feedLocalUser || user || authUser;
     if (!activeUser?.id || hasBackendSession()) return;
     void ensureFeedSocialReady(activeUser);
   }, [user, authUser]);
 
   useEffect(() => {
     if (__DEV__) {
-      const activeUser = user || authUser;
+      const activeUser = feedLocalUser || user || authUser;
       const hasToken = !!useAuthStore.getState().accessToken;
       const hasFeedToken = hasFeedApiToken();
       console.log('[FeedPostComposer] page loaded:', {
@@ -155,11 +228,12 @@ export default function FeedPostComposerPage({ navigation, route }) {
       ...shell,
       publishVisibility,
       initialUris: Array.isArray(uris) ? uris : [],
+      composerDraft,
     });
-  }, [navigation, shell, publishVisibility, uris]);
+  }, [navigation, shell, publishVisibility, uris, composerDraft]);
 
   const publish = useCallback(async () => {
-    const activeUser = user || authUser;
+    const activeUser = feedLocalUser || user || authUser;
     if (!uris.length || busy) {
       if (__DEV__) console.log('[FeedPostComposer] publish blocked:', { urisLen: uris.length, busy });
       return;
@@ -190,6 +264,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
 
     try {
       if (__DEV__) console.log('[FeedPostComposer] processing media uris:', uris.length);
+      const sessionReadyPromise = ensureFeedSocialReady(activeUser);
       const mediaUris = await Promise.all(
         uris.map(async (u) => {
           if (isPersistedFeedMediaUri(u)) return normalizeLocalFileUri(u);
@@ -221,11 +296,12 @@ export default function FeedPostComposerPage({ navigation, route }) {
       if (__DEV__) console.log('[FeedPostComposer] local post created:', localPostId);
       emitFeedMediaUpdated({ kind: 'post', userId, post: localPost, visibility: publishVisibility });
       emitDeviceGalleryChanged();
+      clearComposerDraft();
       resetToHomeFeedTab(navigation, shellObj);
 
       const syncPromise = (async () => {
         try {
-          await ensureFeedSocialReady(activeUser);
+          await sessionReadyPromise;
           if (!hasBackendSession()) {
             if (__DEV__) console.warn('[FeedPostComposer] no feed token after ready');
             return null;
@@ -269,6 +345,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
             postId: backendPostId,
             localPostId,
             synced: true,
+            mediaUrls: remoteUrls,
           });
           if (__DEV__) console.log('[FeedPostComposer] post synced:', backendPostId);
           return backendPostId;
@@ -289,7 +366,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
     } finally {
       setBusy(false);
     }
-  }, [uris, busy, user, authUser, language, place, mapLat, mapLng, caption, countryId, publishVisibility, routePick, navigation, appTheme, shell]);
+  }, [uris, busy, user, authUser, feedLocalUser, language, place, mapLat, mapLng, caption, countryId, publishVisibility, routePick, navigation, appTheme, shell]);
 
   if (!uris.length) {
     return (
@@ -355,7 +432,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
                       showPoster
                     />
                   ) : (
-                    <Image source={{ uri: item }} style={styles.heroFill} resizeMode="cover" />
+                    <ExpoImage source={{ uri: item }} style={styles.heroFill} contentFit="cover" transition={120} />
                   )}
                   {showOrder ? (
                     <View style={[styles.orderBadge, { backgroundColor: accent }]}>
@@ -422,6 +499,21 @@ export default function FeedPostComposerPage({ navigation, route }) {
           </Pressable>
         </View>
 
+        {place.trim() || (mapLat != null && mapLng != null) ? (
+          <View style={[styles.placeChip, isLight && styles.placeChipLight]}>
+            <Ionicons name="location" size={17} color={accent} />
+            <Text style={[styles.placeChipText, { color: textMain }]} numberOfLines={2}>
+              {place.trim() ||
+                (mapLat != null && mapLng != null
+                  ? `${mapLat.toFixed(4)}, ${mapLng.toFixed(4)}`
+                  : '')}
+            </Text>
+            <Pressable onPress={clearPlaceMark} hitSlop={8} accessibilityRole="button">
+              <Ionicons name="close-circle" size={18} color={textMuted} />
+            </Pressable>
+          </View>
+        ) : null}
+
         <Pressable
           style={({ pressed }) => [
             styles.galleryAddBtn,
@@ -456,7 +548,10 @@ export default function FeedPostComposerPage({ navigation, route }) {
             >
               {fc(language, 'routeAttachedHint')}
             </Text>
-            <Pressable onPress={() => setRoutePick(null)} hitSlop={8}>
+            <Pressable onPress={() => {
+              setRoutePick(null);
+              rememberComposerDraft({ routePick: null });
+            }} hitSlop={8}>
               <Text style={[styles.routeClearText, { color: accent }]}>{fc(language, 'clearRoute')}</Text>
             </Pressable>
           </View>
@@ -519,11 +614,12 @@ export default function FeedPostComposerPage({ navigation, route }) {
                       style={({ pressed }) => [styles.routePickRow, pressed && { opacity: 0.85 }]}
                       onPress={() => {
                         const stripped = stripRoutePlanForStorage(plan);
-                        setRoutePick(stripped);
-                        setPlace(
+                        const routeTitle =
                           (langUk ? stripped?.regionTitleUk : stripped?.regionTitleEn || stripped?.regionTitleUk) ||
-                            title,
-                        );
+                          title;
+                        setRoutePick(stripped);
+                        setPlace(routeTitle);
+                        rememberComposerDraft({ routePick: stripped, place: routeTitle });
                         setRouteModal(false);
                       }}
                     >
@@ -627,6 +723,24 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(30,30,30,0.18)',
   },
   outlineBtnText: { fontSize: 13, fontWeight: '600', flex: 1 },
+  placeChip: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  placeChipLight: {
+    backgroundColor: 'rgba(30,30,30,0.05)',
+    borderColor: 'rgba(30,30,30,0.12)',
+  },
+  placeChipText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   galleryAddBtn: {
     marginHorizontal: 20,
     marginTop: 10,

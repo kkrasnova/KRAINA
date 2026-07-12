@@ -111,6 +111,21 @@ export const HERO_THUMB_MAP = {
   khanenkoWorldTour: require('./assets/khanenko-world-tour.webp'),
   khanenkoStorage: require('./assets/khanenko-storage-funds.webp'),
   khanenkoClosing: require('./assets/khanenko-museum-facade.webp'),
+  /** Музей Van Gogh, Амстердам — фасад. */
+  vangoghMuseum: require('./assets/vangogh-museum-facade.webp'),
+  vangoghHome: require('./assets/vangogh-museum-facade.webp'),
+  /** Rijksmuseum, Амстердам — фасад. */
+  rijksmuseum: require('./assets/rijksmuseum-facade.webp'),
+  rijksmuseumHome: require('./assets/rijksmuseum-facade.webp'),
+  /** Vondelpark, Амстердам — озеро та алеї. */
+  vondelpark: require('./assets/vondelpark-hero.webp'),
+  vondelparkHome: require('./assets/vondelpark-hero.webp'),
+  /** Westerkerk, Амстердам — вежа біля каналу. */
+  westerkerk: require('./assets/westerkerk-hero.webp'),
+  westerkerkHome: require('./assets/westerkerk-hero.webp'),
+  /** Будинок Anne Frank, Амстердам — фасад на каналі. */
+  anneFrankHouse: require('./assets/anne-frank-house-hero.webp'),
+  anneFrankHouseHome: require('./assets/anne-frank-house-hero.webp'),
 };
 
 export const HERO_THUMB_KEYS = [
@@ -189,6 +204,16 @@ export const HERO_THUMB_KEYS = [
   'khanenkoWorldTour',
   'khanenkoStorage',
   'khanenkoClosing',
+  'vangoghMuseum',
+  'vangoghHome',
+  'rijksmuseum',
+  'rijksmuseumHome',
+  'vondelpark',
+  'vondelparkHome',
+  'westerkerk',
+  'westerkerkHome',
+  'anneFrankHouse',
+  'anneFrankHouseHome',
 ];
 
 export function isValidHeroThumbRef(ref) {

@@ -10,7 +10,6 @@ import {
   Alert,
   DeviceEventEmitter,
 } from 'react-native';
-import { Image as ExpoImage } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,7 +20,9 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { RenderProfiler } from './performanceMetrics';
 import { st, formatChatTime } from './chatsI18n';
 import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
-import { getChatsTheme, chatAvatarGradient } from './chatsTheme';
+import { getChatsTheme } from './chatsTheme';
+import ProfileAvatarCircle from './ProfileAvatarCircle';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
 import PddHeaderWordmark from './PddHeaderWordmark';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
@@ -61,11 +62,6 @@ import { isPlaceholderSocialUsername, normalizeSocialUsername } from './socialFo
 
 const HIDDEN_THREADS_PREFIX = '@kraina_hidden_threads_v1:';
 
-function peerInitial(name) {
-  const s = String(name || '').replace(/^@/, '').trim();
-  return s ? s.charAt(0).toUpperCase() : '?';
-}
-
 function ChatsSearchBar({ value, onChangeText, placeholder, isLight, accent, textMain, textMuted, border, theme }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -98,20 +94,10 @@ function ChatsSearchBar({ value, onChangeText, placeholder, isLight, accent, tex
   );
 }
 
-function ChatListAvatar({ uri, name, isLight, theme }) {
-  if (uri) {
-    return (
-      <View style={styles.avatarWrap}>
-        <ExpoImage source={{ uri }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" transition={120} />
-      </View>
-    );
-  }
-  const [gradStart] = chatAvatarGradient(name);
+function ChatListAvatar({ uri, isLight }) {
   return (
     <View style={styles.avatarWrap}>
-      <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: gradStart }]}>
-        <Text style={styles.avatarLetter}>{peerInitial(name)}</Text>
-      </View>
+      <ProfileAvatarCircle uri={uri || ''} size={56} isLight={isLight} />
     </View>
   );
 }
@@ -676,10 +662,7 @@ export default function ChatsPage({ navigation, route }) {
 
   const renderItem = useCallback(
     ({ item }) => {
-      const avatarUri =
-        item.peerAvatarUri && (item.peerAvatarUri.startsWith('http') || item.peerAvatarUri.startsWith('file'))
-          ? item.peerAvatarUri
-          : null;
+      const avatarUri = resolveFeedMediaUrl(item.peerAvatarUri || '');
       const isRequest = folder === 'requests' && item.pendingForMe;
       const unread = (item.unreadCount || 0) > 0 && !isRequest;
       const rowInner = (
@@ -696,12 +679,7 @@ export default function ChatsPage({ navigation, route }) {
           ]}
           android_ripple={ripple}
         >
-          <ChatListAvatar
-            uri={avatarUri}
-            name={item.peerDisplayName || item.peerName}
-            isLight={isLight}
-            theme={theme}
-          />
+          <ChatListAvatar uri={avatarUri} isLight={isLight} />
           <View style={styles.rowBody}>
             <View style={styles.rowTop}>
               <Text
@@ -1100,19 +1078,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   avatarWrap: {
-    width: 52,
-    height: 52,
+    width: 56,
+    height: 56,
     marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-  },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
-  avatarLetter: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
   rowBody: { flex: 1, minWidth: 0 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   peerName: { flex: 1, fontSize: 16, fontWeight: '600', marginRight: 8 },

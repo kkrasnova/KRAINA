@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { useAppTheme } from './useAppTheme';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { brandFontSansBold } from './brandFont';
@@ -33,7 +34,6 @@ export default function MapTabPage({ navigation, route, isTabActive = true }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const { appTheme } = useAppTheme(route?.params?.appTheme, route);
   const [mode, setMode] = useState('map');
-  const mapReadyRef = useRef(false);
   const [segmentLayout, setSegmentLayout] = useState({ width: 0 });
   const [tabChromeHeight, setTabChromeHeight] = useState(52);
   const segmentPad = 3;
@@ -66,11 +66,12 @@ export default function MapTabPage({ navigation, route, isTabActive = true }) {
     if (route?.params?.mapInitialRoutePoint) setMode('map');
   }, [route?.params?.mapInitialRoutePoint]);
 
-  useEffect(() => {
-    if (!mapReadyRef.current) {
-      mapReadyRef.current = true;
-      markEnd('map_interactive');
-    }
+  const mapInteractiveRef = useRef(false);
+
+  const handleMapInteractive = useCallback(() => {
+    if (mapInteractiveRef.current) return;
+    mapInteractiveRef.current = true;
+    markEnd('map_interactive');
   }, []);
 
   const isLight = appTheme === 'light';
@@ -80,7 +81,9 @@ export default function MapTabPage({ navigation, route, isTabActive = true }) {
   const segmentPillBg = isLight ? '#ECECEC' : 'rgba(255,255,255,0.18)';
   const segmentTextActive = isLight ? '#0A0A0A' : '#F7F7F2';
   const segmentTextMuted = isLight ? '#6B6B6B' : '#B0B0B0';
-  const segmentBorder = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.22)';
+  const segmentBorder = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(225,255,0,0.48)';
+  const segmentMapOuterBg = isLight ? 'rgba(255,255,255,0.92)' : 'rgba(28,28,34,0.94)';
+  const segmentMapBlurTint = isLight ? 'rgba(255,255,255,0.72)' : 'rgba(28,28,34,0.88)';
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const tabBarPad = lightTabBarExtraScrollPadding();
 
@@ -96,8 +99,72 @@ export default function MapTabPage({ navigation, route, isTabActive = true }) {
     SEARCH_BELOW_TAB_GAP +
     4;
 
+  const segmentInner = (
+    <View
+      style={[
+        styles.segment,
+        {
+          borderColor: segmentBorder,
+          padding: segmentPad,
+          backgroundColor: mode === 'map' ? 'transparent' : segmentTrackBg,
+        },
+      ]}
+    >
+      {pillW > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.segmentPill,
+            {
+              width: pillW,
+              backgroundColor: segmentPillBg,
+              transform: [{ translateX: pillTranslate }],
+            },
+          ]}
+        />
+      ) : null}
+      <View style={styles.segmentRow}>
+        <Pressable
+          onPress={() => setMode('map')}
+          android_ripple={ripple}
+          style={({ pressed }) => [styles.segBtn, pressed && styles.segBtnPressed]}
+        >
+          <Text
+            style={[
+              styles.segTxt,
+              brandFontSansBold,
+              {
+                color: mode === 'map' ? (isLight ? segmentTextActive : accent) : segmentTextMuted,
+              },
+            ]}
+          >
+            {gm(language, 'mapTab')}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setMode('planner')}
+          android_ripple={ripple}
+          style={({ pressed }) => [styles.segBtn, pressed && styles.segBtnPressed]}
+        >
+          <Text
+            style={[
+              styles.segTxt,
+              brandFontSansBold,
+              {
+                color:
+                  mode === 'planner' ? (isLight ? segmentTextActive : accent) : segmentTextMuted,
+              },
+            ]}
+          >
+            {gm(language, 'plannerTab')}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
   return (
-    <View style={[styles.screen, mode === 'planner' && { backgroundColor: bg }]}>
+    <View style={styles.screen}>
       <View style={[styles.body, Platform.OS === 'android' && styles.bodyAndroid]}>
         {mode === 'map' ? (
           <GeoMapExplorer
@@ -106,13 +173,16 @@ export default function MapTabPage({ navigation, route, isTabActive = true }) {
             bottomInset={tabBarPad}
             topContentInset={mapTopInset}
             isTabActive={isTabActive}
+            onMapInteractive={handleMapInteractive}
           />
         ) : (
-          <RouteFinderPage
-            navigation={navigation}
-            route={route}
-            embedHeroPaddingTop={plannerHeroTop}
-          />
+          <View style={[styles.plannerFill, { backgroundColor: bg }]}>
+            <RouteFinderPage
+              navigation={navigation}
+              route={route}
+              embedHeroPaddingTop={plannerHeroTop}
+            />
+          </View>
         )}
       </View>
 
@@ -127,80 +197,37 @@ export default function MapTabPage({ navigation, route, isTabActive = true }) {
           }}
           style={styles.segmentWrap}
         >
-          <View
-            style={[
-              styles.segmentOuter,
-              isLight ? styles.segmentOuterLight : styles.segmentOuterDark,
-            ]}
-          >
+          {mode === 'map' && Platform.OS === 'ios' ? (
+            <BlurView
+              intensity={isLight ? 72 : 64}
+              tint={isLight ? 'light' : 'dark'}
+              style={[
+                styles.segmentBlur,
+                isLight ? styles.segmentOuterLight : styles.segmentOuterDark,
+              ]}
+            >
+              <View
+                style={[
+                  styles.segmentBlurTint,
+                  { backgroundColor: segmentMapBlurTint },
+                ]}
+              />
+              {segmentInner}
+            </BlurView>
+          ) : (
             <View
               style={[
-                styles.segment,
-                {
+                styles.segmentOuter,
+                isLight ? styles.segmentOuterLight : styles.segmentOuterDark,
+                mode === 'map' && {
+                  backgroundColor: segmentMapOuterBg,
                   borderColor: segmentBorder,
-                  padding: segmentPad,
-                  backgroundColor: segmentTrackBg,
                 },
               ]}
             >
-              {pillW > 0 ? (
-                <Animated.View
-                  pointerEvents="none"
-                  style={[
-                    styles.segmentPill,
-                    {
-                      width: pillW,
-                      backgroundColor: segmentPillBg,
-                      transform: [{ translateX: pillTranslate }],
-                    },
-                  ]}
-                />
-              ) : null}
-              <View style={styles.segmentRow}>
-                <Pressable
-                  onPress={() => setMode('map')}
-                  android_ripple={ripple}
-                  style={({ pressed }) => [
-                    styles.segBtn,
-                    pressed && styles.segBtnPressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.segTxt,
-                      brandFontSansBold,
-                      {
-                        color: mode === 'map' ? (isLight ? segmentTextActive : accent) : segmentTextMuted,
-                      },
-                    ]}
-                  >
-                    {gm(language, 'mapTab')}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setMode('planner')}
-                  android_ripple={ripple}
-                  style={({ pressed }) => [
-                    styles.segBtn,
-                    pressed && styles.segBtnPressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.segTxt,
-                      brandFontSansBold,
-                      {
-                        color:
-                          mode === 'planner' ? (isLight ? segmentTextActive : accent) : segmentTextMuted,
-                      },
-                    ]}
-                  >
-                    {gm(language, 'plannerTab')}
-                  </Text>
-                </Pressable>
-              </View>
+              {segmentInner}
             </View>
-          </View>
+          )}
         </View>
       </View>
     </View>
@@ -222,6 +249,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
   },
+  segmentBlur: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  segmentBlurTint: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  plannerFill: { flex: 1 },
   segmentOuterLight: {
     borderColor: 'rgba(0,0,0,0.08)',
     backgroundColor: '#FFFFFF',
@@ -236,8 +272,8 @@ const styles = StyleSheet.create({
     }),
   },
   segmentOuterDark: {
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: '#1A1A1C',
+    borderColor: 'rgba(225,255,0,0.42)',
+    backgroundColor: '#1C1C22',
     ...Platform.select({
       ios: {
         shadowColor: '#000',

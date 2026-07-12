@@ -41,10 +41,12 @@ export function getAppThemeSync() {
   return cachedAppTheme ?? 'dark';
 }
 
-/** route.params → кеш → dark. Без явного вибору в Settings — завжди dark. */
-export function resolveAppTheme(routeTheme) {
+/**
+ * Актуальна тема для екранів: збережений вибір користувача (кеш/AsyncStorage).
+ * route.params.appTheme ігнорується — він часто застарілий після перемикача в Налаштуваннях.
+ */
+export function resolveAppTheme(_routeTheme) {
   if (!getThemeUserChosenSync()) return 'dark';
-  if (routeTheme === 'light' || routeTheme === 'dark') return routeTheme;
   return getAppThemeSync();
 }
 

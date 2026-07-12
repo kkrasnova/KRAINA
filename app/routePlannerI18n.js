@@ -142,9 +142,21 @@ const S = {
     uk: 'Авто',
     en: 'Drive',
   },
+  bike: {
+    uk: 'Велосипед',
+    en: 'Bicycle',
+  },
+  bus: {
+    uk: 'Автобус',
+    en: 'Bus',
+  },
+  train: {
+    uk: 'Поїзд',
+    en: 'Train',
+  },
   hintRegion: {
-    uk: 'Місто, район або ваша геолокація — підберемо піший маршрут під ваш час.',
-    en: 'City, district, or your location — we’ll plan a walking route for your time.',
+    uk: 'Місто, район або ваша геолокація — підберемо маршрут під ваш час.',
+    en: 'City, district, or your location — we’ll plan a route for your time.',
   },
   noStops: {
     uk: 'Не вдалося скласти маршрут. Спробуйте більше годин або ширший набір інтересів.',
@@ -187,12 +199,72 @@ const S = {
     en: 'Rerouting…',
   },
   tapMapToWalk: {
-    uk: 'Натисніть на карту, щоб стати на маршрут і піти пішки',
-    en: 'Tap the map to stand on the route and start walking',
+    uk: 'Натисніть на карту, щоб стати на маршрут і почати рух',
+    en: 'Tap the map to stand on the route and start navigation',
   },
   tapMapWalkActive: {
-    uk: 'Рухайтеся за жовтою лінією на карті',
-    en: 'Follow the yellow line on the map',
+    uk: 'Камера слідує за маршрутом',
+    en: 'Camera follows the route',
+  },
+  pinchMapHint: {
+    uk: 'Натисніть ▶ або пішехода — вид з-за спини',
+    en: 'Tap ▶ or the walker for a behind-the-back view',
+  },
+  autoWalking: {
+    uk: 'Рухаємося по синій лінії',
+    en: 'Following the blue route line',
+  },
+  zoomInMap: {
+    uk: 'Наблизити',
+    en: 'Zoom in',
+  },
+  followWalker: {
+    uk: 'Слідкувати за пешеходом',
+    en: 'Follow walker',
+  },
+  youAreHere: {
+    uk: 'Ви тут',
+    en: 'You are here',
+  },
+  tapFollowCamera: {
+    uk: 'Натисніть — камера слідує за вами',
+    en: 'Tap — camera follows you',
+  },
+  navGoalPin: {
+    uk: 'Ціль',
+    en: 'Goal',
+  },
+  followBlueRoute: {
+    uk: 'Йдіть по синій лінії',
+    en: 'Follow the blue line',
+  },
+  posModeGps: {
+    uk: 'Ваш GPS',
+    en: 'Your GPS',
+  },
+  posModeManual: {
+    uk: 'Вручну на карті',
+    en: 'Placed on map',
+  },
+  tapMapToMove: {
+    uk: 'Натисніть на карту — переставити себе',
+    en: 'Tap the map to move yourself',
+  },
+  switchToGps: {
+    uk: 'Знову GPS',
+    en: 'Use GPS again',
+  },
+  zoomOutMap: {
+    uk: 'Віддалити',
+    en: 'Zoom out',
+  },
+  zoomToTurn: {
+    uk: 'Приблизити поворот',
+    en: 'Zoom to turn',
+  },
+  tapTurnToZoom: {
+    uk: 'Натисніть пішехода — вид з-за спини',
+    en: 'Tap the walker for a behind-the-back view',
   },
   fitFullRoute: {
     uk: 'Весь маршрут',
@@ -201,6 +273,30 @@ const S = {
   headingTo: {
     uk: 'Рух до',
     en: 'Heading to',
+  },
+  goThisWay: {
+    uk: 'Йдіть сюди',
+    en: 'Go this way',
+  },
+  followBlueLine: {
+    uk: 'Рухайтеся по синій лінії на карті',
+    en: 'Follow the blue line on the map',
+  },
+  navThenStreet: {
+    uk: 'Далі по вулиці',
+    en: 'Then follow the street',
+  },
+  navEtaBanner: {
+    uk: '{eta} хв · {dist} до цілі',
+    en: '{eta} min · {dist} to destination',
+  },
+  navGpsActive: {
+    uk: 'Навігація за GPS',
+    en: 'GPS navigation',
+  },
+  walkTowardStop: {
+    uk: '{dist} — до «{stop}»',
+    en: '{dist} — toward «{stop}»',
   },
   shareRoute: {
     uk: 'Поділитись маршрутом',
@@ -218,6 +314,62 @@ const S = {
     uk: 'Пропустити маршрут',
     en: 'Skip route',
   },
+  skipRouteConfirm: {
+    uk: 'Повернутися назад чи згенерувати інший варіант?',
+    en: 'Go back or generate another option?',
+  },
+  routeForTrip: {
+    uk: 'Маршрут для подорожі',
+    en: 'Route for your trip',
+  },
+  routeChoiceHint: {
+    uk: '✕ біля зупинки — пропустити. «Обрати» — наступний крок.',
+    en: '✕ on a stop — skip it. «Choose» — next step.',
+  },
+  notThisRoute: {
+    uk: 'Не підходить',
+    en: 'Not for me',
+  },
+  chooseRoute: {
+    uk: 'Обрати',
+    en: 'Choose',
+  },
+  scrollStopsHint: {
+    uk: 'Листайте список · ✕ прибрати з маршруту',
+    en: 'Scroll the list · ✕ to remove from route',
+  },
+  chooseRouteSaved: {
+    uk: 'Маршрут збережено. Натисніть «В дорогу», коли будете готові.',
+    en: 'Route saved. Tap «Start trip» when you are ready.',
+  },
+  goBack: {
+    uk: 'Назад',
+    en: 'Go back',
+  },
+  skipStop: {
+    uk: 'Пропустити локацію',
+    en: 'Skip this stop',
+  },
+  restoreStop: {
+    uk: 'Повернути',
+    en: 'Restore',
+  },
+  stopSkipped: {
+    uk: 'Пропущено',
+    en: 'Skipped',
+  },
+  needOneStop: {
+    uk: 'Залиште хоча б одну зупинку в маршруті',
+    en: 'Keep at least one stop in the route',
+  },
+  allStopsSkipped: {
+    uk: 'Усі локації пропущено',
+    en: 'All locations were skipped',
+  },
+  remainingStops: {
+    uk: 'Залишилось {count} локацій',
+    en: '{count} locations left',
+  },
   viewHistory: {
     uk: 'Переглянути історію',
     en: 'View story',
@@ -227,8 +379,8 @@ const S = {
     en: 'To story',
   },
   navFollowMap: {
-    uk: 'Рухайтеся за жовтою лінією на карті.',
-    en: 'Follow the yellow line on the map.',
+    uk: 'Рухайтеся за лінією маршруту на карті.',
+    en: 'Follow the route line on the map.',
   },
   addMapsKeyHint: {
     uk: 'Додайте googleMapsApiKey у app.json (Directions API), щоб лінія маршруту збігалася з дорогами.',
@@ -239,8 +391,8 @@ const S = {
     en: 'Move closer to the landmark (within 100 m) to open the story.',
   },
   historyToGo: {
-    uk: 'До історії {dist} м',
-    en: '{dist} m to story',
+    uk: 'До історії — {dist}',
+    en: '{dist} to story',
   },
   stopProgress: {
     uk: 'Зупинка {current} з {total}',

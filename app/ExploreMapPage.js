@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG, mainContentTopBelowTopBar } from './AppTopBar';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
@@ -16,20 +16,7 @@ import { gm } from './geoMapI18n';
 export default function ExploreMapPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const bg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
 
   return (

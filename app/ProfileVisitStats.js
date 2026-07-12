@@ -54,6 +54,18 @@ const CATEGORY_COLORS = {
   },
 };
 
+/** Matches ProfilePage `headWrap` / action buttons horizontal inset. */
+const STATS_SIDE_PAD = 16;
+const STATS_CARD_INSET = 14;
+const CHART_PANEL_INSET = 14;
+
+function chartWidthForPanel(winW, { insideStatsCard = false } = {}) {
+  const sidePad = STATS_SIDE_PAD * 2;
+  const cardPad = insideStatsCard ? STATS_CARD_INSET * 2 : 0;
+  const panelPad = CHART_PANEL_INSET * 2;
+  return Math.max(220, Math.min(winW - sidePad - cardPad - panelPad, 360));
+}
+
 function StatPill({ icon, label, value, isLight, accent, textMain, textMuted, chipBorder, chipBg }) {
   return (
     <View style={[styles.statPill, { backgroundColor: chipBg, borderColor: chipBorder }]}>
@@ -90,7 +102,8 @@ function ChartPanel({ title, subtitle, icon, children, isLight, textMain, textMu
 
 export default function ProfileVisitStats({ language, isLight, navigation, shell = {} }) {
   const { width: winW } = useWindowDimensions();
-  const chartW = Math.min(winW - 48, 360);
+  const stepsChartW = chartWidthForPanel(winW);
+  const embeddedChartW = chartWidthForPanel(winW, { insideStatsCard: true });
   const [periodKey, setPeriodKey] = useState('30d');
   const [visits, setVisits] = useState([]);
   const [quizBonusXp, setQuizBonusXp] = useState(0);
@@ -232,21 +245,23 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
                 textMuted={textMuted}
                 chipBorder={chipBorder}
               >
-                <BarChart
-                  data={{
-                    labels: stepsSeries.labels.length ? stepsSeries.labels : ['—'],
-                    datasets: [{ data: stepsSeries.data.length ? stepsSeries.data : [0] }],
-                  }}
-                  width={chartW}
-                  height={180}
-                  chartConfig={chartConfig}
-                  style={styles.stepsChart}
-                  fromZero
-                  showValuesOnTopOfBars
-                  yAxisLabel=""
-                  yAxisSuffix=""
-                  withInnerLines={false}
-                />
+                <View style={styles.chartClip}>
+                  <BarChart
+                    data={{
+                      labels: stepsSeries.labels.length ? stepsSeries.labels : ['—'],
+                      datasets: [{ data: stepsSeries.data.length ? stepsSeries.data : [0] }],
+                    }}
+                    width={stepsChartW}
+                    height={180}
+                    chartConfig={chartConfig}
+                    style={styles.stepsChart}
+                    fromZero
+                    showValuesOnTopOfBars
+                    yAxisLabel=""
+                    yAxisSuffix=""
+                    withInnerLines={false}
+                  />
+                </View>
               </ChartPanel>
             </>
           )
@@ -376,7 +391,13 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
         <Text style={[styles.sectionTitle, { color: textMuted, marginTop: 12, marginBottom: 10 }]}>
           {pf(language, 'statsPeriod')}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          nestedScrollEnabled
+          directionalLockEnabled
+          contentContainerStyle={styles.chipsRow}
+        >
           {PERIODS.map((p) => {
             const on = periodKey === p.id;
             return (
@@ -438,7 +459,7 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
         >
           <VisitActivityChart
             series={lineSeries}
-            width={chartW}
+            width={embeddedChartW}
             isLight={isLight}
             accent={accent}
             textMain={textMain}
@@ -458,7 +479,7 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
           <CategoryDonutChart
             slices={categorySlices}
             total={categoryTotal}
-            width={chartW}
+            width={embeddedChartW}
             isLight={isLight}
             accent={accent}
             textMain={textMain}
@@ -472,7 +493,7 @@ export default function ProfileVisitStats({ language, isLight, navigation, shell
 }
 
 const styles = StyleSheet.create({
-  wrapEmpty: { paddingHorizontal: 16, paddingTop: 8 },
+  wrapEmpty: { paddingHorizontal: STATS_SIDE_PAD, paddingTop: 8, overflow: 'hidden' },
   hero: {
     width: '100%',
     marginTop: 8,
@@ -519,7 +540,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   heroCtaText: { fontSize: 16 },
-  wrap: { paddingHorizontal: 4, paddingTop: 8, paddingBottom: 108 },
+  wrap: {
+    paddingHorizontal: STATS_SIDE_PAD,
+    paddingTop: 8,
+    paddingBottom: 108,
+    overflow: 'hidden',
+  },
   stepsBlock: { marginTop: 4, marginBottom: 8 },
   statsChartsCard: {
     borderRadius: 22,
@@ -583,7 +609,8 @@ const styles = StyleSheet.create({
   chartPanelHeaderText: { flex: 1, minWidth: 0 },
   chartPanelTitle: { fontSize: 14, lineHeight: 19 },
   chartPanelSubtitle: { fontSize: 12, lineHeight: 16, marginTop: 2 },
-  stepsChart: { marginLeft: -8, borderRadius: 12 },
+  chartClip: { overflow: 'hidden', alignSelf: 'stretch' },
+  stepsChart: { borderRadius: 12, alignSelf: 'center' },
   stepsCta: {
     marginTop: 10,
     borderRadius: 14,

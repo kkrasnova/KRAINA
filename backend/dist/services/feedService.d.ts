@@ -105,7 +105,7 @@ export declare function listFriendsPosts(viewerId: string, limit?: number): Prom
     created_at: string;
     archived_at: string | null;
 }[]>;
-export declare function listUserPostsForViewer(viewerId: string, targetUsername: string, limit?: number): Promise<{
+export declare function listUserPostsForViewer(viewerId: string | null, targetUsername: string, limit?: number): Promise<{
     id: string;
     user_id: string;
     username: string;

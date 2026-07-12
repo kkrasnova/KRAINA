@@ -73,6 +73,30 @@ function patchPostListStats(list, postId, stats) {
   return touched ? next : list;
 }
 
+function removePostFromList(list, postIds) {
+  if (!Array.isArray(list) || !postIds?.size) return list;
+  const next = list.filter((p) => !postIds.has(String(p.id)));
+  return next.length === list.length ? list : next;
+}
+
+/** Прибрати пост з кешу стрічки без повного refetch. */
+export function patchFeedMainRemovePost(key, postId, localPostId, extraIds = []) {
+  if (!key) return;
+  const ids = new Set(
+    [postId, localPostId, ...(Array.isArray(extraIds) ? extraIds : [])]
+      .map((x) => String(x || ''))
+      .filter(Boolean),
+  );
+  if (!ids.size) return;
+  const row = store.get(key);
+  if (!row) return;
+  const fp = removePostFromList(row.fp, ids);
+  const wp = removePostFromList(row.wp, ids);
+  if (fp === row.fp && wp === row.wp) return;
+  store.set(key, { ...row, fp, wp, at: row.at });
+  DeviceEventEmitter.emit(FEED_MAIN_CACHE_UPDATED, { key });
+}
+
 /** Оновити лічильники поста в кеші без повного refetch стрічки. */
 export function patchFeedMainPostStats(key, postId, stats = {}) {
   if (!key || !postId) return;

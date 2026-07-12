@@ -32,10 +32,87 @@ export async function geocodeAddress(query, language) {
   }
 }
 
+function placeRowFromTextSearchResult(r) {
+  const lat = Number(r?.geometry?.location?.lat);
+  const lng = Number(r?.geometry?.location?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const name = String(r.name || '').trim();
+  const addr = String(r.formatted_address || '').trim();
+  const label =
+    name && addr && !addr.toLowerCase().includes(name.toLowerCase())
+      ? `${name} — ${addr}`
+      : name || addr;
+  if (!label) return null;
+  return {
+    id: String(r.place_id || `place_${lat}_${lng}`),
+    label,
+    lat,
+    lng,
+  };
+}
+
+/**
+ * Пошук будь-якого місця: POI, адреса, місто (Google Places Text Search + Geocoding).
+ * @param {string} query
+ * @param {string} language
+ * @returns {Promise<{ id: string, label: string, lat: number, lng: number }[]>}
+ */
+export async function searchPlaces(query, language) {
+  const key = getGoogleMapsApiKey();
+  const q = String(query || '').trim();
+  if (!key || !q) return [];
+
+  const lang = langParam(language);
+  const seen = new Set();
+  const out = [];
+
+  const push = (row) => {
+    if (!row?.id) return;
+    const lat = Number(row.lat);
+    const lng = Number(row.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const dedupe = `${lat.toFixed(4)}_${lng.toFixed(4)}`;
+    if (seen.has(dedupe)) return;
+    seen.add(dedupe);
+    out.push({ ...row, lat, lng });
+  };
+
+  try {
+    const tsUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(
+      q,
+    )}&language=${encodeURIComponent(lang)}&key=${encodeURIComponent(key)}`;
+    const tsRes = await fetch(tsUrl);
+    const tsJson = await tsRes.json();
+    if (tsJson.status === 'OK') {
+      for (const r of (tsJson.results || []).slice(0, 12)) {
+        const row = placeRowFromTextSearchResult(r);
+        if (row) push(row);
+      }
+    }
+  } catch {
+    /* fall through to geocoding */
+  }
+
+  if (out.length < 10) {
+    const geoRows = await geocodeAddress(q, language);
+    for (const row of geoRows) push(row);
+  }
+
+  return out.slice(0, 14);
+}
+
 /**
  * @returns {Promise<string|null>}
  */
 export async function reverseGeocodeLabel(lat, lng, language) {
+  const info = await reverseGeocodeStreetInfo(lat, lng, language);
+  return info?.formatted || null;
+}
+
+/**
+ * @returns {Promise<{ street: string|null, neighborhood: string|null, city: string|null, formatted: string|null }|null>}
+ */
+export async function reverseGeocodeStreetInfo(lat, lng, language) {
   const key = getGoogleMapsApiKey();
   if (!key || lat == null || lng == null) return null;
   const lang = langParam(language);
@@ -46,7 +123,18 @@ export async function reverseGeocodeLabel(lat, lng, language) {
     const res = await fetch(url);
     const json = await res.json();
     if (json.status !== 'OK' || !json.results?.length) return null;
-    return json.results[0].formatted_address || null;
+    const row = json.results[0];
+    const components = row.address_components || [];
+    const pick = (...types) => {
+      const hit = components.find((c) => types.some((t) => c.types?.includes(t)));
+      return hit?.long_name || null;
+    };
+    return {
+      street: pick('route'),
+      neighborhood: pick('neighborhood', 'sublocality', 'sublocality_level_1'),
+      city: pick('locality', 'postal_town', 'administrative_area_level_2'),
+      formatted: row.formatted_address || null,
+    };
   } catch {
     return null;
   }

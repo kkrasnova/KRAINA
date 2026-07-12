@@ -43,6 +43,20 @@ export async function getCachedOrRemoteAudioUri(remoteUrl) {
   return uri;
 }
 
+const prefetchInflight = new Map();
+
+/** Прогріває аудіогід у фоні (дедуплікація). */
+export function prefetchAudioGuideUrl(remoteUrl) {
+  const url = String(remoteUrl || '').trim();
+  if (!/^https?:\/\//i.test(url)) return Promise.resolve(url || null);
+  if (prefetchInflight.has(url)) return prefetchInflight.get(url);
+  const promise = getCachedOrRemoteAudioUri(url).finally(() => {
+    prefetchInflight.delete(url);
+  });
+  prefetchInflight.set(url, promise);
+  return promise;
+}
+
 /** Видалити один закешований файл за URL (опційно). */
 export async function deleteCachedAudioForUrl(remoteUrl) {
   const url = String(remoteUrl || '').trim();

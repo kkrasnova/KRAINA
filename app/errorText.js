@@ -39,6 +39,14 @@ const MAP_UK = {
   accept_failed: 'Не вдалося прийняти дзвінок',
   callee_id_required: 'Не вдалося визначити співрозмовника',
   cannot_call_self: 'Не можна дзвонити самому собі',
+  username_taken: 'Цей нікнейм вже зайнятий. Оберіть інший',
+  username_invalid: 'Нікнейм: 3–32 символи, латиниця, цифри або _',
+  invalid_username: 'Нікнейм: 3–32 символи, латиниця, цифри або _',
+  validation_error: 'Перевірте введені дані',
+  invalid_birth_date: 'Невірна дата народження',
+  bio_too_long: 'Опис занадто довгий (макс. 300 символів)',
+  display_name_too_long: 'Імʼя занадто довге (макс. 80 символів)',
+  location_label_too_long: 'Назва міста занадто довга',
 };
 
 const MAP_EN = {
@@ -79,6 +87,14 @@ const MAP_EN = {
   accept_failed: 'Could not accept the call',
   callee_id_required: 'Could not identify the other person',
   cannot_call_self: 'You cannot call yourself',
+  username_taken: 'This username is already taken. Choose another',
+  username_invalid: 'Username: 3–32 characters, letters, numbers, or _',
+  invalid_username: 'Username: 3–32 characters, letters, numbers, or _',
+  validation_error: 'Please check your input',
+  invalid_birth_date: 'Invalid date of birth',
+  bio_too_long: 'Bio is too long (max 300 characters)',
+  display_name_too_long: 'Name is too long (max 80 characters)',
+  location_label_too_long: 'City name is too long',
 };
 
 const GENERIC = { uk: 'Сталася помилка', en: 'Something went wrong' };

@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
@@ -77,7 +77,7 @@ const AnimatedView = Animated.createAnimatedComponent(View);
 export default function ProfileGamificationHubPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [gamify, setGamify] = useState(() => computeGamificationFromVisits([]));
   const [pagerPage, setPagerPage] = useState(0);
   const [selectedTier, setSelectedTier] = useState(null);
@@ -93,7 +93,6 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
   const rotAnim = useRef(new Animated.Value(0)).current;
   const lastTotalDeg = useRef(0);
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? '#5C5C5C' : '#9A9A9A';
@@ -124,13 +123,6 @@ export default function ProfileGamificationHubPage({ navigation, route }) {
           xp: serverXpRaw != null ? serverXpRaw : undefined,
         }
       : null;
-
-  React.useEffect(() => {
-    (async () => {
-      const t = await getAppTheme();
-      setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-  }, []);
 
   useFocusEffect(
     useCallback(() => {

@@ -10,7 +10,6 @@ import {
   Platform,
   Keyboard,
   ScrollView,
-  DeviceEventEmitter,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -20,13 +19,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { brandFontSansMedium, brandFontSansBold, brandFontSansSemibold } from './brandFont';
 
-import { getAppTheme, THEME_CHANGED_EVENT, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { RenderProfiler } from './performanceMetrics';
 import { gm } from './geoMapI18n';
 import { fetchPublishedLocations, searchLocationsPublished } from './locationsApi';
 import { fetchGoogleDirectionsPolyline, getGoogleMapsApiKey, openGoogleMapsDirections } from './googleMapsRoute';
-import { geocodeAddress, reverseGeocodeLabel } from './googleGeocode';
+import { orderStopsFromUserOrigin, isUserOriginNearRoute } from './routePlannerCore';
+import { reverseGeocodeLabel, searchPlaces } from './googleGeocode';
 import { buildGeoMapWalkPlan } from './geoMapRoutePlan';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { getSavedLandmarks } from './savedLandmarksStorage';
@@ -38,6 +38,9 @@ import {
 import { lightTabBarOverlayBottomInset } from './LightBottomTabBar';
 
 const UA_CENTER = { latitude: 48.45, longitude: 31.18, latitudeDelta: 6.5, longitudeDelta: 6.5 };
+/** Показуємо карту не довше 1 с — далі ховаємо оверлей навіть якщо onMapReady затримався. */
+const MAP_LOADING_MAX_MS = 1000;
+const MAP_READY_FALLBACK_MS = 750;
 
 /** Темна палітра карти — глибокий navy/ocean, приглушені підписи. */
 const MAP_STYLE_DARK = [
@@ -92,7 +95,7 @@ function normLoc(row) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return {
     id: String(row.id),
-    title: String(row.title || ''),
+    title: String(row.title || row.name || ''),
     city: String(row.city || ''),
     country: String(row.country || ''),
     category: row.category,
@@ -108,7 +111,7 @@ function straightCoords(points) {
 }
 
 /**
- * @param {{ navigation: any, route: any, bottomInset?: number, topContentInset?: number | null, isTabActive?: boolean }} props
+ * @param {{ navigation: any, route: any, bottomInset?: number, topContentInset?: number | null, isTabActive?: boolean, onMapInteractive?: () => void }} props
  */
 export default function GeoMapExplorer({
   navigation,
@@ -116,10 +119,11 @@ export default function GeoMapExplorer({
   bottomInset = 0,
   topContentInset = null,
   isTabActive = true,
+  onMapInteractive,
 }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const mapRef = useRef(null);
   const debounceRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -140,33 +144,12 @@ export default function GeoMapExplorer({
   const [userPos, setUserPos] = useState(null);
   const [meta, setMeta] = useState({ distanceM: null, durationSec: null });
   const [mapReady, setMapReady] = useState(false);
-  const [mapLayout, setMapLayout] = useState({ width: 0, height: 0 });
+  const [showMapLoading, setShowMapLoading] = useState(false);
   const [mapLayoutEpoch, setMapLayoutEpoch] = useState(0);
   const [mapFault, setMapFault] = useState(false);
   const mapTabActiveRef = useRef(false);
   const [savedList, setSavedList] = useState([]);
   const [showSaved, setShowSaved] = useState(false);
-
-  useEffect(() => {
-    let c = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => {
-      c = true;
-      sub.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (route?.params?.appTheme === 'light' || route?.params?.appTheme === 'dark') {
-      setAppTheme(route.params.appTheme);
-    }
-  }, [route?.params?.appTheme]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -228,61 +211,46 @@ export default function GeoMapExplorer({
     const q = debouncedQ;
     if (q.length < 2) {
       setSearchHits([]);
-      setSearching(false);
-      setSearchNetworkError(false);
-      return;
-    }
-    setSearching(true);
-    setSearchNetworkError(false);
-    (async () => {
-      const { rows, networkError } = await searchLocationsPublished(q, 24);
-      if (!cancelled) {
-        setSearchHits(rows.map(normLoc).filter(Boolean));
-        setSearchNetworkError(networkError);
-        setSearching(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedQ, searchRetryNonce]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const q = debouncedQ;
-    if (q.length < 2) {
       setGeocodeHits([]);
+      setSearching(false);
       setGeocoding(false);
+      setSearchNetworkError(false);
       return undefined;
     }
+    setSearching(true);
     setGeocoding(true);
+    setSearchNetworkError(false);
     (async () => {
-      let rows = [];
-      const key = getGoogleMapsApiKey();
-      if (key) {
-        rows = await geocodeAddress(q, language);
-      } else {
+      const catalogPromise = searchLocationsPublished(q, 24);
+      const placesPromise = (async () => {
+        const key = getGoogleMapsApiKey();
+        if (key) return searchPlaces(q, language);
         try {
           const expoRows = await Location.geocodeAsync(q);
-          rows = (Array.isArray(expoRows) ? expoRows : []).slice(0, 10).map((g, i) => ({
+          return (Array.isArray(expoRows) ? expoRows : []).slice(0, 10).map((g, i) => ({
             id: `expo_${i}_${g.latitude}_${g.longitude}`,
             label: q,
             lat: g.latitude,
             lng: g.longitude,
           }));
         } catch {
-          rows = [];
+          return [];
         }
-      }
-      if (!cancelled) {
-        setGeocodeHits(rows.map((row) => normGeocodeRow(row, q, language)).filter(Boolean));
-        setGeocoding(false);
-      }
+      })();
+
+      const [{ rows, networkError }, placeRows] = await Promise.all([catalogPromise, placesPromise]);
+      if (cancelled) return;
+
+      setSearchHits(rows.map(normLoc).filter(Boolean));
+      setGeocodeHits(placeRows.map((row) => normGeocodeRow(row, q, language)).filter(Boolean));
+      setSearchNetworkError(networkError && !placeRows.length);
+      setSearching(false);
+      setGeocoding(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, language]);
+  }, [debouncedQ, language, searchRetryNonce]);
 
   useEffect(() => {
     let sub;
@@ -297,31 +265,46 @@ export default function GeoMapExplorer({
     return () => sub?.remove();
   }, []);
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
-  const textMain = isLight ? '#1E1E1E' : '#F7F7F2';
-  const textMuted = isLight ? '#5C5C5C' : '#B8B8B8';
-  const cardBg = isLight ? 'rgba(255,255,255,0.98)' : 'rgba(28,28,30,0.97)';
-  const cardBorder = isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.22)';
-  const surfaceTint = isLight ? 'rgba(255,255,255,0.82)' : 'rgba(28,28,30,0.88)';
-  const fabBg = isLight ? '#FFFFFF' : 'rgba(44,44,46,0.98)';
-  const fabBorder = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.26)';
-  const chromeBorderWidth = 1;
-  const tabBarClearance = lightTabBarOverlayBottomInset(insets.bottom, 16);
-  const mapBackdrop = isLight ? '#E8E8E0' : '#2C2C2E';
-  const hasMapsKey = Boolean(getGoogleMapsApiKey());
-  const mapProvider = useMemo(
-    () => (hasMapsKey ? PROVIDER_GOOGLE : Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined),
-    [hasMapsKey],
+  /** Контрастні кольори поверх живої карти (не як на суцільному фоні екрана). */
+  const mapChrome = useMemo(
+    () => ({
+      searchBg: isLight ? '#FFFFFF' : '#1C1C22',
+      searchBorder: isLight ? 'rgba(2,18,235,0.28)' : 'rgba(225,255,0,0.55)',
+      searchIconBg: isLight ? 'rgba(2,18,235,0.12)' : '#E1FF00',
+      searchIconFg: isLight ? '#0212EB' : '#121212',
+      searchText: isLight ? '#141414' : '#F7F7F2',
+      searchPlaceholder: isLight ? 'rgba(20,20,20,0.48)' : 'rgba(247,247,242,0.62)',
+      panelBg: isLight ? '#FFFFFF' : '#1C1C22',
+      panelBorder: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(225,255,0,0.42)',
+      fabBg: isLight ? '#FFFFFF' : '#F2F2EA',
+      fabIcon: isLight ? '#0212EB' : '#121212',
+      fabBorder: isLight ? 'rgba(2,18,235,0.2)' : 'rgba(225,255,0,0.58)',
+      title: isLight ? '#141414' : '#F7F7F2',
+      muted: isLight ? '#5C5C5C' : 'rgba(247,247,242,0.74)',
+      chipBg: isLight ? 'rgba(2,18,235,0.08)' : 'rgba(225,255,0,0.16)',
+      badgeBg: isLight ? 'rgba(2,18,235,0.12)' : 'rgba(225,255,0,0.22)',
+    }),
+    [isLight],
   );
+  const textMain = mapChrome.title;
+  const textMuted = mapChrome.muted;
+  const cardBg = mapChrome.panelBg;
+  const cardBorder = mapChrome.panelBorder;
+  const fabBg = mapChrome.fabBg;
+  const fabBorder = mapChrome.fabBorder;
+  const chromeBorderWidth = 1.5;
+  const tabBarClearance = lightTabBarOverlayBottomInset(insets.bottom, 20);
+  const mapProvider = Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined;
   const mapStyle = useMemo(
-    () => (mapProvider === PROVIDER_GOOGLE ? mapStyleForTheme(isLight) : undefined),
-    [isLight, mapProvider],
+    () => (Platform.OS === 'android' && !isLight ? mapStyleForTheme(isLight) : undefined),
+    [isLight],
   );
-  const mapSized = mapLayout.width > 64 && mapLayout.height > 64;
-  const sheetFloatBottom = tabBarClearance;
-  const fabStackBottom = tabBarClearance + (routeSeq.length > 0 ? 176 : 132);
+  const goWalkBarHeight = 58;
+  const sheetFloatBottom =
+    tabBarClearance + (routeSeq.length >= 2 ? goWalkBarHeight + 10 : 0);
+  const fabStackBottom = sheetFloatBottom + (routeSeq.length > 0 ? 168 : 124);
 
   const shell = useMemo(
     () => ({
@@ -347,6 +330,16 @@ export default function GeoMapExplorer({
     return [...byId.values()];
   }, [displayPins, routeSeq]);
 
+  const orderedRouteSeq = useMemo(() => {
+    if (!userPos || routeSeq.length < 2) return routeSeq;
+    return orderStopsFromUserOrigin(routeSeq, {
+      lat: userPos.latitude,
+      lng: userPos.longitude,
+    });
+  }, [routeSeq, userPos?.latitude, userPos?.longitude]);
+
+  const displayRouteSeq = orderedRouteSeq.length >= 2 ? orderedRouteSeq : routeSeq;
+
   const listData = useMemo(() => {
     if (debouncedQ.length < 2) return [];
     const seen = new Set();
@@ -357,35 +350,56 @@ export default function GeoMapExplorer({
       seen.add(key);
       out.push(row);
     };
-    for (const row of searchHits) push(row);
     for (const row of geocodeHits) push(row);
+    for (const row of searchHits) push(row);
     return out;
   }, [debouncedQ, searchHits, geocodeHits]);
 
   const drawCoords = useMemo(() => {
     if (roadPath && roadPath.length >= 2) return roadPath;
-    return straightCoords(routeSeq);
-  }, [roadPath, routeSeq]);
+    const seq = orderedRouteSeq.length >= 2 ? orderedRouteSeq : routeSeq;
+    const coords = straightCoords(seq);
+    const origin = userPos ? { lat: userPos.latitude, lng: userPos.longitude } : null;
+    if (origin && isUserOriginNearRoute(origin, seq) && coords.length >= 1) {
+      return [{ latitude: userPos.latitude, longitude: userPos.longitude }, ...coords];
+    }
+    return coords;
+  }, [roadPath, routeSeq, orderedRouteSeq, userPos?.latitude, userPos?.longitude]);
 
   useEffect(() => {
-    if (routeSeq.length < 2) {
+    const seq = orderedRouteSeq.length >= 2 ? orderedRouteSeq : routeSeq;
+    if (seq.length < 1) {
+      setRoadPath(null);
+      setMeta({ distanceM: null, durationSec: null });
+      return;
+    }
+    const pts = [];
+    const origin = userPos
+      ? { lat: userPos.latitude, lng: userPos.longitude }
+      : null;
+    if (origin && isUserOriginNearRoute(origin, seq)) {
+      pts.push({ latitude: userPos.latitude, longitude: userPos.longitude });
+    }
+    for (const p of seq) {
+      pts.push({ latitude: p.lat, longitude: p.lng });
+    }
+    if (pts.length < 2) {
       setRoadPath(null);
       setMeta({ distanceM: null, durationSec: null });
       return;
     }
     let cancelled = false;
     setRouteBusy(true);
-    const pts = routeSeq.map((p) => ({ latitude: p.lat, longitude: p.lng }));
     const key = getGoogleMapsApiKey();
     (async () => {
       if (key) {
         const { path, distanceM, durationSec } = await fetchGoogleDirectionsPolyline(pts, 'walk', key);
         if (!cancelled) {
-          setRoadPath(path && path.length >= 2 ? path : straightCoords(routeSeq));
+          setRoadPath(path && path.length >= 2 ? path : straightCoords(seq));
           setMeta({ distanceM, durationSec });
         }
       } else if (!cancelled) {
-        setRoadPath(straightCoords(routeSeq));
+        setRoadPath(straightCoords(seq));
         setMeta({ distanceM: null, durationSec: null });
       }
     })().finally(() => {
@@ -394,7 +408,7 @@ export default function GeoMapExplorer({
     return () => {
       cancelled = true;
     };
-  }, [routeSeq]);
+  }, [routeSeq, orderedRouteSeq, userPos?.latitude, userPos?.longitude]);
 
   const fitAll = useCallback(() => {
     const coords = [];
@@ -409,23 +423,67 @@ export default function GeoMapExplorer({
     }
     if (drawCoords.length >= 2) coords.push(...drawCoords);
     if (!mapRef.current || coords.length < 1) return;
+
+    if (coords.length < 2) {
+      const c = coords[0];
+      mapRef.current.animateToRegion(
+        {
+          latitude: c.latitude,
+          longitude: c.longitude,
+          latitudeDelta: 0.22,
+          longitudeDelta: 0.22,
+        },
+        420,
+      );
+      return;
+    }
+
     const topPadSafe =
       topContentInset != null && Number.isFinite(Number(topContentInset))
         ? Number(topContentInset)
         : insets.top + 10;
     mapRef.current.fitToCoordinates(coords, {
       edgePadding: {
-        top: Math.round(topPadSafe + 100),
-        right: 36,
-        bottom: 210 + bottomInset + insets.bottom,
-        left: 36,
+        top: Math.round(topPadSafe + 72),
+        right: 28,
+        bottom: 180 + bottomInset + insets.bottom,
+        left: 28,
       },
       animated: true,
     });
-  }, [displayPins, routeSeq, drawCoords, userPos, bottomInset, topContentInset, insets.top]);
+  }, [displayPins, routeSeq, drawCoords, userPos, bottomInset, topContentInset, insets.top, insets.bottom]);
+
+  const focusMapOverview = useCallback(() => {
+    if (!mapRef.current) return;
+    if (routeSeq.length >= 2) {
+      fitAll();
+      return;
+    }
+    if (routeSeq.length === 1) {
+      const p = routeSeq[0];
+      mapRef.current.animateToRegion(
+        { latitude: p.lat, longitude: p.lng, latitudeDelta: 0.1, longitudeDelta: 0.1 },
+        420,
+      );
+      return;
+    }
+    if (userPos) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: userPos.latitude,
+          longitude: userPos.longitude,
+          latitudeDelta: 0.35,
+          longitudeDelta: 0.35,
+        },
+        420,
+      );
+      return;
+    }
+    mapRef.current.animateToRegion(UA_CENTER, 420);
+  }, [routeSeq, userPos, fitAll]);
 
   useEffect(() => {
-    if (!mapReady || routeSeq.length === 0) return;
+    if (!mapReady || routeSeq.length < 2) return;
     const t = setTimeout(() => {
       fitAll();
     }, 220);
@@ -433,10 +491,10 @@ export default function GeoMapExplorer({
   }, [mapReady, routeSeq, fitAll]);
 
   useEffect(() => {
-    if (!mapReady) return;
-    const t = setTimeout(fitAll, 500);
+    if (!mapReady || routeSeq.length > 0) return;
+    const t = setTimeout(() => focusMapOverview(), 320);
     return () => clearTimeout(t);
-  }, [fitAll, displayPins.length, routeSeq.length, mapReady]);
+  }, [mapReady, userPos, routeSeq.length, focusMapOverview]);
 
   const toggleInRoute = useCallback((loc) => {
     if (!loc) return;
@@ -545,8 +603,9 @@ export default function GeoMapExplorer({
   }, [showSaved, language]);
 
   const startInAppWalk = useCallback(() => {
-    if (routeSeq.length < 2) return;
-    const plan = buildGeoMapWalkPlan(routeSeq, meta, userPos);
+    const seq = orderedRouteSeq.length >= 2 ? orderedRouteSeq : routeSeq;
+    if (seq.length < 2) return;
+    const plan = buildGeoMapWalkPlan(seq, meta, userPos);
     if (!plan) return;
     navigation.navigate('RouteNavigation', {
       ...shell,
@@ -554,13 +613,21 @@ export default function GeoMapExplorer({
       mapPolyline: roadPath && roadPath.length >= 2 ? roadPath : null,
       autoStartNav: true,
     });
-  }, [routeSeq, meta, userPos, navigation, shell, roadPath]);
+  }, [routeSeq, orderedRouteSeq, meta, userPos, navigation, shell, roadPath]);
 
   const navigateRoute = useCallback(() => {
-    if (routeSeq.length < 2) return;
-    const coords = routeSeq.map((p) => ({ latitude: p.lat, longitude: p.lng }));
+    const seq = orderedRouteSeq.length >= 2 ? orderedRouteSeq : routeSeq;
+    if (seq.length < 2) return;
+    const coords = [];
+    const origin = userPos ? { lat: userPos.latitude, lng: userPos.longitude } : null;
+    if (origin && isUserOriginNearRoute(origin, seq)) {
+      coords.push({ latitude: userPos.latitude, longitude: userPos.longitude });
+    }
+    for (const p of seq) {
+      coords.push({ latitude: p.lat, longitude: p.lng });
+    }
     openGoogleMapsDirections(coords, 'walk');
-  }, [routeSeq]);
+  }, [routeSeq, orderedRouteSeq, userPos]);
 
   const centerUser = useCallback(async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -620,61 +687,59 @@ export default function GeoMapExplorer({
       ? `${Math.round(meta.durationSec / 60)} ${gm(language, 'routeMin')}`
       : '';
 
-  const kickMapCamera = useCallback(() => {
-    if (!mapRef.current) return;
-    const center = userPos
-      ? {
-          latitude: userPos.latitude,
-          longitude: userPos.longitude,
-          latitudeDelta: 0.12,
-          longitudeDelta: 0.12,
-        }
-      : UA_CENTER;
-    mapRef.current.animateToRegion(center, 1);
-    fitAll();
-  }, [fitAll, userPos]);
-
   const handleMapReady = useCallback(() => {
     setMapFault(false);
     setMapReady(true);
-    requestAnimationFrame(() => kickMapCamera());
-  }, [kickMapCamera]);
+    setShowMapLoading(false);
+    onMapInteractive?.();
+    requestAnimationFrame(() => focusMapOverview());
+  }, [focusMapOverview, onMapInteractive]);
 
   const remountMap = useCallback(() => {
     setMapReady(false);
     setMapFault(false);
+    setShowMapLoading(false);
     setMapLayoutEpoch((n) => n + 1);
   }, []);
 
   useEffect(() => {
-    if (!isTabActive || !mapReady) return;
-    const t = setTimeout(() => {
-      fitAll();
-    }, 280);
-    return () => clearTimeout(t);
-  }, [isTabActive, mapReady, fitAll]);
-
-  useEffect(() => {
     const becameActive = isTabActive && !mapTabActiveRef.current;
     mapTabActiveRef.current = isTabActive;
-    if (!becameActive) return;
-    remountMap();
-  }, [isTabActive, remountMap]);
-
-  useEffect(() => {
-    if (!isTabActive || !mapSized) return;
-    const t = setTimeout(() => kickMapCamera(), 420);
+    if (!becameActive || !mapReady) return;
+    const t = setTimeout(() => focusMapOverview(), 160);
     return () => clearTimeout(t);
-  }, [isTabActive, mapSized, mapLayoutEpoch, kickMapCamera]);
+  }, [isTabActive, mapReady, focusMapOverview]);
 
   useEffect(() => {
-    if (!mapSized || mapReady || !isTabActive) {
+    if (!isTabActive || !mapReady) return;
+    const t = setTimeout(() => {
+      if (routeSeq.length >= 2) fitAll();
+    }, 280);
+    return () => clearTimeout(t);
+  }, [isTabActive, mapReady, fitAll, routeSeq.length]);
+
+  useEffect(() => {
+    if (mapReady) setMapFault(false);
+  }, [mapReady]);
+
+  useEffect(() => {
+    if (!isTabActive) return undefined;
+    if (mapReady) {
+      setShowMapLoading(false);
+      return undefined;
+    }
+    const hideLoading = setTimeout(() => setShowMapLoading(false), MAP_LOADING_MAX_MS);
+    return () => clearTimeout(hideLoading);
+  }, [isTabActive, mapReady, mapLayoutEpoch]);
+
+  useEffect(() => {
+    if (mapReady || !isTabActive) {
       setMapFault(false);
       return undefined;
     }
-    const t = setTimeout(() => setMapFault(true), 4500);
+    const t = setTimeout(() => setMapFault(true), 6000);
     return () => clearTimeout(t);
-  }, [mapSized, mapReady, isTabActive, mapLayoutEpoch]);
+  }, [mapReady, isTabActive, mapLayoutEpoch]);
 
   const focusMapOn = useCallback((loc) => {
     if (!loc || !mapRef.current) return;
@@ -689,100 +754,52 @@ export default function GeoMapExplorer({
     );
   }, []);
 
-  const handleMapHostLayout = useCallback(
-    (e) => {
-      const { width, height } = e.nativeEvent.layout;
-      setMapLayout({ width, height });
-      if (!isTabActive || width < 64 || height < 64) return;
-      requestAnimationFrame(() => {
-        if (mapRef.current && mapReady) fitAll();
-      });
-    },
-    [fitAll, isTabActive, mapReady],
-  );
-
   const topChrome = (
     <View style={[styles.topBlock, { paddingTop: topPad }]}>
-      {Platform.OS === 'ios' ? (
-        <BlurView
-          intensity={isLight ? 88 : 76}
-          tint={isLight ? 'light' : 'dark'}
-          style={[styles.searchBlur, { borderColor: cardBorder, borderWidth: chromeBorderWidth }]}
-        >
-          <View style={[styles.searchSurfaceTint, { backgroundColor: surfaceTint }]} />
-          <View style={styles.searchRow}>
-            <View style={[styles.searchIconWrap, { backgroundColor: isLight ? 'rgba(2,18,235,0.10)' : 'rgba(225,255,0,0.12)' }]}>
-              <Ionicons name="search" size={20} color={accent} />
-            </View>
-            <TextInput
-              ref={searchInputRef}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={gm(language, 'searchPlaceholder')}
-              placeholderTextColor={textMuted}
-              style={[styles.input, brandFontSansMedium, { color: textMain }]}
-              returnKeyType="search"
-              blurOnSubmit={false}
-              autoCorrect={false}
-              autoCapitalize="none"
-              clearButtonMode="never"
-              underlineColorAndroid="transparent"
-              onSubmitEditing={() => Keyboard.dismiss()}
-            />
-            {query.length > 0 ? (
-              <Pressable
-                onPress={() => {
-                  setQuery('');
-                  Keyboard.dismiss();
-                }}
-                hitSlop={12}
-                style={({ pressed }) => [styles.clearSearch, pressed && { opacity: 0.65 }]}
-              >
-                <Ionicons name="close-circle" size={22} color={textMuted} />
-              </Pressable>
-            ) : null}
+      <View
+        style={[
+          styles.searchCard,
+          {
+            backgroundColor: mapChrome.searchBg,
+            borderColor: mapChrome.searchBorder,
+            borderWidth: chromeBorderWidth,
+          },
+          isLight ? styles.searchCardLightShadow : styles.searchCardDarkShadow,
+        ]}
+      >
+        <View style={styles.searchRow}>
+          <View style={[styles.searchIconWrap, { backgroundColor: mapChrome.searchIconBg }]}>
+            <Ionicons name="search" size={20} color={mapChrome.searchIconFg} />
           </View>
-        </BlurView>
-      ) : (
-        <View
-          style={[
-            styles.searchCardAndroid,
-            { backgroundColor: cardBg, borderColor: cardBorder, borderWidth: chromeBorderWidth },
-          ]}
-        >
-          <View style={styles.searchRow}>
-            <View style={[styles.searchIconWrap, { backgroundColor: isLight ? 'rgba(2,18,235,0.10)' : 'rgba(225,255,0,0.12)' }]}>
-              <Ionicons name="search" size={20} color={accent} />
-            </View>
-            <TextInput
-              ref={searchInputRef}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={gm(language, 'searchPlaceholder')}
-              placeholderTextColor={textMuted}
-              style={[styles.input, brandFontSansMedium, { color: textMain }]}
-              returnKeyType="search"
-              blurOnSubmit={false}
-              autoCorrect={false}
-              autoCapitalize="none"
-              underlineColorAndroid="transparent"
-              onSubmitEditing={() => Keyboard.dismiss()}
-            />
-            {query.length > 0 ? (
-              <Pressable
-                onPress={() => {
-                  setQuery('');
-                  Keyboard.dismiss();
-                }}
-                hitSlop={12}
-                style={({ pressed }) => [styles.clearSearch, pressed && { opacity: 0.65 }]}
-              >
-                <Ionicons name="close-circle" size={22} color={textMuted} />
-              </Pressable>
-            ) : null}
-          </View>
+          <TextInput
+            ref={searchInputRef}
+            value={query}
+            onChangeText={setQuery}
+            placeholder={gm(language, 'searchPlaceholder')}
+            placeholderTextColor={mapChrome.searchPlaceholder}
+            style={[styles.input, brandFontSansMedium, { color: mapChrome.searchText }]}
+            returnKeyType="search"
+            blurOnSubmit={false}
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="never"
+            underlineColorAndroid="transparent"
+            onSubmitEditing={() => Keyboard.dismiss()}
+          />
+          {query.length > 0 ? (
+            <Pressable
+              onPress={() => {
+                setQuery('');
+                Keyboard.dismiss();
+              }}
+              hitSlop={12}
+              style={({ pressed }) => [styles.clearSearch, pressed && { opacity: 0.65 }]}
+            >
+              <Ionicons name="close-circle" size={22} color={mapChrome.muted} />
+            </Pressable>
+          ) : null}
         </View>
-      )}
+      </View>
 
       {debouncedQ.length > 0 && debouncedQ.length < 2 ? (
         <View style={[styles.hintPill, { backgroundColor: cardBg, borderColor: cardBorder }]}>
@@ -850,6 +867,10 @@ export default function GeoMapExplorer({
                         onPress={() => {
                           toggleInRoute(item);
                           focusMapOn(item);
+                          if (item.isGeocode) {
+                            setQuery('');
+                            Keyboard.dismiss();
+                          }
                         }}
                         android_ripple={ripple}
                         style={({ pressed }) => [styles.rowToggle, pressed && { opacity: 0.92 }]}
@@ -858,9 +879,11 @@ export default function GeoMapExplorer({
                           <Text style={[styles.rowTitle, brandFontSansMedium, { color: textMain }]} numberOfLines={2}>
                             {item.title}
                           </Text>
-                          <Text style={[styles.rowSub, { color: textMuted }]} numberOfLines={1}>
-                            {item.city}
-                            {item.country ? ` · ${item.country}` : ''}
+                          <Text style={[styles.rowSub, { color: textMuted }]} numberOfLines={2}>
+                            {item.isGeocode
+                              ? gm(language, 'searchWorldSource')
+                              : [item.city, item.country].filter(Boolean).join(' · ') ||
+                                gm(language, 'searchCatalogSource')}
                           </Text>
                         </View>
                         <Ionicons
@@ -918,7 +941,7 @@ export default function GeoMapExplorer({
         accessibilityRole="button"
         accessibilityLabel={gm(language, 'savedPlaces')}
       >
-        <Ionicons name={showSaved ? 'heart' : 'heart-outline'} size={22} color={accent} />
+        <Ionicons name={showSaved ? 'heart' : 'heart-outline'} size={22} color={mapChrome.fabIcon} />
       </Pressable>
 
       <Pressable
@@ -935,7 +958,7 @@ export default function GeoMapExplorer({
         accessibilityRole="button"
         accessibilityLabel={gm(language, 'recenter')}
       >
-        <Ionicons name="locate" size={22} color={accent} />
+        <Ionicons name="locate" size={22} color={mapChrome.fabIcon} />
       </Pressable>
 
       {showSaved ? (
@@ -1015,13 +1038,17 @@ export default function GeoMapExplorer({
           ]}
         >
           {Platform.OS === 'ios' ? (
-            <BlurView intensity={isLight ? 80 : 72} tint={isLight ? 'light' : 'dark'} style={StyleSheet.absoluteFill} />
+            <BlurView
+              intensity={isLight ? 72 : 48}
+              tint={isLight ? 'light' : 'dark'}
+              style={StyleSheet.absoluteFill}
+            />
           ) : null}
           <View
             style={[
               styles.bottomSheetTint,
               {
-                backgroundColor: isLight ? 'rgba(255,255,255,0.94)' : 'rgba(32,32,34,0.92)',
+                backgroundColor: isLight ? 'rgba(255,255,255,0.97)' : 'rgba(28,28,34,0.96)',
               },
             ]}
           />
@@ -1033,11 +1060,15 @@ export default function GeoMapExplorer({
                   {gm(language, 'routePoints')}
                 </Text>
                 <Text style={[styles.sheetHint, brandFontSansMedium, { color: textMuted }]}>
-                  {gm(language, 'tapMapHint')}
+                  {routeSeq.length >= 2
+                    ? gm(language, 'routeReadyHint')
+                    : routeSeq.length === 1
+                      ? gm(language, 'needOneMore')
+                      : gm(language, 'tapMapHint')}
                 </Text>
               </View>
               {routeSeq.length > 0 ? (
-                <View style={[styles.countBadge, { backgroundColor: isLight ? 'rgba(2,18,235,0.10)' : 'rgba(225,255,0,0.14)' }]}>
+                <View style={[styles.countBadge, { backgroundColor: mapChrome.badgeBg }]}>
                   <Text style={[styles.countBadgeTxt, brandFontSansBold, { color: accent }]}>
                     {routeSeq.length}
                   </Text>
@@ -1052,7 +1083,7 @@ export default function GeoMapExplorer({
                 contentContainerStyle={styles.routeChipsRow}
                 keyboardShouldPersistTaps="handled"
               >
-                {routeSeq.map((p, i) => (
+                {displayRouteSeq.map((p, i) => (
                   <Pressable
                     key={p.id}
                     onPress={() => toggleInRoute(p)}
@@ -1060,7 +1091,7 @@ export default function GeoMapExplorer({
                       styles.routeChip,
                       {
                         borderColor: cardBorder,
-                        backgroundColor: isLight ? 'rgba(2,18,235,0.06)' : 'rgba(225,255,0,0.08)',
+                        backgroundColor: mapChrome.chipBg,
                         opacity: pressed ? 0.85 : 1,
                       },
                     ]}
@@ -1113,78 +1144,50 @@ export default function GeoMapExplorer({
                   {gm(language, 'clearRoute')}
                 </Text>
               </Pressable>
-              <Pressable
-                onPress={() => {
-                  if (routeSeq.length < 2) return;
-                  fitAll();
-                }}
-                style={({ pressed }) => [
-                  styles.btnPrimary,
-                  {
-                    backgroundColor: accent,
-                    opacity: pressed ? 0.9 : routeSeq.length < 2 ? 0.42 : 1,
-                  },
-                  routeSeq.length >= 2 && !isLight
-                    ? {
-                        shadowColor: accent,
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.35,
-                        shadowRadius: 10,
-                      }
-                    : null,
-                ]}
-                disabled={routeSeq.length < 2}
-              >
-                <Ionicons
-                  name="git-network-outline"
-                  size={18}
-                  color={onAccentButtonText(isLight)}
-                  style={{ marginRight: 6 }}
-                />
-                <Text style={[styles.btnPrimaryTxt, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
-                  {gm(language, 'buildRoute')}
-                </Text>
-              </Pressable>
+              {routeSeq.length >= 2 ? (
+                <Pressable
+                  onPress={navigateRoute}
+                  style={({ pressed }) => [
+                    styles.btnGhost,
+                    {
+                      borderColor: cardBorder,
+                      backgroundColor: isLight ? 'rgba(2,18,235,0.04)' : 'rgba(255,255,255,0.05)',
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}
+                >
+                  <Ionicons name="navigate-outline" size={16} color={accent} style={{ marginRight: 6 }} />
+                  <Text style={[styles.btnGhostTxt, brandFontSansSemibold, { color: textMain }]}>
+                    Google Maps
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    if (routeSeq.length < 2) return;
+                    fitAll();
+                  }}
+                  style={({ pressed }) => [
+                    styles.btnPrimary,
+                    {
+                      backgroundColor: accent,
+                      opacity: pressed ? 0.9 : routeSeq.length < 2 ? 0.42 : 1,
+                    },
+                  ]}
+                  disabled={routeSeq.length < 2}
+                >
+                  <Ionicons
+                    name="map-outline"
+                    size={18}
+                    color={onAccentButtonText(isLight)}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={[styles.btnPrimaryTxt, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
+                    {gm(language, 'buildRoute')}
+                  </Text>
+                </Pressable>
+              )}
             </View>
-
-            {routeSeq.length >= 2 ? (
-              <Pressable
-                onPress={startInAppWalk}
-                style={({ pressed }) => [
-                  styles.navBtn,
-                  {
-                    borderColor: accent,
-                    backgroundColor: isLight ? 'rgba(2,18,235,0.08)' : 'rgba(225,255,0,0.10)',
-                    opacity: pressed ? 0.88 : 1,
-                  },
-                ]}
-              >
-                <Ionicons name="walk" size={18} color={accent} style={{ marginRight: 8 }} />
-                <Text style={[styles.navBtnTxt, brandFontSansSemibold, { color: textMain }]}>
-                  {gm(language, 'startWalk')}
-                </Text>
-              </Pressable>
-            ) : null}
-
-            {routeSeq.length >= 2 ? (
-              <Pressable
-                onPress={navigateRoute}
-                style={({ pressed }) => [
-                  styles.navBtn,
-                  {
-                    borderColor: cardBorder,
-                    backgroundColor: isLight ? 'rgba(2,18,235,0.04)' : 'rgba(255,255,255,0.05)',
-                    opacity: pressed ? 0.88 : 1,
-                    marginTop: 8,
-                  },
-                ]}
-              >
-                <Ionicons name="navigate" size={18} color={accent} style={{ marginRight: 8 }} />
-                <Text style={[styles.navBtnTxt, brandFontSansSemibold, { color: textMuted }]}>
-                  {gm(language, 'openInMaps')}
-                </Text>
-              </Pressable>
-            ) : null}
           </View>
         </View>
       </View>
@@ -1192,47 +1195,44 @@ export default function GeoMapExplorer({
   );
 
   return (
-    <View style={[styles.flex, { backgroundColor: mapBackdrop }]}>
-      <View
-        style={[styles.mapLayer, { backgroundColor: mapBackdrop }]}
-        collapsable={false}
-        onLayout={handleMapHostLayout}
+    <View style={styles.flex}>
+      <MapView
+        key={`geo-map-${mapLayoutEpoch}`}
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        provider={mapProvider}
+        initialRegion={UA_CENTER}
+        customMapStyle={mapStyle}
+        showsUserLocation={isTabActive}
+        showsMyLocationButton={false}
+        showsCompass={false}
+        showsScale={false}
+        showsPointsOfInterest
+        toolbarEnabled={false}
+        mapType="standard"
+        loadingEnabled={false}
+        scrollEnabled={isTabActive}
+        zoomEnabled={isTabActive}
+        rotateEnabled={isTabActive}
+        pitchEnabled={isTabActive}
+        pointerEvents={isTabActive ? 'auto' : 'none'}
+        onMapReady={handleMapReady}
+        onPress={isTabActive ? onMapPress : undefined}
+        moveOnMarkerPress={false}
       >
-        {isTabActive ? (
-          <MapView
-            key={`geo-map-${mapLayoutEpoch}`}
-            ref={mapRef}
-            style={styles.mapFill}
-            provider={mapProvider}
-            initialRegion={UA_CENTER}
-            customMapStyle={mapStyle}
-            userInterfaceStyle={isLight ? 'light' : 'dark'}
-            showsUserLocation
-            showsMyLocationButton={false}
-            showsCompass={false}
-            showsScale={false}
-            showsPointsOfInterest
-            toolbarEnabled={false}
-            mapType="standard"
-            loadingEnabled
-            loadingBackgroundColor={mapBackdrop}
-            loadingIndicatorColor={accent}
-            onMapReady={handleMapReady}
-            onPress={onMapPress}
-            moveOnMarkerPress={false}
-          >
-            {drawCoords.length >= 2 ? (
-              <Polyline
-                coordinates={drawCoords}
-                strokeColor={accent}
-                strokeWidth={5}
-                lineCap="round"
-                lineJoin="round"
-                lineDashPattern={roadPath && roadPath.length >= 2 ? undefined : [10, 7]}
-              />
-            ) : null}
-            {markerPins.map((p) => {
-              const ord = routeSeq.findIndex((x) => x.id === p.id);
+        {drawCoords.length >= 2 ? (
+          <Polyline
+            coordinates={drawCoords}
+            strokeColor={accent}
+            strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
+            lineDashPattern={roadPath && roadPath.length >= 2 ? undefined : [10, 7]}
+          />
+        ) : null}
+        {mapReady
+          ? markerPins.map((p) => {
+              const ord = displayRouteSeq.findIndex((x) => x.id === p.id);
               const inRoute = ord >= 0;
               if (inRoute) {
                 return (
@@ -1264,46 +1264,88 @@ export default function GeoMapExplorer({
                   tracksViewChanges={false}
                 />
               );
-            })}
-          </MapView>
-        ) : (
-          <View style={[styles.mapPlaceholder, { backgroundColor: mapBackdrop }]}>
-            <ActivityIndicator size="large" color={accent} />
-          </View>
-        )}
-        {!mapReady && isTabActive ? (
-          <View
-            pointerEvents="none"
-            style={[styles.mapLoadingOverlay, { backgroundColor: isLight ? 'rgba(232,232,224,0.42)' : 'rgba(28,28,30,0.38)' }]}
-          >
-            <ActivityIndicator size="large" color={accent} />
-            <Text style={[styles.mapLoadingTxt, brandFontSansMedium, { color: textMuted }]}>
-              {gm(language, 'mapLoading')}
+            })
+          : null}
+      </MapView>
+
+      {showMapLoading && isTabActive && !mapReady ? (
+        <View pointerEvents="none" style={styles.mapLoadingOverlay}>
+          <ActivityIndicator size="small" color={accent} />
+        </View>
+      ) : null}
+      {mapFault ? (
+        <Pressable
+          onPress={remountMap}
+          style={[styles.mapFaultOverlay, { backgroundColor: isLight ? 'rgba(242,242,234,0.88)' : 'rgba(20,20,22,0.86)' }]}
+        >
+          <Ionicons name="map-outline" size={34} color={accent} style={{ marginBottom: 10 }} />
+          <Text style={[styles.mapFaultTxt, brandFontSansMedium, { color: textMain }]}>
+            {gm(language, 'mapLoadFailed')}
+          </Text>
+          <View style={[styles.mapFaultBtn, { backgroundColor: accent }]}>
+            <Text style={[styles.mapFaultBtnTxt, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
+              {gm(language, 'mapRetry')}
             </Text>
           </View>
-        ) : null}
-        {mapFault ? (
-          <Pressable
-            onPress={remountMap}
-            style={[styles.mapFaultOverlay, { backgroundColor: isLight ? 'rgba(242,242,234,0.88)' : 'rgba(20,20,22,0.86)' }]}
-          >
-            <Ionicons name="map-outline" size={34} color={accent} style={{ marginBottom: 10 }} />
-            <Text style={[styles.mapFaultTxt, brandFontSansMedium, { color: textMain }]}>
-              {gm(language, 'mapLoadFailed')}
-            </Text>
-            <View style={[styles.mapFaultBtn, { backgroundColor: accent }]}>
-              <Text style={[styles.mapFaultBtnTxt, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
-                {gm(language, 'mapRetry')}
-              </Text>
-            </View>
-          </Pressable>
-        ) : null}
-      </View>
+        </Pressable>
+      ) : null}
 
       <View pointerEvents="box-none" style={styles.chromeOverlay}>
         {topChrome}
         {floatingChrome}
       </View>
+
+      {routeSeq.length >= 2 ? (
+        <View
+          pointerEvents="box-none"
+          style={[styles.goWalkWrap, { bottom: tabBarClearance + 8 }]}
+        >
+          <Pressable
+            onPress={startInAppWalk}
+            disabled={routeBusy}
+            style={({ pressed }) => [
+              styles.goWalkBtn,
+              {
+                backgroundColor: accent,
+                opacity: routeBusy ? 0.55 : pressed ? 0.9 : 1,
+              },
+              !isLight
+                ? {
+                    shadowColor: accent,
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.4,
+                    shadowRadius: 14,
+                  }
+                : null,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={gm(language, 'startWalk')}
+          >
+            {routeBusy ? (
+              <ActivityIndicator size="small" color={onAccentButtonText(isLight)} style={{ marginRight: 10 }} />
+            ) : (
+              <Ionicons name="walk" size={22} color={onAccentButtonText(isLight)} style={{ marginRight: 10 }} />
+            )}
+            <View style={styles.goWalkTextCol}>
+              <Text style={[styles.goWalkTitle, brandFontSansBold, { color: onAccentButtonText(isLight) }]}>
+                {gm(language, 'goWalk')}
+              </Text>
+              {kmLabel || minLabel ? (
+                <Text
+                  style={[
+                    styles.goWalkSub,
+                    brandFontSansMedium,
+                    { color: onAccentButtonText(isLight), opacity: 0.85 },
+                  ]}
+                >
+                  {[kmLabel, minLabel].filter(Boolean).join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={onAccentButtonText(isLight)} />
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1324,13 +1366,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   mapLoadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapLoadingTxt: {
-    marginTop: 12,
-    fontSize: 14,
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 8,
   },
   mapFaultOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1387,25 +1426,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     zIndex: 20,
   },
-  searchBlur: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.28,
-        shadowRadius: 20,
-      },
-    }),
-  },
-  searchSurfaceTint: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  searchCardAndroid: {
+  searchCard: {
     borderRadius: 24,
     overflow: 'hidden',
   },
+  searchCardLightShadow: Platform.select({
+    ios: {
+      shadowColor: '#0212EB',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.14,
+      shadowRadius: 16,
+    },
+    android: { elevation: 6 },
+  }),
+  searchCardDarkShadow: Platform.select({
+    ios: {
+      shadowColor: '#E1FF00',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.22,
+      shadowRadius: 14,
+    },
+    android: { elevation: 8 },
+  }),
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1548,10 +1590,10 @@ const styles = StyleSheet.create({
   bottomSheetDark: {
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.5,
-        shadowRadius: 24,
+        shadowColor: '#E1FF00',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.18,
+        shadowRadius: 22,
       },
     }),
   },
@@ -1635,6 +1677,7 @@ const styles = StyleSheet.create({
   btnRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   btnGhost: {
     flex: 1,
+    flexDirection: 'row',
     paddingVertical: 14,
     borderRadius: 999,
     borderWidth: 1.5,
@@ -1678,4 +1721,31 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   navBtnTxt: { fontSize: 14 },
+  goWalkWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 40,
+  },
+  goWalkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    minHeight: 58,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 16,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  goWalkTextCol: { flex: 1 },
+  goWalkTitle: { fontSize: 18, lineHeight: 22 },
+  goWalkSub: { fontSize: 12, marginTop: 2 },
 });

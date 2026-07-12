@@ -39,6 +39,7 @@ import {
   type SavedAuthAccount,
 } from './authFormPersistence';
 import { ApiError } from './types';
+import { mergeBackendUserIntoLocalSession, persistSessionRecoveryCredentials } from '../syncBackendSessionBridge';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'AuthMain'>;
 
@@ -251,6 +252,8 @@ export default function AuthMainScreen({ navigation, route }: Props) {
     }
     try {
       await loginWithPassword(em, password);
+      await persistSessionRecoveryCredentials(em, password);
+      await mergeBackendUserIntoLocalSession();
       await upsertSavedAccount(em, password);
       if (rememberMe) await persistGlobalRememberLogin(em, password);
       await clearFormDraft();
@@ -310,6 +313,8 @@ export default function AuthMainScreen({ navigation, route }: Props) {
     };
     try {
       await tryRegister();
+      await persistSessionRecoveryCredentials(em, pwd);
+      await mergeBackendUserIntoLocalSession();
       await upsertSavedAccount(em, pwd);
       await clearFormDraft();
       setSavedAccounts(await readAccountIndex());

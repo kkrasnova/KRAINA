@@ -41,7 +41,9 @@ export function decodeGooglePolyline(encoded) {
 }
 
 export function getGoogleMapsApiKey() {
-  const fromExtra = Constants.expoConfig?.extra?.googleMapsApiKey;
+  const fromExtra =
+    readExpoExtra('googleMapsApiKey') ||
+    readExpoExtra('googleGeocodingApiKey');
   if (typeof fromExtra === 'string' && fromExtra.trim()) return fromExtra.trim();
   const fromEnv =
     typeof process !== 'undefined' && process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
@@ -55,10 +57,40 @@ export function getGoogleMapsApiKey() {
   return fromGeocode;
 }
 
+function readExpoExtra(key) {
+  try {
+    const manifest2Extra = Constants.manifest2?.extra;
+    const fromManifest2 =
+      manifest2Extra?.[key] ||
+      manifest2Extra?.expoClient?.extra?.[key];
+    const fromClassic =
+      Constants.expoConfig?.extra?.[key] ||
+      Constants.manifest?.extra?.[key];
+    const value = fromManifest2 ?? fromClassic;
+    return value && String(value).trim() ? String(value).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+function toFiniteCoord(point) {
+  if (!point) return null;
+  const latitude = Number(
+    point.latitude != null ? point.latitude : point.lat,
+  );
+  const longitude = Number(
+    point.longitude != null ? point.longitude : point.lng,
+  );
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
 function directionsMode(transport) {
   switch (transport) {
     case 'car':
       return 'driving';
+    case 'bike':
+      return 'bicycling';
     case 'bus':
     case 'train':
       return 'transit';
@@ -66,6 +98,76 @@ function directionsMode(transport) {
     default:
       return 'walking';
   }
+}
+
+/** Довжина полілінії в метрах. */
+export function polylinePathLengthM(coords) {
+  if (!Array.isArray(coords) || coords.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < coords.length; i += 1) {
+    total += haversineKm(coords[i - 1], coords[i]) * 1000;
+  }
+  return total;
+}
+
+/** Чи схоже на маршрут по дорогах (не пряма лінія між 2 точками). */
+export function isRoadFollowingPolyline(coords) {
+  if (!Array.isArray(coords) || coords.length < 3) return false;
+  if (coords.length >= 6) return true;
+  const pathM = polylinePathLengthM(coords);
+  const straightM = haversineKm(coords[0], coords[coords.length - 1]) * 1000;
+  if (straightM < 1) return coords.length >= 3;
+  return pathM > straightM * 1.06;
+}
+
+function pickDensestPath(...candidates) {
+  let best = null;
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate) || candidate.length < 2) continue;
+    const pathM = polylinePathLengthM(candidate);
+    const score = candidate.length * 1000 + pathM;
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best?.length >= 2 ? best : null;
+}
+
+function sameCoord(a, b) {
+  if (!a || !b) return false;
+  return (
+    Math.abs(a.latitude - b.latitude) < 1e-6 &&
+    Math.abs(a.longitude - b.longitude) < 1e-6
+  );
+}
+
+function appendPolylinePoints(target, next) {
+  if (!next?.length) return;
+  if (!target.length) {
+    target.push(...next);
+    return;
+  }
+  const last = target[target.length - 1];
+  const first = next[0];
+  if (sameCoord(last, first)) target.push(...next.slice(1));
+  else target.push(...next);
+}
+
+/** Детальний шлях по кроках Directions (точніше, ніж overview_polyline). */
+function parseRoutePath(route) {
+  const coordinates = [];
+  if (!Array.isArray(route?.legs)) return coordinates;
+  for (const leg of route.legs) {
+    if (!Array.isArray(leg.steps)) continue;
+    for (const step of leg.steps) {
+      const enc = step.polyline?.points;
+      if (!enc) continue;
+      appendPolylinePoints(coordinates, decodeGooglePolyline(enc));
+    }
+  }
+  return coordinates;
 }
 
 function parseDirectionSteps(route) {
@@ -90,9 +192,29 @@ function parseDirectionSteps(route) {
   return steps;
 }
 
+function mergeDirectionResults(results) {
+  const path = [];
+  let distanceM = 0;
+  let durationSec = 0;
+  const steps = [];
+  for (const result of results) {
+    if (!result?.path?.length) return null;
+    appendPolylinePoints(path, result.path);
+    distanceM += result.distanceM || 0;
+    durationSec += result.durationSec || 0;
+    if (result.steps?.length) steps.push(...result.steps);
+  }
+  return {
+    path: path.length >= 2 ? path : null,
+    distanceM: distanceM || null,
+    durationSec: durationSec || null,
+    steps,
+  };
+}
+
 /**
  * @param {{ latitude: number, longitude: number }[]} points
- * @param {string} transport walk|car|bus|train
+ * @param {string} transport walk|car|bike|bus|train
  * @param {string} apiKey
  * @returns {Promise<{ path: { latitude: number, longitude: number }[]|null, distanceM: number|null, durationSec: number|null, steps: object[] }>}
  */
@@ -125,8 +247,10 @@ export async function fetchGoogleDirectionsPolyline(points, transport, apiKey) {
       return { path: null, distanceM: null, durationSec: null, steps: [] };
     }
     const route = json.routes[0];
+    const pathFromSteps = parseRoutePath(route);
     const enc = route.overview_polyline?.points;
-    const path = enc ? decodeGooglePolyline(enc) : null;
+    const pathFromOverview = enc ? decodeGooglePolyline(enc) : null;
+    const path = pickDensestPath(pathFromSteps, pathFromOverview);
     let distanceM = 0;
     let durationSec = 0;
     if (Array.isArray(route.legs)) {
@@ -136,7 +260,7 @@ export async function fetchGoogleDirectionsPolyline(points, transport, apiKey) {
       }
     }
     return {
-      path: path && path.length >= 2 ? path : null,
+      path,
       distanceM: distanceM || null,
       durationSec: durationSec || null,
       steps: parseDirectionSteps(route),
@@ -167,9 +291,24 @@ export async function loadRoutePolylineFromPlan(plan, liveUserPos = null, overri
   const key = getGoogleMapsApiKey();
   const coords = getDirectionsCoordinatesFromPlan(plan, liveUserPos, overrideUserPos);
   if (!key || !coords || coords.length < 2) {
+    if (__DEV__ && !key) console.warn('[googleMapsRoute] missing API key');
     return { path: null, distanceM: null, durationSec: null, steps: [] };
   }
-  return fetchGoogleDirectionsPolyline(coords, plan.transport || WALK_TRANSPORT, key);
+  const transport = plan.transport || WALK_TRANSPORT;
+  const single = await fetchGoogleDirectionsPolyline(coords, transport, key);
+  if (single.path?.length >= 2) return single;
+
+  if (coords.length > 2) {
+    const legs = [];
+    for (let i = 0; i < coords.length - 1; i += 1) {
+      legs.push(
+        await fetchGoogleDirectionsPolyline([coords[i], coords[i + 1]], transport, key),
+      );
+    }
+    const merged = mergeDirectionResults(legs);
+    if (merged?.path?.length >= 2) return merged;
+  }
+  return single;
 }
 
 /**
@@ -181,43 +320,46 @@ export async function loadRoutePolylineFromPlan(plan, liveUserPos = null, overri
 export function getDirectionsCoordinatesFromPlan(plan, liveUserPos = null, overrideUserPos = null) {
   const stops = plan?.stops || [];
   if (!stops.length) {
-    return plan?.coordinates?.length >= 2 ? plan.coordinates : [];
+    const raw = Array.isArray(plan?.coordinates) ? plan.coordinates : [];
+    const norm = raw.map(toFiniteCoord).filter(Boolean);
+    return norm.length >= 2 ? norm : [];
   }
 
-  const stopCoords = stops.map((s) => ({ latitude: s.lat, longitude: s.lng }));
+  const stopCoords = stops
+    .map((s) => toFiniteCoord({ latitude: s.lat, longitude: s.lng }))
+    .filter(Boolean);
+  if (stopCoords.length < 1) return [];
 
-  if (
-    overrideUserPos &&
-    Number.isFinite(overrideUserPos.latitude) &&
-    Number.isFinite(overrideUserPos.longitude)
-  ) {
-    return [{ latitude: overrideUserPos.latitude, longitude: overrideUserPos.longitude }, ...stopCoords];
+  const overrideCoord = toFiniteCoord(overrideUserPos);
+  if (overrideCoord) {
+    return [overrideCoord, ...stopCoords];
   }
 
-  // Маршрут ЗАВЖДИ починається з реальної геолокації користувача, якщо вона є —
-  // людина «йде» від місця, де стоїть, як у Google Maps. Раніше старт із гео
-  // підставлявся лише в межах 100 км, тож у тестах/далеко він зникав.
-  if (
-    liveUserPos &&
-    Number.isFinite(liveUserPos.latitude) &&
-    Number.isFinite(liveUserPos.longitude)
-  ) {
-    return [{ latitude: liveUserPos.latitude, longitude: liveUserPos.longitude }, ...stopCoords];
+  const liveCoord = toFiniteCoord(liveUserPos);
+  if (liveCoord) {
+    const origin = { lat: liveCoord.latitude, lng: liveCoord.longitude };
+    if (isUserOriginNearRoute(origin, stops)) {
+      const firstStop = stopCoords[0];
+      if (firstStop && haversineKm(liveCoord, firstStop) * 1000 < 25) {
+        return stopCoords;
+      }
+      return [liveCoord, ...stopCoords];
+    }
   }
 
   const stored = plan?.userOrigin;
-  if (
-    stored &&
-    typeof stored.lat === 'number' &&
-    typeof stored.lng === 'number' &&
-    isUserOriginNearRoute(stored, stops)
-  ) {
-    return [{ latitude: stored.lat, longitude: stored.lng }, ...stopCoords];
+  const storedCoord = toFiniteCoord(stored);
+  if (storedCoord && isUserOriginNearRoute(stored, stops)) {
+    const firstStop = stopCoords[0];
+    if (firstStop && haversineKm(storedCoord, firstStop) * 1000 < 25) {
+      return stopCoords;
+    }
+    return [storedCoord, ...stopCoords];
   }
 
   if (stopCoords.length >= 2) return stopCoords;
 
-  const coords = plan?.coordinates || [];
+  const coords = (plan?.coordinates || []).map(toFiniteCoord).filter(Boolean);
   if (coords.length < 2) return coords;
   const first = coords[0];
   const firstStop = stopCoords[0];
@@ -280,6 +422,59 @@ export function distanceMetersToPolyline(point, polyline) {
   return minM === Infinity ? null : Math.round(minM);
 }
 
+/** Центр і масштаб карти за зупинками маршруту. */
+export function regionFromStops(stops) {
+  const valid = (stops || []).filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  if (!valid.length) return null;
+  if (valid.length === 1) {
+    return {
+      latitude: valid[0].lat,
+      longitude: valid[0].lng,
+      latitudeDelta: 0.06,
+      longitudeDelta: 0.06,
+    };
+  }
+  let minLat = valid[0].lat;
+  let maxLat = valid[0].lat;
+  let minLng = valid[0].lng;
+  let maxLng = valid[0].lng;
+  for (const s of valid) {
+    minLat = Math.min(minLat, s.lat);
+    maxLat = Math.max(maxLat, s.lat);
+    minLng = Math.min(minLng, s.lng);
+    maxLng = Math.max(maxLng, s.lng);
+  }
+  const pad = 0.025;
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: Math.max(0.04, (maxLat - minLat) * 1.55 + pad),
+    longitudeDelta: Math.max(0.04, (maxLng - minLng) * 1.55 + pad),
+  };
+}
+
+/**
+ * Повертає mapRegion з плану, якщо він узгоджений із зупинками; інакше — bounds зі зупинок.
+ * @param {object | null | undefined} plan
+ * @param {{ latitude: number, longitude: number, latitudeDelta?: number, longitudeDelta?: number } | null | undefined} [catalogCenter]
+ */
+export function resolveRouteMapRegion(plan, catalogCenter = null) {
+  const fromStops = regionFromStops(plan?.stops);
+  const candidate = plan?.mapRegion || catalogCenter;
+  if (!fromStops) return candidate || null;
+  if (!candidate) return fromStops;
+  const center = {
+    lat: candidate.latitude,
+    lng: candidate.longitude,
+  };
+  const stopCenter = { lat: fromStops.latitude, lng: fromStops.longitude };
+  const centerKm = haversineKm(center, stopCenter);
+  const huge =
+    (candidate.latitudeDelta || 0) > 3 || (candidate.longitudeDelta || 0) > 3;
+  if (centerKm > 50 || huge) return fromStops;
+  return candidate;
+}
+
 /** Усі точки для fitToCoordinates — маршрут, зупинки, позиція користувача. */
 export function collectMapFitCoordinates({ polyline = [], stops = [], extras = [] }) {
   const seen = new Set();
@@ -314,6 +509,8 @@ export function travelModeFromTransport(transport) {
   switch (transport) {
     case 'car':
       return 'driving';
+    case 'bike':
+      return 'bicycling';
     case 'bus':
     case 'train':
       return 'transit';

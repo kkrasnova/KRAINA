@@ -200,10 +200,31 @@ export async function retrySyncLocalFeedPost(user, localId, { visibility = 'foll
       postId: backendPostId,
       localPostId: id,
       synced: true,
+      mediaUrls: remoteUrls,
     });
     return backendPostId;
   })();
 
   registerPendingFeedPostSync(id, syncPromise);
   return syncPromise.catch(() => null);
+}
+
+/** Повторно відправити всі локальні чернетки постів на бекенд (після збою фонової синхронізації). */
+export async function retryAllUnsyncedLocalFeedPosts(user) {
+  if (!user) return [];
+  const locals = await getUserFeedPosts(user);
+  const drafts = (Array.isArray(locals) ? locals : []).filter((p) => isLocalFeedPostId(p?.id));
+  if (!drafts.length) return [];
+
+  const synced = [];
+  for (const post of drafts) {
+    const localId = String(post.id);
+    const mapped = await getFeedPostBackendId(user, localId);
+    if (mapped) continue;
+    const visibility =
+      post.scope === 'world' || post.visibility === 'public' ? 'public' : 'followers';
+    const backendId = await retrySyncLocalFeedPost(user, localId, { visibility }).catch(() => null);
+    if (backendId) synced.push(backendId);
+  }
+  return synced;
 }

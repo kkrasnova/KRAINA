@@ -94,7 +94,7 @@ function readFieldBlock(block, field) {
     }
     if (ch === '{') depth++;
     else if (ch === '}') {
-      depth
+      depth--;
       if (depth === 0) {
         return block.slice(openIdx + 1, i);
       }
@@ -132,7 +132,7 @@ function readQuizOptions(quizBlock) {
     }
     if (ch === '[') depth++;
     if (ch === ']') {
-      depth
+      depth--;
       if (depth === 0) break;
     }
     arr += ch;

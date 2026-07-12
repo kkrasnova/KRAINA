@@ -8,7 +8,8 @@ import { dominantVisitCategoryFromLandmark } from './visitStatsStorage';
 import { storyQuizForLandmarkRoute, hasPlayableStoryQuiz } from './landmarkQuizUtils';
 import { normalizeLandmarkStory } from './landmarkStorySchema';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
-import { HERO_THUMB_MAP } from './krainaHeroThumbs';
+import { HERO_THUMB_MAP, resolveHeroThumbRef } from './krainaHeroThumbs';
+import { resolveHomeLandmarkThumbSource } from './homeLandmarkDisplay';
 import {
   introPagesFromStory,
   resolveIntroStoryField,
@@ -16,6 +17,94 @@ import {
 } from './landmarkIntroStoryResolve';
 
 export { introPagesFromStory };
+
+/** Перший екран з головної: фото на весь екран (нижній лист поверх). */
+export const HOME_FULLSCREEN_HERO_LAYOUT = {
+  homeHeroHeightRatio: 1,
+  homeHeroHeightMax: 9999,
+  homeHeroContentFit: 'cover',
+  homeHeroContentPosition: 'center',
+};
+
+export const LANDMARK_HERO_ASSET_BY_ID = {
+  maidan: 'maidan',
+  sophia: 'sophia',
+  lavra: 'lavra',
+  khanenko_museum: 'khanenko',
+  vangogh: 'vangoghMuseum',
+  rijksmuseum: 'rijksmuseum',
+  vondelpark: 'vondelpark',
+  westerkerk: 'westerkerk',
+  anne_frank: 'anneFrankHouse',
+};
+
+function normalizeBundledPhotoAsset(asset) {
+  if (typeof asset === 'number' && Number.isFinite(asset)) return asset;
+  if (typeof asset === 'string' && asset.trim()) {
+    const parsed = Number(asset);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function remotePhotoUriOnly(uri) {
+  const resolved = resolveOfflineUriSync(uri);
+  return resolved && /^https?:\/\//i.test(resolved) ? resolved : null;
+}
+
+function localPhotoUriOnly(uri) {
+  const resolved = resolveOfflineUriSync(uri);
+  if (!resolved || typeof resolved !== 'string') return null;
+  const trimmed = resolved.trim();
+  return /^(file:\/\/|content:\/\/|asset:\/\/|ph:\/\/)/i.test(trimmed) ? trimmed : null;
+}
+
+/** ExpoImage на iOS надійніше з { uri } від resolveAssetSource, ніж з raw require-id. */
+export function normalizeExpoImageSource(source) {
+  if (source == null) return null;
+  if (typeof source === 'number') {
+    const resolved = Image.resolveAssetSource(source);
+    if (resolved?.uri) return { uri: String(resolved.uri) };
+    return source;
+  }
+  if (typeof source === 'object' && typeof source.uri === 'string') {
+    const uri = resolveOfflineUriSync(source.uri) || source.uri.trim();
+    if (uri) return { uri };
+  }
+  return null;
+}
+
+/** Головне фото пам’ятки з каталогу (без route.params). */
+export function resolveLandmarkHeroPhotoSourceFromLandmark(lm) {
+  if (!lm || typeof lm !== 'object') return null;
+  const thumb = resolveHomeLandmarkThumbSource(lm);
+  if (typeof thumb === 'number') return thumb;
+  const namedKey = LANDMARK_HERO_ASSET_BY_ID[String(lm.id || '').trim()];
+  if (namedKey) {
+    const asset = HERO_THUMB_MAP[namedKey];
+    if (typeof asset === 'number') return asset;
+  }
+  return null;
+}
+
+/**
+ * Джерело для ExpoImage: asset (number) або { uri }.
+ * Пріоритет: photoAsset → heroThumb → каталог lm → photoUri.
+ */
+export function resolveLandmarkHeroPhotoSource({ photoAsset, photoUri, heroThumb, lm } = {}) {
+  const bundledAsset = normalizeBundledPhotoAsset(photoAsset);
+  if (typeof bundledAsset === 'number') return bundledAsset;
+  const thumbRef = typeof heroThumb === 'string' ? heroThumb.trim() : '';
+  const fromRef = resolveHeroThumbRef(thumbRef);
+  if (typeof fromRef === 'number') return fromRef;
+  const fromLandmark = lm ? resolveLandmarkHeroPhotoSourceFromLandmark(lm) : null;
+  if (fromLandmark) return fromLandmark;
+  const remoteUri = remotePhotoUriOnly(photoUri);
+  if (remoteUri) return { uri: remoteUri };
+  const localUri = localPhotoUriOnly(photoUri);
+  if (localUri) return { uri: localUri };
+  return null;
+}
 
 export function homeHeroLayoutFromStory(rawStory) {
   if (!rawStory || typeof rawStory !== 'object') return {};
@@ -113,24 +202,13 @@ export function landmarkResultExtrasFromResolvedLandmark({ lm, region, countryId
   const visitLat = typeof lm?.lat === 'number' && Number.isFinite(lm.lat) ? lm.lat : undefined;
   const visitLng = typeof lm?.lng === 'number' && Number.isFinite(lm.lng) ? lm.lng : undefined;
 
-  const photoAsset =
-    lm?.id === 'maidan'
-      ? HERO_THUMB_MAP.maidan
-      : lm?.id === 'sophia'
-        ? HERO_THUMB_MAP.sophia
-        : lm?.id === 'lavra'
-          ? HERO_THUMB_MAP.lavra
-          : lm?.id === 'khanenko_museum'
-            ? HERO_THUMB_MAP.khanenko
-            : typeof lm?.thumb === 'number'
-              ? lm.thumb
-              : undefined;
+  const heroThumb = LANDMARK_HERO_ASSET_BY_ID[String(lm?.id || '').trim()] || undefined;
+  const heroSource = resolveLandmarkHeroPhotoSource({ lm, heroThumb });
+  const photoAsset = typeof heroSource === 'number' ? heroSource : undefined;
   const photoUri =
-    lm.thumb && typeof lm.thumb === 'object' && typeof lm.thumb.uri === 'string'
-      ? resolveOfflineUriSync(lm.thumb.uri)
-      : photoAsset
-        ? Image.resolveAssetSource(photoAsset)?.uri || null
-        : Image.resolveAssetSource(lm.thumb)?.uri || null;
+    heroSource && typeof heroSource === 'object' && typeof heroSource.uri === 'string'
+      ? remotePhotoUriOnly(heroSource.uri)
+      : null;
 
   const storyQuiz = localizedStoryQuiz(lm, language, region) || storyQuizForLandmarkRoute(lm);
   const factSlides = storyFactSlidesForLandmarkRoute(lm);
@@ -145,21 +223,12 @@ export function landmarkResultExtrasFromResolvedLandmark({ lm, region, countryId
   const introPages = introPagesFromStory(rawStory, language, ctx);
   const introPagesUk = introPagesFromStory(rawStory, 'uk', ctx);
   const introPagesEn = introPagesFromStory(rawStory, 'en', ctx);
-  const homeHeroLayout =
-    lm?.id === 'khanenko_museum'
-      ? {
-          homeHeroHeightRatio: 1,
-          homeHeroHeightMax: 9999,
-          homeHeroContentFit: 'cover',
-          homeHeroContentPosition: 'center',
-        }
-      : homeHeroLayoutFromStory(rawStory);
-
   return {
     title,
     headerTitle,
     ...(visitLandmarkSave ? { visitLandmarkSave } : {}),
     ...(visitLat != null && visitLng != null ? { visitLat, visitLng } : {}),
+    ...(heroThumb ? { heroThumb } : {}),
     ...(photoAsset ? { photoAsset } : {}),
     ...(photoUri ? { photoUri } : {}),
     ...(user && (user.id || user.firebaseUid) ? { user } : {}),
@@ -170,7 +239,7 @@ export function landmarkResultExtrasFromResolvedLandmark({ lm, region, countryId
     ...(introPages ? { introPages } : {}),
     ...(introContinuationUk && !introPagesUk ? { introContinuation: introContinuationUk } : {}),
     ...(introContinuationEn && !introPagesEn ? { introContinuationEn } : {}),
-    ...homeHeroLayout,
+    ...HOME_FULLSCREEN_HERO_LAYOUT,
   };
 }
 

@@ -1,11 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
-  Image,
   Platform,
   ActivityIndicator,
   Alert,
@@ -16,11 +15,12 @@ import {
   TextInput,
   FlatList,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { pf } from './profileI18n';
@@ -36,9 +36,10 @@ import {
   mapSocialListRowToProfile,
 } from './socialApi';
 import {
-  feedListUserPosts,
+  feedListProfileUserPosts,
   feedListStoriesForUser,
   hasFeedApiToken,
+  ensureFeedApiReady,
   feedTogglePostLike,
   feedListPostComments,
   feedAddPostComment,
@@ -47,7 +48,8 @@ import { messagesOpenThread, messagesSendText, hasMessageApiToken } from './mess
 import { useAuthStore } from './auth/authStore';
 import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
 import { KRAINA_SOCIAL_FOLLOW_CHANGED, KRAINA_SOCIAL_GRAPH_CHANGED, socialFollowMatches, isPlaceholderSocialUsername, SOCIAL_SYNC_TTL_MS } from './socialFollowSyncEvents';
-import { resolveFeedMediaUrl } from './feedMediaUrl';
+import { resolveFeedMediaUrl, pickFirstFeedMediaUrl } from './feedMediaUrl';
+import { apiPostToGridRow } from './profilePostsGrid';
 import { storyAvatarRingStyle, storiesHasUnviewed } from './storyTrayUtils';
 import { errorToUserText } from './errorText';
 import {
@@ -91,6 +93,35 @@ function formatPostAge(iso, lang) {
   return `${Math.floor(diffH / 24)} ${langUk ? 'дн.' : 'd'}`;
 }
 
+function formatBirthLabel(iso, lang) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  if (!y || !m || !d) return iso;
+  const langUk = String(lang || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+  if (langUk) return `${d}.${m}.${y}`;
+  return `${m}/${d}/${y}`;
+}
+
+function profileFeedUsername(profile, fallbackUsername) {
+  return String(profile?.username || fallbackUsername || '')
+    .replace(/^@/, '')
+    .trim();
+}
+
+function resolveSeedPosts(route, seedCache) {
+  const fromFull = route?.params?.preloadedFull?.posts;
+  if (Array.isArray(fromFull) && fromFull.length) return fromFull;
+  if (Array.isArray(seedCache?.posts) && seedCache.posts.length) return seedCache.posts;
+  return [];
+}
+
+function resolveSeedStories(route, seedCache) {
+  const fromFull = route?.params?.preloadedFull?.stories;
+  if (Array.isArray(fromFull) && fromFull.length) return fromFull;
+  if (Array.isArray(seedCache?.peerStories) && seedCache.peerStories.length) return seedCache.peerStories;
+  return [];
+}
+
 export default function SocialUserProfilePage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
@@ -103,10 +134,10 @@ export default function SocialUserProfilePage({ navigation, route }) {
   }
   const seedProfile = seedProfileRef.current;
   const seedCache = profilePageCache[profileCacheKey(targetUsername)];
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [profile, setProfile] = useState(seedProfile);
-  const [posts, setPosts] = useState(Array.isArray(seedCache?.posts) ? seedCache.posts : []);
-  const [peerStories, setPeerStories] = useState(Array.isArray(seedCache?.peerStories) ? seedCache.peerStories : []);
+  const [posts, setPosts] = useState(() => resolveSeedPosts(route, seedCache));
+  const [peerStories, setPeerStories] = useState(() => resolveSeedStories(route, seedCache));
   const [loading, setLoading] = useState(!seedProfile);
   const [refreshing, setRefreshing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
@@ -122,7 +153,6 @@ export default function SocialUserProfilePage({ navigation, route }) {
   const [postModalBusy, setPostModalBusy] = useState(false);
   const [postMediaIndex, setPostMediaIndex] = useState(0);
 
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
@@ -141,8 +171,6 @@ export default function SocialUserProfilePage({ navigation, route }) {
 
   const reload = useCallback(
     async (silent = false, force = false) => {
-      const t = await getAppTheme();
-      setAppTheme(t === 'light' ? 'light' : 'dark');
       if (!targetUsername) {
         setLoading(false);
         return;
@@ -152,19 +180,15 @@ export default function SocialUserProfilePage({ navigation, route }) {
       const cacheFresh = cached && Date.now() - cached.at < PROFILE_PAGE_CACHE_TTL;
       const instantProfile = cached?.profile || seedProfile;
 
-      // Fresh cache — use it, skip revalidation
+      // Fresh cache — show immediately, still revalidate feed below
       if (!force && cacheFresh) {
         if (__DEV__) console.log(`[Cache] SocialUserProfile HIT fresh @${targetUsername} age=${Date.now() - cached.at}ms`);
         setProfile(cached.profile);
-        setPosts(cached.posts);
-        setPeerStories(cached.peerStories);
+        if (Array.isArray(cached.posts) && cached.posts.length) setPosts(cached.posts);
+        if (Array.isArray(cached.peerStories) && cached.peerStories.length) setPeerStories(cached.peerStories);
         setFeedSyncHint(cached.feedSyncHint);
         setLoading(false);
-        return;
-      }
-
-      // Stale cache or route seed — show immediately, revalidate in background (no spinner)
-      if (!force && instantProfile) {
+      } else if (!force && instantProfile) {
         if (__DEV__) {
           console.log(
             `[Cache] SocialUserProfile instant @${targetUsername}` +
@@ -173,8 +197,8 @@ export default function SocialUserProfilePage({ navigation, route }) {
         }
         setProfile(instantProfile);
         if (cached) {
-          setPosts(cached.posts);
-          setPeerStories(cached.peerStories);
+          if (Array.isArray(cached.posts) && cached.posts.length) setPosts(cached.posts);
+          if (Array.isArray(cached.peerStories) && cached.peerStories.length) setPeerStories(cached.peerStories);
           setFeedSyncHint(cached.feedSyncHint);
         }
         setLoading(false);
@@ -192,11 +216,15 @@ export default function SocialUserProfilePage({ navigation, route }) {
       }
 
       let resolvedProfile = instantProfile || null;
+      let bundledPosts = null;
+      let bundledStories = null;
       let notFound = false;
       try {
         const full = await socialGetPublicProfileFull(targetUsername, 80).catch(() => null);
         if (full?.profile) {
           resolvedProfile = full.profile;
+          if (Array.isArray(full.posts)) bundledPosts = full.posts;
+          if (Array.isArray(full.stories)) bundledStories = full.stories;
         } else {
           try {
             resolvedProfile = await socialGetPublicProfile(targetUsername);
@@ -232,28 +260,44 @@ export default function SocialUserProfilePage({ navigation, route }) {
 
       if (notFound || !resolvedProfile) return;
 
+      let nextPosts = Array.isArray(bundledPosts) ? bundledPosts : [];
+      let nextStories = Array.isArray(bundledStories) ? bundledStories : [];
+
+      if (Array.isArray(nextPosts) && nextPosts.length) {
+        setPosts(nextPosts);
+      }
+      if (Array.isArray(nextStories) && nextStories.length) {
+        setPeerStories(nextStories);
+      }
+
       try {
-        await useAuthStore.getState().hydrate();
+        await ensureFeedApiReady(user);
         if (!useAuthStore.getState().accessToken) {
           await useAuthStore.getState().refreshSession().catch(() => {});
         }
 
-        const grid = await feedListUserPosts(targetUsername, 60);
-        const nextPosts = Array.isArray(grid) ? grid : [];
-        setPosts(nextPosts);
+        const feedUsername = profileFeedUsername(resolvedProfile, targetUsername);
+        const ownerUserId = resolvedProfile?.user_id ? String(resolvedProfile.user_id) : '';
+        if (feedUsername || ownerUserId) {
+          const grid = await feedListProfileUserPosts(feedUsername, ownerUserId, 60);
+          if (Array.isArray(grid) && grid.length) {
+            nextPosts = grid;
+          }
+        }
 
-        let stories = [];
         if (resolvedProfile?.user_id && hasFeedApiToken()) {
           try {
             const sl = await feedListStoriesForUser(String(resolvedProfile.user_id));
-            if (Array.isArray(sl) && sl.length) stories = sl;
+            if (Array.isArray(sl) && sl.length) nextStories = sl;
           } catch {
-            stories = [];
+            /* keep bundled stories */
           }
         }
-        setPeerStories(stories);
+
+        setPosts(nextPosts);
+        setPeerStories(nextStories);
         let hint = '';
-        if (!hasFeedApiToken()) {
+        if (!hasFeedApiToken() && !nextPosts.length) {
           hint = language === 'uk' ? 'Увійдіть у бекенд-акаунт, щоб бачити публікації й сторіс' : 'Sign in to backend account to see posts and stories';
         }
         setFeedSyncHint(hint);
@@ -262,14 +306,16 @@ export default function SocialUserProfilePage({ navigation, route }) {
           at: Date.now(),
           profile: resolvedProfile,
           posts: nextPosts,
-          peerStories: stories,
+          peerStories: nextStories,
           feedSyncHint: hint,
         };
       } catch (e) {
         if (__DEV__) console.warn('[SocialUserProfile] feed', e?.message);
+        if (nextPosts.length) setPosts(nextPosts);
+        if (nextStories.length) setPeerStories(nextStories);
       }
     },
-    [targetUsername, language, seedProfile],
+    [targetUsername, language, seedProfile, user],
   );
 
   useFocusEffect(
@@ -298,14 +344,18 @@ export default function SocialUserProfilePage({ navigation, route }) {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_FOLLOW_CHANGED, (payload) => {
+      const matches =
+        socialFollowMatches(payload, profile?.username, profile?.user_id) ||
+        socialFollowMatches(payload, targetUsername, profile?.user_id);
       setProfile((p) => {
         if (!p || !socialFollowMatches(payload, p.username, p.user_id)) return p;
         return { ...p, is_following: !!payload.is_following };
       });
       profilePageCache = {};
+      if (matches) void reload(true, true);
     });
     return () => sub.remove();
-  }, []);
+  }, [reload, profile?.username, profile?.user_id, targetUsername]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(KRAINA_SOCIAL_GRAPH_CHANGED, () => {
@@ -345,6 +395,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
       ...shell,
       userId: String(profile.user_id),
       fromProfile: true,
+      prefetchedStories: peerStories,
       authorUsername: profile.username || '',
       ...(profile.display_name && String(profile.display_name).trim()
         ? { authorDisplayName: String(profile.display_name).trim() }
@@ -385,6 +436,11 @@ export default function SocialUserProfilePage({ navigation, route }) {
     }
   };
 
+  const profileGridItems = useMemo(
+    () => posts.map((p) => apiPostToGridRow(p, [], null)).filter(Boolean),
+    [posts],
+  );
+
   useEffect(() => {
     const l = {};
     const lc = {};
@@ -406,7 +462,11 @@ export default function SocialUserProfilePage({ navigation, route }) {
     if (withSpinner) setPostModalBusy(true);
     try {
       const [latestPosts, rows] = await Promise.all([
-        feedListUserPosts(targetUsername, 80),
+        feedListProfileUserPosts(
+          profileFeedUsername(profile, targetUsername),
+          profile?.user_id ? String(profile.user_id) : '',
+          80,
+        ),
         feedListPostComments(id, 120),
       ]);
       const latest = (Array.isArray(latestPosts) ? latestPosts : []).find((p) => String(p.id) === id) || null;
@@ -422,19 +482,21 @@ export default function SocialUserProfilePage({ navigation, route }) {
     } finally {
       if (withSpinner) setPostModalBusy(false);
     }
-  }, [targetUsername]);
+  }, [targetUsername, profile]);
 
-  const openPost = useCallback(async (post) => {
-    setPostModal(post);
-    setPostMediaIndex(0);
-    setComments([]);
-    setCommentBusy(true);
-    try {
-      await refreshModalPost(post?.id, true);
-    } finally {
-      setCommentBusy(false);
-    }
-  }, [refreshModalPost]);
+  const openPost = useCallback((post) => {
+    const uri = pickFirstFeedMediaUrl(post);
+    navigation.navigate('ProfilePostDetail', {
+      ...shell,
+      postId: post.id,
+      coverUrl: uri,
+      peerUsername: targetUsername,
+      authorName: profile?.display_name || profile?.username || targetUsername,
+      peerAvatarUrl: resolveFeedMediaUrl(profile?.avatar_url || '') || null,
+      liked: !!post.liked_by_viewer,
+      likesCount: Number(post.likes_count) || 0,
+    });
+  }, [navigation, shell, targetUsername, profile?.display_name, profile?.username, profile?.avatar_url]);
 
   // Post modal refreshes on open — no background polling
 
@@ -589,7 +651,9 @@ export default function SocialUserProfilePage({ navigation, route }) {
                 </View>
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
-                    <Text style={[styles.statNum, brandFontSansSemibold, { color: textMain }]}>{posts.length}</Text>
+                    <Text style={[styles.statNum, brandFontSansSemibold, { color: textMain }]}>
+                      {Math.max(profileGridItems.length, posts.length)}
+                    </Text>
                     <Text style={[styles.statLabel, brandFontSans, { color: textStatLabel }]} numberOfLines={1}>
                       {pf(language, 'userPosts')}
                     </Text>
@@ -615,6 +679,11 @@ export default function SocialUserProfilePage({ navigation, route }) {
                 <Text style={[styles.username, brandFontSans, { color: muted }]}>@{profile.username}</Text>
                 {profile.location_label ? (
                   <Text style={[styles.location, brandFontSans, { color: muted }]}>{profile.location_label}</Text>
+                ) : null}
+                {profile.birth_date ? (
+                  <Text style={[styles.location, brandFontSans, { color: muted }]}>
+                    {formatBirthLabel(profile.birth_date, language)}
+                  </Text>
                 ) : null}
                 {profile.bio ? (
                   <Text style={[styles.bio, brandFontSans, { color: muted }]} numberOfLines={3}>
@@ -666,7 +735,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
           {feedSyncHint ? (
             <Text style={[styles.syncHint, brandFontSans, { color: muted }]}>{feedSyncHint}</Text>
           ) : null}
-          {posts.length === 0 ? (
+          {profileGridItems.length === 0 ? (
             <View
               style={[
                 styles.emptyPostsWrap,
@@ -704,34 +773,39 @@ export default function SocialUserProfilePage({ navigation, route }) {
             </View>
           ) : (
             <View style={[styles.grid, { gap: GRID_GAP }]}>
-              {posts.map((p) => {
-                const uri = resolveFeedMediaUrl((p.media_urls && p.media_urls[0]) || '');
-                const mediaCount = Array.isArray(p.media_urls) ? p.media_urls.length : 0;
-                const isVideo = /\.(mp4|mov)(\?|$)/i.test(String(uri));
-                return (
+              {profileGridItems.map((it) => (
                   <Pressable
-                    key={p.id}
-                    onPress={() => openPost(p)}
+                    key={it.id}
+                    onPress={() => {
+                      const post = posts.find((p) => String(p.id) === String(it.id));
+                      if (post) openPost(post);
+                    }}
                     style={{ width: CELL, height: CELL, borderRadius: 3, overflow: 'hidden' }}
                   >
-                    {uri ? (
-                      <Image source={{ uri }} style={styles.cellImg} resizeMode="cover" />
+                    {it.uri ? (
+                      <ExpoImage
+                        source={{ uri: it.uri }}
+                        style={styles.cellImg}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={String(it.id)}
+                        transition={120}
+                      />
                     ) : (
                       <View style={[styles.cellImg, { backgroundColor: '#333' }]} />
                     )}
-                    {isVideo ? (
+                    {it.isVideo ? (
                       <View style={styles.badgeVideo}>
                         <Ionicons name="play" size={12} color="#FFFFFF" />
                       </View>
                     ) : null}
-                    {mediaCount > 1 ? (
+                    {(it.mediaCount || 1) > 1 ? (
                       <View style={styles.badgeStack}>
                         <Ionicons name="images-outline" size={12} color="#FFFFFF" />
                       </View>
                     ) : null}
                   </Pressable>
-                );
-              })}
+              ))}
             </View>
           )}
         </ScrollView>
@@ -742,11 +816,12 @@ export default function SocialUserProfilePage({ navigation, route }) {
             {postModal ? (
               <>
                 <View style={styles.modalHead}>
-                  {profile?.avatar_url ? (
-                    <Image source={{ uri: resolveFeedMediaUrl(profile.avatar_url) }} style={styles.modalAvatar} />
-                  ) : (
-                    <View style={[styles.modalAvatar, { backgroundColor: isLight ? '#E0E0DC' : '#333' }]} />
-                  )}
+                  <ProfileAvatarCircle
+                    uri={resolveFeedMediaUrl(profile?.avatar_url || '')}
+                    size={36}
+                    isLight={isLight}
+                    style={styles.modalAvatar}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.modalAuthor, { color: textMain }]}>
                       {profile?.display_name || `@${profile?.username || 'user'}`}
@@ -779,10 +854,11 @@ export default function SocialUserProfilePage({ navigation, route }) {
                         setPostMediaIndex(idx);
                       }}
                       renderItem={({ item }) => (
-                        <Image
+                        <ExpoImage
                           source={{ uri: resolveFeedMediaUrl(String(item || '')) }}
                           style={styles.modalImage}
-                          resizeMode="cover"
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
                         />
                       )}
                     />
@@ -793,10 +869,11 @@ export default function SocialUserProfilePage({ navigation, route }) {
                     </View>
                   </View>
                 ) : (
-                  <Image
-                    source={{ uri: resolveFeedMediaUrl((postModal.media_urls && postModal.media_urls[0]) || '') }}
+                  <ExpoImage
+                    source={{ uri: pickFirstFeedMediaUrl(postModal) }}
                     style={styles.modalImage}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
                   />
                 )}
                 <View style={styles.modalActions}>
@@ -981,7 +1058,7 @@ const styles = StyleSheet.create({
     paddingBottom: 22,
   },
   modalHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  modalAvatar: { width: 36, height: 36, borderRadius: 18 },
+  modalAvatar: { marginRight: 10 },
   modalAuthor: { fontSize: 14, fontWeight: '700' },
   modalMeta: { fontSize: 12, marginTop: 1 },
   modalImage: { width: '100%', aspectRatio: 1, borderRadius: 12, marginBottom: 10, backgroundColor: '#222' },

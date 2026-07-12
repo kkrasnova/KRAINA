@@ -33,6 +33,8 @@ import {
 import { st } from './chatsI18n';
 import { useSyncedAppLanguage } from './useAppLanguage';
 import { errorToUserText } from './errorText';
+import ProfileAvatarCircle from './ProfileAvatarCircle';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
 
 // LiveKit SDK — guarded import for when the native module isn't linked yet.
 let LiveKit = null;
@@ -63,6 +65,7 @@ function CallRoomContent({
   LKTrack,
   isCameraEnabled,
   peerDisplayName,
+  peerAvatarUrl,
   formattedDuration,
   remoteConnected,
   callStatus,
@@ -118,9 +121,7 @@ function CallRoomContent({
         </View>
       ) : (
         <View style={styles.header}>
-          <View style={styles.avatarLarge}>
-            <Ionicons name="person" size={48} color="#FFF" />
-          </View>
+          <ProfileAvatarCircle uri={resolveFeedMediaUrl(peerAvatarUrl)} size={96} isLight={false} style={styles.callAvatar} />
           <Text style={styles.peerName}>{peerDisplayName}</Text>
           <Text style={styles.statusText}>
             {callStatus === 'incoming'
@@ -454,6 +455,7 @@ export default function CallPage({ navigation, route }) {
         LKTrack={LKTrack}
         isCameraEnabled={isCameraEnabled}
         peerDisplayName={peerDisplayName}
+        peerAvatarUrl={peerAvatarUrl}
         formattedDuration={formatCallDuration(durationSec)}
         remoteConnected={remoteConnected}
         callStatus={callStatus}
@@ -486,9 +488,7 @@ export default function CallPage({ navigation, route }) {
       {!needsLiveKit ? (
         <View style={styles.roomContentRoot}>
           <View style={styles.header}>
-            <View style={styles.avatarLarge}>
-              <Ionicons name="person" size={48} color="#FFF" />
-            </View>
+            <ProfileAvatarCircle uri={resolveFeedMediaUrl(peerAvatarUrl)} size={96} isLight={false} style={styles.callAvatar} />
             <Text style={styles.peerName}>{peerDisplayName}</Text>
             <Text style={styles.statusText}>
               {callStatus === 'incoming'
@@ -615,15 +615,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 40,
   },
-  avatarLarge: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: '#333',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
+  callAvatar: { marginBottom: 20 },
   peerName: {
     color: '#FFF',
     fontSize: 24,

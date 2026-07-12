@@ -35,6 +35,9 @@ import ChatsPage from './ChatsPage';
 import ChatThreadPage from './ChatThreadPage';
 import FeedCameraPage from './FeedCameraPage';
 import FeedStoryViewerPage from './FeedStoryViewerPage';
+import FeedPostComposerPage from './app/FeedPostComposerPage';
+import FeedPostMediaPickerPage from './app/FeedPostMediaPickerPage';
+import FeedStorySharePage from './app/FeedStorySharePage';
 import PostMapPickerPage from './PostMapPickerPage';
 import ExploreMapPage from './ExploreMapPage';
 import RouteResultsPage from './RouteResultsPage';
@@ -65,6 +68,14 @@ import { fetchAppVersionGate } from './fetchAppVersionGate';
 import { runAppBootstrap } from './appBootstrap';
 import ForceUpdateScreen from './ForceUpdateScreen';
 import { KRAINA_FONT_MAP } from './krainaFonts';
+import ChatToast, { showChatToast } from './app/inAppChatAlerts';
+import {
+  WS_EVENT_NEW_MESSAGE,
+  connectChatWebSocket,
+  disconnectChatWebSocket,
+} from './app/chatRealtime';
+import { useAuthStore } from './app/auth/authStore';
+import { isBackendJwt } from './app/backendAuthApi';
 
 LogBox.ignoreLogs([
   'Could not reach Cloud Firestore backend',
@@ -141,6 +152,50 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // ─── In-app chat notification toast ─────────────────────────────────────────────
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(WS_EVENT_NEW_MESSAGE, (data) => {
+      if (!data?.threadId || !data?.message) return;
+      const route = navigationRef.isReady() ? navigationRef.getCurrentRoute() : null;
+      if (route?.name === 'ChatThread' && String(route?.params?.threadId) === String(data.threadId)) {
+        return;
+      }
+      const meId = useAuthStore.getState().user?.id;
+      if (meId && String(data.message.sender_id) === String(meId)) return;
+      const rawContent = String(data.message.content || '');
+      const preview = rawContent.length > 120 ? rawContent.slice(0, 120) + '…' : rawContent;
+      const senderName = String(data.message.sender_name || '');
+      showChatToast({
+        threadId: data.threadId,
+        senderName,
+        preview,
+        theme: appTheme,
+      });
+    });
+    return () => sub.remove();
+  }, [appTheme]);
+
+  // ─── Global WebSocket lifecycle (persistent across all screens) ──────────────────
+  useEffect(() => {
+    if (!bootstrapReady) return;
+    const state = useAuthStore.getState();
+    if (isBackendJwt(state.accessToken) && state.user?.id) {
+      connectChatWebSocket(String(state.user.id));
+    }
+    const unsub = useAuthStore.subscribe((nextState) => {
+      if (isBackendJwt(nextState.accessToken) && nextState.user?.id) {
+        connectChatWebSocket(String(nextState.user.id));
+      } else {
+        disconnectChatWebSocket();
+      }
+    });
+    return () => {
+      unsub();
+      disconnectChatWebSocket();
+    };
+  }, [bootstrapReady]);
+
+
   useEffect(() => {
     void import('./walkReminderSync').then((m) => {
       m.installWalkReminderNotificationHandler();
@@ -209,6 +264,7 @@ export default function App() {
             onStateChange={() => setNavEpoch((n) => n + 1)}
           >
             <View style={{ flex: 1 }}>
+              <ChatToast />
               <Stack.Navigator
                 initialRouteName="FirstPage"
                 screenOptions={{
@@ -356,6 +412,9 @@ export default function App() {
                   ...(Platform.OS === 'ios' ? { presentation: 'fullScreenModal' } : {}),
                 }}
               />
+              <Stack.Screen name="FeedPostComposer" component={FeedPostComposerPage} options={{ headerShown: false }} />
+              <Stack.Screen name="FeedPostMediaPicker" component={FeedPostMediaPickerPage} options={{ headerShown: false }} />
+              <Stack.Screen name="FeedStoryShare" component={FeedStorySharePage} options={{ headerShown: false }} />
               <Stack.Screen name="PostMapPicker" component={PostMapPickerPage} options={{ headerShown: false }} />
               <Stack.Screen name="ExploreMap" component={ExploreMapPage} />
               <Stack.Screen name="RouteResults" component={RouteResultsPage} />

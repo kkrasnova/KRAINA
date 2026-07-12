@@ -2,17 +2,23 @@ import { DeviceEventEmitter } from 'react-native';
 import { chatUserKey } from './chatService';
 import {
   hasFeedApiToken,
+  ensureFeedApiReady,
   feedListMyPosts,
-  feedListUserPosts,
+  feedListProfileUserPosts,
   feedListStoriesForUser,
 } from './feedApi';
-import { getUserFeedPosts, ownStoriesHasUnviewed } from './feedLocalStorage';
+import { getUserFeedPosts, ownStoriesHasUnviewed, resolveFeedLocalUser } from './feedLocalStorage';
 import { storiesHasUnviewed } from './storyTrayUtils';
 import { useAuthStore } from './auth/authStore';
+import { feedDeleteIdSet } from './feedDeleteIds';
+import { filterDeletedFeedPostRows, getDeletedFeedPostIdSet } from './feedDeletedTombstones';
+import { resolveFeedMediaUrl } from './feedMediaUrl';
 import {
   localPostToGridRow,
   mapLocalPostsToGrid,
   mergeProfileGridFromApi,
+  pickBestGridUri,
+  profileGridNeedsRemoteHydration,
 } from './profilePostsGrid';
 
 export const PROFILE_POSTS_CACHE_UPDATED = 'profile_posts_cache_updated_v1';
@@ -89,8 +95,20 @@ export function applyProfilePostsOptimistic(key, payload, effectiveUserId) {
     const backendId = String(payload.postId);
     const existing = gridPosts.find((row) => String(row.id) === localId);
     if (existing) {
+      const remoteUrls = Array.isArray(payload.mediaUrls)
+        ? payload.mediaUrls.filter(Boolean).map((u) => resolveFeedMediaUrl(String(u)))
+        : [];
+      const remoteUri = remoteUrls[0] || '';
       gridPosts = [
-        { ...existing, id: backendId },
+        {
+          ...existing,
+          id: backendId,
+          uri: pickBestGridUri(existing.uri, remoteUri),
+          mediaCount: Math.max(
+            Number(existing.mediaCount) || 1,
+            remoteUrls.length || (remoteUri ? 1 : 0),
+          ),
+        },
         ...gridPosts.filter((row) => {
           const id = String(row.id);
           return id !== localId && id !== backendId;
@@ -108,7 +126,19 @@ export function applyProfilePostsOptimistic(key, payload, effectiveUserId) {
       selfStoryHasUnviewed = true;
     }
   }
+  if (payload.kind === 'delete') {
+    const ids = feedDeleteIdSet(payload);
+    if (ids.size) {
+      gridPosts = gridPosts.filter((row) => !ids.has(String(row.id)));
+    }
+  }
   writeProfilePostsCache(key, { gridPosts, selfStories, selfStoryHasUnviewed });
+}
+
+export function invalidateProfilePostsWarm(user, isOwnProfile = true, username = '') {
+  const feedUser = resolveFeedLocalUser(user);
+  const key = profilePostsCacheKey(feedUser || user, isOwnProfile, username);
+  warmByKey.delete(key);
 }
 
 export async function fetchProfilePostsPayload({
@@ -118,19 +148,28 @@ export async function fetchProfilePostsPayload({
   remoteUsername = '',
   effectiveUser,
 }) {
-  const resolvedUser = effectiveUser || user;
+  const resolvedUser = resolveFeedLocalUser(effectiveUser || user);
   const localPosts = resolvedUser ? await getUserFeedPosts(resolvedUser) : [];
   const viewerUserId = resolveViewerUserId(effectiveUserId, resolvedUser);
+  await getDeletedFeedPostIdSet(resolvedUser);
   if (!hasFeedApiToken()) {
     return {
-      gridPosts: mapLocalPostsToGrid(localPosts),
+      gridPosts: filterDeletedFeedPostRows(
+        resolvedUser,
+        mapLocalPostsToGrid(localPosts),
+      ),
       selfStories: [],
       selfStoryHasUnviewed: false,
     };
   }
+  if (resolvedUser) {
+    await ensureFeedApiReady(resolvedUser);
+  }
   const storiesUserId = viewerUserId || String(effectiveUserId || '');
   const [posts, userStories] = await Promise.all([
-    isOwnProfile ? feedListMyPosts(60) : feedListUserPosts(remoteUsername, 60),
+    isOwnProfile
+      ? feedListMyPosts(60)
+      : feedListProfileUserPosts(remoteUsername, effectiveUserId || '', 60),
     storiesUserId ? feedListStoriesForUser(storiesUserId) : Promise.resolve([]),
   ]);
   const storyList = Array.isArray(userStories) ? userStories : [];
@@ -144,7 +183,10 @@ export async function fetchProfilePostsPayload({
     selfStoryHasUnviewed = storiesHasUnviewed(storyList, { isAuthor: false });
   }
   return {
-    gridPosts: mergeProfileGridFromApi(posts, localPosts, viewerUserId),
+    gridPosts: filterDeletedFeedPostRows(
+      resolvedUser,
+      mergeProfileGridFromApi(posts, localPosts, viewerUserId),
+    ),
     selfStories: storyList,
     selfStoryHasUnviewed,
   };
@@ -152,6 +194,7 @@ export async function fetchProfilePostsPayload({
 
 export function warmProfilePostsCache(user, opts = {}) {
   const isOwnProfile = opts.isOwnProfile !== false;
+  const feedUser = resolveFeedLocalUser(user);
   const username =
     opts.username || useAuthStore.getState().profileMe?.profile?.username || '';
   const effectiveUserId =
@@ -159,21 +202,25 @@ export function warmProfilePostsCache(user, opts = {}) {
     useAuthStore.getState().profileMe?.profile?.user_id ||
     user?.id ||
     null;
-  const key = profilePostsCacheKey(user, isOwnProfile, username);
+  const key = profilePostsCacheKey(feedUser || user, isOwnProfile, username);
   seedProfilePostsCacheIfMissing(key);
 
   const cached = readProfilePostsCache(key);
-  if (cached?.gridPosts?.length && Date.now() - cached.at < PROFILE_POSTS_CACHE_TTL) {
+  if (
+    cached?.gridPosts?.length &&
+    Date.now() - cached.at < PROFILE_POSTS_CACHE_TTL &&
+    !profileGridNeedsRemoteHydration(cached.gridPosts)
+  ) {
     return Promise.resolve(cached);
   }
 
   if (!hasFeedApiToken()) {
     return fetchProfilePostsPayload({
-      user,
+      user: feedUser || user,
       isOwnProfile,
       effectiveUserId,
       remoteUsername: username,
-      effectiveUser: user,
+      effectiveUser: feedUser || user,
     }).then((payload) => {
       writeProfilePostsCache(key, payload);
       return payload;
@@ -184,11 +231,11 @@ export function warmProfilePostsCache(user, opts = {}) {
   if (pending) return pending;
 
   const promise = fetchProfilePostsPayload({
-    user,
+    user: feedUser || user,
     isOwnProfile,
     effectiveUserId,
     remoteUsername: isOwnProfile ? '' : String(username || '').replace(/^@/, ''),
-    effectiveUser: user,
+    effectiveUser: feedUser || user,
   })
     .then((payload) => {
       writeProfilePostsCache(key, payload);

@@ -2,11 +2,13 @@ import { clearSession } from './db';
 import { useAuthStore } from './auth/authStore';
 import { clearAllAppCaches } from './cacheCleanup';
 import { resetAppThemeToDefault } from './themeStorage';
+import { clearAllAuthRecoverySecrets } from './syncBackendSessionBridge';
 
 /** Повний вихід — знову заставка → вибір мови → банери / вхід (ThirdPage). */
 export async function resetToLanguageSelect(navigation) {
   await clearAllAppCaches();
   await resetAppThemeToDefault();
+  await clearAllAuthRecoverySecrets();
   await useAuthStore.getState().clearLocalSession();
   await clearSession();
   navigation.reset({

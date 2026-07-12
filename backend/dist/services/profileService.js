@@ -4,6 +4,7 @@ import { pool } from '../db/pool.js';
 import { getStorageProvider } from '../storage/index.js';
 import { computeExplorerLevel } from '../utils/level.js';
 import { currentPeriodMonth } from '../utils/period.js';
+import { listActiveStoriesForUser, listUserPostsForViewer } from './feedService.js';
 function sanitizeLikeFragment(s) {
     return String(s || '')
         .replace(/%/g, '')
@@ -475,11 +476,29 @@ export async function getPublicProfileFullByUsername(username, viewerUserId, lim
        ORDER BY p.username ASC
        LIMIT $2`, [ownerId, lim]),
     ]);
+    let posts = [];
+    let stories = [];
+    try {
+        posts = await listUserPostsForViewer(viewerUserId, profile.username, 60);
+    }
+    catch {
+        posts = [];
+    }
+    if (viewerUserId) {
+        try {
+            stories = await listActiveStoriesForUser(ownerId, viewerUserId);
+        }
+        catch {
+            stories = [];
+        }
+    }
     return {
         profile,
         followers: followersR.rows.map((row) => mapPublicProfilePersonRow(row)),
         following: followingR.rows.map((row) => mapPublicProfilePersonRow(row)),
         friends: friendsR.rows.map((row) => mapPublicProfilePersonRow(row)),
+        posts,
+        stories,
     };
 }
 //# sourceMappingURL=profileService.js.map

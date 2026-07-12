@@ -17,7 +17,7 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { ls } from './landmarkScannerI18n';
-import { getAppTheme, resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { persistLandmarkStoryRequest } from './landmarkStoryRequest';
 
@@ -26,7 +26,7 @@ const COORD_RED = '#FF4D4D';
 export default function LandmarkNotFoundPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
-  const [appTheme, setAppTheme] = useState(resolveAppTheme(route?.params?.appTheme));
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const requestRef = route?.params?.requestRef || '';
   const photoUri = route?.params?.photoUri;
   const scanLatitude =
@@ -44,18 +44,6 @@ export default function LandmarkNotFoundPage({ navigation, route }) {
   );
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    let c = false;
-    (async () => {
-      const t = await getAppTheme();
-      if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
-    })();
-    return () => {
-      c = true;
-    };
-  }, []);
-
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const sheetBg = isLight ? '#FFFFFF' : '#1A1A1A';
   const titleColor = isLight ? '#1E1E1E' : '#FFFFFF';

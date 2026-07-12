@@ -30,7 +30,7 @@ export default function Lemon3DButton({
 
   const translateY = pressAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: isCircle ? [-4, 0] : [-8, 0],
+    outputRange: isCircle ? [-2, 0] : [-4, 0],
   });
 
   const outerStyle = isCircle
@@ -61,15 +61,18 @@ export default function Lemon3DButton({
     pillSelection &&
       !isCircle &&
       (selected ? styles.frontPillSelected : styles.frontPillIdle),
+    (disabled || loading) && styles.frontDisabled,
   ];
+
+  const isInactive = disabled || loading;
 
   return (
     <Pressable
       onPress={onPress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
-      disabled={disabled || loading}
-      style={[outerStyle, (disabled || loading) && styles.disabled]}
+      disabled={isInactive}
+      style={[outerStyle, isInactive && styles.outerDisabled]}
       android_ripple={disabled || loading ? undefined : noAndroidRipple}
       accessibilityRole="button"
       accessibilityState={{
@@ -79,12 +82,8 @@ export default function Lemon3DButton({
       }}
       accessibilityLabel={accessibilityLabel || label}
     >
-      <View style={backStyle} />
+      <View style={[backStyle, isInactive && styles.backDisabled]} />
       <Animated.View style={[frontStyle, { transform: [{ translateY }] }]}>
-        <View
-          style={[styles.frontGloss, isCircle && styles.frontGlossCircle]}
-          pointerEvents="none"
-        />
         {loading ? (
           <ActivityIndicator color="#101010" />
         ) : isCircle ? (
@@ -96,7 +95,7 @@ export default function Lemon3DButton({
         ) : children ? (
           children
         ) : (
-          <Text style={[styles.text, textStyle]}>{label}</Text>
+          <Text style={[styles.text, isInactive && styles.textDisabled, textStyle]}>{label}</Text>
         )}
       </Animated.View>
     </Pressable>
@@ -107,25 +106,30 @@ const styles = StyleSheet.create({
   outer: {
     width: '100%',
     borderRadius: 999,
-    borderWidth: 5,
-    borderColor: 'rgba(225, 255, 0, 0.55)',
+    borderWidth: 3,
+    borderColor: '#b8cc00',
+    backgroundColor: '#3d4800',
     position: 'relative',
-    overflow: 'visible',
-    shadowColor: '#E1FF00',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    elevation: 8,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 6,
   },
   outerPillIdle: {
-    borderColor: 'rgba(225, 255, 0, 0.34)',
-    shadowColor: '#000000',
-    shadowOpacity: 0.38,
+    borderColor: '#8a9600',
+    shadowOpacity: 0.22,
   },
   outerPillSelected: {
-    borderColor: 'rgba(225, 255, 0, 0.58)',
-    shadowColor: '#E1FF00',
-    shadowOpacity: 0.26,
+    borderColor: '#c4d900',
+    shadowOpacity: 0.3,
+  },
+  outerDisabled: {
+    borderColor: '#4a5200',
+    backgroundColor: '#2a3000',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   outerCircle: {
     borderRadius: 999,
@@ -175,30 +179,29 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 999,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     backgroundColor: '#E1FF00',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     paddingHorizontal: 10,
-    shadowColor: '#3d4800',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 8,
   },
   frontPillIdle: {
     backgroundColor: '#7a8824',
-    borderColor: 'rgba(255, 255, 255, 0.22)',
-    shadowColor: '#000000',
-    shadowOpacity: 0.35,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   frontPillSelected: {
     backgroundColor: '#E1FF00',
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    shadowColor: '#3d4800',
-    shadowOpacity: 0.45,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  frontDisabled: {
+    backgroundColor: '#5a6420',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  backDisabled: {
+    backgroundColor: '#2f3800',
+    borderColor: '#1e2400',
   },
   frontCircle: {
     borderWidth: 2,
@@ -217,23 +220,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.4)',
     shadowColor: '#3d4800',
   },
-  frontGloss: {
-    position: 'absolute',
-    top: 4,
-    left: '12%',
-    right: '12%',
-    height: 4,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
-    zIndex: 1,
-  },
-  frontGlossCircle: {
-    top: 3,
-    left: '18%',
-    right: '18%',
-    height: 2.5,
-    borderRadius: 2,
-  },
   circleEmoji: {
     zIndex: 2,
     textAlign: 'center',
@@ -249,7 +235,7 @@ const styles = StyleSheet.create({
       android: { fontFamily: 'sans-serif-medium' },
     }),
   },
-  disabled: {
-    opacity: 0.52,
+  textDisabled: {
+    color: 'rgba(13, 13, 13, 0.42)',
   },
 });

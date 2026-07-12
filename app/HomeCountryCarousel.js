@@ -197,6 +197,8 @@ export default memo(function HomeCountryCarousel({
         snapToInterval={itemStride}
         snapToAlignment="start"
         disableIntervalMomentum
+        nestedScrollEnabled
+        scrollEventThrottle={16}
         contentContainerStyle={{ paddingRight: 24, paddingVertical: 4 }}
         onMomentumScrollEnd={onScrollEnd}
         getItemLayout={getItemLayout}
@@ -205,7 +207,7 @@ export default memo(function HomeCountryCarousel({
         windowSize={3}
         initialNumToRender={4}
         renderItem={renderItem}
-        {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
+        {...(Platform.OS === 'ios' ? { directionalLockEnabled: true } : { overScrollMode: 'never' })}
         onScrollToIndexFailed={(info) => {
           setTimeout(() => {
             listRef.current?.scrollToIndex({ index: info.index, animated: false });

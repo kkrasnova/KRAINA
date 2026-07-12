@@ -1,6 +1,7 @@
 import { buildLandmarkIntroStory } from './landmarkStoryBuilder';
 import { LANDMARK_INTRO_PAGE_MEDIA_TEMPLATE } from './landmarkIntroPageMediaTemplate';
 import { LANDMARK_INTRO_SLIDE_LABELS_UK } from './landmarkIntroLayoutTemplate';
+import { getLandmarkWikiStory } from './landmarkWikiStories';
 
 const SLIDE_LABELS_EN = [
   'historic context / location',
@@ -133,6 +134,12 @@ export function applyIntroStoryScaffoldToRegions(regions) {
   for (const region of Object.values(regions)) {
     if (!Array.isArray(region?.landmarks)) continue;
     for (const lm of region.landmarks) {
+      if (landmarkHasFullIntroStory(lm) && !lm.story?._scaffold) continue;
+      const wikiStory = getLandmarkWikiStory(region.id, lm.id);
+      if (wikiStory) {
+        lm.story = wikiStory;
+        continue;
+      }
       if (landmarkHasFullIntroStory(lm)) continue;
       lm.story = scaffoldLandmarkIntroStory(lm);
     }

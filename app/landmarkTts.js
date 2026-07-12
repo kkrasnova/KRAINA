@@ -129,6 +129,111 @@ async function ensureTtsCacheDir() {
   await FileSystem.makeDirectoryAsync(TTS_CACHE_DIR, { intermediates: true }).catch(() => {});
 }
 
+function cloudTtsCachePath(text, appLanguage) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return null;
+  const contentLang = ttsContentLang(appLanguage);
+  if (!cloudTtsApiLang(appLanguage)) return null;
+  const cacheKey = sha256(`${contentLang}:${trimmed}`);
+  return `${TTS_CACHE_DIR}${cacheKey.slice(0, 32)}.mp3`;
+}
+
+/** Лише дисковий кеш — без мережі (миттєвий старт відтворення). */
+export async function getCachedCloudTtsFileUri(text, appLanguage) {
+  const localPath = cloudTtsCachePath(text, appLanguage);
+  if (!localPath) return null;
+  await ensureTtsCacheDir();
+  const info = await FileSystem.getInfoAsync(localPath);
+  if (isUsableCachedAudioFile(info)) return normalizePlaybackUri(localPath);
+  return null;
+}
+
+const prefetchInflight = new Map();
+
+// Circuit breaker: коли бекенд TTS недоступний (напр. локальний сервер вимкнено),
+// не довбимо мережу сотні разів. Після кількох підряд мережевих помилок робимо паузу —
+// весь цей час TTS одразу йде на device-fallback без мережевих запитів.
+let cloudTtsNetFailures = 0;
+let cloudTtsCooldownUntil = 0;
+const CLOUD_TTS_FAIL_THRESHOLD = 3;
+const CLOUD_TTS_COOLDOWN_MS = 60000;
+function isCloudTtsNetworkError(e) {
+  // Немає HTTP-відповіді → мережева помилка (offline / connection refused / timeout).
+  return !e?.response;
+}
+
+async function runWithConcurrency(items, worker, maxConcurrent) {
+  if (!items.length) return;
+  let index = 0;
+  const runners = Array.from({ length: Math.min(maxConcurrent, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index;
+      index += 1;
+      try {
+        await worker(items[i], i);
+      } catch {
+        /* optional */
+      }
+    }
+  });
+  await Promise.all(runners);
+}
+
+/** Прогріває TTS у фоні (дедуплікація паралельних запитів). */
+export function prefetchCloudTtsFileUri(text, appLanguage) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return Promise.resolve(null);
+  const contentLang = ttsContentLang(appLanguage);
+  const key = sha256(`${contentLang}:${trimmed}`);
+  if (prefetchInflight.has(key)) return prefetchInflight.get(key);
+  const promise = (async () => {
+    const cached = await getCachedCloudTtsFileUri(trimmed, appLanguage);
+    if (cached) return cached;
+    return fetchCloudTtsFileUri(trimmed, appLanguage);
+  })().finally(() => {
+    prefetchInflight.delete(key);
+  });
+  prefetchInflight.set(key, promise);
+  return promise;
+}
+
+/** Прогріває список текстів (пріоритет — порядок у масиві). */
+export function prefetchCloudTtsTexts(texts, appLanguage, { maxConcurrent = 2 } = {}) {
+  const unique = [];
+  const seen = new Set();
+  for (const entry of texts || []) {
+    const trimmed = String(entry || '').trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    unique.push(trimmed);
+  }
+  if (!unique.length) return Promise.resolve();
+  return runWithConcurrency(unique, (text) => prefetchCloudTtsFileUri(text, appLanguage), maxConcurrent);
+}
+
+/** Максимум очікування хмарного TTS перед миттєвим device fallback. */
+export const CLOUD_TTS_START_TIMEOUT_MS = 900;
+
+async function resolveCloudTtsForPlayback(text, appLanguage, isCancelled) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || isCancelled?.()) return null;
+
+  const cached = await getCachedCloudTtsFileUri(trimmed, appLanguage);
+  if (cached) return cached;
+  if (isCancelled?.()) return null;
+
+  const fetchPromise = prefetchCloudTtsFileUri(trimmed, appLanguage);
+  let timer;
+  const timeoutPromise = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), CLOUD_TTS_START_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([fetchPromise, timeoutPromise]);
+  } finally {
+    if (timer != null) clearTimeout(timer);
+  }
+}
+
 /** Завантажує MP3 з бекенду або повертає закешований file:// URI. */
 export async function fetchCloudTtsFileUri(text, appLanguage) {
   const trimmed = String(text || '').trim();
@@ -136,8 +241,8 @@ export async function fetchCloudTtsFileUri(text, appLanguage) {
   const contentLang = ttsContentLang(appLanguage);
   const apiLang = cloudTtsApiLang(appLanguage);
   if (!apiLang) return null;
-  const cacheKey = sha256(`${contentLang}:${trimmed}`);
-  const localPath = `${TTS_CACHE_DIR}${cacheKey.slice(0, 32)}.mp3`;
+  const localPath = cloudTtsCachePath(trimmed, appLanguage);
+  if (!localPath) return null;
 
   await ensureTtsCacheDir();
   const info = await FileSystem.getInfoAsync(localPath);
@@ -146,12 +251,18 @@ export async function fetchCloudTtsFileUri(text, appLanguage) {
     await FileSystem.deleteAsync(localPath, { idempotent: true }).catch(() => {});
   }
 
+  // Бекенд TTS у паузі після серії мережевих помилок — не робимо запит, одразу device fallback.
+  if (Date.now() < cloudTtsCooldownUntil) return null;
+
   try {
     const res = await apiHttp.post(
       '/api/ai/landmark-tts',
       { text: trimmed, language: apiLang },
       { timeout: 120000, validateStatus: (status) => status < 500 },
     );
+    // Сервер відповів (навіть не-200) → мережа жива, скидаємо лічильник збоїв.
+    cloudTtsNetFailures = 0;
+    cloudTtsCooldownUntil = 0;
     const b64 = res?.data?.audioBase64;
     if (res.status !== 200 || !b64 || typeof b64 !== 'string') return null;
     await FileSystem.writeAsStringAsync(localPath, b64, {
@@ -164,7 +275,16 @@ export async function fetchCloudTtsFileUri(text, appLanguage) {
     }
     return normalizePlaybackUri(localPath);
   } catch (e) {
-    if (__DEV__) console.warn('[landmarkTts] cloud', e?.response?.data || e?.message);
+    if (isCloudTtsNetworkError(e)) {
+      cloudTtsNetFailures += 1;
+      if (cloudTtsNetFailures >= CLOUD_TTS_FAIL_THRESHOLD) {
+        cloudTtsCooldownUntil = Date.now() + CLOUD_TTS_COOLDOWN_MS;
+        cloudTtsNetFailures = 0;
+        if (__DEV__) console.warn('[landmarkTts] бекенд недоступний — пауза TTS на 60с (device fallback)');
+      }
+    } else if (__DEV__) {
+      console.warn('[landmarkTts] cloud', e?.response?.data || e?.message);
+    }
     return null;
   }
 }
@@ -290,7 +410,7 @@ export async function playSlideNarration({
   if (!trimmed) return false;
   if (isCancelled?.()) return false;
 
-  const cloudUri = await fetchCloudTtsFileUri(trimmed, appLanguage);
+  const cloudUri = await resolveCloudTtsForPlayback(trimmed, appLanguage, isCancelled);
   if (isCancelled?.()) return false;
   if (cloudUri && typeof playFileAudio === 'function') {
     try {
@@ -344,7 +464,7 @@ export async function startLandmarkNarration({
 
   let lastError = null;
   for (const trimmed of scripts) {
-    const cloudUri = await fetchCloudTtsFileUri(trimmed, appLanguage);
+    const cloudUri = await resolveCloudTtsForPlayback(trimmed, appLanguage);
     if (cloudUri && typeof playFileAudio === 'function') {
       try {
         await playFileAudio(cloudUri);

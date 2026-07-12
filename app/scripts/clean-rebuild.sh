@@ -145,6 +145,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
   cd ios && pod install --repo-update 2>&1 | tail -5
   cd "$ROOT"
   echo "  └────────────────────────────────────────────────────┘"
+  echo ""
+  echo "  ┌─ iOS codegen ──────────────────────────────────────┐"
+  bash ./scripts/ios-codegen.sh 2>&1 | tail -3
+  echo "  └────────────────────────────────────────────────────┘"
 else
   echo ""
   echo "  ⏭ Не macOS — пропускаємо pod install"

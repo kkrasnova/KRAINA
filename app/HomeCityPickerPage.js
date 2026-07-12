@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
@@ -105,9 +105,8 @@ export default function HomeCityPickerPage({ navigation, route }) {
   const user = route?.params?.user || {};
   const countryId = route?.params?.countryId;
   const language = useSyncedAppLanguage(route, 'en');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme === 'light' ? 'light' : 'dark');
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const [selectedId, setSelectedId] = useState(null);
-  const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const flagSource = useMemo(() => (countryId ? countryFlagSource(countryId) : null), [countryId]);
@@ -119,13 +118,6 @@ export default function HomeCityPickerPage({ navigation, route }) {
     [countryId, homeLocationsEpoch, focusEpoch],
   );
 
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
-    });
-    return () => sub.remove();
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       setFocusEpoch((n) => n + 1);
@@ -136,8 +128,6 @@ export default function HomeCityPickerPage({ navigation, route }) {
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        const t = await getAppTheme();
-        if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
         if (!countryId) return;
         const currentRegions = getHomeRegionsForCountry(countryId);
         if (!currentRegions.length) return;

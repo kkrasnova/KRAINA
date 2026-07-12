@@ -219,16 +219,29 @@ function isFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-/** Цільовий час отримання координат для вибору країни (мілісекунди). */
-const GEO_LOCATION_BUDGET_MS = 1000;
+/** Інтервал оновлення координат під час визначення країни (мілісекунди). */
+const GEO_WATCH_TIME_INTERVAL_MS = 2000;
+/** Мінімальний зсув (метри) між оновленнями watchPosition. */
+const GEO_WATCH_DISTANCE_M = 25;
+/** Час очікування першого GPS-фіксу перед наступною спробою (мілісекунди). */
+const GEO_INITIAL_FIX_TIMEOUT_MS = 20000;
 /** Кешована точка придатна для визначення країни (мілісекунди). */
 const GEO_LAST_KNOWN_MAX_AGE_MS = 5 * 60 * 1000;
+const GEO_LAST_KNOWN_TIMEOUT_MS = 2500;
+
+function withTimeout(promise, timeoutMs, label = 'TIMEOUT') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(label)), timeoutMs);
+    }),
+  ]);
+}
 
 /**
- * Швидкі координати для країни: кеш → Balanced GPS, у межах ~1 с.
- * Точність міста не потрібна — достатньо bbox / reverse geocode / IP fallback.
+ * Перша спроба координат: кеш → поточний GPS (без обрізання на 1 с).
  */
-async function getCountryCoordsFast(Location) {
+async function getCountryCoordsInitial(Location) {
   const Acc = Location.Accuracy || {};
   const accuracy =
     Acc.Balanced != null ? Acc.Balanced : Acc.Low != null ? Acc.Low : Acc.Highest;
@@ -238,13 +251,14 @@ async function getCountryCoordsFast(Location) {
       ? { mayShowUserSettingsDialog: true, maximumAge: GEO_LAST_KNOWN_MAX_AGE_MS }
       : {}),
   };
-  const deadline = Date.now() + GEO_LOCATION_BUDGET_MS;
 
   if (typeof Location.getLastKnownPositionAsync === 'function') {
     try {
-      const cached = await Location.getLastKnownPositionAsync({
-        maxAge: GEO_LAST_KNOWN_MAX_AGE_MS,
-      });
+      const cached = await withTimeout(
+        Location.getLastKnownPositionAsync({ maxAge: GEO_LAST_KNOWN_MAX_AGE_MS }),
+        GEO_LAST_KNOWN_TIMEOUT_MS,
+        'GEO_CACHE_TIMEOUT',
+      );
       if (
         cached?.coords &&
         isFiniteNumber(cached.coords.latitude) &&
@@ -257,13 +271,82 @@ async function getCountryCoordsFast(Location) {
     }
   }
 
-  const remainingMs = Math.max(250, deadline - Date.now());
-  return Promise.race([
+  return withTimeout(
     Location.getCurrentPositionAsync(currentOpts),
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('GEO_TIMEOUT')), remainingMs);
-    }),
+    GEO_INITIAL_FIX_TIMEOUT_MS,
+    'GEO_FIX_TIMEOUT',
+  );
+}
+
+function geoWatchOptions(Location) {
+  const Acc = Location.Accuracy || {};
+  const accuracy =
+    Acc.Balanced != null ? Acc.Balanced : Acc.Low != null ? Acc.Low : Acc.Highest;
+  return {
+    accuracy,
+    distanceInterval: GEO_WATCH_DISTANCE_M,
+    timeInterval: GEO_WATCH_TIME_INTERVAL_MS,
+    ...(Platform.OS === 'android' ? { mayShowUserSettingsDialog: true } : {}),
+  };
+}
+
+async function resolveCountryFromCoords(Location, pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const fromBox = countryIdFromBoundingBox(lat, lng);
+  const [revList, backendGeo, byIp] = await Promise.all([
+    (async () => {
+      try {
+        const raw = await Location.reverseGeocodeAsync({
+          latitude: lat,
+          longitude: lng,
+        });
+        return Array.isArray(raw) ? raw : [];
+      } catch (revErr) {
+        if (__DEV__) console.warn('[SelectCountry] reverseGeocodeAsync', revErr?.message);
+        return [];
+      }
+    })(),
+    reverseGeocodeBackendCountry(lat, lng),
+    detectCountryByIpBackend(),
   ]);
+  const { rawIso: backendRawIso, supportedId: byCoordsBackend } = backendGeo;
+  const fromGeoId = pickCountryIdFromGeocodeResults(revList);
+  const fromGeoAnyIso = pickAnyIsoFromGeocodeResults(revList);
+  const fromGeoMappedAny = mapIsoToSupportedForGeo(normalizeIsoCountryCode(fromGeoAnyIso), lat, lng);
+  const countryIdResolved = pickCountryBySignals({
+    fromGeoId,
+    fromBoxId: fromBox,
+    mappedFromGeoAnyIso: fromGeoMappedAny,
+    backendCoordsCountryId: byCoordsBackend,
+    ipCountryId: byIp,
+    accuracy: pos.coords.accuracy,
+  });
+  const rawIsoForNotice = normalizeIsoCountryCode(backendRawIso || fromGeoAnyIso || '');
+  const mapsToSupported = rawIsoForNotice ? !!mapIsoToSupportedForGeo(rawIsoForNotice, lat, lng) : false;
+  const boxSupported = !!(fromBox && SUPPORTED_COUNTRY_IDS.has(fromBox));
+  if (__DEV__) {
+    console.warn('[SelectCountry] geo', {
+      lat: Number(lat.toFixed(5)),
+      lng: Number(lng.toFixed(5)),
+      accuracy: pos.coords.accuracy,
+      inEuropeBand: coordsInEuropeSupportBand(lat, lng),
+      fromGeoId,
+      fromBox,
+      fromGeoAnyIso,
+      backendRawIso,
+      fromGeoMappedAny,
+      byCoordsBackend,
+      byIp,
+      picked: countryIdResolved,
+    });
+  }
+  return {
+    countryIdResolved,
+    rawIsoForNotice,
+    mapsToSupported,
+    boxSupported,
+  };
 }
 
 /** Приблизні межі (прямокутник) — лише для підтримуваних країн; порядок: менший перетин з сусідами вище. */
@@ -865,6 +948,25 @@ export default function SelectCountryPage({ navigation, route }) {
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
 
+  const geoWatchSubRef = useRef(null);
+  const geoSessionRef = useRef(0);
+  const geoResolveBusyRef = useRef(false);
+  const geoResolvedRef = useRef(false);
+
+  const stopGeoWatch = useCallback(() => {
+    geoSessionRef.current += 1;
+    if (geoWatchSubRef.current) {
+      try {
+        geoWatchSubRef.current.remove();
+      } catch (_) {
+        /* ignore */
+      }
+      geoWatchSubRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => stopGeoWatch(), [stopGeoWatch]);
+
   const applyGeoCountrySelection = useCallback(
     (resolvedId) => {
       if (!resolvedId || !SUPPORTED_COUNTRY_IDS.has(resolvedId)) return;
@@ -881,15 +983,59 @@ export default function SelectCountryPage({ navigation, route }) {
       setSelectionSource('geo');
       setGeoError(null);
       setGeoUnsupportedRegion(false);
+      geoResolvedRef.current = true;
     },
     [countriesForUi],
   );
 
+  const applyPositionFix = useCallback(
+    async (Location, pos, sessionId) => {
+      if (sessionId !== geoSessionRef.current || geoResolvedRef.current || geoResolveBusyRef.current) {
+        return false;
+      }
+      if (!pos?.coords || !isFiniteNumber(pos.coords.latitude) || !isFiniteNumber(pos.coords.longitude)) {
+        return false;
+      }
+      geoResolveBusyRef.current = true;
+      try {
+        const result = await resolveCountryFromCoords(Location, pos);
+        if (sessionId !== geoSessionRef.current || geoResolvedRef.current) return false;
+        if (result.countryIdResolved && SUPPORTED_COUNTRY_IDS.has(result.countryIdResolved)) {
+          applyGeoCountrySelection(result.countryIdResolved);
+          return true;
+        }
+        if (result.rawIsoForNotice && !result.mapsToSupported && !result.boxSupported) {
+          setGeoUnsupportedRegion(true);
+          setGeoError(null);
+          geoResolvedRef.current = true;
+          return true;
+        }
+        return false;
+      } catch (e) {
+        if (__DEV__) console.warn('[SelectCountry] resolve coords', e?.message);
+        return false;
+      } finally {
+        geoResolveBusyRef.current = false;
+      }
+    },
+    [applyGeoCountrySelection],
+  );
+
   const handleUseLocation = useCallback(async () => {
     const t = getTexts(lang);
+    stopGeoWatch();
+    geoResolvedRef.current = false;
     setGeoError(null);
     setGeoUnsupportedRegion(false);
     setLocating(true);
+    const sessionId = geoSessionRef.current;
+
+    const finishGeoSession = () => {
+      if (sessionId !== geoSessionRef.current) return;
+      stopGeoWatch();
+      setLocating(false);
+    };
+
     try {
       const Location = getLocationModuleSafe();
       if (!Location || typeof Location.requestForegroundPermissionsAsync !== 'function') {
@@ -897,22 +1043,28 @@ export default function SelectCountryPage({ navigation, route }) {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
           applyGeoCountrySelection(byIp);
+          finishGeoSession();
           return;
         }
         setGeoUnsupportedRegion(false);
         setGeoError(t.locationUnavailable);
+        finishGeoSession();
         return;
       }
+
       const perm = await Location.requestForegroundPermissionsAsync();
+      if (sessionId !== geoSessionRef.current) return;
       const { status, canAskAgain } = perm;
       if (status !== 'granted') {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
           applyGeoCountrySelection(byIp);
+          finishGeoSession();
           return;
         }
         setGeoUnsupportedRegion(false);
         setGeoError(t.locationDenied);
+        finishGeoSession();
         const systemWontShowDialogAgain =
           canAskAgain === false || (Platform.OS === 'ios' && status === 'denied');
         if (systemWontShowDialogAgain) {
@@ -932,95 +1084,77 @@ export default function SelectCountryPage({ navigation, route }) {
         }
         return;
       }
+
       if (typeof Location.hasServicesEnabledAsync === 'function') {
         const servicesOn = await Location.hasServicesEnabledAsync();
+        if (sessionId !== geoSessionRef.current) return;
         if (!servicesOn) {
           const byIpSvc = await detectCountryByIpBackend();
           if (byIpSvc && SUPPORTED_COUNTRY_IDS.has(byIpSvc)) {
             applyGeoCountrySelection(byIpSvc);
+            finishGeoSession();
             return;
           }
           setGeoUnsupportedRegion(false);
           setGeoError(t.locationServicesOff);
+          finishGeoSession();
           return;
         }
       }
-      let pos;
-      try {
-        pos = await getCountryCoordsFast(Location);
-      } catch (geoFixErr) {
-        const byIpFast = await detectCountryByIpBackend();
-        if (byIpFast && SUPPORTED_COUNTRY_IDS.has(byIpFast)) {
-          applyGeoCountrySelection(byIpFast);
-          return;
-        }
-        throw geoFixErr;
-      }
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-      const fromBox = countryIdFromBoundingBox(lat, lng);
-      const [revList, backendGeo, byIp] = await Promise.all([
-        (async () => {
-          try {
-            const raw = await Location.reverseGeocodeAsync({
-              latitude: lat,
-              longitude: lng,
-            });
-            return Array.isArray(raw) ? raw : [];
-          } catch (revErr) {
-            if (__DEV__) console.warn('[SelectCountry] reverseGeocodeAsync', revErr?.message);
-            return [];
-          }
-        })(),
-        reverseGeocodeBackendCountry(lat, lng),
-        detectCountryByIpBackend(),
-      ]);
-      const { rawIso: backendRawIso, supportedId: byCoordsBackend } = backendGeo;
-      const fromGeoId = pickCountryIdFromGeocodeResults(revList);
-      const fromGeoAnyIso = pickAnyIsoFromGeocodeResults(revList);
-      const fromGeoMappedAny = mapIsoToSupportedForGeo(normalizeIsoCountryCode(fromGeoAnyIso), lat, lng);
-      const countryIdResolved = pickCountryBySignals({
-        fromGeoId,
-        fromBoxId: fromBox,
-        mappedFromGeoAnyIso: fromGeoMappedAny,
-        backendCoordsCountryId: byCoordsBackend,
-        ipCountryId: byIp,
-        accuracy: pos.coords.accuracy,
-      });
-      const rawIsoForNotice = normalizeIsoCountryCode(backendRawIso || fromGeoAnyIso || '');
-      const mapsToSupported = rawIsoForNotice ? !!mapIsoToSupportedForGeo(rawIsoForNotice, lat, lng) : false;
-      const boxSupported = !!(fromBox && SUPPORTED_COUNTRY_IDS.has(fromBox));
-      if (__DEV__) {
-        console.warn('[SelectCountry] geo', {
-          lat: Number(lat.toFixed(5)),
-          lng: Number(lng.toFixed(5)),
-          accuracy: pos.coords.accuracy,
-          inEuropeBand: coordsInEuropeSupportBand(lat, lng),
-          fromGeoId,
-          fromBox,
-          fromGeoAnyIso,
-          backendRawIso,
-          fromGeoMappedAny,
-          byCoordsBackend,
-          byIp,
-          picked: countryIdResolved,
+
+      const onPosition = (pos) => {
+        void applyPositionFix(Location, pos, sessionId).then((resolved) => {
+          if (resolved) finishGeoSession();
         });
+      };
+
+      try {
+        const initialPos = await getCountryCoordsInitial(Location);
+        if (sessionId !== geoSessionRef.current) return;
+        const resolvedInitial = await applyPositionFix(Location, initialPos, sessionId);
+        if (resolvedInitial) {
+          finishGeoSession();
+          return;
+        }
+      } catch (geoFixErr) {
+        if (__DEV__) console.warn('[SelectCountry] initial geo fix', geoFixErr?.message);
       }
-      if (countryIdResolved && SUPPORTED_COUNTRY_IDS.has(countryIdResolved)) {
-        applyGeoCountrySelection(countryIdResolved);
-      } else if (rawIsoForNotice && !mapsToSupported && !boxSupported) {
-        setGeoUnsupportedRegion(true);
-        setGeoError(null);
-      } else {
-        setGeoUnsupportedRegion(false);
-        setGeoError(t.locationUnavailable);
+
+      if (sessionId !== geoSessionRef.current || geoResolvedRef.current) return;
+
+      if (typeof Location.watchPositionAsync === 'function') {
+        const sub = await Location.watchPositionAsync(geoWatchOptions(Location), (loc) => {
+          onPosition(loc);
+        });
+        if (sessionId !== geoSessionRef.current) {
+          try {
+            sub.remove();
+          } catch (_) {
+            /* ignore */
+          }
+          return;
+        }
+        geoWatchSubRef.current = sub;
+        return;
       }
+
+      const byIp = await detectCountryByIpBackend();
+      if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
+        applyGeoCountrySelection(byIp);
+        finishGeoSession();
+        return;
+      }
+      setGeoUnsupportedRegion(false);
+      setGeoError(t.locationUnavailable);
+      finishGeoSession();
     } catch (e) {
       if (__DEV__) console.warn('[SelectCountry] geolocation', e?.message);
+      if (sessionId !== geoSessionRef.current) return;
       try {
         const byIp = await detectCountryByIpBackend();
         if (byIp && SUPPORTED_COUNTRY_IDS.has(byIp)) {
           applyGeoCountrySelection(byIp);
+          finishGeoSession();
           return;
         }
       } catch (_) {
@@ -1028,10 +1162,9 @@ export default function SelectCountryPage({ navigation, route }) {
       }
       setGeoUnsupportedRegion(false);
       setGeoError(getTexts(lang).locationUnavailable);
-    } finally {
-      setLocating(false);
+      finishGeoSession();
     }
-  }, [lang, applyGeoCountrySelection]);
+  }, [lang, applyGeoCountrySelection, applyPositionFix, stopGeoWatch]);
 
   const handleUseLocationRef = useRef(handleUseLocation);
   handleUseLocationRef.current = handleUseLocation;
@@ -1257,7 +1390,6 @@ export default function SelectCountryPage({ navigation, route }) {
             <View style={[styles.grid, { gap: GRID_GAP, width: gridInnerW, alignSelf: 'center' }]}>
               <Pressable
                 onPress={handleUseLocation}
-                disabled={locating}
                 style={({ pressed }) => [
                   styles.tileOuter,
                   { width: tileW, height: geoCardHeight },
@@ -1266,13 +1398,11 @@ export default function SelectCountryPage({ navigation, route }) {
                     borderColor: tileIdleBorder,
                     backgroundColor: tileSurfaceBg,
                   },
-                  pressed && !locating && styles.tilePressed,
-                  locating && styles.tileDisabled,
+                  pressed && styles.tilePressed,
                 ]}
-                android_ripple={locating ? undefined : ripple}
+                android_ripple={ripple}
                 accessibilityRole="button"
                 accessibilityLabel={texts.useLocationA11y || texts.useLocation}
-                accessibilityState={{ disabled: locating }}
               >
                 <View
                   style={[
@@ -1382,6 +1512,8 @@ export default function SelectCountryPage({ navigation, route }) {
                   <Pressable
                     key={opt.id}
                     onPress={() => {
+                      stopGeoWatch();
+                      setLocating(false);
                       setGeoError(null);
                       setGeoUnsupportedRegion(false);
                       setCountryId(opt.id);

@@ -34,7 +34,18 @@ import { RenderProfiler, markEnd } from './performanceMetrics';
 import { ft } from './feedI18n';
 import { pf } from './profileI18n';
 import { routeRegionTitle } from './routePlanTitles';
-import { getUserFeedPosts, getLatestUserStory, removeUserFeedPost, getFeedPostBackendId } from './feedLocalStorage';
+import { getUserFeedPosts, getLatestUserStory, removeUserFeedPost, getFeedPostBackendId, resolveFeedLocalUser } from './feedLocalStorage';
+import {
+  addLocalFeedPostComment,
+  deleteLocalFeedPostComment,
+  getLocalFeedPostComments,
+  hydrateLocalFeedPostStats,
+  isLocalFeedCommentId,
+  migrateLocalFeedPostInteractions,
+  toggleLocalFeedPostCommentLike,
+  setLocalFeedPostLikeState,
+  toggleLocalFeedPostLike,
+} from './feedLocalInteractions';
 import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { accentForTheme, onAccentButtonText, ACCENT_BLUE, ACCENT_LEMON } from './themeAccent';
@@ -54,7 +65,9 @@ import { resolveFeedMediaUrl } from './feedMediaUrl';
 import { hydrateRoutePlan } from './profileStorage';
 import { hasMessageApiToken, messagesOpenThread, messagesSendText, socialListMutuals } from './messageApi';
 import { useAuthStore } from './auth/authStore';
-import { KRAINA_FEED_MEDIA_UPDATED } from './feedSyncEvents';
+import { KRAINA_FEED_MEDIA_UPDATED, emitFeedMediaUpdated, feedDeleteIdSet } from './feedSyncEvents';
+import { rememberPostLikeState, warmPostLikeStateFromStats, rememberPostComment, rememberPostCommentsCount, peekPostLikeState } from './feedInteractionHotCache';
+import { rememberProfileAvatarUrl } from './profileAvatarHotCache';
 import { KRAINA_PROFILE_ME_UPDATED } from './profileMeSync';
 import ProfileAvatarCircle, { useViewerProfileAvatarUri } from './ProfileAvatarCircle';
 import { KRAINA_PROFILE_AVATAR_CHANGED } from './profileStorage';
@@ -74,6 +87,7 @@ import {
   writeFeedMainCache,
   clearFeedMainCache,
   patchFeedMainPostStats,
+  patchFeedMainRemovePost,
   seedFeedMainCacheIfMissing,
   fetchFeedMainPayload,
   FEED_MAIN_CACHE_UPDATED,
@@ -81,7 +95,7 @@ import {
 } from './feedMainCache';
 import { errorToUserText } from './errorText';
 import { hasBackendSession } from './backendAuthApi';
-import { isLocalFeedPostId, isServerFeedPostId, resolveBackendFeedPostId, isLocalFeedPostShadowedByApi, retrySyncLocalFeedPost, waitForFeedPostSync } from './feedPostSyncBridge';
+import { isLocalFeedPostId, isServerFeedPostId, resolveBackendFeedPostId, isLocalFeedPostShadowedByApi, retrySyncLocalFeedPost, retryAllUnsyncedLocalFeedPosts, waitForFeedPostSync } from './feedPostSyncBridge';
 const CARD_LIGHT = '#FFFFFF';
 const CARD_DARK = '#141414';
 
@@ -330,7 +344,14 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const { appTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
   const [segment, setSegment] = useState('friends');
-  const user = route?.params?.user;
+  const routeUser = route?.params?.user;
+  const authUser = useAuthStore((s) => s.user);
+  const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
+  const feedLocalUser = useMemo(
+    () => resolveFeedLocalUser(routeUser, { authUser, profileUserId: profileMeUserId }),
+    [routeUser, authUser, profileMeUserId],
+  );
+  const user = feedLocalUser || routeUser;
   const userKey = String(user?.id || user?.email || '');
   const mainCacheKey = feedCacheKey(user);
   const [userPosts, setUserPosts] = useState([]);
@@ -363,7 +384,6 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
     const dn = s.profileMe?.profile?.display_name;
     return dn != null && String(dn).trim() ? String(dn).trim() : '';
   });
-  const profileMeUserId = useAuthStore((s) => s.profileMe?.profile?.user_id);
   const viewerUserId = profileMeUserId ? String(profileMeUserId) : String(user?.id || '');
   const viewerAvatarUri = useViewerProfileAvatarUri(user);
 
@@ -417,7 +437,66 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
   /** При події оновлення медіа — повний refetch лише для нових постів/історій. */
   useEffect(() => {
     const subMedia = DeviceEventEmitter.addListener(KRAINA_FEED_MEDIA_UPDATED, (payload) => {
+      if (payload?.kind === 'delete') {
+        const ids = feedDeleteIdSet(payload);
+        if (!ids.size) return;
+        const removeFromList = (prev) => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.filter((p) => !ids.has(String(p.id)));
+        };
+        setApiFriendsPosts(removeFromList);
+        setApiWorldPosts(removeFromList);
+        setUserPosts((prev) => prev.filter((p) => !ids.has(String(p.id))));
+        patchFeedMainRemovePost(mainCacheKey, payload.postId, payload.localPostId, payload.removedIds);
+        return;
+      }
+
       if (payload?.postId && !payload?.kind) return;
+
+      if (payload?.kind === 'interaction') {
+        const ids = [payload?.postId, payload?.localPostId].map(String).filter(Boolean);
+        if (!ids.length) return;
+        if (payload.liked != null) {
+          setPostLikeMap((prev) => {
+            const next = { ...prev };
+            ids.forEach((id) => {
+              next[id] = !!payload.liked;
+            });
+            return next;
+          });
+        }
+        if (payload.likes_count != null) {
+          const count = Math.max(0, Number(payload.likes_count) || 0);
+          setPostLikeCountMap((prev) => {
+            const next = { ...prev };
+            ids.forEach((id) => {
+              next[id] = count;
+            });
+            return next;
+          });
+          ids.forEach((id) => {
+            patchPostInFeedLists(id, {
+              ...(payload.liked != null ? { liked_by_viewer: !!payload.liked } : {}),
+              likes_count: count,
+            });
+          });
+        }
+        if (payload.comments_count != null) {
+          const count = Math.max(0, Number(payload.comments_count) || 0);
+          setPostCommentCountMap((prev) => {
+            const next = { ...prev };
+            ids.forEach((id) => {
+              next[id] = count;
+            });
+            return next;
+          });
+          ids.forEach((id) => {
+            patchPostInFeedLists(id, { comments_count: count });
+          });
+        }
+        return;
+      }
+
       if (__DEV__) console.log('[Cache] FeedPage media updated — cache cleared');
 
       if (payload?.kind === 'post' && payload?.post && !payload?.synced) {
@@ -499,7 +578,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
       subProfile.remove();
       subCache.remove();
     };
-  }, [user, mainCacheKey, fetchApiFeed, applyApiResult, profileMeUserId, profileMeDisplayName, user?.id, user?.name, user?.email]);
+  }, [user, mainCacheKey, fetchApiFeed, applyApiResult, patchPostInFeedLists, patchFeedMainRemovePost, profileMeUserId, profileMeDisplayName, user?.id, user?.name, user?.email]);
 
   const [feedVisibleEpoch, setFeedVisibleEpoch] = useState(0);
 
@@ -516,6 +595,8 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
     let cancelled = false;
     (async () => {
         if (!user?.id && !user?.firebaseUid && !user?.email) return;
+
+        void retryAllUnsyncedLocalFeedPosts(user).catch(() => {});
 
         const cached = readFeedMainCache(mainCacheKey);
         const cacheFresh = cached && Date.now() - cached.at < FEED_MAIN_CACHE_TTL;
@@ -641,17 +722,22 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
         createdAtMs: p.created_at ? new Date(String(p.created_at)).getTime() : 0,
       };
   };
-  const mapLocal = (p) => ({
+  const mapLocal = (p) => {
+    const media_urls = (Array.isArray(p.uris) && p.uris.length ? p.uris : p.uri ? [p.uri] : [])
+      .map((u) => resolveFeedMediaUrl(String(u)))
+      .filter(Boolean);
+    const url = media_urls[0] || '';
+    return {
     id: p.id,
     authorUserId: viewerUserId || '',
     scope:
       p.scope === 'world' || p.visibility === 'public' ? 'world' : 'friends',
     name: displayName,
     place: (p.place && String(p.place).trim()) || '',
-    image: p.uris?.[0] || p.uri,
-    media_urls: Array.isArray(p.uris) && p.uris.length ? p.uris : p.uri ? [p.uri] : [],
+    image: url,
+    media_urls,
     isUri: true,
-    isVideo: /\.(mp4|mov)(\?|$)/i.test(String(p.uris?.[0] || p.uri || '')),
+    isVideo: /\.(mp4|mov)(\?|$)/i.test(String(url)),
     avatarUrl: viewerAvatarUri || null,
     caption: p.caption || '',
     route_plan: p.route_plan || null,
@@ -661,7 +747,8 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
     likesCount: 0,
     commentsCount: 0,
     createdAtMs: p.createdAt ? Number(p.createdAt) : Date.now(),
-  });
+  };
+  };
     const apiList = segment === 'world' ? apiWorldPosts : apiFriendsPosts;
 
     if (hasFeedApiToken()) {
@@ -770,12 +857,55 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
 
   useEffect(() => {
     syncCountMapsFromPosts(posts);
-  }, [posts, syncCountMapsFromPosts]);
+    posts.forEach((p) => {
+      const id = String(p.id);
+      if (peekPostLikeState(id).has) return;
+      rememberPostLikeState(id, {
+        liked: !!p.likedByViewer,
+        likes_count: Number(p.likesCount) || 0,
+      });
+      rememberPostCommentsCount(id, Number(p.commentsCount) || 0);
+      const authorId = String(p.user_id || p.userId || '');
+      if (authorId && authorId === String(viewerUserId || '')) {
+        const av = p.avatarUrl || p.avatar_url || '';
+        if (av) rememberProfileAvatarUrl(av);
+      }
+    });
+  }, [posts, syncCountMapsFromPosts, viewerUserId]);
+
+  const localPostIdsSig = useMemo(
+    () => posts.filter((p) => isLocalFeedPostId(p.id)).map((p) => String(p.id)).join('|'),
+    [posts],
+  );
+
+  useEffect(() => {
+    if (!user || !localPostIdsSig) return undefined;
+    let cancelled = false;
+    void (async () => {
+      const ids = localPostIdsSig.split('|').filter(Boolean);
+      const stats = await hydrateLocalFeedPostStats(user, ids);
+      if (cancelled) return;
+      warmPostLikeStateFromStats(stats, ids);
+      if (Object.keys(stats.likes).length) {
+        setPostLikeMap((prev) => ({ ...prev, ...stats.likes }));
+      }
+      if (Object.keys(stats.likeCounts).length) {
+        setPostLikeCountMap((prev) => ({ ...prev, ...stats.likeCounts }));
+      }
+      if (Object.keys(stats.commentCounts).length) {
+        setPostCommentCountMap((prev) => ({ ...prev, ...stats.commentCounts }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, localPostIdsSig]);
 
   const remapFeedPostId = useCallback((localId, backendId) => {
     const lid = String(localId || '');
     const bid = String(backendId || '');
     if (!lid || !bid || lid === bid) return;
+    void migrateLocalFeedPostInteractions(user, lid, bid);
     const replaceInList = (list) => {
       if (!Array.isArray(list)) return list;
       return list.map((p) => (String(p.id) === lid ? { ...p, id: bid } : p));
@@ -798,7 +928,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
     migrateMap(setPostRepostMap);
     migrateMap(setPostRepostCountMap);
     migrateMap(setPostCommentCountMap);
-  }, []);
+  }, [user]);
 
   const inferPostVisibility = useCallback(
     (postId, postScope) => {
@@ -881,6 +1011,9 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
       if (!user?.id && !user?.firebaseUid && !user?.email) {
         Alert.alert('', ft(language, 'feedNeedLogin'));
         return null;
+      }
+      if (postId && isLocalFeedPostId(postId)) {
+        return String(postId);
       }
       let resolvedId = await resolveBackendFeedPostId(postId, { user });
       if (postId && isLocalFeedPostId(postId) && !isServerFeedPostId(resolvedId)) {
@@ -1043,9 +1176,78 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
     [navigation, shell, language],
   );
 
+  const syncPostInteraction = useCallback(
+    async ({ postId, localPostId, liked, likes_count, comments_count }) => {
+      const ids = [postId, localPostId].map(String).filter(Boolean);
+      const uniqueIds = [...new Set(ids)];
+      if (liked != null && likes_count != null) {
+        await Promise.all(
+          uniqueIds.map((pid) =>
+            setLocalFeedPostLikeState(user, pid, { liked: !!liked, likes_count: Number(likes_count) || 0 }),
+          ),
+        );
+      }
+      emitFeedMediaUpdated({
+        kind: 'interaction',
+        postId: String(postId || localPostId || ''),
+        ...(localPostId && String(localPostId) !== String(postId) ? { localPostId: String(localPostId) } : {}),
+        ...(liked != null ? { liked: !!liked } : {}),
+        ...(likes_count != null ? { likes_count: Number(likes_count) || 0 } : {}),
+        ...(comments_count != null ? { comments_count: Number(comments_count) || 0 } : {}),
+      });
+    },
+    [user],
+  );
+
   const toggleLike = useCallback(async (post) => {
     const id = String(post?.id || '');
     if (!id || actionBusyMap[id]) return;
+
+    if (isLocalFeedPostId(id)) {
+      const prevLiked = !!postLikeMap[id];
+      const prevCount = Number(postLikeCountMap[id]) || 0;
+      const optimistic = prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
+      const optimisticLiked = !prevLiked;
+      rememberPostLikeState(id, { liked: optimisticLiked, likes_count: optimistic });
+      setPostLikeMap((m) => ({ ...m, [id]: optimisticLiked }));
+      setPostLikeCountMap((m) => ({ ...m, [id]: optimistic }));
+      try {
+        const out = await toggleLocalFeedPostLike(user, id);
+        setPostLikeMap((m) => ({ ...m, [id]: !!out.liked }));
+        setPostLikeCountMap((m) => ({ ...m, [id]: Number(out.likes_count) || 0 }));
+        void syncPostInteraction({
+          postId: id,
+          liked: out.liked,
+          likes_count: out.likes_count,
+        });
+      } catch {
+        setPostLikeMap((m) => ({ ...m, [id]: prevLiked }));
+        setPostLikeCountMap((m) => ({ ...m, [id]: prevCount }));
+      }
+      void (async () => {
+        try {
+          const backendId = await resolveBackendFeedPostId(id, { user });
+          if (!isServerFeedPostId(backendId)) return;
+          const out = await feedTogglePostLike(backendId);
+          setPostLikeMap((m) => ({ ...m, [id]: !!out.liked, [backendId]: !!out.liked }));
+          setPostLikeCountMap((m) => ({
+            ...m,
+            [id]: Number(out.likes_count) || 0,
+            [backendId]: Number(out.likes_count) || 0,
+          }));
+          void syncPostInteraction({
+            postId: backendId,
+            localPostId: id,
+            liked: out.liked,
+            likes_count: out.likes_count,
+          });
+        } catch {
+          /* локальний лайк уже збережено */
+        }
+      })();
+      return;
+    }
+
     setActionBusyMap((m) => ({ ...m, [id]: true }));
     try {
       const resolvedId = await guardFeedInteraction(id, post.scope);
@@ -1054,7 +1256,9 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
       const prevLiked = !!postLikeMap[id] || !!postLikeMap[resolvedId];
       const prevCount = Number(postLikeCountMap[id] ?? postLikeCountMap[resolvedId]) || 0;
       const optimistic = prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
-      setPostLikeMap((m) => ({ ...m, [id]: !prevLiked, [resolvedId]: !prevLiked }));
+      const optimisticLiked = !prevLiked;
+      rememberPostLikeState([id, resolvedId], { liked: optimisticLiked, likes_count: optimistic });
+      setPostLikeMap((m) => ({ ...m, [id]: optimisticLiked, [resolvedId]: optimisticLiked }));
       setPostLikeCountMap((m) => ({ ...m, [id]: optimistic, [resolvedId]: optimistic }));
       try {
         const out = await feedTogglePostLike(resolvedId);
@@ -1064,6 +1268,12 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
           liked_by_viewer: !!out.liked,
           likes_count: Number(out.likes_count) || 0,
         });
+        void syncPostInteraction({
+          postId: resolvedId,
+          localPostId: resolvedId !== id ? id : undefined,
+          liked: out.liked,
+          likes_count: out.likes_count,
+        });
       } catch (e) {
         setPostLikeMap((m) => ({ ...m, [id]: prevLiked, [resolvedId]: prevLiked }));
         setPostLikeCountMap((m) => ({ ...m, [id]: prevCount, [resolvedId]: prevCount }));
@@ -1072,7 +1282,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
     } finally {
       setActionBusyMap((m) => ({ ...m, [id]: false }));
     }
-  }, [postLikeMap, postLikeCountMap, guardFeedInteraction, patchPostInFeedLists, remapFeedPostId, actionBusyMap, language]);
+  }, [postLikeMap, postLikeCountMap, guardFeedInteraction, patchPostInFeedLists, remapFeedPostId, actionBusyMap, language, user, syncPostInteraction]);
 
   const toggleRepost = useCallback(async (post) => {
     const id = String(post?.id || '');
@@ -1108,8 +1318,28 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
   const openComments = useCallback(async (post) => {
     const id = String(post?.id || '');
     if (!id || actionBusyMap[id]) return;
-    setActionBusyMap((m) => ({ ...m, [id]: true }));
     setCommentModalPost(post);
+    setCommentText('');
+
+    if (isLocalFeedPostId(id)) {
+      setCommentBusy(true);
+      try {
+        const list = await getLocalFeedPostComments(user, id);
+        setCommentList(Array.isArray(list) ? list : []);
+        const likeMap = {};
+        (Array.isArray(list) ? list : []).forEach((c) => {
+          likeMap[String(c.id)] = !!c.liked_by_viewer;
+        });
+        setCommentLikeMap(likeMap);
+      } catch {
+        setCommentList([]);
+      } finally {
+        setCommentBusy(false);
+      }
+      return;
+    }
+
+    setActionBusyMap((m) => ({ ...m, [id]: true }));
     setCommentList([]);
     setCommentLikeMap({});
     setCommentBusy(true);
@@ -1137,11 +1367,32 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
       setCommentBusy(false);
       setActionBusyMap((m) => ({ ...m, [id]: false }));
     }
-  }, [guardFeedInteraction, remapFeedPostId, actionBusyMap, language]);
+  }, [guardFeedInteraction, remapFeedPostId, actionBusyMap, language, user]);
 
   const toggleCommentLike = useCallback(async (comment) => {
     const cid = String(comment?.id || '');
     if (!cid) return;
+    const postId = String(commentModalPost?.id || '');
+
+    if (isLocalFeedPostId(postId) || isLocalFeedCommentId(cid)) {
+      const prevLiked = !!commentLikeMap[cid];
+      setCommentLikeMap((m) => ({ ...m, [cid]: !prevLiked }));
+      try {
+        const out = await toggleLocalFeedPostCommentLike(user, postId, cid);
+        setCommentLikeMap((m) => ({ ...m, [cid]: !!out.liked }));
+        setCommentList((prev) =>
+          prev.map((c) =>
+            String(c.id) === cid
+              ? { ...c, liked_by_viewer: !!out.liked, likes_count: Number(out.likes_count) || 0 }
+              : c,
+          ),
+        );
+      } catch {
+        setCommentLikeMap((m) => ({ ...m, [cid]: prevLiked }));
+      }
+      return;
+    }
+
     const resolvedId = await guardFeedInteraction(commentModalPost?.id, commentModalPost?.scope);
     if (!resolvedId) return;
     const prevLiked = !!commentLikeMap[cid];
@@ -1160,7 +1411,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
       setCommentLikeMap((m) => ({ ...m, [cid]: prevLiked }));
       Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
     }
-  }, [commentLikeMap, commentModalPost?.id, guardFeedInteraction, language]);
+  }, [commentLikeMap, commentModalPost?.id, commentModalPost?.scope, guardFeedInteraction, language, user]);
 
   const deleteComment = useCallback(async (comment) => {
     const cid = String(comment?.id || '');
@@ -1175,6 +1426,19 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
           text: pf(language, 'delete'),
           style: 'destructive',
           onPress: async () => {
+            if (isLocalFeedPostId(postId) || isLocalFeedCommentId(cid)) {
+              setCommentBusy(true);
+              try {
+                await deleteLocalFeedPostComment(user, postId, cid);
+                setCommentList((prev) => prev.filter((c) => String(c.id) !== cid));
+                const nextCount = Math.max(0, (Number(postCommentCountMap[postId]) || 0) - 1);
+                setPostCommentCountMap((m) => ({ ...m, [postId]: nextCount }));
+                patchPostInFeedLists(postId, { comments_count: nextCount });
+              } finally {
+                setCommentBusy(false);
+              }
+              return;
+            }
             setCommentBusy(true);
             try {
               await feedDeletePostComment(postId, cid);
@@ -1194,12 +1458,49 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
         },
       ],
     );
-  }, [commentModalPost?.id, language, postCommentCountMap, patchPostInFeedLists]);
+  }, [commentModalPost?.id, language, postCommentCountMap, patchPostInFeedLists, user]);
 
   const sendComment = useCallback(async () => {
     const postId = String(commentModalPost?.id || '');
     const text = String(commentText || '').trim();
     if (!postId || !text || commentBusy) return;
+
+    if (isLocalFeedPostId(postId)) {
+      setCommentBusy(true);
+      try {
+        const row = await addLocalFeedPostComment(user, postId, {
+          content: text,
+          author: {
+            userId: viewerUserId,
+            displayName: profileMeDisplayName || user?.name || user?.email?.split('@')[0] || 'User',
+            username: user?.username || '',
+            avatarUrl: viewerAvatarUri || null,
+          },
+        });
+        setCommentList((prev) => [...prev, row]);
+        setCommentText('');
+        const nextCount = (Number(postCommentCountMap[postId]) || 0) + 1;
+        setPostCommentCountMap((m) => ({ ...m, [postId]: nextCount }));
+        patchPostInFeedLists(postId, { comments_count: nextCount });
+        void syncPostInteraction({ postId, comments_count: nextCount });
+        void (async () => {
+          try {
+            const backendId = await resolveBackendFeedPostId(postId, { user });
+            if (!isServerFeedPostId(backendId)) return;
+            await feedAddPostComment(backendId, text);
+            void syncPostInteraction({ postId: backendId, localPostId: postId, comments_count: nextCount });
+          } catch {
+            /* локальний коментар уже збережено */
+          }
+        })();
+      } catch (e) {
+        Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
+      } finally {
+        setCommentBusy(false);
+      }
+      return;
+    }
+
     const resolvedId = await guardFeedInteraction(postId, commentModalPost?.scope);
     if (!resolvedId) return;
     setCommentBusy(true);
@@ -1210,12 +1511,38 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
       const nextCount = (Number(postCommentCountMap[postId]) || 0) + 1;
       setPostCommentCountMap((m) => ({ ...m, [postId]: nextCount }));
       patchPostInFeedLists(postId, { comments_count: nextCount });
+      rememberPostComment(
+        resolvedId !== postId ? [resolvedId, postId] : [resolvedId],
+        row,
+      );
+      rememberPostCommentsCount(
+        resolvedId !== postId ? [resolvedId, postId] : [resolvedId],
+        nextCount,
+      );
+      void syncPostInteraction({
+        postId: resolvedId,
+        localPostId: resolvedId !== postId ? postId : undefined,
+        comments_count: nextCount,
+      });
     } catch (e) {
       Alert.alert('', errorToUserText(e, language) || ft(language, 'feedActionFailed'));
     } finally {
       setCommentBusy(false);
     }
-  }, [commentModalPost?.id, commentText, commentBusy, guardFeedInteraction, postCommentCountMap, patchPostInFeedLists, language]);
+  }, [
+    commentModalPost?.id,
+    commentText,
+    commentBusy,
+    guardFeedInteraction,
+    postCommentCountMap,
+    patchPostInFeedLists,
+    language,
+    user,
+    viewerUserId,
+    profileMeDisplayName,
+    viewerAvatarUri,
+    syncPostInteraction,
+  ]);
 
   const sharePost = useCallback((post) => {
     const link = Array.isArray(post.media_urls) && post.media_urls[0] ? String(post.media_urls[0]) : String(post.image || '');
@@ -1552,39 +1879,20 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
               </Pressable>
             </View>
             <MemoPostMediaCarousel post={post} accent={accent} />
-            {isLocalFeedPostId(post.id) ? (
-              <View style={[styles.postSyncBanner, { backgroundColor: isLight ? 'rgba(2,18,235,0.06)' : 'rgba(255,255,255,0.06)' }]}>
-                {actionBusyMap[String(post.id)] ? (
-                  <ActivityIndicator size="small" color={accent} style={{ marginRight: 8 }} />
-                ) : (
-                  <Ionicons name="cloud-upload-outline" size={14} color={accent} style={{ marginRight: 6 }} />
-                )}
-                <Text style={[styles.postSyncBannerTxt, { color: textMuted }]}>
-                  {actionBusyMap[String(post.id)]
-                    ? ft(language, 'feedSyncingPost')
-                    : ft(language, 'feedPostPublishing')}
-                </Text>
-              </View>
-            ) : null}
             <View style={[styles.postActionsDivider, { backgroundColor: isLight ? 'rgba(30,30,30,0.06)' : 'rgba(255,255,255,0.08)' }]} />
             <View style={styles.postActions}>
               <View style={styles.postActionsLeft}>
                 <Pressable
                   onPress={() => toggleLike(post)}
-                  disabled={!!actionBusyMap[String(post.id)]}
                   style={({ pressed }) => [styles.actionPress, pressed && styles.actionPressActive]}
                   hitSlop={6}
                 >
-                  {actionBusyMap[String(post.id)] ? (
-                    <ActivityIndicator size="small" color={accent} style={styles.actionIcon} />
-                  ) : (
-                    <Ionicons
-                      name={postLikeMap[String(post.id)] ? 'heart' : 'heart-outline'}
-                      size={24}
-                      color={postLikeMap[String(post.id)] ? '#FF4D6A' : textMain}
-                      style={styles.actionIcon}
-                    />
-                  )}
+                  <Ionicons
+                    name={postLikeMap[String(post.id)] ? 'heart' : 'heart-outline'}
+                    size={24}
+                    color={postLikeMap[String(post.id)] ? '#FF4D6A' : textMain}
+                    style={styles.actionIcon}
+                  />
                   {(Number(postLikeCountMap[String(post.id)]) || 0) > 0 ? (
                     <Text style={[styles.actionCount, { color: textMuted }]}>
                       {Number(postLikeCountMap[String(post.id)]) || 0}
@@ -1593,7 +1901,6 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
                 </Pressable>
                 <Pressable
                   onPress={() => openComments(post)}
-                  disabled={!!actionBusyMap[String(post.id)]}
                   style={({ pressed }) => [styles.actionPress, pressed && styles.actionPressActive]}
                   hitSlop={6}
                 >
@@ -1692,7 +1999,6 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
             {commentBusy ? (
               <View style={styles.commentsLoadingWrap}>
                 <ActivityIndicator color={accent} />
-                <Text style={[styles.commentsLoadingTxt, { color: textMuted }]}>{ft(language, 'feedSyncingPost')}</Text>
               </View>
             ) : (
               <ScrollView style={styles.commentsScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>

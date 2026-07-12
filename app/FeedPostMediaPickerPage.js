@@ -1,11 +1,10 @@
-import { resolveAppTheme } from './themeStorage';
+import { useAppTheme } from './useAppTheme';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
-  Image,
   FlatList,
   Platform,
   useWindowDimensions,
@@ -13,6 +12,7 @@ import {
   Alert,
   Linking,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from './expoAvCompat';
@@ -26,6 +26,7 @@ import { persistCapturedImage } from './feedMediaPersist';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
 import { useFocusEffect } from '@react-navigation/native';
 import { fetchDeviceGalleryPreview, resolveDeviceAssetUri } from './deviceGallerySync';
+import { composerDraftFromRouteParams } from './feedComposerDraft';
 
 const GRID_GAP = 4;
 const MAX_PICK = 10;
@@ -37,8 +38,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
   const language = useSyncedAppLanguage(route, 'uk');
   const user = route?.params?.user;
   const countryId = route?.params?.countryId;
-  const appTheme = resolveAppTheme(route?.params?.appTheme);
-  const isLight = appTheme === 'light';
+  const { appTheme, isLight } = useAppTheme(route?.params?.appTheme, route);
   const pickerMode = route?.params?.pickerMode === 'story' ? 'story' : 'post';
   const maxPick = pickerMode === 'story' ? 1 : MAX_PICK;
   const publishVisibility = route?.params?.publishVisibility === 'public' ? 'public' : 'followers';
@@ -53,6 +53,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
       : null;
   const pickedLabel =
     typeof route?.params?.pickedLabel === 'string' ? route.params.pickedLabel.trim() : '';
+  const composerDraft = composerDraftFromRouteParams(route?.params);
 
   const shell = useMemo(
     () => ({
@@ -61,6 +62,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
       appTheme,
       ...(countryId != null ? { countryId } : {}),
       publishVisibility,
+      ...(composerDraft ? { composerDraft } : {}),
       ...(pickedLat != null && pickedLng != null
         ? {
             pickedLat,
@@ -69,7 +71,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
           }
         : {}),
     }),
-    [user, language, appTheme, countryId, publishVisibility, pickedLat, pickedLng, pickedLabel],
+    [user, language, appTheme, countryId, publishVisibility, composerDraft, pickedLat, pickedLng, pickedLabel],
   );
 
   const [pinnedUris] = useState(() => [...initialUris]);
@@ -95,9 +97,8 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
   const loadGalleryAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await fetchDeviceGalleryPreview({ limit: PAGE_SIZE });
+      const result = await fetchDeviceGalleryPreview({ limit: PAGE_SIZE, quickThumbs: true });
       if (!result.granted) {
-        Alert.alert('', fc(language, 'galleryDenied'));
         setAssets([]);
         return;
       }
@@ -157,15 +158,6 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
     },
     [pinnedUris.length, pickedExternalUris.length, pickerMode, maxPick],
   );
-
-  const openCameraFromPicker = useCallback(() => {
-    if (busy) return;
-    navigation.navigate('FeedCamera', {
-      ...shell,
-      publishVisibility,
-      cameraInitialMode: pickerMode === 'story' ? 'story' : 'post',
-    });
-  }, [busy, navigation, shell, publishVisibility, pickerMode]);
 
   const pickWithSystemGallery = useCallback(async () => {
     if (busy) return;
@@ -282,6 +274,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         ...shell,
         uris: persisted,
         publishVisibility,
+        ...(composerDraft ? { composerDraft } : {}),
       });
     } catch {
       Alert.alert('', fc(language, 'pickError'));
@@ -302,7 +295,10 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
     pickerMode,
   ]);
 
-  const gridData = useMemo(() => [{ __cam: true, id: '__camera__' }, ...assets], [assets]);
+  const gridData = useMemo(
+    () => [{ __gallery: true, id: '__gallery__' }, ...assets],
+    [assets],
+  );
 
   const bg = isLight ? '#FFFFFF' : '#000000';
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
@@ -311,14 +307,14 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
   const camTileBg = isLight ? 'rgba(30,30,30,0.06)' : 'rgba(255,255,255,0.08)';
 
   const renderThumb = ({ item }) => {
-    if (item.__cam) {
+    if (item.__gallery) {
       return (
         <Pressable
-          onPress={openCameraFromPicker}
+          onPress={pickWithSystemGallery}
           disabled={busy}
           hitSlop={6}
           accessibilityRole="button"
-          accessibilityLabel={fc(language, 'openCamera')}
+          accessibilityLabel={fc(language, 'addFromGallery')}
           style={[
             styles.thumbWrap,
             {
@@ -331,7 +327,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
             },
           ]}
         >
-          <Ionicons name="camera-outline" size={28} color={textMain} />
+          <Ionicons name="images-outline" size={28} color={textMain} />
         </Pressable>
       );
     }
@@ -353,7 +349,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
           },
         ]}
       >
-        <Image source={{ uri: item.uri }} style={styles.thumbImg} resizeMode="cover" />
+        <ExpoImage source={{ uri: item.uri }} style={styles.thumbImg} contentFit="cover" />
         {selected ? (
           <View style={[styles.badge, { backgroundColor: accent, borderColor: accent }]}>
             <Text style={[styles.badgeTxt, { color: onAccentButtonText(isLight) }]}>{orderNum}</Text>
@@ -381,6 +377,20 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
         </Pressable>
       </View>
 
+      <View style={styles.externalPickRow}>
+        <Pressable
+          onPress={pickWithSystemGallery}
+          disabled={busy}
+          style={[styles.externalPickBtn, { borderColor: accent, opacity: busy ? 0.5 : 1 }]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="images-outline" size={18} color={accent} />
+          <Text style={[styles.externalPickText, { color: accent }]}>
+            {fc(language, 'addFromGallery')}
+          </Text>
+        </Pressable>
+      </View>
+
       <View style={[styles.heroBox, { height: heroH }]}>
         {heroUri ? (
           heroIsVideo ? (
@@ -395,16 +405,30 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
               showPoster
             />
           ) : (
-            <Image source={{ uri: heroUri }} style={[styles.hero, { borderColor: tileBorder }]} resizeMode="cover" />
+            <ExpoImage
+              source={{ uri: heroUri }}
+              style={[styles.hero, { borderColor: tileBorder }]}
+              contentFit="cover"
+              transition={120}
+            />
           )
         ) : loading ? (
           <View style={[styles.hero, styles.heroEmpty, { borderColor: tileBorder }]}>
             <ActivityIndicator color={accent} size="large" />
           </View>
         ) : (
-          <View style={[styles.hero, styles.heroEmpty, { borderColor: tileBorder }]}>
-            <Text style={{ color: textMuted, textAlign: 'center' }}>{fc(language, 'pickError')}</Text>
-          </View>
+          <Pressable
+            onPress={pickWithSystemGallery}
+            disabled={busy}
+            style={[styles.hero, styles.heroEmpty, { borderColor: tileBorder }]}
+            accessibilityRole="button"
+            accessibilityLabel={fc(language, 'addFromGallery')}
+          >
+            <Ionicons name="images-outline" size={36} color={textMuted} />
+            <Text style={{ color: textMuted, textAlign: 'center', marginTop: 10, paddingHorizontal: 16 }}>
+              {fc(language, 'addFromGallery')}
+            </Text>
+          </Pressable>
         )}
       </View>
 

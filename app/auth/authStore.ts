@@ -1,5 +1,12 @@
-import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
+import {
+  clearExplicitLogout,
+  isExplicitLogout,
+  markExplicitLogout,
+  secureAuthDelete,
+  secureAuthGet,
+  secureAuthSet,
+} from '../authSecureStorage';
 import type { ProfileMeBody, UserDTO } from './types';
 import { ApiError } from './types';
 import { clearProfileLocalCache } from '../profileStorage';
@@ -29,6 +36,83 @@ import { hydrateSavedRoutesFromProfileMe } from '../savedRoutesSync';
 const KEY_ACCESS = 'kraina_backend_access_token';
 const KEY_REFRESH = 'kraina_backend_refresh_token';
 
+function decodeBase64UrlToUtf8(base64Url: string): string | null {
+  try {
+    const base64 = String(base64Url || '')
+      .trim()
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const padLen = (4 - (base64.length % 4)) % 4;
+    const padded = base64 + '='.repeat(padLen);
+
+    // Most RN runtimes have atob. If not, fallback to base64-js.
+    let binStr: string;
+    const atobFn = (globalThis as any)?.atob;
+    if (typeof atobFn === 'function') {
+      binStr = atobFn(padded);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const b64 = require('base64-js');
+      const bytes = b64.toByteArray(padded);
+      const TD: any = (globalThis as any)?.TextDecoder;
+      if (typeof TD === 'function') return new TD('utf-8').decode(bytes);
+      let out = '';
+      for (let i = 0; i < bytes.length; i += 1) out += String.fromCharCode(bytes[i]);
+      return out;
+    }
+
+    const bytes = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i += 1) bytes[i] = binStr.charCodeAt(i);
+    const TD: any = (globalThis as any)?.TextDecoder;
+    if (typeof TD === 'function') return new TD('utf-8').decode(bytes);
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 1) out += String.fromCharCode(bytes[i]);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) return null;
+    const payloadStr = decodeBase64UrlToUtf8(parts[1]);
+    if (!payloadStr) return null;
+    const parsed = JSON.parse(payloadStr);
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function buildUserFromJwt(token: string): (UserDTO & { appLanguage?: string; provider?: string }) | null {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
+
+  const idRaw = payload.sub ?? payload.user_id ?? payload.uid ?? payload.id ?? '';
+  const emailRaw = payload.email ?? payload.user_email ?? payload.mail ?? '';
+
+  const roleRaw = payload.role ?? (payload.isAdmin ? 'admin' : 'user');
+  const statusRaw = payload.status ?? 'active';
+  const appLanguageRaw = payload.app_language ?? payload.appLanguage ?? payload.language ?? payload.locale ?? null;
+  const providerRaw = payload.provider ?? null;
+
+  const id = String(idRaw || '').trim();
+  if (!id) return null;
+
+  const user: UserDTO & { appLanguage?: string; provider?: string } = {
+    id,
+    email: String(emailRaw || '').trim(),
+    role: String(roleRaw || 'user'),
+    status: String(statusRaw || 'active'),
+  };
+  if (appLanguageRaw != null && String(appLanguageRaw).trim()) user.appLanguage = String(appLanguageRaw).trim();
+  if (providerRaw != null && String(providerRaw).trim()) user.provider = String(providerRaw).trim();
+  return user;
+}
+
 export interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
@@ -41,6 +125,8 @@ export interface AuthState {
   hydrate: () => Promise<void>;
   setSession: (tokens: { access_token: string; refresh_token: string }, user: UserDTO) => Promise<void>;
   clearLocalSession: () => Promise<void>;
+  /** Скидає лише JWT у сховищі (протухлий refresh) — без прапорця «явний вихід». */
+  clearExpiredTokens: () => Promise<void>;
   loginWithPassword: (email: string, password: string) => Promise<void>;
   registerWithPassword: (
     email: string,
@@ -64,8 +150,8 @@ export interface AuthState {
 }
 
 async function persistTokens(access: string, refresh: string): Promise<void> {
-  await SecureStore.setItemAsync(KEY_ACCESS, access);
-  await SecureStore.setItemAsync(KEY_REFRESH, refresh);
+  await secureAuthSet(KEY_ACCESS, access);
+  await secureAuthSet(KEY_REFRESH, refresh);
 }
 
 function mapLegacyUserToDto(user: Record<string, unknown>): UserDTO {
@@ -132,43 +218,84 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrate: async () => {
     try {
+      if (await isExplicitLogout()) {
+        const legacyOnExplicitLogout = await getLegacySession();
+        if (!legacyOnExplicitLogout?.user) {
+          await secureAuthDelete(KEY_ACCESS);
+          await secureAuthDelete(KEY_REFRESH);
+          set({ hydrated: true });
+          return;
+        }
+        // Міграція: прапорець «явний вихід» міг зʼявитись через протухлий refresh,
+        // хоча локальна сесія ще є — відновлюємо вхід без повторного логіну.
+        await clearExplicitLogout();
+      }
+
       const [access, refresh] = await Promise.all([
-        SecureStore.getItemAsync(KEY_ACCESS),
-        SecureStore.getItemAsync(KEY_REFRESH),
+        secureAuthGet(KEY_ACCESS),
+        secureAuthGet(KEY_REFRESH),
       ]);
       const s = await getLegacySession();
-      if (access && s?.user && isBackendJwt(access)) {
+
+      const accessJwt = access && isBackendJwt(access) ? access : null;
+
+      // Normal case: we have legacy local user (AsyncStorage session) + access JWT.
+      if (accessJwt && s?.user) {
         set({
-          accessToken: access,
-          refreshToken: refresh,
+          accessToken: accessJwt,
+          refreshToken: refresh ?? null,
           user: mapLegacyUserToDto(s.user),
           profileMe: buildProfileMe(s.user),
           hydrated: true,
         });
         return;
       }
-      if (refresh && s?.user) {
-        const legacyUser = mapLegacyUserToDto(s.user);
-        const legacyProfile = buildProfileMe(s.user);
-        set({
-          refreshToken: refresh,
-          user: legacyUser,
-          profileMe: legacyProfile,
-        });
-        const ok = await get().refreshSession();
-        if (ok) {
-          set({ hydrated: true });
+
+      // Important case (your scenario): user cleared app data (AsyncStorage), but Keychain still has refresh/access tokens.
+      // In this case we must restore `user` from JWT so navigation can treat the user as logged-in.
+      if (refresh) {
+        if (s?.user) {
+          const legacyUser = mapLegacyUserToDto(s.user);
+          const legacyProfile = buildProfileMe(s.user);
+          set({
+            refreshToken: refresh,
+            user: legacyUser,
+            profileMe: legacyProfile,
+          });
+          const ok = await get().refreshSession();
+          if (ok) {
+            set({ hydrated: true });
+            return;
+          }
+          set({
+            accessToken: null,
+            refreshToken: refresh,
+            user: legacyUser,
+            profileMe: legacyProfile,
+            hydrated: true,
+          });
           return;
         }
-        set({
-          accessToken: null,
-          refreshToken: refresh,
-          user: legacyUser,
-          profileMe: legacyProfile,
-          hydrated: true,
-        });
+
+        // No legacy user - recover purely from refresh/access tokens.
+        // refreshSession signs in Firebase (best-effort) and updates access/refresh in SecureStore.
+        set({ refreshToken: refresh, hydrated: false });
+        const ok = await get().refreshSession();
+        const accessAfter = get().accessToken;
+        const refreshAfter = get().refreshToken;
+        const accessForDecode = accessAfter ?? accessJwt;
+        // Если refreshSession реально “зачистил” токены (невалидний refresh), refreshAfter буде null.
+        // Тоді не відновлюємо user з старого accessJwt (щоб не показувати залогінений стан з мертвими токенами).
+        const userFromJwt =
+          refreshAfter && accessForDecode && isBackendJwt(accessForDecode) ? buildUserFromJwt(accessForDecode) : null;
+        if (userFromJwt) set({ user: userFromJwt, profileMe: null });
+        // Even if refresh failed (offline), we can still proceed if we decoded a usable user.
+        set({ hydrated: true });
+        // If refresh failed and it cleared tokens, userFromJwt will likely be null already.
+        if (ok || userFromJwt) return;
         return;
       }
+
       if (s?.user) {
         set({
           user: mapLegacyUserToDto(s.user),
@@ -176,6 +303,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           hydrated: true,
         });
         return;
+      }
+
+      // Fallback: access token without legacy session (rare).
+      if (accessJwt) {
+        const userFromJwt = buildUserFromJwt(accessJwt);
+        if (userFromJwt) {
+          set({
+            accessToken: accessJwt,
+            refreshToken: null,
+            user: userFromJwt,
+            profileMe: null,
+            hydrated: true,
+          });
+          return;
+        }
       }
     } catch {
       /* ignore */
@@ -188,19 +330,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const prevIdentity = prevUser?.id != null ? String(prevUser.id) : prevUser?.email || '';
     const nextIdentity = user?.id != null ? String(user.id) : user?.email || '';
     const userChanged = !!prevIdentity && !!nextIdentity && prevIdentity !== nextIdentity;
-    
-    // ⚡ Встанавлюємо стан одразу (паралельно з SecureStore + cache clear)
+
+    await clearExplicitLogout();
+
     set({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       user,
       lastError: null,
     });
-    
-    // ⚡ Асинхронні операції у фоні (не блокують стан)
+
+    // Токени зберігаємо синхронно — інакше при закритті застосунку сесія губиться.
+    await persistTokens(tokens.access_token, tokens.refresh_token);
+
     void (async () => {
       try {
-        const promises = [persistTokens(tokens.access_token, tokens.refresh_token)];
+        const promises: Promise<unknown>[] = [];
         if (userChanged) promises.push(clearProfileLocalCache());
         promises.push(get().loadProfileMe());
         await Promise.all(promises);
@@ -210,9 +355,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     })();
   },
 
+  clearExpiredTokens: async () => {
+    await secureAuthDelete(KEY_ACCESS);
+    await secureAuthDelete(KEY_REFRESH);
+    set({
+      accessToken: null,
+      refreshToken: null,
+      lastError: null,
+    });
+  },
+
   clearLocalSession: async () => {
-    await SecureStore.deleteItemAsync(KEY_ACCESS).catch(() => {});
-    await SecureStore.deleteItemAsync(KEY_REFRESH).catch(() => {});
+    await markExplicitLogout();
+    await secureAuthDelete(KEY_ACCESS);
+    await secureAuthDelete(KEY_REFRESH);
     set({
       accessToken: null,
       refreshToken: null,
@@ -231,35 +387,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      
-      // ⚡ Firebase + Legacy session sync у фоні (не блокує навігацію)
-      void (async () => {
-        try {
-          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-        } catch (e) {
-          // Firebase sync — optional, не блокуємо
-          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
-        }
-        
-        try {
-          const userRaw = await loginUser({ email, password });
-          await saveLegacySession({
-            ...(userRaw as Record<string, unknown>),
-            id: body.user.id,
-            email: body.user.email || (userRaw as { email?: string }).email,
-            provider: 'email',
-          } as any);
-        } catch {
-          await saveLegacySession({
-            id: body.user.id,
-            email: body.user.email,
-            name: body.user.email.split('@')[0] || 'User',
-            role: body.user.role,
-            status: body.user.status,
-            provider: 'email',
-          } as any);
-        }
-      })();
+
+      try {
+        await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+      } catch (e) {
+        if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+      }
+
+      try {
+        const userRaw = await loginUser({ email, password });
+        await saveLegacySession({
+          ...(userRaw as Record<string, unknown>),
+          id: body.user.id,
+          email: body.user.email || (userRaw as { email?: string }).email,
+          provider: 'email',
+        } as any);
+      } catch {
+        await saveLegacySession({
+          id: body.user.id,
+          email: body.user.email,
+          name: body.user.email.split('@')[0] || 'User',
+          role: body.user.role,
+          status: body.user.status,
+          provider: 'email',
+        } as any);
+      }
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'login_failed' });
@@ -286,59 +438,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         { access_token: body.access_token, refresh_token: body.refresh_token },
         body.user,
       );
-      
-      // ⚡ Firebase + Profile + Legacy session у фоні (не блокує навігацію)
-      void (async () => {
-        try {
-          await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
-        } catch (e) {
-          if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+
+      try {
+        await signInFirebaseCustomToken((body as { firebase_custom_token?: string }).firebase_custom_token);
+      } catch (e) {
+        if (__DEV__) console.warn('[authStore] Firebase custom token sync failed:', e);
+      }
+
+      try {
+        await get().loadProfileMe();
+      } catch {
+        // OK if profile load fails
+      }
+
+      const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
+      const profileDisplayName =
+        get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
+
+      try {
+        const userRaw = await registerUser({
+          email,
+          password,
+          name: profileDisplayName,
+        });
+        const merged = {
+          ...(userRaw as Record<string, unknown>),
+          accountUsername: profileUsername,
+          name: profileDisplayName,
+        };
+        await saveLegacySession(merged as any);
+        if (profileUsername) {
+          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+          await setProfileUsername(profileUsername);
+          await setProfileDisplayName(profileDisplayName);
         }
-        
-        try {
-          await get().loadProfileMe();
-        } catch {
-          // OK if profile load fails
+      } catch {
+        await saveLegacySession({
+          id: body.user.id,
+          email: body.user.email,
+          name: profileDisplayName,
+          accountUsername: profileUsername || undefined,
+          role: body.user.role,
+          status: body.user.status,
+          provider: 'email',
+        } as any);
+        if (profileUsername) {
+          const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
+          await setProfileUsername(profileUsername);
+          await setProfileDisplayName(profileDisplayName);
         }
-        
-        const profileUsername = get().profileMe?.profile?.username || explicitUsername || '';
-        const profileDisplayName =
-          get().profileMe?.profile?.display_name || trimmedDisplay || body.user.email.split('@')[0] || 'User';
-        
-        try {
-          const userRaw = await registerUser({
-            email,
-            password,
-            name: profileDisplayName,
-          });
-          const merged = {
-            ...(userRaw as Record<string, unknown>),
-            accountUsername: profileUsername,
-            name: profileDisplayName,
-          };
-          await saveLegacySession(merged as any);
-          if (profileUsername) {
-            const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
-            await setProfileUsername(profileUsername);
-            await setProfileDisplayName(profileDisplayName);
-          }
-        } catch {
-          await saveLegacySession({
-            id: body.user.id,
-            email: body.user.email,
-            name: profileDisplayName,
-            accountUsername: profileUsername || undefined,
-            role: body.user.role,
-            status: body.user.status,
-            provider: 'email',
-          } as any);
-          if (profileUsername) {
-            const { setProfileUsername, setProfileDisplayName } = await import('../profileStorage');
-            await setProfileUsername(profileUsername);
-            await setProfileDisplayName(profileDisplayName);
-          }
-        }
-      })();
+      }
     } catch (e: unknown) {
       if (e instanceof ApiError) throw e;
       set({ lastError: e instanceof Error ? e.message : 'register_failed' });
@@ -533,7 +682,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   refreshSession: async () => {
-    const rt = get().refreshToken ?? (await SecureStore.getItemAsync(KEY_REFRESH));
+    const rt = get().refreshToken ?? (await secureAuthGet(KEY_REFRESH));
     if (!rt) return false;
     try {
       const tokens = await backendRefresh(rt);
@@ -561,7 +710,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         code === 'token_expired' ||
         code === 'refresh_token_expired';
       if (tokenRejected) {
-        await get().clearLocalSession();
+        await get().clearExpiredTokens();
       }
       return false;
     }

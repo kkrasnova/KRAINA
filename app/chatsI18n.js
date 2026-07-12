@@ -133,6 +133,10 @@ const S = {
     uk: 'Галерея',
     en: 'Gallery',
   },
+  galleryDenied: {
+    uk: 'Потрібен доступ до фотогалереї.',
+    en: 'Photo library access is required.',
+  },
   openCamera: {
     uk: 'Камера',
     en: 'Camera',
