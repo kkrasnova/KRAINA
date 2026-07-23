@@ -6,7 +6,19 @@ function normalizeKey(quizLandmarkKey) {
   return String(quizLandmarkKey || '').trim();
 }
 
-/** @returns {Promise<null | { selectedIndex: number, revealed: boolean, won: boolean, rewardXp: number, rewardAlready: boolean, answerHint: string }>} */
+/**
+ * @returns {Promise<null | {
+ *   qIndex: number,
+ *   answers: Array<{ selectedIndex: number, won: boolean, rewardXp: number }>,
+ *   selectedIndex: number,
+ *   revealed: boolean,
+ *   won: boolean,
+ *   rewardXp: number,
+ *   rewardAlready: boolean,
+ *   answerHint: string,
+ *   finished: boolean,
+ * }>}
+ */
 export async function loadLandmarkQuizAnswer(quizLandmarkKey) {
   const key = normalizeKey(quizLandmarkKey);
   if (!key) return null;
@@ -18,13 +30,17 @@ export async function loadLandmarkQuizAnswer(quizLandmarkKey) {
     if (!entry || typeof entry !== 'object') return null;
     const selectedIndex = Number(entry.selectedIndex);
     if (!Number.isInteger(selectedIndex) || selectedIndex < 0) return null;
+    const answers = Array.isArray(entry.answers) ? entry.answers : [];
     return {
+      qIndex: Number.isInteger(Number(entry.qIndex)) ? Math.max(0, Number(entry.qIndex)) : 0,
+      answers,
       selectedIndex,
       revealed: entry.revealed === true,
       won: entry.won === true,
       rewardXp: Number.isFinite(Number(entry.rewardXp)) ? Math.max(0, Math.round(Number(entry.rewardXp))) : 0,
       rewardAlready: entry.rewardAlready === true,
       answerHint: typeof entry.answerHint === 'string' ? entry.answerHint : '',
+      finished: entry.finished === true,
     };
   } catch {
     return null;
@@ -43,12 +59,15 @@ export async function saveLandmarkQuizAnswer(quizLandmarkKey, payload) {
     const next = {
       ...base,
       [key]: {
+        qIndex: Number.isInteger(Number(payload.qIndex)) ? Math.max(0, Number(payload.qIndex)) : 0,
+        answers: Array.isArray(payload.answers) ? payload.answers : [],
         selectedIndex,
         revealed: payload.revealed === true,
         won: payload.won === true,
         rewardXp: Number.isFinite(Number(payload.rewardXp)) ? Math.max(0, Math.round(Number(payload.rewardXp))) : 0,
         rewardAlready: payload.rewardAlready === true,
         answerHint: typeof payload.answerHint === 'string' ? payload.answerHint : '',
+        finished: payload.finished === true,
         at: Date.now(),
       },
     };

@@ -9,6 +9,7 @@ import {
   Alert,
   Share,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Speech from 'expo-speech';
@@ -37,9 +38,16 @@ import {
   distanceToStopMeters,
 } from './routeLandmarkNavigation';
 import {
-  isWithinPhysicalVisitRadiusMeters,
-  PHYSICAL_VISIT_RADIUS_M,
+  isApproachingHistoryMeters,
+  isHistoryUnlockedMeters,
+  HISTORY_UNLOCK_RADIUS_M,
 } from './landmarkProximity';
+import {
+  fetchWalkAudioGuideStory,
+  buildCatalogStopWalkScript,
+  WALK_GUIDE_MOVE_M,
+  WALK_GUIDE_COOLDOWN_MS,
+} from './walkAudioGuide';
 import { PHYSICAL_VISIT_XP } from './physicalVisitRewards';
 import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
@@ -47,7 +55,7 @@ import { useSyncedAppLanguage } from './useAppLanguage';
 import { rp } from './routePlannerI18n';
 import { pf } from './profileI18n';
 import { routeRegionTitle, routeCountryTitle } from './routePlanTitles';
-import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
+import { lightTabBarScrollContentPadding, lightTabBarOverlayBottomInset } from './LightBottomTabBar';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { useAppTheme } from './useAppTheme';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
@@ -94,8 +102,14 @@ import { LevelUpNotification, AchievementCard } from './GamificationUI';
 import { authStore } from './auth/authStore';
 
 const LIGHT_BG = '#F2F2EA';
-const OFF_ROUTE_THRESHOLD_M = 45;
-const REROUTE_COOLDOWN_MS = 12000;
+const MAP_FAB_SIZE = 48;
+const MAP_FAB_GAP = 10;
+const MAP_FAB_STEP = MAP_FAB_SIZE + MAP_FAB_GAP;
+/** Відхилення від лінії → перебудова маршруту з поточної точки (як у Google Maps). */
+const OFF_ROUTE_THRESHOLD_M = 30;
+const REROUTE_COOLDOWN_MS = 5500;
+/** М’який snap puck на лінію лише коли ще «на маршруті». */
+const ON_ROUTE_SNAP_M = 22;
 const DEFAULT_NAV_ZOOM = 0.018;
 const ROUTE_FOLLOW_ZOOM = 0.004;
 const ROUTE_MAX_ZOOM_DELTA = 0.35;
@@ -137,7 +151,10 @@ export default function RouteNavigationPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const plan = route?.params?.routePlan;
-  const transport = plan?.transport || 'walk';
+  const [activeTransport, setActiveTransport] = useState(plan?.transport || 'walk');
+  const transport = activeTransport || plan?.transport || 'walk';
+  /** Навігатор завжди веде за реальною геолокацією користувача. */
+  const forceLiveGps = true;
   const transportLabelKey =
     transport === 'car'
       ? 'drive'
@@ -159,6 +176,7 @@ export default function RouteNavigationPage({ navigation, route }) {
             ? 'train-outline'
             : 'walk-outline';
   const mapPolylineParam = route?.params?.mapPolyline;
+  const walkOriginParam = route?.params?.walkOrigin;
   const mapRef = useRef(null);
   const autoStartNav = route?.params?.autoStartNav === true;
   const mapZoomRef = useRef(autoStartNav ? ROUTE_FOLLOW_ZOOM : DEFAULT_NAV_ZOOM);
@@ -186,7 +204,7 @@ export default function RouteNavigationPage({ navigation, route }) {
   const [followUser, setFollowUser] = useState(true);
   const [behindView, setBehindView] = useState(autoStartNav);
   const [navCamera, setNavCamera] = useState(null);
-  const [autoWalkActive, setAutoWalkActive] = useState(autoStartNav);
+  const [autoWalkActive, setAutoWalkActive] = useState(false);
   const liveGpsActiveRef = useRef(false);
   const lastUserPosRef = useRef(null);
   const routeFollowBootRef = useRef(false);
@@ -199,13 +217,20 @@ export default function RouteNavigationPage({ navigation, route }) {
   const lastStreetGuidePosRef = useRef(null);
   const streetGuideBusyRef = useRef(false);
   const [streetGuideLabel, setStreetGuideLabel] = useState('');
+  const [audioGuideOn, setAudioGuideOn] = useState(false);
+  const [walkGuideUi, setWalkGuideUi] = useState(null);
+  const walkGuideBusyRef = useRef(false);
+  const walkGuideLastKeyRef = useRef('');
+  const walkGuideLastAtRef = useRef(0);
+  const walkGuideLastPosRef = useRef(null);
+  const audioGuideOnRef = useRef(false);
   const lastMapFollowAtRef = useRef(0);
   const userControlledZoomRef = useRef(false);
   const navCameraAnimatingRef = useRef(false);
   const navCameraAnimDoneAtRef = useRef(0);
   const autoWalkSeededRef = useRef(false);
   const lastArrivedStopRef = useRef(null);
-  const demoWalkRef = useRef(autoStartNav);
+  const demoWalkRef = useRef(false);
   const [skippedStopIds, setSkippedStopIds] = useState([]);
   const lastRerouteAtRef = useRef(0);
   const legFetchIdRef = useRef(0);
@@ -239,21 +264,26 @@ export default function RouteNavigationPage({ navigation, route }) {
   }, [route?.params?.walkOrigin, mapPolylineParam, roadPolyline, plan?.stops]);
 
   const navigationPos = useMemo(() => {
-    if (positionSource === 'manual' && simulatedPos) return simulatedPos;
-    if (userPos && userNearRoute && positionSource !== 'manual') {
+    if (positionSource === 'manual' && simulatedPos && !forceLiveGps) return simulatedPos;
+    if (userPos && (userNearRoute || forceLiveGps) && positionSource !== 'manual') {
       return { latitude: userPos.latitude, longitude: userPos.longitude };
     }
-    if (autoWalkActive && simulatedPos) return simulatedPos;
-    if (simulatedPos) return simulatedPos;
+    if (autoWalkActive && simulatedPos && !forceLiveGps) return simulatedPos;
+    if (simulatedPos && !forceLiveGps) return simulatedPos;
     if (userPos) {
       return { latitude: userPos.latitude, longitude: userPos.longitude };
     }
     return null;
-  }, [positionSource, autoWalkActive, simulatedPos, userPos, userNearRoute]);
+  }, [positionSource, autoWalkActive, simulatedPos, userPos, userNearRoute, forceLiveGps]);
 
   useEffect(() => {
     navigationPosRef.current = navigationPos;
   }, [navigationPos]);
+
+  useEffect(() => {
+    const next = plan?.transport || 'walk';
+    setActiveTransport(next);
+  }, [plan?.transport]);
 
   useEffect(() => {
     legPolylineRef.current = legPolyline;
@@ -264,16 +294,76 @@ export default function RouteNavigationPage({ navigation, route }) {
     let cancelled = false;
     (async () => {
       setPolyBusy(true);
-      const { path, steps } = await loadRoutePolylineFromPlan(plan, userPos, simulatedPos);
+      const originOverride =
+        coordFromWalkOrigin(walkOriginParam) ||
+        (simulatedPos
+          ? { latitude: simulatedPos.latitude, longitude: simulatedPos.longitude }
+          : null);
+      const { path, steps, durationSec } = await loadRoutePolylineFromPlan(
+        plan,
+        userPos,
+        originOverride,
+      );
       if (!cancelled && isRoadFollowingPolyline(path)) setRoadPolyline(path);
       if (!cancelled && steps?.length) setRoadSteps(steps);
+      if (!cancelled && durationSec != null) setLegDurationSec(durationSec);
     })().finally(() => {
       if (!cancelled) setPolyBusy(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [plan, roadPolyline, userPos?.latitude, userPos?.longitude, simulatedPos?.latitude, simulatedPos?.longitude]);
+  }, [
+    plan,
+    roadPolyline,
+    userPos?.latitude,
+    userPos?.longitude,
+    simulatedPos?.latitude,
+    simulatedPos?.longitude,
+    walkOriginParam,
+  ]);
+
+  const transportSwitchBootRef = useRef(true);
+  useEffect(() => {
+    if (transportSwitchBootRef.current) {
+      transportSwitchBootRef.current = false;
+      return undefined;
+    }
+    let cancelled = false;
+    lastLegSignatureRef.current = '';
+    setLegPolyline(null);
+    setLegSteps([]);
+    setRoadPolyline(null);
+    setRoadSteps([]);
+    (async () => {
+      setPolyBusy(true);
+      try {
+        const nextPlan = { ...(plan || {}), transport };
+        const origin = userPos
+          ? { latitude: userPos.latitude, longitude: userPos.longitude }
+          : navigationPosRef.current;
+        const { path, steps, durationSec } = await loadRoutePolylineFromPlan(
+          nextPlan,
+          userPos,
+          origin,
+        );
+        if (cancelled) return;
+        if (isRoadFollowingPolyline(path)) {
+          setRoadPolyline(path);
+          if (steps?.length) setRoadSteps(steps);
+          if (durationSec != null) setLegDurationSec(durationSec);
+        }
+        if (origin) await fetchLeg(origin, { silent: true });
+      } finally {
+        if (!cancelled) setPolyBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // fetchLeg оновлюється разом із transport
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transport]);
 
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
@@ -317,6 +407,9 @@ export default function RouteNavigationPage({ navigation, route }) {
   const mapInitialRegion = useMemo(() => {
     if (!autoStartNav && !navActive) return mapRegion;
     const center =
+      (forceLiveGps && userPos
+        ? { latitude: userPos.latitude, longitude: userPos.longitude }
+        : null) ||
       (userNearRoute && userPos
         ? { latitude: userPos.latitude, longitude: userPos.longitude }
         : null) ||
@@ -330,7 +423,16 @@ export default function RouteNavigationPage({ navigation, route }) {
       latitudeDelta: ROUTE_FOLLOW_ZOOM,
       longitudeDelta: ROUTE_FOLLOW_ZOOM,
     };
-  }, [autoStartNav, navActive, mapRegion, simulatedPos, routeStartSeed, userNearRoute, userPos]);
+  }, [
+    autoStartNav,
+    navActive,
+    mapRegion,
+    simulatedPos,
+    routeStartSeed,
+    userNearRoute,
+    userPos,
+    forceLiveGps,
+  ]);
   const useGoogleMaps = useMemo(() => Boolean(getGoogleMapsApiKey()), []);
   const useGoogleProvider = useGoogleMaps && Platform.OS === 'android';
   const mapProvider = useMemo(
@@ -440,13 +542,19 @@ export default function RouteNavigationPage({ navigation, route }) {
       if (!from || !activeStop || legFetchInFlightRef.current) return;
       const fetchId = ++legFetchIdRef.current;
       const to = { latitude: activeStop.lat, longitude: activeStop.lng };
+      const straightKm = haversineKm(
+        { lat: from.latitude, lng: from.longitude },
+        { lat: to.latitude, lng: to.longitude },
+      );
+      /** Фейковий «рухайтесь прямо на N тис. км» лише псує UX — локальний fallback тільки поруч. */
+      const allowStraightFallback = Number.isFinite(straightKm) && straightKm <= 15;
       legFetchInFlightRef.current = true;
       if (!silent) setLegBusy(true);
       try {
         const key = getGoogleMapsApiKey();
         if (key) {
           const { path, durationSec, steps } = await fetchGoogleDirectionsPolyline(
-            fallback,
+            [from, to],
             transport,
             key,
           );
@@ -456,7 +564,13 @@ export default function RouteNavigationPage({ navigation, route }) {
             if (sig !== lastLegSignatureRef.current) {
               lastLegSignatureRef.current = sig;
               setLegPolyline(path);
-              setLegSteps(steps?.length ? steps : buildFallbackDirectionSteps(from, to));
+              setLegSteps(
+                steps?.length
+                  ? steps
+                  : allowStraightFallback
+                    ? buildFallbackDirectionSteps(from, to)
+                    : [],
+              );
               setLegDurationSec(durationSec || null);
             }
             lastRerouteAtRef.current = Date.now();
@@ -468,9 +582,15 @@ export default function RouteNavigationPage({ navigation, route }) {
         }
         if (fetchId === legFetchIdRef.current) {
           if (__DEV__) console.warn('[RouteNavigation] directions unavailable — no straight fallback');
-          setLegSteps(buildFallbackDirectionSteps(from, to));
+          setLegSteps(allowStraightFallback ? buildFallbackDirectionSteps(from, to) : []);
           setLegDurationSec(null);
           lastRerouteAtRef.current = Date.now();
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('[RouteNavigation] fetchLeg failed', err);
+        if (fetchId === legFetchIdRef.current) {
+          setLegSteps(allowStraightFallback ? buildFallbackDirectionSteps(from, to) : []);
+          setLegDurationSec(null);
         }
       } finally {
         legFetchInFlightRef.current = false;
@@ -503,7 +623,9 @@ export default function RouteNavigationPage({ navigation, route }) {
     return formatNavDistanceM(distToHistoryM, language);
   }, [distToHistoryM, language]);
 
-  const withinHistory = isWithinPhysicalVisitRadiusMeters(distToHistoryM);
+  const approachingHistory = isApproachingHistoryMeters(distToHistoryM);
+  const historyUnlocked = isHistoryUnlockedMeters(distToHistoryM);
+  const withinHistory = historyUnlocked;
   const stopProgressRatio =
     remainingStopsCount > 1
       ? (remainingStops.findIndex((s) => s.id === activeStop?.id) + 1) / remainingStopsCount
@@ -547,8 +669,10 @@ export default function RouteNavigationPage({ navigation, route }) {
   }, [streetGuideLabel, navSteps, activeStepIndex, language]);
 
   const speakNavGuide = useCallback(
-    (phrase) => {
+    (phrase, { force = false } = {}) => {
       if (!phrase || !navActive) return;
+      // Коли увімкнено аудіогід історії — короткі «ви на вулиці» не перебивають розповідь.
+      if (audioGuideOnRef.current && !force) return;
       const now = Date.now();
       if (now - lastNavSpeechAtRef.current < GUIDE_SPEECH_COOLDOWN_MS) return;
       lastNavSpeechAtRef.current = now;
@@ -561,24 +685,183 @@ export default function RouteNavigationPage({ navigation, route }) {
     [navActive, language],
   );
 
+  const speakWalkHistory = useCallback(
+    (phrase) => {
+      if (!phrase || !navActive) return;
+      try {
+        Speech.stop();
+      } catch {
+        /* */
+      }
+      lastNavSpeechAtRef.current = Date.now();
+      try {
+        Speech.speak(phrase, {
+          language: language === 'uk' ? 'uk-UA' : 'en-US',
+          rate: 0.88,
+          onDone: () => {
+            setWalkGuideUi((prev) => (prev ? { ...prev, playing: false } : prev));
+          },
+        });
+      } catch {
+        /* optional */
+      }
+    },
+    [navActive, language],
+  );
+
+  useEffect(() => {
+    audioGuideOnRef.current = audioGuideOn;
+    if (!audioGuideOn) {
+      setWalkGuideUi(null);
+      walkGuideBusyRef.current = false;
+      try {
+        Speech.stop();
+      } catch {
+        /* */
+      }
+    }
+  }, [audioGuideOn]);
+
+  useEffect(() => {
+    if (!navActive || !audioGuideOn) return undefined;
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled || walkGuideBusyRef.current) return;
+      const pos = navigationPosRef.current;
+      if (!pos) return;
+
+      const now = Date.now();
+      if (now - walkGuideLastAtRef.current < WALK_GUIDE_COOLDOWN_MS) return;
+
+      const prev = walkGuideLastPosRef.current;
+      if (prev) {
+        const movedM = distanceMetersBetween(prev, pos);
+        if (movedM != null && movedM < WALK_GUIDE_MOVE_M && walkGuideLastKeyRef.current) return;
+      }
+
+      walkGuideBusyRef.current = true;
+      setWalkGuideUi({ loading: true, title: '', playing: false });
+
+      try {
+        let story = null;
+        if (plan?.stops?.length) {
+          for (const stop of plan.stops) {
+            const distM = distanceToStopMeters(pos, stop);
+            if (distM == null || distM > LANDMARK_GUIDE_RADIUS_M) continue;
+            const catalog = buildCatalogStopWalkScript(plan, stop, language);
+            if (catalog) {
+              story = catalog;
+              break;
+            }
+          }
+        }
+        if (!story) {
+          story = await fetchWalkAudioGuideStory({
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            language,
+            streetHint: streetGuideLabel,
+          });
+        }
+        if (cancelled) return;
+
+        walkGuideLastPosRef.current = {
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+        };
+        walkGuideLastAtRef.current = Date.now();
+
+        if (!story?.script) {
+          setWalkGuideUi({ loading: false, title: '', playing: false, empty: true });
+          return;
+        }
+        if (story.key && story.key === walkGuideLastKeyRef.current) {
+          setWalkGuideUi((prevUi) =>
+            prevUi?.playing ? prevUi : { loading: false, title: story.title, playing: false, empty: false },
+          );
+          return;
+        }
+        walkGuideLastKeyRef.current = story.key || story.title;
+        setWalkGuideUi({
+          loading: false,
+          title: story.title,
+          playing: true,
+          empty: false,
+          usedAi: story.usedAi,
+        });
+        speakWalkHistory(story.script);
+      } catch {
+        if (!cancelled) {
+          setWalkGuideUi({ loading: false, title: '', playing: false, empty: true });
+        }
+      } finally {
+        walkGuideBusyRef.current = false;
+      }
+    };
+
+    void tick();
+    const id = setInterval(() => {
+      void tick();
+    }, 2800);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [navActive, audioGuideOn, language, plan, streetGuideLabel, speakWalkHistory]);
+  const toggleAudioGuide = useCallback(() => {
+    setAudioGuideOn((on) => {
+      const next = !on;
+      if (next) {
+        walkGuideLastKeyRef.current = '';
+        walkGuideLastAtRef.current = 0;
+        walkGuideLastPosRef.current = null;
+      }
+      return next;
+    });
+  }, []);
+
   const displayNavigationPos = useMemo(() => {
     if (!navigationPos) return null;
     if (!walkPath?.length) return navigationPos;
     const onPath = nearestPointOnPolyline(walkPath, navigationPos);
     const offM = haversineKm(navigationPos, onPath) * 1000;
-    return offM > 18 ? onPath : navigationPos;
+    // Було навпаки (snap коли далеко) — puck «прилипав» до старої лінії при неправильному повороті.
+    // Snap лише коли ще на маршруті — для гладкого зникнення пройденого шляху.
+    if (offM <= ON_ROUTE_SNAP_M) return onPath;
+    return navigationPos;
   }, [navigationPos, walkPath]);
+
+  const offRouteMeters = useMemo(() => {
+    if (!navActive || !navigationPos || !walkPath?.length) return 0;
+    const onPath = nearestPointOnPolyline(walkPath, navigationPos);
+    return haversineKm(navigationPos, onPath) * 1000;
+  }, [navActive, navigationPos, walkPath]);
+
+  const isOffRoute = navActive && offRouteMeters > OFF_ROUTE_THRESHOLD_M;
 
   const navRouteSlices = useMemo(() => {
     if (!navActive || mapRouteCoords.length < 2 || !displayNavigationPos) {
       return { remaining: mapRouteCoords, traveled: [] };
     }
-    const { remaining, traveled } = slicePolylineFromPosition(mapRouteCoords, displayNavigationPos);
+    // Зійшли з шляху — ховаємо стару синю лінію, поки не прийде новий Directions.
+    if (isOffRoute) {
+      return { remaining: [], traveled: [] };
+    }
+    const { remaining } = slicePolylineFromPosition(mapRouteCoords, displayNavigationPos);
     return {
       remaining: remaining.length >= 2 ? remaining : mapRouteCoords,
-      traveled: traveled.length >= 2 ? traveled : [],
+      // Пройдене не малюємо — лінія «з’їдається» за локатором.
+      traveled: [],
     };
-  }, [navActive, mapRouteCoords, displayNavigationPos?.latitude, displayNavigationPos?.longitude]);
+  }, [
+    navActive,
+    mapRouteCoords,
+    displayNavigationPos?.latitude,
+    displayNavigationPos?.longitude,
+    isOffRoute,
+  ]);
 
   const travelBearing = useMemo(() => {
     if (walkPath?.length >= 2 && displayNavigationPos) {
@@ -591,14 +874,24 @@ export default function RouteNavigationPage({ navigation, route }) {
     return bearingToStop;
   }, [walkPath, displayNavigationPos, nextManeuverStep, navigationPos, bearingToStop]);
 
-  const isGpsPosition = positionSource === 'gps' || (positionSource === 'auto' && userNearRoute && userPos && !simulatedPos);
-  const positionModeLabel = isGpsPosition ? rp(language, 'posModeGps') : rp(language, 'posModeManual');
+  const isGpsPosition =
+    positionSource === 'gps' ||
+    (positionSource !== 'manual' &&
+      userNearRoute &&
+      userPos &&
+      navigationPos &&
+      coordsNear(navigationPos, userPos, 0.00008));
   const gpsOffRouteCoords = useMemo(() => {
     if (!isGpsPosition || !userPos || !displayNavigationPos) return null;
     const distM = haversineKm(userPos, displayNavigationPos) * 1000;
     if (distM < 14) return null;
     return [userPos, displayNavigationPos];
   }, [isGpsPosition, userPos, displayNavigationPos]);
+
+  const puckCoordinate = useMemo(() => {
+    if (positionSource === 'manual' && simulatedPos) return simulatedPos;
+    return displayNavigationPos;
+  }, [positionSource, simulatedPos, displayNavigationPos]);
 
   const walkHeadingDeg = travelBearing;
   const puckMapRotation = behindView && navCamera != null ? 0 : travelBearing ?? 0;
@@ -612,6 +905,16 @@ export default function RouteNavigationPage({ navigation, route }) {
   }, [navActive, activeStop, navRouteSlices.remaining]);
 
   const walkDirectionHint = useMemo(() => {
+    if (historyUnlocked && activeStop) {
+      return rp(language, 'historyUnlockedHint');
+    }
+    if (approachingHistory && activeStop) {
+      return rp(language, 'historyApproachHint', {
+        stop: activeStop.title,
+        dist: distToHistoryLabel,
+      });
+    }
+    if (isOffRoute) return rp(language, 'navRerouting');
     if (turnInstruction) return turnInstruction;
     if (navSteps.length && navigationPos) {
       const step = resolveNextManeuverStep(navSteps, navigationPos);
@@ -619,11 +922,30 @@ export default function RouteNavigationPage({ navigation, route }) {
       if (fromStep) return fromStep;
     }
     if (distToHistoryM == null || !activeStop) return rp(language, 'followBlueLine');
+    // Далеко і без Directions — не показуємо «рухайтесь прямо 9000 км».
+    if (distToHistoryM > 15000 && !navSteps.length) {
+      return rp(language, 'navTooFarNoSteps');
+    }
+    if (legBusy && !navSteps.length) {
+      return rp(language, 'navWaitingDirections');
+    }
     return rp(language, 'walkTowardStop', {
       dist: distToHistoryLabel,
       stop: activeStop.title,
     });
-  }, [turnInstruction, navSteps, navigationPos, distToHistoryM, distToHistoryLabel, activeStop, language]);
+  }, [
+    historyUnlocked,
+    approachingHistory,
+    isOffRoute,
+    turnInstruction,
+    navSteps,
+    navigationPos,
+    distToHistoryM,
+    distToHistoryLabel,
+    activeStop,
+    language,
+    legBusy,
+  ]);
 
   const navBannerSub = useMemo(() => {
     if (!navActive) return '';
@@ -706,9 +1028,10 @@ export default function RouteNavigationPage({ navigation, route }) {
     const distM = distanceMetersToPolyline(navigationPos, legPolylineRef.current);
     if (distM == null || distM <= OFF_ROUTE_THRESHOLD_M) return;
     const from = { latitude: navigationPos.latitude, longitude: navigationPos.longitude };
-    const currentPath = legPolylineRef.current;
-    if (currentPath?.length >= 2 && coordsNear(currentPath[0], from, 0.00015)) return;
-    fetchLeg(from, { silent: true });
+    // Не блокуємо рероут, якщо старий path[0] близько — після збою це якраз новий старт.
+    lastRerouteAtRef.current = now;
+    lastLegSignatureRef.current = '';
+    void fetchLeg(from, { silent: true });
   }, [navActive, navigationPos?.latitude, navigationPos?.longitude, legBusy, fetchLeg]);
 
   const fitPoints = useMemo(() => {
@@ -1064,14 +1387,50 @@ export default function RouteNavigationPage({ navigation, route }) {
   }, [activeStop?.id]);
 
   useEffect(() => {
-    if (!autoStartNav || userNearRoute) return;
+    if (!autoStartNav || !navActive || positionSource === 'manual') return;
+
+    if (forceLiveGps) {
+      setPositionSource('gps');
+      setAutoWalkActive(false);
+      setSimulatedPos(null);
+      liveGpsActiveRef.current = true;
+      setFollowUser(true);
+      setBehindView(true);
+      userControlledZoomRef.current = false;
+      return;
+    }
+
+    if (!userPos) return;
+
+    if (userNearRoute) {
+      setPositionSource('gps');
+      setAutoWalkActive(false);
+      setSimulatedPos(null);
+      liveGpsActiveRef.current = true;
+      setFollowUser(true);
+      setBehindView(true);
+      userControlledZoomRef.current = false;
+      return;
+    }
+
     if (simulatedPos) return;
     if (routeStartSeed) {
       setSimulatedPos(routeStartSeed);
       setAutoWalkActive(true);
+      setPositionSource('manual');
       liveGpsActiveRef.current = false;
     }
-  }, [autoStartNav, userNearRoute, simulatedPos, routeStartSeed]);
+  }, [
+    autoStartNav,
+    navActive,
+    userPos?.latitude,
+    userPos?.longitude,
+    userNearRoute,
+    positionSource,
+    simulatedPos,
+    routeStartSeed,
+    forceLiveGps,
+  ]);
 
   useEffect(() => {
     if (!navActive || !navigationPos || !mapRef.current || !followUser || behindView) return;
@@ -1145,29 +1504,98 @@ export default function RouteNavigationPage({ navigation, route }) {
     focusOnRoutePosition(pos, { follow: true, resetZoom: false });
   }, [navigationPos, focusOnRoutePosition, navActive, zoomToNavigationTurn]);
 
-  const onMapPress = useCallback(
-    (e) => {
-      const coord = e.nativeEvent?.coordinate;
+  const snapCoordToWalkPath = useCallback(
+    (coord) => {
+      if (!coord) return null;
+      const path =
+        walkPath?.length >= 2
+          ? walkPath
+          : mapRouteCoords?.length >= 2
+            ? mapRouteCoords
+            : null;
+      if (!path) return { latitude: coord.latitude, longitude: coord.longitude };
+      const snapped = nearestPointOnPolyline(path, coord);
+      return { latitude: snapped.latitude, longitude: snapped.longitude };
+    },
+    [walkPath, mapRouteCoords],
+  );
+
+  const placeUserAtCoord = useCallback(
+    (rawCoord, { refetchLeg = true, followCamera = true } = {}) => {
+      const coord = snapCoordToWalkPath(rawCoord);
       if (!coord) return;
       userControlledZoomRef.current = false;
       setPositionSource('manual');
-      setSimulatedPos({ latitude: coord.latitude, longitude: coord.longitude });
+      setSimulatedPos(coord);
       setFollowUser(true);
       setBehindView(true);
       setAutoWalkActive(false);
       liveGpsActiveRef.current = false;
+      autoWalkSeededRef.current = false;
       if (!navActive) setNavActive(true);
-      legFetchIdRef.current += 1;
-      lastLegSignatureRef.current = '';
-      legTargetKeyRef.current = '';
-      setLegPolyline(null);
-      setLegSteps([]);
-      setLegDurationSec(null);
-      navCameraBootRef.current = false;
-      setTimeout(() => zoomToNavigationTurn(coord, { follow: true }), 160);
-      void fetchLeg(coord);
+      if (refetchLeg) {
+        legFetchIdRef.current += 1;
+        lastLegSignatureRef.current = '';
+        legTargetKeyRef.current = '';
+        setLegPolyline(null);
+        setLegSteps([]);
+        setLegDurationSec(null);
+        void fetchLeg(coord);
+      }
+      if (followCamera) {
+        navCameraBootRef.current = false;
+        setTimeout(() => zoomToNavigationTurn(coord, { follow: true }), 160);
+      }
     },
-    [navActive, zoomToNavigationTurn, fetchLeg],
+    [snapCoordToWalkPath, navActive, fetchLeg, zoomToNavigationTurn],
+  );
+
+  const onMapPress = useCallback(
+    (e) => {
+      if (forceLiveGps) return;
+      const coord = e.nativeEvent?.coordinate;
+      if (!coord) return;
+      placeUserAtCoord(coord);
+    },
+    [forceLiveGps, placeUserAtCoord],
+  );
+
+  const onMapLongPress = useCallback(
+    (e) => {
+      if (forceLiveGps) return;
+      const coord = e.nativeEvent?.coordinate;
+      if (!coord) return;
+      placeUserAtCoord(coord);
+    },
+    [forceLiveGps, placeUserAtCoord],
+  );
+
+  const onPuckDragStart = useCallback(() => {
+    if (forceLiveGps) return;
+    setPositionSource('manual');
+    setAutoWalkActive(false);
+    liveGpsActiveRef.current = false;
+    userControlledZoomRef.current = false;
+  }, [forceLiveGps]);
+
+  const onPuckDrag = useCallback(
+    (e) => {
+      if (forceLiveGps) return;
+      const coord = e.nativeEvent?.coordinate;
+      if (!coord) return;
+      setSimulatedPos({ latitude: coord.latitude, longitude: coord.longitude });
+    },
+    [forceLiveGps],
+  );
+
+  const onPuckDragEnd = useCallback(
+    (e) => {
+      if (forceLiveGps) return;
+      const coord = e.nativeEvent?.coordinate;
+      if (!coord) return;
+      placeUserAtCoord(coord);
+    },
+    [forceLiveGps, placeUserAtCoord],
   );
 
   const onStopMarkerPress = useCallback(
@@ -1185,6 +1613,54 @@ export default function RouteNavigationPage({ navigation, route }) {
     },
     [plan?.stops, skippedStopIds],
   );
+
+  const skipStopById = useCallback(
+    (stopId) => {
+      if (!plan?.stops?.length) return;
+
+      setSkippedStopIds((prev) => {
+        if (prev.includes(stopId)) return prev;
+        const nextSkipped = [...prev, stopId];
+        const remaining = plan.stops.filter((s) => !nextSkipped.includes(s.id));
+
+        if (remaining.length === 0) {
+          setTimeout(() => {
+            Alert.alert('', rp(language, 'allStopsSkipped'), [
+              { text: 'OK', onPress: () => navigation.goBack() },
+            ]);
+          }, 0);
+          return nextSkipped;
+        }
+
+        const curIdx = plan.stops.findIndex((s) => s.id === stopId);
+        let nextIdx = -1;
+        for (let i = curIdx + 1; i < plan.stops.length; i += 1) {
+          if (!nextSkipped.includes(plan.stops[i].id)) {
+            nextIdx = i;
+            break;
+          }
+        }
+        if (nextIdx < 0) {
+          nextIdx = plan.stops.findIndex((s) => !nextSkipped.includes(s.id));
+        }
+
+        setCurrentStopIndex(nextIdx);
+        autoOpenedStopIdRef.current = null;
+        legFetchIdRef.current += 1;
+        setLegPolyline(null);
+        setLegSteps([]);
+        setLegDurationSec(null);
+
+        return nextSkipped;
+      });
+    },
+    [plan?.stops, language, navigation],
+  );
+
+  const skipCurrentStop = useCallback(() => {
+    if (!activeStop) return;
+    skipStopById(activeStop.id);
+  }, [activeStop, skipStopById]);
 
   const onMenu = useCallback(() => {
     Alert.alert(
@@ -1223,14 +1699,16 @@ export default function RouteNavigationPage({ navigation, route }) {
         ? isUserOriginNearRoute({ lat: userPos.latitude, lng: userPos.longitude }, plan.stops)
         : false;
     setFollowUser(true);
+    setBehindView(true);
     navCameraBootRef.current = false;
     routeFollowBootRef.current = false;
     userControlledZoomRef.current = false;
-    demoWalkRef.current = !nearRoute;
-    setAutoWalkActive(!nearRoute);
-    setPositionSource(nearRoute ? 'gps' : 'manual');
-    liveGpsActiveRef.current = nearRoute;
-    if (nearRoute) {
+    const useLiveGps = forceLiveGps || nearRoute;
+    demoWalkRef.current = !useLiveGps;
+    setAutoWalkActive(!useLiveGps);
+    setPositionSource(useLiveGps ? 'gps' : 'manual');
+    liveGpsActiveRef.current = useLiveGps;
+    if (useLiveGps) {
       setSimulatedPos(null);
     } else {
       autoWalkSeededRef.current = false;
@@ -1238,7 +1716,7 @@ export default function RouteNavigationPage({ navigation, route }) {
     }
     mapZoomRef.current = ROUTE_FOLLOW_ZOOM;
     setNavActive(true);
-  }, [userPos, plan?.stops, routeStartSeed]);
+  }, [userPos, plan?.stops, routeStartSeed, forceLiveGps]);
 
   useEffect(() => {
     if (!navActive || !navigationPos || navCameraBootRef.current) return;
@@ -1422,54 +1900,6 @@ export default function RouteNavigationPage({ navigation, route }) {
     advanceToNextStop,
   ]);
 
-  const skipStopById = useCallback(
-    (stopId) => {
-      if (!plan?.stops?.length) return;
-
-      setSkippedStopIds((prev) => {
-        if (prev.includes(stopId)) return prev;
-        const nextSkipped = [...prev, stopId];
-        const remaining = plan.stops.filter((s) => !nextSkipped.includes(s.id));
-
-        if (remaining.length === 0) {
-          setTimeout(() => {
-            Alert.alert('', rp(language, 'allStopsSkipped'), [
-              { text: 'OK', onPress: () => navigation.goBack() },
-            ]);
-          }, 0);
-          return nextSkipped;
-        }
-
-        const curIdx = plan.stops.findIndex((s) => s.id === stopId);
-        let nextIdx = -1;
-        for (let i = curIdx + 1; i < plan.stops.length; i += 1) {
-          if (!nextSkipped.includes(plan.stops[i].id)) {
-            nextIdx = i;
-            break;
-          }
-        }
-        if (nextIdx < 0) {
-          nextIdx = plan.stops.findIndex((s) => !nextSkipped.includes(s.id));
-        }
-
-        setCurrentStopIndex(nextIdx);
-        autoOpenedStopIdRef.current = null;
-        legFetchIdRef.current += 1;
-        setLegPolyline(null);
-        setLegSteps([]);
-        setLegDurationSec(null);
-
-        return nextSkipped;
-      });
-    },
-    [plan?.stops, language, navigation],
-  );
-
-  const skipCurrentStop = useCallback(() => {
-    if (!activeStop) return;
-    skipStopById(activeStop.id);
-  }, [activeStop, skipStopById]);
-
   const showRouteCompleteIfDone = useCallback(() => {
     if (!plan?.stops?.length || routeCompleteShownRef.current) return;
     const allHandled = plan.stops.every(
@@ -1531,7 +1961,7 @@ export default function RouteNavigationPage({ navigation, route }) {
   const openLandmarkForStop = useCallback(
     (stop, distM, auto = false) => {
       if (!plan || !stop) return;
-      if (distM != null && distM > PHYSICAL_VISIT_RADIUS_M && !auto) {
+      if (distM != null && distM > HISTORY_UNLOCK_RADIUS_M && !auto) {
         Alert.alert('', rp(language, 'moveCloserForHistory'));
         return;
       }
@@ -1543,21 +1973,64 @@ export default function RouteNavigationPage({ navigation, route }) {
         countryId: route?.params?.countryId,
       });
       if (!built?.params) return;
-      pendingAdvanceRef.current = true;
-      markStopVisited(stop.id);
-      navigation.navigate(built.screen, built.params);
+      // Після перегляду повертаємось сюди (goBack). Наступну зупинку — лише якщо вже біля місця.
+      if (distM != null && distM <= HISTORY_UNLOCK_RADIUS_M) {
+        pendingAdvanceRef.current = true;
+        markStopVisited(stop.id);
+      }
+      navigation.navigate(built.screen, {
+        ...built.params,
+        fromRouteNavigation: true,
+      });
     },
     [plan, shell, language, navigation, route?.params?.countryId, markStopVisited],
   );
 
   const onViewHistory = useCallback(() => {
     if (!plan || !activeStop) return;
+    if (!withinHistory) {
+      Alert.alert(
+        rp(language, 'historyLockedTitle'),
+        rp(language, 'historyLockedHint', {
+          dist: distToHistoryLabel,
+          unlock: HISTORY_UNLOCK_RADIUS_M,
+        }),
+      );
+      return;
+    }
     openLandmarkForStop(activeStop, distToHistoryM, false);
-  }, [plan, activeStop, distToHistoryM, openLandmarkForStop]);
+  }, [
+    plan,
+    activeStop,
+    withinHistory,
+    language,
+    distToHistoryLabel,
+    distToHistoryM,
+    openLandmarkForStop,
+  ]);
 
   const routePathMode = navActive && legPolyline?.length >= 2 ? 'nav' : roadPolyline?.length >= 2 ? 'road' : 'preview';
   const navigatorMode = navActive && followUser && behindView;
   const immersiveNav = navActive && followUser;
+  const { height: windowHeight } = useWindowDimensions();
+  const mapControlsBottom = useMemo(() => {
+    const tabBarClearance = lightTabBarOverlayBottomInset(insets.bottom, 8);
+    const sheetEstimate = navActive
+      ? 0
+      : Math.min(Math.round(windowHeight * 0.44), 340);
+    return tabBarClearance + sheetEstimate + 16;
+  }, [insets.bottom, navActive, windowHeight]);
+
+  /** iOS Apple Maps: лінк «Legal» відкриває зовнішню сторінку — тримаємо його вище UI, щоб не ловити випадкові тапи. */
+  const appleLegalInsets = useMemo(() => {
+    if (Platform.OS !== 'ios') return undefined;
+    return {
+      top: 0,
+      left: 12,
+      bottom: Math.max(mapControlsBottom + 8, insets.bottom + 140),
+      right: 72,
+    };
+  }, [mapControlsBottom, insets.bottom]);
 
   if (!plan?.stops?.length || !activeStop || !mapRegion) {
     return (
@@ -1588,11 +2061,13 @@ export default function RouteNavigationPage({ navigation, route }) {
           mapType={mapNavType}
           initialRegion={mapInitialRegion}
           mapPadding={navMapPadding}
+          legalLabelInsets={appleLegalInsets}
           onMapReady={onMapReady}
           loadingEnabled
           loadingBackgroundColor={screenBg}
           userInterfaceStyle={mapUiStyle}
           onPress={onMapPress}
+          onLongPress={onMapLongPress}
           showsUserLocation={!navigationPos}
           showsMyLocationButton={false}
           showsBuildings
@@ -1622,15 +2097,6 @@ export default function RouteNavigationPage({ navigation, route }) {
           }}
           onRegionChangeComplete={onRegionChangeComplete}
         >
-          {navActive && navRouteSlices.traveled.length >= 2 ? (
-            <Polyline
-              coordinates={navRouteSlices.traveled}
-              strokeColor="rgba(120,130,150,0.55)"
-              strokeWidth={10}
-              lineCap="round"
-              lineJoin="round"
-            />
-          ) : null}
           {navActive && navRouteSlices.remaining.length >= 2 ? (
             <>
               <Polyline
@@ -1649,13 +2115,28 @@ export default function RouteNavigationPage({ navigation, route }) {
                 showArrows
               />
             </>
-          ) : mapRouteCoords.length >= 2 ? (
+          ) : !navActive && mapRouteCoords.length >= 2 ? (
             <RouteMapPath
               coordinates={mapRouteCoords}
               accent={accent}
               isLight={isLight}
               mode={routePathMode}
               showArrows={false}
+            />
+          ) : null}
+          {navActive && isOffRoute && navigationPos && activeStop ? (
+            <Polyline
+              coordinates={[
+                {
+                  latitude: navigationPos.latitude,
+                  longitude: navigationPos.longitude,
+                },
+                { latitude: activeStop.lat, longitude: activeStop.lng },
+              ]}
+              strokeColor="rgba(0,102,255,0.4)"
+              strokeWidth={4}
+              lineDashPattern={[8, 10]}
+              lineCap="round"
             />
           ) : null}
           {!navActive && navWaypoint ? (
@@ -1685,14 +2166,18 @@ export default function RouteNavigationPage({ navigation, route }) {
               </Marker>
             </>
           ) : null}
-          {displayNavigationPos ? (
+          {puckCoordinate ? (
             <Marker
-              coordinate={displayNavigationPos}
+              coordinate={puckCoordinate}
               anchor={{ x: 0.5, y: 0.58 }}
               zIndex={32}
               flat={navActive}
               rotation={navActive ? puckMapRotation : 0}
               tracksViewChanges={false}
+              draggable={navActive && !forceLiveGps}
+              onDragStart={onPuckDragStart}
+              onDrag={onPuckDrag}
+              onDragEnd={onPuckDragEnd}
               onPress={onWalkerPress}
             >
               <View style={styles.navPuckWrap}>
@@ -1702,13 +2187,6 @@ export default function RouteNavigationPage({ navigation, route }) {
                 <View style={styles.navPuckRing}>
                   <View style={[styles.navPuckDot, { backgroundColor: NAV_ROUTE_BLUE }]} />
                 </View>
-                {navActive ? (
-                  <View style={[styles.navPuckLabel, { backgroundColor: chrome.panelBg, borderColor: chromeBorder }]}>
-                    <Text style={[styles.navPuckLabelText, brandFontSansBold, { color: isGpsPosition ? accent : textMain }]}>
-                      {positionModeLabel}
-                    </Text>
-                  </View>
-                ) : null}
               </View>
             </Marker>
           ) : null}
@@ -1779,7 +2257,45 @@ export default function RouteNavigationPage({ navigation, route }) {
 
         <View style={styles.uiLayer} pointerEvents="box-none" collapsable={false}>
         <View style={[styles.topBar, { paddingTop: insets.top + 6 }]} pointerEvents="box-none">
-          {!navigatorMode ? (
+          {navActive ? (
+            <View style={styles.navigatorTopRow}>
+              <Pressable
+                onPress={() => navigation.goBack()}
+                style={({ pressed }) => [
+                  styles.circleBtn,
+                  styles.navigatorCircleBtn,
+                  styles.navExitFloatBtn,
+                  {
+                    backgroundColor: isLight ? '#FFFFFF' : chrome.iconBtnBg,
+                    borderColor: chrome.iconBtnBorder,
+                    borderWidth: 1,
+                  },
+                  pressed && { opacity: 0.82, transform: [{ scale: 0.96 }] },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={rp(language, 'exitNavigation')}
+              >
+                <Ionicons name="chevron-back" size={22} color={accent} />
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.circleBtn,
+                  styles.navigatorCircleBtn,
+                  {
+                    backgroundColor: isLight ? '#FFFFFF' : chrome.iconBtnBg,
+                    borderColor: chrome.iconBtnBorder,
+                    borderWidth: 1,
+                  },
+                  pressed && { opacity: 0.82 },
+                ]}
+                onPress={onMenu}
+                accessibilityRole="button"
+                accessibilityLabel={rp(language, 'navActions')}
+              >
+                <Ionicons name="ellipsis-horizontal" size={20} color={textMain} />
+              </Pressable>
+            </View>
+          ) : (
           <View
             style={[
               styles.topBarCard,
@@ -1838,31 +2354,6 @@ export default function RouteNavigationPage({ navigation, route }) {
               </Pressable>
             </View>
           </View>
-          ) : (
-            <View style={styles.navigatorTopRow}>
-              <Pressable
-                onPress={() => navigation.goBack()}
-                style={({ pressed }) => [
-                  styles.circleBtn,
-                  styles.navigatorCircleBtn,
-                  { backgroundColor: chrome.iconBtnBg, borderColor: chrome.iconBtnBorder, borderWidth: 1 },
-                  pressed && { opacity: 0.82 },
-                ]}
-              >
-                <Ionicons name="chevron-back" size={22} color={textMain} />
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.circleBtn,
-                  styles.navigatorCircleBtn,
-                  { backgroundColor: chrome.iconBtnBg, borderColor: chrome.iconBtnBorder, borderWidth: 1 },
-                  pressed && { opacity: 0.82 },
-                ]}
-                onPress={onMenu}
-              >
-                <Ionicons name="ellipsis-horizontal" size={20} color={textMain} />
-              </Pressable>
-            </View>
           )}
         </View>
 
@@ -1872,58 +2363,212 @@ export default function RouteNavigationPage({ navigation, route }) {
               styles.directionBanner,
               navigatorMode && styles.directionBannerNav,
               {
-                top: navigatorMode ? insets.top + 10 : insets.top + 78,
+                top: insets.top + 58,
+                borderColor: withinHistory ? accent : chromeBorder,
+                backgroundColor: chrome.panelBg,
+              },
+            ]}
+          >
+            {Platform.OS === 'ios' && chrome.useGlass ? (
+              <BlurView intensity={76} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
+            ) : null}
+            <View style={[styles.directionBannerTint, { backgroundColor: chrome.panelBg }]} pointerEvents="none" />
+            <View style={styles.directionBannerRow}>
+              <View
+                style={[
+                  styles.directionArrowWrap,
+                  navigatorMode && styles.directionArrowWrapNav,
+                  { backgroundColor: isLight ? 'rgba(2,18,235,0.12)' : 'rgba(225,255,0,0.16)' },
+                ]}
+              >
+                <Ionicons
+                  name={turnInstruction ? turnIconForManeuver(nextManeuverStep?.maneuver) : 'arrow-up'}
+                  size={navigatorMode ? 30 : 24}
+                  color={accent}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                {!navigatorMode ? (
+                  <Text style={[styles.directionGoLabel, brandFontSansSemibold, { color: textMuted }]}>
+                    {rp(language, 'goThisWay')}
+                  </Text>
+                ) : (
+                  <Text style={[styles.directionGoLabel, brandFontSansSemibold, { color: accent }]}>
+                    {rp(language, 'followBlueRoute')}
+                  </Text>
+                )}
+                <Text
+                  style={[
+                    styles.directionMain,
+                    navigatorMode && styles.directionMainNav,
+                    brandFontSansBold,
+                    { color: textMain },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {walkDirectionHint}
+                </Text>
+                <Text style={[styles.directionSub, brandFontSansMedium, { color: navigatorMode ? textMuted : accent }]}>
+                  {navigatorMode && activeStop
+                    ? `${rp(language, 'headingTo')} ${activeStop.title}${navBannerSub ? ` · ${navBannerSub}` : ''}`
+                    : currentStreetLabel
+                      ? `${currentStreetLabel}${navBannerSub ? ` · ${navBannerSub}` : ''}`
+                      : navBannerSub}
+                </Text>
+              </View>
+            </View>
+            {withinHistory ? (
+              <Pressable
+                onPress={onViewHistory}
+                style={({ pressed }) => [styles.bannerHistoryBtnWrap, pressed && { opacity: 0.92 }]}
+                accessibilityRole="button"
+                accessibilityLabel={rp(language, 'viewHistory')}
+              >
+                <LinearGradient
+                  colors={goGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.bannerHistoryBtn}
+                >
+                  <Ionicons
+                    name="book-outline"
+                    size={18}
+                    color={onAccentButtonText(isLight)}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
+                    style={[
+                      styles.bannerHistoryBtnText,
+                      brandFontSansBold,
+                      { color: onAccentButtonText(isLight) },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {rp(language, 'viewHistory')}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={onViewHistory}
+                style={({ pressed }) => [
+                  styles.bannerHistoryBtnWrap,
+                  styles.bannerHistoryBtnLocked,
+                  {
+                    borderColor: chromeBorder,
+                    backgroundColor: isLight ? '#EEF0F5' : '#2A2A2E',
+                  },
+                  pressed && { opacity: 0.9 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={rp(language, 'viewHistory')}
+              >
+                <Ionicons name="lock-closed-outline" size={16} color={textMuted} style={{ marginRight: 8 }} />
+                <Text
+                  style={[styles.bannerHistoryBtnText, brandFontSansBold, { color: textMuted, flex: 1 }]}
+                  numberOfLines={1}
+                >
+                  {rp(language, 'viewHistory')}
+                </Text>
+              </Pressable>
+            )}
+            <View style={[styles.transportSwitchRow, { marginTop: 4 }]}>
+              {[
+                { id: 'walk', icon: 'walk-outline', key: 'walkShort' },
+                { id: 'bike', icon: 'bicycle-outline', key: 'bikeShort' },
+                { id: 'car', icon: 'car-outline', key: 'driveShort' },
+                { id: 'bus', icon: 'bus-outline', key: 'busShort' },
+              ].map((t) => {
+                const sel = transport === t.id;
+                const label = rp(language, t.key);
+                const onTint = onAccentButtonText(isLight);
+                return (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => setActiveTransport(t.id)}
+                    style={({ pressed }) => [
+                      styles.transportTileOuter,
+                      sel && styles.transportTileOuterSelected,
+                      pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: sel }}
+                    accessibilityLabel={label}
+                  >
+                    {sel ? (
+                      <LinearGradient
+                        colors={goGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.transportTile}
+                      >
+                        <Ionicons name={t.icon} size={16} color={onTint} />
+                        <Text
+                          style={[styles.transportSwitchChipText, brandFontSansBold, { color: onTint }]}
+                          numberOfLines={1}
+                        >
+                          {label}
+                        </Text>
+                      </LinearGradient>
+                    ) : (
+                      <View
+                        style={[
+                          styles.transportTile,
+                          {
+                            backgroundColor: isLight ? '#F3F4F8' : '#2A2A2E',
+                            borderColor: chromeBorder,
+                          },
+                        ]}
+                      >
+                        <Ionicons name={t.icon} size={16} color={accent} />
+                        <Text
+                          style={[styles.transportSwitchChipText, brandFontSansSemibold, { color: textMain }]}
+                          numberOfLines={1}
+                        >
+                          {label}
+                        </Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+        {navActive && audioGuideOn && walkGuideUi ? (
+          <View
+            style={[
+              styles.walkGuideCard,
+              {
+                top: navigatorMode ? insets.top + 248 : insets.top + 298,
                 borderColor: chromeBorder,
                 backgroundColor: chrome.panelBg,
               },
             ]}
             pointerEvents="none"
           >
-            {Platform.OS === 'ios' && chrome.useGlass ? (
-              <BlurView intensity={76} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
-            ) : null}
-            <View style={[styles.directionBannerTint, { backgroundColor: chrome.panelBg }]} pointerEvents="none" />
-            <View
-              style={[
-                styles.directionArrowWrap,
-                navigatorMode && styles.directionArrowWrapNav,
-                { backgroundColor: isLight ? 'rgba(2,18,235,0.12)' : 'rgba(225,255,0,0.16)' },
-              ]}
-            >
+            <View style={styles.walkGuideCardRow}>
               <Ionicons
-                name={turnInstruction ? turnIconForManeuver(nextManeuverStep?.maneuver) : 'arrow-up'}
-                size={navigatorMode ? 34 : 26}
+                name={walkGuideUi.loading ? 'radio-outline' : 'headset'}
+                size={18}
                 color={accent}
+                style={{ marginRight: 8 }}
               />
-            </View>
-            <View style={{ flex: 1 }}>
-              {!navigatorMode ? (
-                <Text style={[styles.directionGoLabel, brandFontSansSemibold, { color: textMuted }]}>
-                  {rp(language, 'goThisWay')}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.walkGuideEyebrow, brandFontSansSemibold, { color: accent }]}>
+                  {rp(language, 'audioGuidePlaying')}
+                  {walkGuideUi.usedAi ? ' · AI' : ''}
                 </Text>
-              ) : (
-                <Text style={[styles.directionGoLabel, brandFontSansSemibold, { color: accent }]}>
-                  {positionModeLabel} · {rp(language, 'followBlueRoute')}
+                <Text style={[styles.walkGuideTitle, brandFontSansBold, { color: textMain }]} numberOfLines={2}>
+                  {walkGuideUi.loading
+                    ? rp(language, 'audioGuideLoading')
+                    : walkGuideUi.empty
+                      ? rp(language, 'audioGuideEmpty')
+                      : walkGuideUi.title || rp(language, 'audioGuideOn')}
                 </Text>
-              )}
-              <Text
-                style={[
-                  styles.directionMain,
-                  navigatorMode && styles.directionMainNav,
-                  brandFontSansBold,
-                  { color: textMain },
-                ]}
-                numberOfLines={2}
-              >
-                {walkDirectionHint}
-              </Text>
-              <Text style={[styles.directionSub, brandFontSansMedium, { color: navigatorMode ? textMuted : accent }]}>
-                {navigatorMode && activeStop
-                  ? `${rp(language, 'headingTo')} ${activeStop.title}${navBannerSub ? ` · ${navBannerSub}` : ''}`
-                  : currentStreetLabel
-                    ? `${currentStreetLabel}${navBannerSub ? ` · ${navBannerSub}` : ''}`
-                    : navBannerSub}
-              </Text>
+              </View>
+              {walkGuideUi.loading ? <ActivityIndicator size="small" color={accent} /> : null}
             </View>
           </View>
         ) : null}
@@ -1938,7 +2583,7 @@ export default function RouteNavigationPage({ navigation, route }) {
           </View>
         ) : null}
 
-        {!navActive ? (
+        {!navActive && !forceLiveGps ? (
           <View style={[styles.mapHint, { borderColor: chromeBorder }]} pointerEvents="none">
             {Platform.OS === 'ios' && chrome.useGlass ? (
               <BlurView intensity={72} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
@@ -1951,25 +2596,7 @@ export default function RouteNavigationPage({ navigation, route }) {
           </View>
         ) : null}
 
-        <Pressable
-          style={[styles.mapFab, styles.mapFabLeft, { backgroundColor: fabBg, borderColor: chromeBorder }]}
-          onPress={fitMap}
-          accessibilityRole="button"
-          accessibilityLabel={rp(language, 'fitFullRoute')}
-        >
-          <Ionicons name="scan-outline" size={20} color={accent} />
-        </Pressable>
-
-        <Pressable
-          style={[styles.mapFab, styles.mapFabZoomOut, { backgroundColor: fabBg, borderColor: chromeBorder }]}
-          onPress={zoomOutMap}
-          accessibilityRole="button"
-          accessibilityLabel={rp(language, 'zoomOutMap')}
-        >
-          <Ionicons name="remove" size={22} color={accent} />
-        </Pressable>
-
-        {navActive && positionSource === 'manual' ? (
+        {navActive && positionSource === 'manual' && !forceLiveGps ? (
           <Pressable
             style={[
               styles.posModeChip,
@@ -1986,11 +2613,15 @@ export default function RouteNavigationPage({ navigation, route }) {
           </Pressable>
         ) : null}
 
-        {navActive && isGpsPosition ? (
+        {navActive && !forceLiveGps ? (
           <View
             style={[
               styles.tapMoveHint,
-              { borderColor: chromeBorder, backgroundColor: chrome.panelBg, bottom: insets.bottom + 178 },
+              {
+                borderColor: chromeBorder,
+                backgroundColor: chrome.panelBg,
+                bottom: mapControlsBottom + MAP_FAB_STEP * (turnInstruction ? 5 : 4) + 8,
+              },
             ]}
             pointerEvents="none"
           >
@@ -2005,7 +2636,11 @@ export default function RouteNavigationPage({ navigation, route }) {
           <Pressable
             style={[
               styles.followChip,
-              { backgroundColor: accent, borderColor: accent, bottom: insets.bottom + 108 },
+              {
+                backgroundColor: accent,
+                borderColor: accent,
+                bottom: mapControlsBottom - 52,
+              },
             ]}
             onPress={centerOnUser}
             accessibilityRole="button"
@@ -2018,60 +2653,16 @@ export default function RouteNavigationPage({ navigation, route }) {
           </Pressable>
         ) : null}
 
-        <Pressable
-          style={[
-            styles.mapFab,
-            styles.mapFabZoomIn,
-            { backgroundColor: navActive ? accent : fabBg, borderColor: navActive ? accent : chromeBorder },
-          ]}
-          onPress={zoomInMap}
-          accessibilityRole="button"
-          accessibilityLabel={navActive ? rp(language, 'followWalker') : rp(language, 'zoomInMap')}
-        >
-          <Ionicons
-            name={navActive ? 'navigate' : 'add'}
-            size={navActive ? 20 : 22}
-            color={navActive ? onAccentButtonText(isLight) : accent}
-          />
-        </Pressable>
-
-        {turnInstruction ? (
-          <Pressable
-            style={[styles.mapFab, styles.mapFabTurn, { backgroundColor: accent, borderColor: accent }]}
-            onPress={zoomToTurn}
-            accessibilityRole="button"
-            accessibilityLabel={rp(language, 'zoomToTurn')}
-          >
-            <Ionicons name="git-merge-outline" size={20} color={onAccentButtonText(isLight)} />
-          </Pressable>
-        ) : null}
-
-        <Pressable
-          style={[
-            styles.mapFab,
-            styles.mapFabLocate,
-            {
-              backgroundColor: navActive && behindView ? accent : fabBg,
-              borderColor: navActive && behindView ? accent : chromeBorder,
-            },
-          ]}
-          onPress={centerOnUser}
-          accessibilityRole="button"
-          accessibilityLabel={navActive ? rp(language, 'followWalker') : rp(language, 'recenterMap')}
-        >
-          <Ionicons
-            name={followUser && behindView ? 'locate' : 'locate-outline'}
-            size={22}
-            color={navActive && behindView ? onAccentButtonText(isLight) : accent}
-          />
-        </Pressable>
-
+        {!navActive ? (
         <View
           style={[
             styles.sheet,
-            immersiveNav && styles.sheetCompact,
-            { paddingBottom: lightTabBarScrollContentPadding(insets.bottom, immersiveNav ? 6 : 12) },
+            {
+              bottom: lightTabBarOverlayBottomInset(insets.bottom, 10),
+              paddingBottom: 10,
+            },
           ]}
+          pointerEvents="box-none"
         >
           <View style={[styles.sheetCard, { borderColor: chromeBorder }]}>
             {Platform.OS === 'ios' && chrome.useGlass ? (
@@ -2113,6 +2704,68 @@ export default function RouteNavigationPage({ navigation, route }) {
                     <Text style={[styles.modeText, brandFontSansSemibold, { color: accent }]}>
                       {walkMin} {rp(language, 'minShort')} · {rp(language, transportLabelKey)}
                     </Text>
+                  </View>
+
+                  <View style={[styles.transportSwitchRow, { marginBottom: 10 }]}>
+                    {[
+                      { id: 'walk', icon: 'walk-outline', key: 'walkShort' },
+                      { id: 'bike', icon: 'bicycle-outline', key: 'bikeShort' },
+                      { id: 'car', icon: 'car-outline', key: 'driveShort' },
+                      { id: 'bus', icon: 'bus-outline', key: 'busShort' },
+                    ].map((t) => {
+                      const sel = transport === t.id;
+                      const label = rp(language, t.key);
+                      const onTint = onAccentButtonText(isLight);
+                      return (
+                        <Pressable
+                          key={t.id}
+                          onPress={() => setActiveTransport(t.id)}
+                          style={({ pressed }) => [
+                            styles.transportTileOuter,
+                            sel && styles.transportTileOuterSelected,
+                            pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: sel }}
+                          accessibilityLabel={label}
+                        >
+                          {sel ? (
+                            <LinearGradient
+                              colors={goGradient}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={styles.transportTile}
+                            >
+                              <Ionicons name={t.icon} size={16} color={onTint} />
+                              <Text
+                                style={[styles.transportSwitchChipText, brandFontSansBold, { color: onTint }]}
+                                numberOfLines={1}
+                              >
+                                {label}
+                              </Text>
+                            </LinearGradient>
+                          ) : (
+                            <View
+                              style={[
+                                styles.transportTile,
+                                {
+                                  backgroundColor: isLight ? '#F3F4F8' : '#2A2A2E',
+                                  borderColor: chromeBorder,
+                                },
+                              ]}
+                            >
+                              <Ionicons name={t.icon} size={16} color={accent} />
+                              <Text
+                                style={[styles.transportSwitchChipText, brandFontSansSemibold, { color: textMain }]}
+                                numberOfLines={1}
+                              >
+                                {label}
+                              </Text>
+                            </View>
+                          )}
+                        </Pressable>
+                      );
+                    })}
                   </View>
 
                   {turnInstruction ? (
@@ -2256,6 +2909,26 @@ export default function RouteNavigationPage({ navigation, route }) {
                     </View>
                   )}
 
+                  {approachingHistory ? (
+                    <View
+                      style={[
+                        styles.historyApproachCard,
+                        {
+                          backgroundColor: isLight ? 'rgba(2,18,235,0.08)' : 'rgba(225,255,0,0.10)',
+                          borderColor: chromeBorder,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="book-outline" size={18} color={accent} style={{ marginRight: 8, marginTop: 1 }} />
+                      <Text style={[styles.historyApproachText, brandFontSansMedium, { color: textMain }]}>
+                        {rp(language, 'historyApproachHint', {
+                          stop: activeStop.title,
+                          dist: distToHistoryLabel,
+                        })}
+                      </Text>
+                    </View>
+                  ) : null}
+
                   {withinHistory ? (
                     <Pressable
                       onPress={onViewHistory}
@@ -2273,7 +2946,38 @@ export default function RouteNavigationPage({ navigation, route }) {
                         </Text>
                       </LinearGradient>
                     </Pressable>
-                  ) : null}
+                  ) : (
+                    <Pressable
+                      onPress={onViewHistory}
+                      style={({ pressed }) => [
+                        styles.primaryBtnOuter,
+                        styles.primaryBtnOuterCompact,
+                        pressed && { opacity: 0.9 },
+                      ]}
+                      android_ripple={ripple}
+                      accessibilityRole="button"
+                      accessibilityLabel={rp(language, 'viewHistory')}
+                    >
+                      <View
+                        style={[
+                          styles.primaryBtnCompact,
+                          {
+                            borderWidth: 1,
+                            borderColor: chromeBorder,
+                            backgroundColor: isLight ? '#EEF0F5' : '#2A2A2E',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          },
+                        ]}
+                      >
+                        <Ionicons name="lock-closed-outline" size={16} color={textMuted} style={{ marginRight: 6 }} />
+                        <Text style={[styles.primaryBtnText, brandFontSansBold, { color: textMuted }]} numberOfLines={1}>
+                          {rp(language, 'viewHistory')}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  )}
                 </>
               ) : (
                 <>
@@ -2373,30 +3077,39 @@ export default function RouteNavigationPage({ navigation, route }) {
                       ]}
                     >
                       <Ionicons
-                        name={withinHistory ? 'book-outline' : 'footsteps-outline'}
+                        name={withinHistory ? 'book-outline' : 'lock-closed-outline'}
                         size={20}
-                        color={withinHistory ? onAccentButtonText(isLight) : accent}
+                        color={withinHistory ? onAccentButtonText(isLight) : textMuted}
                         style={{ marginRight: 8 }}
                       />
                       <Text
                         style={[
                           styles.primaryBtnText,
                           brandFontSansBold,
-                          { color: withinHistory ? onAccentButtonText(isLight) : textMain },
+                          { color: withinHistory ? onAccentButtonText(isLight) : textMuted },
                         ]}
                       >
-                        {withinHistory
-                          ? rp(language, 'viewHistory')
-                          : rp(language, 'historyToGo', { dist: distToHistoryLabel })}
+                        {rp(language, 'viewHistory')}
                       </Text>
                     </LinearGradient>
                   </Pressable>
 
-                  {!withinHistory ? (
+                  {approachingHistory ? (
+                    <Text style={[styles.historyRadiusHint, brandFontSansMedium, { color: accent }]}>
+                      {rp(language, 'historyApproachHint', {
+                        stop: activeStop.title,
+                        dist: distToHistoryLabel,
+                      })}
+                    </Text>
+                  ) : withinHistory ? (
+                    <Text style={[styles.historyRadiusHint, brandFontSansMedium, { color: textMuted }]}>
+                      {rp(language, 'historyUnlockedHint')}
+                    </Text>
+                  ) : (
                     <Text style={[styles.historyRadiusHint, brandFontSansMedium, { color: textMuted }]}>
                       {rp(language, 'historyRadius')}
                     </Text>
-                  ) : null}
+                  )}
 
                   {remainingStopsCount > 1 ? (
                     <Text style={[styles.remainingStopsHint, brandFontSansMedium, { color: textMuted }]}>
@@ -2445,6 +3158,113 @@ export default function RouteNavigationPage({ navigation, route }) {
             </View>
           </View>
         </View>
+        ) : null}
+
+        <View
+          style={[styles.mapFabStack, { bottom: mapControlsBottom }]}
+          pointerEvents="box-none"
+        >
+          {navActive ? (
+            <Pressable
+              style={[
+                styles.mapFabBtn,
+                {
+                  backgroundColor: audioGuideOn ? accent : fabBg,
+                  borderColor: audioGuideOn ? accent : chromeBorder,
+                },
+              ]}
+              onPress={toggleAudioGuide}
+              delayPressIn={0}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityState={{ selected: audioGuideOn }}
+              accessibilityLabel={rp(language, 'audioGuide')}
+            >
+              <Ionicons
+                name={audioGuideOn ? 'headset' : 'headset-outline'}
+                size={20}
+                color={audioGuideOn ? onAccentButtonText(isLight) : accent}
+              />
+            </Pressable>
+          ) : null}
+
+          {turnInstruction ? (
+            <Pressable
+              style={[styles.mapFabBtn, { backgroundColor: accent, borderColor: accent }]}
+              onPress={zoomToTurn}
+              delayPressIn={0}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={rp(language, 'zoomToTurn')}
+            >
+              <Ionicons name="git-merge-outline" size={20} color={onAccentButtonText(isLight)} />
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            style={[styles.mapFabBtn, { backgroundColor: fabBg, borderColor: chromeBorder }]}
+            onPress={fitMap}
+            delayPressIn={0}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={rp(language, 'fitFullRoute')}
+          >
+            <Ionicons name="scan-outline" size={20} color={accent} />
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.mapFabBtn,
+              {
+                backgroundColor: navActive && behindView ? accent : fabBg,
+                borderColor: navActive && behindView ? accent : chromeBorder,
+              },
+            ]}
+            onPress={centerOnUser}
+            delayPressIn={0}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={navActive ? rp(language, 'followWalker') : rp(language, 'recenterMap')}
+          >
+            <Ionicons
+              name={followUser && behindView ? 'locate' : 'locate-outline'}
+              size={22}
+              color={navActive && behindView ? onAccentButtonText(isLight) : accent}
+            />
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.mapFabBtn,
+              {
+                backgroundColor: navActive ? accent : fabBg,
+                borderColor: navActive ? accent : chromeBorder,
+              },
+            ]}
+            onPress={zoomInMap}
+            delayPressIn={0}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={navActive ? rp(language, 'followWalker') : rp(language, 'zoomInMap')}
+          >
+            <Ionicons
+              name={navActive ? 'navigate' : 'add'}
+              size={navActive ? 20 : 22}
+              color={navActive ? onAccentButtonText(isLight) : accent}
+            />
+          </Pressable>
+
+          <Pressable
+            style={[styles.mapFabBtn, { backgroundColor: fabBg, borderColor: chromeBorder }]}
+            onPress={zoomOutMap}
+            delayPressIn={0}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={rp(language, 'zoomOutMap')}
+          >
+            <Ionicons name="remove" size={22} color={accent} />
+          </Pressable>
+        </View>
         </View>
       </View>
     </RenderProfiler>
@@ -2463,7 +3283,7 @@ const styles = StyleSheet.create({
   },
   uiLayer: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 10,
+    zIndex: 100,
   },
   fallback: { flex: 1 },
   fallbackText: { padding: 24, fontSize: 16 },
@@ -2532,13 +3352,13 @@ const styles = StyleSheet.create({
   mapFab: {
     position: 'absolute',
     right: 14,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: MAP_FAB_SIZE,
+    height: MAP_FAB_SIZE,
+    borderRadius: MAP_FAB_SIZE / 2,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 12,
+    zIndex: 22,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -2546,32 +3366,39 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.18,
         shadowRadius: 8,
       },
-      android: { elevation: 6 },
+      android: { elevation: 8 },
     }),
   },
-  mapFabLeft: {
-    left: 14,
-    right: undefined,
-    bottom: 292,
+  mapFabStack: {
+    position: 'absolute',
+    right: 14,
+    zIndex: 50,
+    gap: MAP_FAB_GAP,
+    alignItems: 'center',
   },
-  mapFabLocate: {
-    bottom: 236,
-  },
-  mapFabZoomIn: {
-    bottom: 180,
-  },
-  mapFabZoomOut: {
-    bottom: 124,
-  },
-  mapFabTurn: {
-    bottom: 348,
+  mapFabBtn: {
+    width: MAP_FAB_SIZE,
+    height: MAP_FAB_SIZE,
+    borderRadius: MAP_FAB_SIZE / 2,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.22,
+        shadowRadius: 8,
+      },
+      android: { elevation: 10 },
+    }),
   },
   sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 18,
+    zIndex: 40,
     paddingHorizontal: 12,
   },
   sheetCompact: {
@@ -2730,10 +3557,6 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   markerImg: { width: '100%', height: '100%' },
-  mapFabLeft: {
-    right: undefined,
-    left: 14,
-  },
   mapHint: {
     position: 'absolute',
     left: 14,
@@ -2803,27 +3626,6 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-  },
-  navPuckLabel: {
-    position: 'absolute',
-    bottom: -2,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    borderWidth: 1,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.14,
-        shadowRadius: 3,
-      },
-      android: { elevation: 3 },
-    }),
-  },
-  navPuckLabelText: {
-    fontSize: 10,
-    letterSpacing: 0.2,
   },
   destPinWrap: {
     alignItems: 'center',
@@ -2958,9 +3760,9 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     zIndex: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
     paddingVertical: 11,
     paddingHorizontal: 12,
     borderRadius: 16,
@@ -2983,13 +3785,101 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 18,
   },
+  directionBannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  bannerHistoryBtnWrap: {
+    width: '100%',
+  },
+  bannerHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  bannerHistoryBtnText: {
+    fontSize: 15,
+  },
+  bannerHistoryBtnLocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  transportSwitchRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 6,
+  },
+  transportTileOuter: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  transportTileOuterSelected: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.2,
+        shadowRadius: 6,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  transportTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    minHeight: 52,
+    gap: 4,
+  },
+  transportSwitchChip: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  transportSwitchChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: 'center',
+  },
   navigatorTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 10,
   },
   navigatorCircleBtn: {
     backgroundColor: 'rgba(255,255,255,0.94)',
+  },
+  navExitFloatBtn: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.16,
+        shadowRadius: 10,
+      },
+      android: { elevation: 5 },
+    }),
   },
   directionBannerTint: {
     ...StyleSheet.absoluteFillObject,
@@ -3025,6 +3915,50 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     marginTop: 3,
+  },
+  directionTapHint: {
+    fontSize: 13,
+    marginTop: 6,
+  },
+  historyFloatCta: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 14,
+      },
+      android: { elevation: 16 },
+    }),
+  },
+  historyFloatRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  historyFloatText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  historyFloatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 58,
+    borderRadius: 14,
+  },
+  historyFloatBtnTitle: {
+    fontSize: 16,
+  },
+  historyFloatBtnSub: {
+    fontSize: 12,
+    marginTop: 2,
   },
   waypointPin: {
     width: 30,
@@ -3102,5 +4036,46 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 2,
     lineHeight: 16,
+  },
+  historyApproachCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  historyApproachText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  walkGuideCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 24,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  walkGuideCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  walkGuideEyebrow: {
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  walkGuideTitle: {
+    fontSize: 14,
+    lineHeight: 18,
   },
 });

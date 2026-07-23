@@ -19,6 +19,7 @@ export const loadProfileCommentsPage = makeLazyLoader(() => require('./ProfileCo
 export const loadProfileLikesPage = makeLazyLoader(() => require('./ProfileLikesPage'));
 export const loadProfileEditPublicationPage = makeLazyLoader(() => require('./ProfileEditPublicationPage'));
 export const loadProfileGamificationHubPage = makeLazyLoader(() => require('./ProfileGamificationHubPage'));
+export const loadProfileAchievementsPage = makeLazyLoader(() => require('./ProfileAchievementsPage'));
 export const loadSocialConnectionsPage = makeLazyLoader(() => require('./SocialConnectionsPage'));
 export const loadSettingsPage = makeLazyLoader(() => require('./SettingsPage'));
 export const loadFeedCameraPage = makeLazyLoader(() => require('./FeedCameraPage'));
@@ -98,6 +99,7 @@ export function prefetchProfileBundle(user) {
       loadProfileLikesPage,
       loadProfileEditPublicationPage,
       loadProfileGamificationHubPage,
+      loadProfileAchievementsPage,
       loadSocialConnectionsPage,
       loadSettingsPage,
       loadFeedCameraPage,
@@ -146,7 +148,7 @@ export function prefetchHomeTabScreens() {
   if (homeTabScreensPrefetchScheduled) return;
   homeTabScreensPrefetchScheduled = true;
   void prefetchLazyLoader(loadMapTabPage);
-  const loaders = [loadFeedPage, loadProfilePage, loadLandmarkResultPage];
+  const loaders = [loadFeedPage, loadProfilePage, loadLandmarkResultPage, loadLandmarkScannerPage];
   loaders.forEach((loader, index) => {
     setTimeout(() => {
       void prefetchLazyLoader(loader);

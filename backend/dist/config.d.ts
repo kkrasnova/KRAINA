@@ -17,6 +17,10 @@ export declare const aiRouteConfig: {
 export declare const visionConfig: {
     apiKey: string;
 };
+export declare const telegramConfig: {
+    botToken: string;
+    chatId: string;
+};
 export declare const config: {
     nodeEnv: string;
     sentryDsn: string;

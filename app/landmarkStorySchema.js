@@ -61,33 +61,53 @@ function clampUri(s) {
   return '';
 }
 
+function normalizeQuizOption(o) {
+  const src = o && typeof o === 'object' ? o : {};
+  return {
+    textUk: typeof src.textUk === 'string' ? src.textUk : '',
+    textEn: typeof src.textEn === 'string' ? src.textEn : '',
+    correct: !!src.correct,
+  };
+}
+
+function normalizeQuizQuestion(rawQ) {
+  const opts = Array.isArray(rawQ?.options) ? rawQ.options : [];
+  const optionCount = opts.length >= 4 ? 4 : Math.max(3, opts.length || 3);
+  const options = Array.from({ length: optionCount }, (_, i) => normalizeQuizOption(opts[i]));
+  return {
+    questionUk: typeof rawQ?.questionUk === 'string' ? rawQ.questionUk : '',
+    questionEn: typeof rawQ?.questionEn === 'string' ? rawQ.questionEn : '',
+    options,
+    explanationUk: typeof rawQ?.explanationUk === 'string' ? rawQ.explanationUk : '',
+    explanationEn: typeof rawQ?.explanationEn === 'string' ? rawQ.explanationEn : '',
+    multiHintUk: typeof rawQ?.multiHintUk === 'string' ? rawQ.multiHintUk : '',
+    multiHintEn: typeof rawQ?.multiHintEn === 'string' ? rawQ.multiHintEn : '',
+  };
+}
+
 export function normalizeLandmarkStory(raw) {
   const e = emptyLandmarkStory();
   if (!raw || typeof raw !== 'object') return e;
-  const opts = Array.isArray(raw.quiz?.options) ? raw.quiz.options : [];
-  const optionCount = opts.length >= 4 ? 4 : 3;
-  const options = Array.from({ length: optionCount }, (_, i) => {
-    const o = opts[i] && typeof opts[i] === 'object' ? opts[i] : {};
-    return {
-      textUk: typeof o.textUk === 'string' ? o.textUk : '',
-      textEn: typeof o.textEn === 'string' ? o.textEn : '',
-      correct: !!o.correct,
-    };
-  });
+  const legacyQ = normalizeQuizQuestion(raw.quiz || {});
+  const rawQuestions = Array.isArray(raw.quiz?.questions) ? raw.quiz.questions : [];
+  const questions =
+    rawQuestions.length > 0
+      ? rawQuestions.map(normalizeQuizQuestion)
+      : legacyQ.questionUk || legacyQ.questionEn
+        ? [legacyQ]
+        : [];
   const xpRewardRaw = Number(raw.quiz?.xpReward);
+  const xpPerCorrectRaw = Number(raw.quiz?.xpPerCorrect);
   return {
     builtAt: typeof raw.builtAt === 'string' ? raw.builtAt : '',
     shortIntroUk: typeof raw.shortIntroUk === 'string' ? raw.shortIntroUk : '',
     shortIntroEn: typeof raw.shortIntroEn === 'string' ? raw.shortIntroEn : '',
     quiz: {
-      questionUk: typeof raw.quiz?.questionUk === 'string' ? raw.quiz.questionUk : '',
-      questionEn: typeof raw.quiz?.questionEn === 'string' ? raw.quiz.questionEn : '',
-      options,
-      explanationUk: typeof raw.quiz?.explanationUk === 'string' ? raw.quiz.explanationUk : '',
-      explanationEn: typeof raw.quiz?.explanationEn === 'string' ? raw.quiz.explanationEn : '',
-      multiHintUk: typeof raw.quiz?.multiHintUk === 'string' ? raw.quiz.multiHintUk : '',
-      multiHintEn: typeof raw.quiz?.multiHintEn === 'string' ? raw.quiz.multiHintEn : '',
+      ...legacyQ,
+      questions,
       xpReward: Number.isFinite(xpRewardRaw) && xpRewardRaw > 0 ? Math.round(xpRewardRaw) : 0,
+      xpPerCorrect:
+        Number.isFinite(xpPerCorrectRaw) && xpPerCorrectRaw > 0 ? Math.round(xpPerCorrectRaw) : 5,
     },
     photoFact: {
       bgUri: clampUri(raw.photoFact?.bgUri),

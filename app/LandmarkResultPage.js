@@ -16,11 +16,15 @@ import {
   Linking,
   DeviceEventEmitter,
   BackHandler,
+  ActivityIndicator,
+  ActionSheetIOS,
+  AppState,
 } from 'react-native';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurView } from 'expo-blur';
 import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { APP_PLAYBACK_AUDIO_MODE } from './audioSession';
 import { getCachedOrRemoteAudioUri, prefetchAudioGuideUrl } from './audioGuideCache';
 import {
@@ -36,7 +40,7 @@ import { useLandmarkSlideAudioguide } from './useLandmarkSlideAudioguide';
 import { LandmarkAudioGuideControls } from './LandmarkAudioGuideControls';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
-import { appLangBase } from './appLang';
+import { appLangBase, COUNTRY_DISPLAY_LABELS } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { getSession } from './db';
@@ -66,9 +70,10 @@ import {
   isLandmarkSaved,
   KRAINA_SAVED_LANDMARKS_CHANGED,
 } from './savedLandmarksStorage';
-import { brandFontHeadMedium, brandFontSans, brandFontSansMedium } from './brandFont';
+import { brandFontHeadMedium, brandFontHeadBold, brandFontScript, brandFontSans, brandFontSansMedium, brandFontSansSemibold, brandFontSansBold } from './brandFont';
 import LandmarkGlassHeaderBar, { LANDMARK_TITLE_SINGLE_LINE_PROPS } from './LandmarkGlassHeaderBar';
 import LandmarkQuizContent from './LandmarkQuizContent';
+import LandmarkQuizBrushHero from './LandmarkQuizBrushHero';
 import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import { RenderProfiler } from './performanceMetrics';
@@ -77,15 +82,27 @@ import { HERO_THUMB_MAP, resolveHeroThumbRef } from './krainaHeroThumbs';
 import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
 import { introPagesFromStory, homeHeroLayoutFromStory, resolveLandmarkHeroPhotoSource, resolveLandmarkHeroPhotoSourceFromLandmark, normalizeExpoImageSource } from './homeLandmarkResultParams';
 import { resolveHomeLandmarkThumbSource } from './homeLandmarkDisplay';
+import { resolveCatalogRegionTitle } from './catalogDisplayI18n';
+import { countryFlagSource } from './WavingCountryFlag';
 import { splitIntroBodyAtHero, INTRO_BODY_HERO_MARKER } from './landmarkTextUtils';
 import { shellPush } from './shellNavigate';
 import { useAuthStore } from './auth/authStore';
+import { commitLandmarkQuizPendingReward } from './landmarkQuizRewards';
 import {
   runAfterParamMenuDismiss,
   shareLandmarkPublication,
   shareLandmarkLocation,
   reportLandmarkIssue,
 } from './landmarkParamMenuActions';
+import { buildWalkPlanFromUserToPoint } from './geoMapRoutePlan';
+import { rp } from './routePlannerI18n';
+
+const LANDMARK_ROUTE_TRANSPORTS = [
+  { id: 'walk', rpKey: 'walk', icon: 'walk-outline' },
+  { id: 'bike', rpKey: 'bike', icon: 'bicycle-outline' },
+  { id: 'car', rpKey: 'drive', icon: 'car-outline' },
+  { id: 'bus', rpKey: 'bus', icon: 'bus-outline' },
+];
 
 import {
   TextWithOptionalUrls,
@@ -111,6 +128,18 @@ function resolveHeroPosition(page, variant = 'primary') {
   const pos = page?.[key];
   if (pos && typeof pos === 'object') return pos;
   return 'center';
+}
+
+/** Dual-line quiz title: first word (display) + rest in caps — mockup style. */
+function splitLandmarkQuizTitle(title) {
+  const raw = String(title || '').trim().replace(/\s+/g, ' ');
+  if (!raw) return { lead: '', rest: '' };
+  const parts = raw.split(' ');
+  if (parts.length === 1) return { lead: parts[0], rest: '' };
+  return {
+    lead: parts[0],
+    rest: parts.slice(1).join(' ').toLocaleUpperCase('uk-UA'),
+  };
 }
 
 /** Ті самі кольори, що кнопка «Вхід» / «Реєстрація» у ThirdPage (`authOnboardCta*`). */
@@ -414,6 +443,7 @@ export default function LandmarkResultPage({ navigation, route }) {
             : {}),
           ...(photoUri ? { photoUri } : {}),
           ...(illustrationAsset ? { illustrationAsset } : {}),
+          ...(illustrationThumb ? { illustrationThumb } : {}),
           ...(illustrationLink ? { illustrationLink } : {}),
           ...(illustrationCaption ? { illustrationCaption } : {}),
           ...(heroCaption ? { heroCaption } : {}),
@@ -472,6 +502,58 @@ export default function LandmarkResultPage({ navigation, route }) {
     const h = typeof route?.params?.headerTitle === 'string' ? route.params.headerTitle.trim() : '';
     return h || title;
   }, [route?.params?.headerTitle, title]);
+  const actionsPlaceMeta = useMemo(() => {
+    const langUk = appLangBase(language) === 'uk';
+    const countryId = String(
+      route?.params?.countryId || visitLandmarkSaveParam?.countryId || '',
+    ).trim();
+    const labelPack = COUNTRY_DISPLAY_LABELS[appLangBase(language)] || COUNTRY_DISPLAY_LABELS.en;
+    let countryName = countryId && labelPack[countryId] ? String(labelPack[countryId]) : '';
+    let cityName = '';
+    let flagEmoji =
+      (typeof visitLandmarkSaveParam?.flag === 'string' && visitLandmarkSaveParam.flag.trim()) || '';
+
+    if (visitLandmarkSaveParam?.regionId) {
+      const region = getRegion(visitLandmarkSaveParam.regionId);
+      if (region) {
+        if (!countryName) {
+          countryName = langUk
+            ? String(region.countryUk || region.countryEn || '').trim()
+            : String(region.countryEn || region.countryUk || '').trim();
+        }
+        cityName = resolveCatalogRegionTitle(region, language);
+        if (!flagEmoji && typeof region.flag === 'string') {
+          flagEmoji = region.flag.trim();
+        }
+      }
+    }
+    if (!cityName) {
+      cityName =
+        (typeof route?.params?.visitCity === 'string' && route.params.visitCity.trim()) ||
+        parseCityFromSubtitle(route?.params?.subtitle) ||
+        '';
+    }
+    const landmarkName = String(title || headerTitle || '').trim();
+    const headerWithCountry =
+      countryName && landmarkName ? `${countryName} - ${landmarkName}` : '';
+    return {
+      countryId,
+      countryName,
+      cityName,
+      flagEmoji,
+      landmarkName,
+      headerWithCountry,
+      flagSource: countryId ? countryFlagSource(countryId) : null,
+    };
+  }, [
+    language,
+    route?.params?.countryId,
+    route?.params?.visitCity,
+    route?.params?.subtitle,
+    visitLandmarkSaveParam,
+    title,
+    headerTitle,
+  ]);
   const panelTagline = useMemo(() => {
     const t = typeof route?.params?.panelTagline === 'string' ? route.params.panelTagline.trim() : '';
     return t;
@@ -1145,7 +1227,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         appTheme,
         headerTitle,
         quizLandmarkKey,
-        rewardEnabled: shouldRecordVisitFromLandmarkRoute(route),
+        rewardEnabled: true,
       },
     }),
     [effectiveStoryQuiz, language, appTheme, headerTitle, quizLandmarkKey, route],
@@ -1282,6 +1364,7 @@ export default function LandmarkResultPage({ navigation, route }) {
           secondaryHeroThumb: page.secondaryHeroThumb,
           secondaryPhotoAsset: page.secondaryPhotoAsset,
           illustrationAsset: page.illustrationAsset,
+          illustrationThumb: page.illustrationThumb,
           illustrationLink: page.illustrationLink,
           illustrationCaption: page.illustrationCaption,
           heroCaption: page.heroCaption,
@@ -1342,6 +1425,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         slide,
       });
     });
+    pages.push({ id: 'actions', type: 'actions' });
     return pages;
   }, [hasStoryQuiz, postQuizSections, introContinuation, introPages]);
   const slideScripts = useMemo(
@@ -1349,6 +1433,86 @@ export default function LandmarkResultPage({ navigation, route }) {
     [pageSections, fullBodyText],
   );
   const currentPage = pageSections[activeSectionIndex] || pageSections[0];
+  const isActionsPage = currentPage?.type === 'actions';
+
+  useEffect(() => {
+    if (!isActionsPage || !quizLandmarkKey) return undefined;
+    let cancelled = false;
+    (async () => {
+      const result = await commitLandmarkQuizPendingReward(quizLandmarkKey);
+      if (cancelled || !result?.xp || result.already) return;
+      // Баллы уже в балансе профиля (локальный XP); колесо читает getLandmarkQuizBonusXpTotal.
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isActionsPage, quizLandmarkKey]);
+
+  const glassHeaderTitle =
+    isActionsPage && actionsPlaceMeta.headerWithCountry
+      ? actionsPlaceMeta.headerWithCountry
+      : headerTitle;
+  // Вхідна анімація для всіх слайдів локації (intro / fact / quiz / compare / actions)
+  const slideEnter = useRef(new Animated.Value(1)).current;
+  const slideMediaScale = useRef(new Animated.Value(1)).current;
+  const slideEnterFromY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (phase !== 'full') {
+      slideEnter.stopAnimation();
+      slideMediaScale.stopAnimation();
+      slideEnterFromY.stopAnimation();
+      slideEnter.setValue(1);
+      slideMediaScale.setValue(1);
+      slideEnterFromY.setValue(0);
+      return undefined;
+    }
+    const pageType = currentPage?.type;
+    const fromY =
+      pageType === 'fact' || pageType === 'compare'
+        ? 28
+        : pageType === 'quiz'
+          ? 18
+          : pageType === 'actions'
+            ? 22
+            : 20;
+    const fromScale =
+      pageType === 'intro' || pageType === 'fact' || pageType === 'compare' || pageType === 'actions'
+        ? 0.97
+        : 0.985;
+
+    slideEnter.stopAnimation();
+    slideMediaScale.stopAnimation();
+    slideEnterFromY.stopAnimation();
+    // Keep opacity at 1 always — a stuck 0 left blank white slides after fast pager seeks.
+    slideEnter.setValue(1);
+    slideMediaScale.setValue(fromScale);
+    slideEnterFromY.setValue(fromY);
+    Animated.parallel([
+      Animated.spring(slideMediaScale, {
+        toValue: 1,
+        damping: 16,
+        stiffness: 140,
+        mass: 0.9,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideEnterFromY, {
+        toValue: 0,
+        damping: 18,
+        stiffness: 170,
+        mass: 0.85,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    return undefined;
+  }, [
+    phase,
+    activeSectionIndex,
+    currentPage?.type,
+    slideEnter,
+    slideMediaScale,
+    slideEnterFromY,
+  ]);
   const heroPhotoSource = useMemo(() => {
     if (currentPage?.type === 'intro' && currentPage.introPart > 1) {
       if (currentPage.introNoHero) return null;
@@ -1394,9 +1558,16 @@ export default function LandmarkResultPage({ navigation, route }) {
   const introTertiaryPhotoSource = tertiaryHeroPhotoSource;
   const currentIllustration = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
-    if (typeof currentPage.illustrationAsset !== 'number') return null;
+    const fromAsset =
+      typeof currentPage.illustrationAsset === 'number' ? currentPage.illustrationAsset : null;
+    const fromThumb =
+      typeof currentPage.illustrationThumb === 'string'
+        ? resolveHeroThumbRef(currentPage.illustrationThumb.trim())
+        : null;
+    const asset = fromAsset || (typeof fromThumb === 'number' ? fromThumb : null);
+    if (typeof asset !== 'number') return null;
     return {
-      asset: currentPage.illustrationAsset,
+      asset,
       link: String(currentPage.illustrationLink || '').trim(),
       caption: String(currentPage.illustrationCaption || '').trim(),
     };
@@ -1537,11 +1708,12 @@ export default function LandmarkResultPage({ navigation, route }) {
     currentPageTypeRef.current = currentPage?.type || 'intro';
   }, [currentPage?.type]);
   const introScrollBottomPad = Math.max(insets.bottom + 88, 112);
-  const quizHeaderClearance = Math.max(insets.top + 68, 84);
-  const quizScrollBottomPad = Math.max(insets.bottom + 88, 108);
+  const quizHeaderClearance = Math.max(insets.top + 58, 72);
+  /** Clearance so quiz CTA never sits under the pager dock (dock ~54 + bottom offset). */
+  const quizScrollBottomPad = Math.max(insets.bottom + 18 + 54 + 28, 130);
   const quizViewportMinHeight = useMemo(
-    () => Math.max(320, Math.round(winH - quizScrollBottomPad - quizHeaderClearance)),
-    [winH, quizScrollBottomPad, quizHeaderClearance],
+    () => Math.max(360, Math.round(winH - quizScrollBottomPad)),
+    [winH, quizScrollBottomPad],
   );
   const sectionDotCount = pageSections.length;
   const fullReadScrollRef = useRef(null);
@@ -1925,7 +2097,11 @@ export default function LandmarkResultPage({ navigation, route }) {
   const audioFabActive = slideAudioguide.isSpeaking || slideAudioguide.isPaused || speaking;
 
   const showAudioControls =
-    hasSlideAudioguide && slideAudioguide.isActive && phase === 'full' && pageSections.length > 1;
+    hasSlideAudioguide &&
+    slideAudioguide.isActive &&
+    phase === 'full' &&
+    pageSections.length > 1 &&
+    !isActionsPage;
 
   const goToSectionIndexWithAudio = useCallback(
     (index) => {
@@ -1952,6 +2128,115 @@ export default function LandmarkResultPage({ navigation, route }) {
     [activeSectionIndex, goToSectionIndex, pageSections.length],
   );
 
+  const goAdjacentWithAudio = useCallback(
+    (dir) => {
+      const current = Number.isFinite(activeSectionIndexRef.current)
+        ? activeSectionIndexRef.current
+        : activeSectionIndex;
+      const maxIdx = Math.max(0, pageSections.length - 1);
+      const next = Math.max(0, Math.min(maxIdx, current + dir));
+      if (next === current) return;
+      // Always step by exact page (±1), including actions / quiz / compare.
+      goToSectionIndexWithAudio(next);
+    },
+    [activeSectionIndex, goToSectionIndexWithAudio, pageSections.length],
+  );
+
+  const canGoPrevPage = activeSectionIndex > 0;
+  const canGoNextPage = activeSectionIndex < Math.max(0, pageSections.length - 1);
+  const showPagerSideArrows = phase === 'full' && sectionDotCount > 1 && !isActionsPage;
+  const pagerProgressAnim = useRef(new Animated.Value(0)).current;
+  const pagerTrackWidthRef = useRef(0);
+  const pagerAudioPulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!showPagerSideArrows || sectionDotCount < 1) return undefined;
+    const ratio = (activeSectionIndex + 1) / sectionDotCount;
+    Animated.spring(pagerProgressAnim, {
+      toValue: ratio,
+      friction: 9,
+      tension: 80,
+      useNativeDriver: false,
+    }).start();
+    return undefined;
+  }, [activeSectionIndex, sectionDotCount, showPagerSideArrows, pagerProgressAnim]);
+
+  useEffect(() => {
+    if (!slideAudioguide.isSpeaking) {
+      pagerAudioPulse.setValue(0);
+      return undefined;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pagerAudioPulse, {
+          toValue: 1,
+          duration: 780,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pagerAudioPulse, {
+          toValue: 0,
+          duration: 780,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [slideAudioguide.isSpeaking, pagerAudioPulse]);
+
+  const pagerProgressWidth = pagerProgressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+  const pagerPlayScale = pagerAudioPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.1],
+  });
+  const pagerGlowOpacity = pagerAudioPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.35, 0.85],
+  });
+  const pagerEq1 = pagerAudioPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.4, 1],
+  });
+  const pagerEq2 = pagerAudioPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.45],
+  });
+  const pagerEq3 = pagerAudioPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.55, 0.95],
+  });
+  // Light: white + blue outline/underline. Dark: dark + lemon outline/underline.
+  const pagerOnFill = isLight ? ACCENT_BLUE : '#E1FF00';
+  const pagerOnFillDisabled = isLight ? 'rgba(2,18,235,0.22)' : 'rgba(225,255,0,0.22)';
+  const pagerRailTrack = isLight ? 'rgba(2,18,235,0.12)' : 'rgba(225,255,0,0.14)';
+  const pagerRailFill = isLight
+    ? ['#1A3AFF', '#0212EB']
+    : ['rgba(225,255,0,0.55)', '#E1FF00'];
+  const pagerPlayOrbColors = isLight
+    ? ['#0212EB', '#1A3AFF']
+    : ['#F5FF66', '#E1FF00'];
+  const pagerPlayIconColor = isLight ? '#FFFFFF' : '#121212';
+  const pagerHaloColor = isLight ? '#0212EB' : '#E1FF00';
+  const pagerIdleOrbBorder = isLight ? 'rgba(2,18,235,0.2)' : 'rgba(18,18,18,0.12)';
+  const pagerIdleOrbBg = isLight ? '#0212EB' : '#E1FF00';
+  const pagerIdleOrbIcon = isLight ? '#FFFFFF' : '#121212';
+  const pagerPlayGlow = isLight ? '#0212EB' : '#E1FF00';
+
+  const quizDisplayTitle = useMemo(
+    () => splitLandmarkQuizTitle(headerTitle || title),
+    [headerTitle, title],
+  );
+  /** Space reserved above the quiz sheet so the dual title stays readable. */
+  const quizTitleClearance = useMemo(
+    () => Math.round(Math.max(insets.top + 188, winH * 0.36)),
+    [insets.top, winH],
+  );
+  const quizBrushW = useMemo(() => Math.round(winW * 0.82), [winW]);
+  const quizBrushH = useMemo(() => Math.round(winH * 0.40), [winH]);
+
   const quizHasNextSection = useMemo(() => {
     const quizIdx = pageSections.findIndex((p) => p.id === 'quiz');
     return quizIdx >= 0 && quizIdx < pageSections.length - 1;
@@ -1968,32 +2253,6 @@ export default function LandmarkResultPage({ navigation, route }) {
       });
     });
   }, []);
-
-  const headerDotsContent =
-    phase === 'full' && sectionDotCount > 1 ? (
-      <View style={styles.headerPagerDots}>
-        {Array.from({ length: sectionDotCount }).map((_, idx) => (
-          <Pressable
-            key={`dot-${idx}`}
-            onPress={() => goToSectionIndexWithAudio(idx)}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`${idx + 1} / ${sectionDotCount}`}
-          >
-            <View
-              style={[
-                styles.headerPagerDot,
-                {
-                  backgroundColor:
-                    idx === activeSectionIndex ? accent : isLight ? 'rgba(2,18,235,0.24)' : 'rgba(225,255,0,0.24)',
-                  opacity: idx === activeSectionIndex ? 1 : 0.55,
-                },
-              ]}
-            />
-          </Pressable>
-        ))}
-      </View>
-    ) : null;
 
   /** На повному екрані: попередня секція пейджера або mini / goBack — не одразу на головну. */
   const handleFullPhaseStepBack = useCallback(() => {
@@ -2474,27 +2733,160 @@ export default function LandmarkResultPage({ navigation, route }) {
     shareLocationCoords,
   ]);
 
-  const onParamRoute = useCallback(() => {
-    dismissParamsMenu();
-    const langUk = String(language || 'uk').split(/[-_]/)[0].toLowerCase() === 'uk';
-    let point = null;
+  const [actionsRouteBusy, setActionsRouteBusy] = useState(false);
+  const pendingRouteTransportRef = useRef(null);
+  const startInAppRouteWithTransportRef = useRef(null);
 
+  const openAppLocationSettings = useCallback(() => {
+    // iOS: UIApplicationOpenSettingsURLString → сторінка застосунку (потрібен Settings.bundle).
+    // Без bundle система відкриває корінь «Настройки».
+    const open = async () => {
+      try {
+        if (typeof Linking.openSettings === 'function') {
+          await Linking.openSettings();
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+      try {
+        await Linking.openURL('app-settings:');
+      } catch {
+        /* */
+      }
+    };
+    void open();
+  }, []);
+
+  const clearPendingRouteTransport = useCallback(() => {
+    pendingRouteTransportRef.current = null;
+  }, []);
+
+  const promptEnableLocationForRoute = useCallback(
+    (pendingTransport) => {
+      if (pendingTransport) pendingRouteTransportRef.current = pendingTransport;
+      Alert.alert(ls(language, 'paramMenuRoute'), ls(language, 'needLocationCoords'), [
+        {
+          text: ls(language, 'cancel'),
+          style: 'cancel',
+          onPress: clearPendingRouteTransport,
+        },
+        {
+          text: ls(language, 'openLocationSettings'),
+          onPress: () => openAppLocationSettings(),
+        },
+      ]);
+    },
+    [language, openAppLocationSettings, clearPendingRouteTransport],
+  );
+
+  /** Дозвіл уже є, але GPS ще не віддав координати — не слати знову в Налаштування. */
+  const promptNeedGpsFixForRoute = useCallback(
+    (pendingTransport) => {
+      if (pendingTransport) pendingRouteTransportRef.current = pendingTransport;
+      Alert.alert(ls(language, 'paramMenuRoute'), ls(language, 'needGpsFix'), [
+        {
+          text: ls(language, 'cancel'),
+          style: 'cancel',
+          onPress: clearPendingRouteTransport,
+        },
+        {
+          text: ls(language, 'locationRetry'),
+          onPress: () => {
+            const t = pendingTransport || pendingRouteTransportRef.current;
+            if (!t) return;
+            const start = startInAppRouteWithTransportRef.current;
+            if (typeof start === 'function') void start(t);
+          },
+        },
+      ]);
+    },
+    [language, clearPendingRouteTransport],
+  );
+
+  const resolveUserCoordsForRoute = useCallback(async () => {
+    const withTimeout = (promise, ms) =>
+      Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('loc_timeout')), ms);
+        }),
+      ]);
+
+    try {
+      const servicesOn = await Location.hasServicesEnabledAsync();
+      if (servicesOn === false) return { ok: false, reason: 'services_off' };
+    } catch {
+      /* continue — спробуємо GPS */
+    }
+
+    try {
+      const last = await Location.getLastKnownPositionAsync({
+        maxAge: 10 * 60 * 1000,
+      });
+      if (
+        last?.coords &&
+        Number.isFinite(last.coords.latitude) &&
+        Number.isFinite(last.coords.longitude)
+      ) {
+        return { ok: true, coords: last.coords };
+      }
+    } catch {
+      /* fresh fix below */
+    }
+
+    const attempts = [
+      { accuracy: Location.Accuracy.Balanced, ms: 4500 },
+      { accuracy: Location.Accuracy.Low, ms: 7000 },
+    ];
+    for (const attempt of attempts) {
+      try {
+        const fresh = await withTimeout(
+          Location.getCurrentPositionAsync({
+            accuracy: attempt.accuracy,
+            mayShowUserSettingsDialog: true,
+          }),
+          attempt.ms,
+        );
+        if (
+          fresh?.coords &&
+          Number.isFinite(fresh.coords.latitude) &&
+          Number.isFinite(fresh.coords.longitude)
+        ) {
+          return { ok: true, coords: fresh.coords };
+        }
+      } catch {
+        /* next attempt */
+      }
+    }
+    return { ok: false, reason: 'no_fix' };
+  }, []);
+
+  const resolveRouteDestinationPoint = useCallback(() => {
+    const langUk = String(language || 'uk').split(/[-_]/)[0].toLowerCase() === 'uk';
     if (visitLandmarkSave?.regionId && visitLandmarkSave?.landmarkId) {
       const lm = getLandmarkInRegion(visitLandmarkSave.regionId, visitLandmarkSave.landmarkId);
       const region = getRegion(visitLandmarkSave.regionId);
       if (lm && Number.isFinite(lm.lat) && Number.isFinite(lm.lng)) {
-        point = {
+        return {
           id: String(lm.id),
+          regionId: String(visitLandmarkSave.regionId),
           title: landmarkTitle(lm, langUk),
+          titleUk: landmarkTitle(lm, true),
+          titleEn: landmarkTitle(lm, false),
           city: region ? (langUk ? region.titleUk : region.titleEn) : '',
-          country: region?.flag || '',
+          country: region ? (langUk ? region.countryUk : region.countryEn) || '' : '',
+          flag: region?.flag || '',
           category: lm.category || 'other',
           lat: lm.lat,
           lng: lm.lng,
+          minutes: lm.minutes || 15,
+          thumb: lm.thumb || null,
         };
       }
-    } else if (visitLat != null && visitLng != null) {
-      point = {
+    }
+    if (visitLat != null && visitLng != null) {
+      return {
         id: visitSaveKey || `pin_${visitLat}_${visitLng}`,
         title: String(headerTitle || title || '').trim(),
         city:
@@ -2511,23 +2903,9 @@ export default function LandmarkResultPage({ navigation, route }) {
           : {}),
       };
     }
-
-    if (point) {
-      navigation.navigate(HOME_TAB_ROUTE, {
-        user: routeUser || authStoreUser,
-        language,
-        appTheme,
-        ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
-        tabIndex: HOME_TAB.MAP,
-        routeFinderExtras: {
-          mapInitialRoutePoint: point,
-        },
-      });
-      return;
-    }
-    openMapsRoute();
+    return null;
   }, [
-    dismissParamsMenu,
+    language,
     visitLandmarkSave,
     visitLat,
     visitLng,
@@ -2538,19 +2916,194 @@ export default function LandmarkResultPage({ navigation, route }) {
     route?.params?.visitCity,
     route?.params?.visitCategory,
     route?.params?.photoUri,
-    language,
-    navigation,
-    routeUser,
-    authStoreUser,
-    appTheme,
-    countryIdParam,
+  ]);
+
+  const startInAppRouteWithTransport = useCallback(
+    async (transport) => {
+      const point = resolveRouteDestinationPoint();
+      if (!point) {
+        openMapsRoute();
+        return;
+      }
+      if (actionsRouteBusy) return;
+      setActionsRouteBusy(true);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          promptEnableLocationForRoute(transport);
+          return;
+        }
+
+        const loc = await resolveUserCoordsForRoute();
+        if (!loc.ok) {
+          if (loc.reason === 'services_off') {
+            promptEnableLocationForRoute(transport);
+          } else {
+            // Дозвіл уже granted — не відкривати Налаштування знову.
+            promptNeedGpsFixForRoute(transport);
+          }
+          return;
+        }
+        pendingRouteTransportRef.current = null;
+        const userPos = loc.coords;
+
+        const plan = buildWalkPlanFromUserToPoint(userPos, point, { transport });
+        if (!plan?.stops?.length) {
+          Alert.alert('', ls(language, 'actionsRouteFailed'));
+          return;
+        }
+
+        const overrideOrigin = {
+          latitude: userPos.latitude,
+          longitude: userPos.longitude,
+        };
+
+        // Directions вантажимо вже на екрані навігації — не блокуємо кнопку на кілька секунд.
+        navigation.navigate('RouteNavigation', {
+          user: routeUser || authStoreUser,
+          language,
+          appTheme,
+          ...(countryIdParam != null ? { countryId: countryIdParam } : {}),
+          routePlan: plan,
+          mapPolyline: null,
+          autoStartNav: true,
+          forceLiveGps: true,
+          walkOrigin: overrideOrigin,
+        });
+
+        // Фонове оновлення точнішої GPS (не чекаємо).
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        }).catch(() => {});
+      } catch {
+        Alert.alert('', ls(language, 'actionsRouteFailed'));
+      } finally {
+        setActionsRouteBusy(false);
+      }
+    },
+    [
+      resolveRouteDestinationPoint,
+      openMapsRoute,
+      actionsRouteBusy,
+      language,
+      navigation,
+      routeUser,
+      authStoreUser,
+      appTheme,
+      countryIdParam,
+      promptEnableLocationForRoute,
+      promptNeedGpsFixForRoute,
+      resolveUserCoordsForRoute,
+    ],
+  );
+
+  useEffect(() => {
+    startInAppRouteWithTransportRef.current = startInAppRouteWithTransport;
+  }, [startInAppRouteWithTransport]);
+
+  useEffect(() => {
+    const onAppState = (nextState) => {
+      if (nextState !== 'active') return;
+      const pending = pendingRouteTransportRef.current;
+      if (!pending) return;
+      void (async () => {
+        try {
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+          // Не чистимо pending тут: start сам скине після успіху,
+          // а при відсутності GPS знову покаже Retry (не Settings).
+          const start = startInAppRouteWithTransportRef.current;
+          if (typeof start === 'function') await start(pending);
+        } catch {
+          /* */
+        }
+      })();
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub?.remove?.();
+  }, []);
+
+  const onParamRoute = useCallback(() => {
+    dismissParamsMenu();
+    const point = resolveRouteDestinationPoint();
+    if (!point) {
+      openMapsRoute();
+      return;
+    }
+
+    const cancelLabel = ls(language, 'actionsRouteCancel');
+    const title = rp(language, 'transportSection');
+    const labels = LANDMARK_ROUTE_TRANSPORTS.map((t) => rp(language, t.rpKey));
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title,
+          message: ls(language, 'actionsRoutePickTransport'),
+          options: [...labels, cancelLabel],
+          cancelButtonIndex: labels.length,
+          userInterfaceStyle: isLight ? 'light' : 'dark',
+        },
+        (buttonIndex) => {
+          if (buttonIndex == null || buttonIndex >= LANDMARK_ROUTE_TRANSPORTS.length) return;
+          void startInAppRouteWithTransport(LANDMARK_ROUTE_TRANSPORTS[buttonIndex].id);
+        },
+      );
+      return;
+    }
+
+    Alert.alert(title, ls(language, 'actionsRoutePickTransport'), [
+      ...LANDMARK_ROUTE_TRANSPORTS.map((t) => ({
+        text: rp(language, t.rpKey),
+        onPress: () => void startInAppRouteWithTransport(t.id),
+      })),
+      { text: cancelLabel, style: 'cancel' },
+    ]);
+  }, [
+    dismissParamsMenu,
+    resolveRouteDestinationPoint,
     openMapsRoute,
+    language,
+    isLight,
+    startInAppRouteWithTransport,
   ]);
 
   const onParamWiki = useCallback(() => {
     dismissParamsMenu();
     if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
   }, [dismissParamsMenu, wikipediaUrl]);
+
+  const onActionsSave = useCallback(async () => {
+    const s = visitLandmarkSave;
+    if (!s?.countryId || !s?.regionId || !s?.landmarkId) {
+      Alert.alert('', ls(language, 'paramMenuSaveUnavailable'));
+      return;
+    }
+    try {
+      await toggleSavedLandmark(s);
+      const next = await isLandmarkSaved(s.countryId, s.regionId, s.landmarkId);
+      setLandmarkSaved(next);
+    } catch {
+      Alert.alert('', ls(language, 'paramMenuSaveUnavailable'));
+    }
+  }, [visitLandmarkSave, language]);
+
+  const onActionsShare = useCallback(() => {
+    const { lat, lng } = shareLocationCoords;
+    void shareLandmarkLocation({
+      language,
+      headerTitle,
+      visitLat: lat,
+      visitLng: lng,
+    });
+  }, [shareLocationCoords, headerTitle, language]);
+
+  const onActionsContinue = useCallback(() => {
+    Speech.stop();
+    stopFileAudio();
+    setSpeaking(false);
+    navigation.goBack();
+  }, [navigation, stopFileAudio]);
 
   const openWiki = useCallback(() => {
     if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
@@ -2768,7 +3321,7 @@ export default function LandmarkResultPage({ navigation, route }) {
           <View style={[StyleSheet.absoluteFill, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
         )}
         <View
-          style={[styles.miniTopDock, { paddingTop: insets.top + 10, paddingHorizontal: 14 }]}
+          style={[styles.miniTopDock, { top: insets.top + 8, paddingHorizontal: 14 }]}
           pointerEvents="box-none"
         >
           <LandmarkGlassHeaderBar
@@ -2782,7 +3335,6 @@ export default function LandmarkResultPage({ navigation, route }) {
             onBack={onBack}
             onMorePress={onMoreMenu}
             moreMenuOpen={paramsMenuOpen}
-            bottomContent={headerDotsContent}
           />
         </View>
         <Animated.View
@@ -2802,10 +3354,8 @@ export default function LandmarkResultPage({ navigation, route }) {
             <Pressable
               style={[
                 styles.audioFabMini,
-                isLight && styles.audioFabMiniLight,
-                audioFabActive && styles.audioFabMiniActive,
-                audioFabActive && isLight && styles.audioFabMiniActiveLight,
-                audioFabActive && !isLight && { borderColor: accent, shadowColor: accent },
+                isLight ? styles.audioFabMiniLight : styles.audioFabMiniDark,
+                audioFabActive && (isLight ? styles.audioFabMiniActiveLight : styles.audioFabMiniActiveDark),
               ]}
               onPress={toggleSpeech}
               hitSlop={8}
@@ -2815,22 +3365,14 @@ export default function LandmarkResultPage({ navigation, route }) {
               <Ionicons
                 name={audioFabIcon}
                 size={audioFabActive ? 20 : 18}
-                color={audioFabActive ? accent : isLight ? ACCENT_BLUE : '#1E1E1E'}
+                color={isLight ? ACCENT_BLUE : accent}
               />
             </Pressable>
           </View>
           <Animated.View
             style={[
               styles.miniSheet,
-              isLight ? styles.miniSheetLight : styles.miniSheetShadowDark,
-              !isLight && { borderWidth: 1, borderColor: accent },
-              !isLight &&
-                Platform.OS === 'ios' && {
-                  shadowColor: accent,
-                  shadowOffset: { width: 0, height: -6 },
-                  shadowOpacity: 0.24,
-                  shadowRadius: 18,
-                },
+              isLight ? styles.miniSheetLight : styles.miniSheetDark,
               {
                 maxHeight: miniSheetMaxH,
                 paddingBottom: isLavraHomeMini
@@ -2859,7 +3401,6 @@ export default function LandmarkResultPage({ navigation, route }) {
                   : { backgroundColor: 'rgba(22,22,22,0.84)' },
               ]}
             />
-            {!isLight ? <View style={styles.miniSheetTopHighlight} pointerEvents="none" /> : null}
             <View style={styles.miniSheetInner}>
               <View style={styles.miniSheetHandleRow}>
                 <View style={styles.miniSheetHandleHit} />
@@ -2962,18 +3503,46 @@ export default function LandmarkResultPage({ navigation, route }) {
       {currentIllustration ? (
         <Pressable
           onPress={() =>
-            openIntroPhotoLightbox(currentIllustration.asset, currentIllustration.caption)
+            openIntroPhotoLightbox(
+              currentIllustration.asset,
+              currentIllustration.caption || currentIllustration.link,
+            )
           }
-          style={styles.introIllustrationLinkWrap}
+          style={styles.introIllustrationWrap}
           android_ripple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
+          accessibilityRole="imagebutton"
+          accessibilityLabel={
+            currentIllustration.caption ||
+            currentIllustration.link ||
+            (language === 'uk' ? 'Ілюстрація' : 'Illustration')
+          }
         >
-          <Text style={[styles.introIllustrationLinkText, brandFontSansMedium, { color: accent }]}>
-            {currentIllustration.link ||
-              (language === 'uk' ? 'Подивитися, як це могло виглядати' : 'See how it might have looked')}
-          </Text>
-          {currentIllustration.caption ? (
-            <Text style={[styles.introIllustrationCaption, brandFontSans, { color: bodyColor }]}>
-              {currentIllustration.caption}
+          <View
+            style={[
+              styles.introIllustrationFrame,
+              isLight ? styles.introIllustrationFrameLight : styles.introIllustrationFrameDark,
+            ]}
+          >
+            <ExpoImage
+              source={currentIllustration.asset}
+              style={styles.introIllustrationImg}
+              contentFit="contain"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={160}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
+            />
+          </View>
+          {currentIllustration.caption || currentIllustration.link ? (
+            <Text
+              style={[
+                styles.introIllustrationCaption,
+                brandFontSans,
+                { color: isLight ? 'rgba(30,30,30,0.72)' : 'rgba(242,242,234,0.72)' },
+              ]}
+            >
+              {currentIllustration.caption || currentIllustration.link}
             </Text>
           ) : null}
         </Pressable>
@@ -3003,6 +3572,23 @@ export default function LandmarkResultPage({ navigation, route }) {
           : Math.min(420, Math.max(260, Math.round(winH * 0.44)))
         : introHeroHeight;
     if (!source && variant === 'secondary') return null;
+    if (!source && variant === 'primary' && !currentIntroCompare) {
+      return (
+        <View
+          style={[
+            styles.fullReadHeroCard,
+            {
+              height: introHeroHeight || Math.min(420, Math.max(260, Math.round(winH * 0.44))),
+              marginHorizontal: isIntroHeroInsetRoundedPage ? 20 : 0,
+              marginTop: isIntroHeroInsetRoundedHeroFirstPage ? 22 : 0,
+            },
+            isLight && styles.fullReadHeroCardLight,
+            styles.heroPlaceholder,
+            isLight && styles.heroPlaceholderLight,
+          ]}
+        />
+      );
+    }
     const heroPosition = resolveHeroPosition(currentPage, variant);
     const heroFit =
       variant === 'secondary'
@@ -3344,6 +3930,13 @@ export default function LandmarkResultPage({ navigation, route }) {
         },
       ]}
     >
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: slideEnter,
+          transform: [{ translateY: slideEnterFromY }],
+        }}
+      >
       {currentPage?.type === 'intro' && isIntroFullBleedPhotoPage ? (
         <View style={[styles.fullReadPage, styles.introFullBleedPage]}>
           {introPrimaryPhotoSource ? (
@@ -3354,16 +3947,18 @@ export default function LandmarkResultPage({ navigation, route }) {
               language={language}
               style={styles.introFullBleedImgPressable}
             >
+            <Animated.View style={{ flex: 1, transform: [{ scale: slideMediaScale }] }}>
             <ExpoImage
               source={introPrimaryPhotoSource}
               style={styles.introFullBleedImg}
               contentFit="cover"
               contentPosition="center"
               cachePolicy="memory-disk"
-              transition={0}
+              transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
             />
+            </Animated.View>
             </IntroPhotoTap>
           ) : (
             <View style={[styles.introFullBleedImg, styles.heroPlaceholder, isLight && styles.heroPlaceholderLight]} />
@@ -3468,16 +4063,78 @@ export default function LandmarkResultPage({ navigation, route }) {
         <View
           style={[
             styles.fullReadPage,
-            styles.quizPageBg,
-            isLight ? styles.quizPageBgLight : styles.quizPageBgDark,
+            styles.quizPageRoot,
+            isLight ? styles.quizPageRootLight : styles.quizPageRootDark,
           ]}
         >
+          {/* Decor layer — photo blob on the right, like the mockup */}
+          <View style={styles.quizDecorLayer} pointerEvents="none">
+            <LandmarkQuizBrushHero
+              source={defaultHeroPhotoSource}
+              width={quizBrushW}
+              height={quizBrushH}
+              isLight={isLight}
+              style={[
+                styles.quizBrushHero,
+                {
+                  top: Math.max(insets.top + 36, 56),
+                  right: -Math.round(winW * 0.1),
+                },
+              ]}
+            />
+          </View>
+
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.quizTitleBlock,
+              {
+                top: Math.max(insets.top + 72, 96),
+                maxWidth: Math.min(winW * 0.46, 188),
+              },
+            ]}
+          >
+            {quizDisplayTitle.lead ? (
+              <Text
+                style={[styles.quizTitleLead, brandFontScript, { color: accent }]}
+                numberOfLines={2}
+              >
+                {quizDisplayTitle.lead}
+              </Text>
+            ) : null}
+            {quizDisplayTitle.rest ? (
+              <Text
+                style={[
+                  styles.quizTitleRest,
+                  brandFontHeadBold,
+                  { color: isLight ? '#121212' : FIGMA_CREAM },
+                ]}
+                numberOfLines={3}
+              >
+                {quizDisplayTitle.rest}
+              </Text>
+            ) : null}
+            <Text
+              style={[
+                styles.quizTitleHint,
+                brandFontSans,
+                { color: isLight ? 'rgba(26,26,26,0.72)' : 'rgba(242,242,234,0.72)' },
+              ]}
+              numberOfLines={4}
+            >
+              {lq(language, 'quizHeroHint')}
+            </Text>
+          </View>
+
           <ScrollView
             ref={quizPageScrollRef}
             style={styles.quizPageScroll}
             contentContainerStyle={[
               styles.quizPageScrollContent,
-              { paddingBottom: quizScrollBottomPad },
+              {
+                paddingTop: quizTitleClearance,
+                paddingBottom: quizScrollBottomPad,
+              },
             ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -3488,25 +4145,16 @@ export default function LandmarkResultPage({ navigation, route }) {
           >
             <View
               style={[
-                styles.quizPageViewportCenter,
-                {
-                  minHeight: quizViewportMinHeight,
-                  paddingTop: quizHeaderClearance,
-                },
+                styles.quizSheet,
+                isLight ? styles.quizSheetLight : styles.quizSheetDark,
               ]}
             >
-              <View style={styles.quizPageCenterColumn}>
-              <View style={styles.quizPageTitleRow}>
-                <Text
-                  style={[
-                    styles.quizPageTitle,
-                    brandFontHeadMedium,
-                    isLight ? styles.quizPageTitleLight : styles.quizPageTitleDark,
-                  ]}
-                >
-                  {language === 'uk' ? 'Вікторина' : 'Quiz'}
-                </Text>
-              </View>
+              <View
+                style={[
+                  styles.quizSheetHandle,
+                  { backgroundColor: isLight ? 'rgba(2,18,235,0.22)' : 'rgba(225,255,0,0.35)' },
+                ]}
+              />
               <View style={styles.quizPageInner}>
                 <LandmarkQuizContent
                   navigation={navigation}
@@ -3517,7 +4165,6 @@ export default function LandmarkResultPage({ navigation, route }) {
                   onContinue={quizHasNextSection ? handleQuizContinue : undefined}
                   onAfterReveal={scrollQuizIntoView}
                 />
-              </View>
               </View>
             </View>
           </ScrollView>
@@ -3532,6 +4179,9 @@ export default function LandmarkResultPage({ navigation, route }) {
             isLight && styles.readFactSlideLight,
           ]}
         >
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, { transform: [{ scale: slideMediaScale }] }]}
+          >
           {currentPage.type === 'compare' ? (
             <LandmarkPhotoCompare
               beforeSource={currentPage.slide?.compareBottomSource}
@@ -3550,7 +4200,7 @@ export default function LandmarkResultPage({ navigation, route }) {
               contentFit="cover"
               contentPosition="center"
               cachePolicy="memory-disk"
-              transition={0}
+              transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
             />
@@ -3561,11 +4211,31 @@ export default function LandmarkResultPage({ navigation, route }) {
               contentFit="cover"
               contentPosition="center"
               cachePolicy="memory-disk"
-              transition={0}
+              transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
             />
-          ) : null}
+          ) : defaultHeroPhotoSource ? (
+            <ExpoImage
+              source={defaultHeroPhotoSource}
+              style={[styles.readFactImage, styles.readFactImageBleed]}
+              contentFit="cover"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              transition={220}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View
+              style={[
+                styles.readFactImage,
+                styles.heroPlaceholder,
+                isLight && styles.heroPlaceholderLight,
+              ]}
+            />
+          )}
+          </Animated.View>
           {currentPage.type === 'fact' ? (
             <View style={styles.readFactOverlay} />
           ) : null}
@@ -3576,7 +4246,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                   styles.readFactCard,
                   styles.readFactCardIntro,
                   isLight && styles.readFactCardLight,
-                  { opacity: 1, maxHeight: Math.round(winH * 0.5) },
+                  { maxHeight: Math.round(winH * 0.5) },
                 ]}
               >
                 <ScrollView
@@ -3601,7 +4271,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                 </ScrollView>
               </View>
             ) : (
-            <View style={[styles.readFactCard, isLight && styles.readFactCardLight, { opacity: 1 }]}>
+            <View style={[styles.readFactCard, isLight && styles.readFactCardLight]}>
               {currentPage.slide?.title ? (
                 <Text style={[styles.readFactTitle, brandFontHeadMedium, { color: titleColor }]}>
                   {currentPage.slide.title}
@@ -3623,6 +4293,204 @@ export default function LandmarkResultPage({ navigation, route }) {
           ) : null}
         </View>
       ) : null}
+      {currentPage?.type === 'actions' ? (
+        <Animated.ScrollView
+          style={styles.fullReadScroll}
+          contentContainerStyle={[
+            styles.actionsScrollContent,
+            { paddingBottom: Math.max(insets.bottom, 16) + 32 },
+          ]}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Animated.View
+            style={[
+              styles.actionsHeroShadow,
+              isLight ? styles.actionsHeroWrapLight : styles.actionsHeroWrapDark,
+              { transform: [{ scale: slideMediaScale }] },
+            ]}
+          >
+            <View style={styles.actionsHeroWrap}>
+              {defaultHeroPhotoSource ? (
+                <ExpoImage
+                  source={defaultHeroPhotoSource}
+                  style={styles.actionsHeroImg}
+                  contentFit="cover"
+                  contentPosition="center"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                  allowDownscaling
+                  accessibilityIgnoresInvertColors
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.actionsHeroImg,
+                    styles.heroPlaceholder,
+                    isLight && styles.heroPlaceholderLight,
+                  ]}
+                />
+              )}
+              <LinearGradient
+                pointerEvents="none"
+                colors={
+                  isLight
+                    ? ['rgba(232,232,232,0)', 'rgba(232,232,232,0.55)', '#E8E8E8']
+                    : ['rgba(0,0,0,0)', 'rgba(0,0,0,0.45)', '#000000']
+                }
+                locations={[0.45, 0.78, 1]}
+                style={styles.actionsHeroGradient}
+              />
+            </View>
+          </Animated.View>
+          {(actionsPlaceMeta.countryName || actionsPlaceMeta.cityName) ? (
+            <View style={styles.actionsPlaceBlock}>
+              {actionsPlaceMeta.countryName ? (
+                <View style={styles.actionsCountryRow}>
+                  <View
+                    style={[
+                      styles.actionsFlagChip,
+                      isLight ? styles.actionsFlagChipLight : styles.actionsFlagChipDark,
+                    ]}
+                  >
+                    {actionsPlaceMeta.flagSource ? (
+                      <Image
+                        source={actionsPlaceMeta.flagSource}
+                        style={styles.actionsFlagImg}
+                        resizeMode="contain"
+                      />
+                    ) : actionsPlaceMeta.flagEmoji ? (
+                      <Text style={styles.actionsFlagEmoji}>{actionsPlaceMeta.flagEmoji}</Text>
+                    ) : (
+                      <Ionicons name="flag-outline" size={14} color={titleColor} />
+                    )}
+                  </View>
+                  <Text
+                    style={[styles.actionsCountryText, brandFontHeadMedium, { color: titleColor }]}
+                    numberOfLines={1}
+                  >
+                    {actionsPlaceMeta.countryName}
+                  </Text>
+                </View>
+              ) : null}
+              {actionsPlaceMeta.cityName ? (
+                <Text
+                  style={[styles.actionsCityText, brandFontSansMedium, { color: accent }]}
+                  numberOfLines={1}
+                >
+                  {actionsPlaceMeta.cityName}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+          <View style={styles.actionsBtnStack}>
+            {[
+              {
+                key: 'save',
+                icon: landmarkSaved ? 'bookmark' : 'bookmark-outline',
+                label: ls(language, landmarkSaved ? 'paramMenuUnsave' : 'paramMenuSave'),
+                onPress: onActionsSave,
+                cta: false,
+              },
+              {
+                key: 'share',
+                icon: 'share-social-outline',
+                label: ls(language, 'actionsShare'),
+                onPress: onActionsShare,
+                cta: false,
+              },
+              {
+                key: 'route',
+                icon: 'map-outline',
+                label: actionsRouteBusy
+                  ? ls(language, 'actionsRouteBuilding')
+                  : ls(language, 'paramMenuRoute'),
+                onPress: onParamRoute,
+                cta: false,
+                busy: actionsRouteBusy,
+              },
+              {
+                key: 'post',
+                icon: 'camera-outline',
+                label: ls(language, 'paramMenuPostStory'),
+                onPress: onParamPostStory,
+                cta: true,
+              },
+              {
+                key: 'continue',
+                icon: 'arrow-forward',
+                label: ls(language, 'actionsContinue'),
+                onPress: onActionsContinue,
+                cta: false,
+                continueGap: true,
+              },
+            ].map((btn) => {
+              const iconColor = btn.cta ? onAccentButtonText(isLight) : titleColor;
+              const labelColor = iconColor;
+              return (
+                <Pressable
+                  key={btn.key}
+                  style={({ pressed }) => [
+                    styles.actionsBtn,
+                    btn.cta
+                      ? [
+                          styles.actionsBtnCta,
+                          { backgroundColor: accent },
+                          isLight ? styles.actionsBtnCtaShadowLight : styles.actionsBtnCtaShadowDark,
+                        ]
+                      : isLight
+                        ? styles.actionsBtnSecondaryLight
+                        : styles.actionsBtnSecondaryDark,
+                    btn.continueGap && styles.actionsBtnContinue,
+                    pressed && !btn.busy && (btn.cta ? styles.actionsBtnCtaPressed : styles.actionsBtnPressed),
+                    btn.busy && styles.actionsBtnBusy,
+                  ]}
+                  onPress={btn.onPress}
+                  disabled={!!btn.busy}
+                  android_ripple={
+                    btn.cta
+                      ? isLight
+                        ? rippleOnDarkSurface
+                        : rippleOnLightSurface
+                      : paramMenuRipple
+                  }
+                  accessibilityRole="button"
+                >
+                  <View
+                    style={[
+                      styles.actionsBtnIconWell,
+                      btn.cta
+                        ? isLight
+                          ? styles.actionsBtnIconWellCtaLight
+                          : styles.actionsBtnIconWellCtaDark
+                        : isLight
+                          ? styles.actionsBtnIconWellLight
+                          : styles.actionsBtnIconWellDark,
+                    ]}
+                  >
+                    {btn.busy ? (
+                      <ActivityIndicator size="small" color={iconColor} />
+                    ) : (
+                      <Ionicons name={btn.icon} size={18} color={iconColor} />
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.actionsBtnLabel,
+                      btn.cta ? brandFontSansMedium : brandFontSans,
+                      { color: labelColor },
+                    ]}
+                  >
+                    {btn.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Animated.ScrollView>
+      ) : null}
+      </Animated.View>
     </View>
   );
 
@@ -3632,25 +4500,236 @@ export default function LandmarkResultPage({ navigation, route }) {
         style={[styles.screen, isLight && styles.screenLight]}
       >
         <View
-          style={[styles.miniTopDock, { paddingTop: insets.top + 2, paddingHorizontal: 6 }]}
+          style={[styles.miniTopDock, { top: insets.top + 8, paddingHorizontal: 14 }]}
           pointerEvents="box-none"
         >
           <LandmarkGlassHeaderBar
             isLight={isLight}
             accent={accent}
-            headerTitle={headerTitle}
+            headerTitle={glassHeaderTitle}
             onBack={onBack}
             onMorePress={onMoreMenu}
             moreMenuOpen={paramsMenuOpen}
-            bottomContent={headerDotsContent}
           />
         </View>
         <View style={styles.readQuizPager} {...landmarkSwipeHandlers}>
           {readArticleColumn}
         </View>
 
+        {showPagerSideArrows ? (
+          <View
+            style={[
+              styles.pagerDockWrap,
+              { bottom: Math.max(insets.bottom, 16) + 18 },
+            ]}
+            pointerEvents="box-none"
+          >
+            <View
+              style={[
+                styles.pagerDockHalo,
+                {
+                  backgroundColor: pagerHaloColor,
+                  opacity: isLight ? 0.22 : 0.18,
+                },
+              ]}
+              pointerEvents="none"
+            />
+            <View
+              style={[
+                styles.pagerDock,
+                isLight ? styles.pagerDockLight : styles.pagerDockDark,
+              ]}
+            >
+              {Platform.OS === 'ios' ? (
+                <BlurView
+                  intensity={isLight ? 40 : 52}
+                  tint={isLight ? 'light' : 'dark'}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                />
+              ) : null}
+              <View
+                style={[
+                  styles.pagerDockTint,
+                  isLight ? styles.pagerDockTintLight : styles.pagerDockTintDark,
+                ]}
+                pointerEvents="none"
+              />
+
+              <View style={styles.pagerDockInner}>
+                <View style={styles.pagerDockLeft}>
+                  <Pressable
+                    onPress={() => goAdjacentWithAudio(-1)}
+                    disabled={!canGoPrevPage}
+                    hitSlop={12}
+                    style={({ pressed }) => [
+                      styles.pagerDockSide,
+                      !canGoPrevPage && styles.pagerDockSideOff,
+                      pressed && { opacity: 0.5 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={ls(language, 'pagerPrevPage')}
+                  >
+                    <Ionicons
+                      name="chevron-back"
+                      size={22}
+                      color={!canGoPrevPage ? pagerOnFillDisabled : pagerOnFill}
+                    />
+                  </Pressable>
+
+                  <Pressable
+                    onPress={toggleSpeech}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.pagerDockAudioBtn, pressed && { opacity: 0.88 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      audioFabActive
+                        ? slideAudioguide.isSpeaking
+                          ? ls(language, 'audioPause')
+                          : ls(language, 'audioResume')
+                        : ls(language, 'audioGuide')
+                    }
+                  >
+                    <Animated.View
+                      style={{ transform: [{ scale: audioFabActive ? pagerPlayScale : 1 }] }}
+                    >
+                      {audioFabActive ? (
+                        <View style={styles.pagerDockPlayStack}>
+                          <Animated.View
+                            style={[
+                              styles.pagerDockPlayGlow,
+                              {
+                                backgroundColor: pagerPlayGlow,
+                                opacity: pagerGlowOpacity,
+                              },
+                            ]}
+                          />
+                          <LinearGradient
+                            colors={pagerPlayOrbColors}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={[
+                              styles.pagerDockAudioOrb,
+                              isLight ? styles.pagerDockAudioOrbLit : styles.pagerDockAudioOrbDark,
+                            ]}
+                          >
+                            <Ionicons
+                              name={slideAudioguide.isSpeaking ? 'pause' : 'play'}
+                              size={15}
+                              color={pagerPlayIconColor}
+                              style={
+                                !slideAudioguide.isSpeaking ? { marginLeft: 1 } : undefined
+                              }
+                            />
+                          </LinearGradient>
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.pagerDockAudioOrb,
+                            styles.pagerDockAudioOrbIdle,
+                            {
+                              borderColor: pagerIdleOrbBorder,
+                              backgroundColor: pagerIdleOrbBg,
+                            },
+                          ]}
+                        >
+                          <Ionicons name="headset" size={16} color={pagerIdleOrbIcon} />
+                        </View>
+                      )}
+                    </Animated.View>
+                  </Pressable>
+                </View>
+
+                <Pressable
+                  onLayout={(e) => {
+                    const w = Number(e?.nativeEvent?.layout?.width);
+                    pagerTrackWidthRef.current = Number.isFinite(w) ? w : 0;
+                  }}
+                  onPress={(e) => {
+                    const width = pagerTrackWidthRef.current;
+                    if (!width || sectionDotCount <= 1) return;
+                    const x = Number(e?.nativeEvent?.locationX);
+                    if (!Number.isFinite(x)) return;
+                    const ratio = Math.max(0, Math.min(1, x / width));
+                    goToSectionIndexWithAudio(Math.round(ratio * (sectionDotCount - 1)));
+                  }}
+                  style={styles.pagerDockCounterHit}
+                  accessibilityRole="adjustable"
+                  accessibilityLabel={ls(language, 'audioScrubber')}
+                >
+                  <View style={styles.pagerDockCounterRow}>
+                    <Text
+                      style={[styles.pagerDockCounter, brandFontSansBold, { color: pagerOnFill }]}
+                    >
+                      {`${activeSectionIndex + 1} / ${sectionDotCount}`}
+                    </Text>
+                    {audioFabActive && slideAudioguide.isSpeaking ? (
+                      <View style={styles.pagerEqRow}>
+                        {[pagerEq1, pagerEq2, pagerEq3].map((scaleY, i) => (
+                          <Animated.View
+                            key={`eq-${i}`}
+                            style={[
+                              styles.pagerEqBar,
+                              {
+                                backgroundColor: pagerOnFill,
+                                transform: [{ scaleY }],
+                              },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                </Pressable>
+
+                <View style={styles.pagerDockRight}>
+                  <Pressable
+                    onPress={() => goAdjacentWithAudio(1)}
+                    disabled={!canGoNextPage}
+                    hitSlop={12}
+                    style={({ pressed }) => [
+                      styles.pagerDockSide,
+                      !canGoNextPage && styles.pagerDockSideOff,
+                      pressed && { opacity: 0.5 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={ls(language, 'pagerNextPage')}
+                  >
+                    <Ionicons
+                      name="chevron-forward"
+                      size={22}
+                      color={!canGoNextPage ? pagerOnFillDisabled : pagerOnFill}
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              <View
+                pointerEvents="none"
+                style={[styles.pagerDockRail, { backgroundColor: pagerRailTrack }]}
+              >
+                <Animated.View style={[styles.pagerDockRailFillWrap, { width: pagerProgressWidth }]}>
+                  <LinearGradient
+                    colors={pagerRailFill}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={styles.pagerDockRailFill}
+                  />
+                  <View
+                    style={[
+                      styles.pagerDockRailCap,
+                      { backgroundColor: pagerOnFill },
+                    ]}
+                  />
+                </Animated.View>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         <LandmarkAudioGuideControls
-          visible={showAudioControls}
+          visible={showAudioControls && !showPagerSideArrows}
           slideIndex={slideAudioguide.slideIndex}
           slideCount={pageSections.length}
           accent={accent}
@@ -3663,33 +4742,35 @@ export default function LandmarkResultPage({ navigation, route }) {
           onNext={() => slideAudioguide.seekRelative(1)}
           bottomInset={Math.max(insets.bottom, 16) + 78}
         />
-        <View
-          pointerEvents="box-none"
-          style={[styles.bottomActionRow, { bottom: Math.max(insets.bottom, 16) + 18 }]}
-        >
-          <Pressable
-            style={[
-              styles.audioFabFull,
-              isLight && styles.audioFabFullLight,
-            ]}
-            onPress={toggleSpeech}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={ls(language, 'audioGuide')}
+        {!isActionsPage && !showPagerSideArrows ? (
+          <View
+            pointerEvents="box-none"
+            style={[styles.bottomActionRow, { bottom: Math.max(insets.bottom, 16) + 18 }]}
           >
-            <Ionicons
-              name={audioFabIcon}
-              size={24}
-              color={
-                slideAudioguide.isSpeaking || slideAudioguide.isPaused || speaking
-                  ? accent
-                  : isLight
-                    ? ACCENT_BLUE
-                    : '#1E1E1E'
-              }
-            />
-          </Pressable>
-        </View>
+            <Pressable
+              style={[
+                styles.audioFabFull,
+                isLight && styles.audioFabFullLight,
+              ]}
+              onPress={toggleSpeech}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={ls(language, 'audioGuide')}
+            >
+              <Ionicons
+                name={audioFabIcon}
+                size={24}
+                color={
+                  slideAudioguide.isSpeaking || slideAudioguide.isPaused || speaking
+                    ? accent
+                    : isLight
+                      ? ACCENT_BLUE
+                      : '#1E1E1E'
+                }
+              />
+            </Pressable>
+          </View>
+        ) : null}
       </View>
       <LandmarkIllustrationLightbox
         visible={!!introPhotoLightbox?.source}
@@ -3772,19 +4853,31 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 0,
     paddingTop: 0,
+    borderWidth: 1.5,
   },
   miniSheetLight: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(2, 18, 235, 0.08)',
+    borderColor: '#0212EB',
     ...Platform.select({
       ios: {
         shadowColor: '#0212EB',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.14,
         shadowRadius: 16,
       },
       android: { elevation: 8 },
+    }),
+  },
+  miniSheetDark: {
+    borderColor: '#E1FF00',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#E1FF00',
+        shadowOffset: { width: 0, height: -6 },
+        shadowOpacity: 0.24,
+        shadowRadius: 18,
+      },
+      android: { elevation: 16 },
     }),
   },
   miniSheetShadowDark: {
@@ -3823,18 +4916,9 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     justifyContent: 'flex-start',
   },
-  miniSheetTopHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 28,
-    right: 28,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    zIndex: 2,
-  },
   miniSheetHandleRow: {
     alignItems: 'center',
-    paddingTop: 10,
+    paddingTop: 14,
     paddingBottom: 6,
   },
   miniSheetHandlePill: {
@@ -3843,10 +4927,10 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   miniSheetHandlePillLight: {
-    backgroundColor: 'rgba(2, 18, 235, 0.22)',
+    backgroundColor: '#0212EB',
   },
   miniSheetHandlePillDark: {
-    backgroundColor: 'rgba(255,255,255,0.38)',
+    backgroundColor: '#E1FF00',
   },
   miniSheetHandleHit: {
     position: 'absolute',
@@ -3875,6 +4959,215 @@ const styles = StyleSheet.create({
   },
   readQuizPager: {
     flex: 1,
+  },
+  pagerDockWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 28,
+    alignItems: 'center',
+    paddingHorizontal: 44,
+  },
+  pagerDockHalo: {
+    position: 'absolute',
+    width: 240,
+    height: 42,
+    borderRadius: 999,
+    top: 8,
+  },
+  pagerDock: {
+    height: 54,
+    paddingHorizontal: 6,
+    paddingBottom: 3,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    maxWidth: 248,
+    width: '100%',
+  },
+  pagerDockInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pagerDockLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 72,
+    justifyContent: 'flex-start',
+  },
+  pagerDockRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: 72,
+    justifyContent: 'flex-end',
+  },
+  pagerDockSideSlot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pagerDockSideSlotEnd: {
+    justifyContent: 'flex-end',
+  },
+  pagerDockTint: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  pagerDockTintLight: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(255,255,255,0.55)' : '#FFFFFF',
+  },
+  pagerDockTintDark: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.72)' : '#141418',
+  },
+  pagerDockSheen: {
+    ...StyleSheet.absoluteFillObject,
+    height: '55%',
+  },
+  pagerDockLight: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(255,255,255,0.82)' : '#FFFFFF',
+    borderColor: '#0212EB',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.16,
+        shadowRadius: 16,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  pagerDockDark: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.88)' : '#141418',
+    borderColor: '#E1FF00',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.35,
+        shadowRadius: 16,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  pagerDockSide: {
+    width: 34,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerDockSideOff: {
+    opacity: 0.85,
+  },
+  pagerDockChevronChip: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerDockAudioBtn: {
+    marginHorizontal: 0,
+  },
+  pagerDockPlayStack: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerDockPlayGlow: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    transform: [{ scale: 1.35 }],
+  },
+  pagerDockAudioOrb: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerDockAudioOrbLit: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#FFFFFF',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.45,
+        shadowRadius: 6,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  pagerDockAudioOrbDark: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#E1FF00',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.55,
+        shadowRadius: 7,
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  pagerDockAudioOrbIdle: {
+    borderWidth: 1.5,
+  },
+  pagerDockCounterHit: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 4,
+  },
+  pagerDockCounterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  pagerDockCounter: {
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  pagerEqRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    height: 12,
+    gap: 2,
+  },
+  pagerEqBar: {
+    width: 2,
+    height: 11,
+    borderRadius: 1,
+  },
+  pagerDockRail: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 0,
+    height: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
+  pagerDockRailFillWrap: {
+    height: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pagerDockRailFill: {
+    flex: 1,
+  },
+  pagerDockRailCap: {
+    position: 'absolute',
+    right: 0,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginTop: -1,
   },
   readQuizPage: {
     flex: 1,
@@ -3992,6 +5285,32 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
   },
+  introIllustrationWrap: {
+    marginTop: 18,
+    marginHorizontal: 20,
+    marginBottom: 4,
+  },
+  introIllustrationFrame: {
+    width: '100%',
+    aspectRatio: 0.78,
+    maxHeight: 420,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  introIllustrationFrameLight: {
+    backgroundColor: '#E8E8EE',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(2,18,235,0.1)',
+  },
+  introIllustrationFrameDark: {
+    backgroundColor: '#1A1A1E',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  introIllustrationImg: {
+    width: '100%',
+    height: '100%',
+  },
   introIllustrationLinkWrap: {
     marginTop: 16,
     marginRight: 56,
@@ -4002,10 +5321,10 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   introIllustrationCaption: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 16,
-    opacity: 0.78,
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   illustrationLightboxRoot: {
     flex: 1,
@@ -4108,16 +5427,39 @@ const styles = StyleSheet.create({
     flex: 1,
     marginTop: 0,
   },
+  headerPagerCount: {
+    fontSize: 11,
+    lineHeight: 13,
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  headerPagerTrackHit: {
+    width: '100%',
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  headerPagerTrack: {
+    width: '100%',
+    height: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  headerPagerTrackFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
   headerPagerDots: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    flexWrap: 'nowrap',
+    maxWidth: '100%',
   },
   headerPagerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginHorizontal: 2,
   },
   readPagerHint: {
     fontSize: 13,
@@ -4134,31 +5476,130 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 2,
   },
+  quizPageRoot: {
+    paddingHorizontal: 0,
+    overflow: 'hidden',
+  },
+  quizPageRootLight: {
+    backgroundColor: '#F8F8FA',
+  },
+  quizPageRootDark: {
+    backgroundColor: '#08080A',
+  },
+  quizDecorLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+  },
+  quizBrushHero: {
+    position: 'absolute',
+  },
+  quizTitleBlock: {
+    position: 'absolute',
+    left: 18,
+    zIndex: 2,
+  },
+  quizTitleLead: {
+    fontSize: Platform.OS === 'android' ? 34 : 36,
+    lineHeight: Platform.OS === 'android' ? 36 : 38,
+    letterSpacing: -0.2,
+    transform: [{ rotate: '-1.5deg' }],
+    marginBottom: 2,
+  },
+  quizTitleRest: {
+    fontSize: Platform.OS === 'android' ? 14 : 15,
+    lineHeight: Platform.OS === 'android' ? 18 : 19,
+    letterSpacing: 0.2,
+    marginBottom: 6,
+    marginTop: 0,
+  },
+  quizTitleHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    maxWidth: 156,
+  },
   quizPageBg: {
-    paddingHorizontal: Platform.OS === 'android' ? 14 : 12,
+    paddingHorizontal: Platform.OS === 'android' ? 16 : 14,
   },
   quizPageBgLight: {
-    backgroundColor: '#EAF1FF',
+    backgroundColor: '#EEF3FF',
   },
   quizPageBgDark: {
-    backgroundColor: '#0D1520',
+    backgroundColor: '#0A0C12',
   },
   quizPageScroll: {
     flex: 1,
+    zIndex: 3,
   },
   quizPageScrollContent: {
     flexGrow: 1,
     alignItems: 'stretch',
+    paddingHorizontal: Platform.OS === 'android' ? 14 : 12,
+  },
+  quizSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 14,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  quizSheetLight: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(2,18,235,0.10)',
+  },
+  quizSheetDark: {
+    backgroundColor: '#141418',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(225,255,0,0.14)',
+  },
+  quizSheetHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 10,
   },
   quizPageViewportCenter: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     width: '100%',
   },
   quizPageCenterColumn: {
     width: '100%',
     alignSelf: 'center',
-    maxWidth: 520,
+    maxWidth: 420,
+  },
+  quizTitleBadge: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  quizTitleBadgeLight: {
+    backgroundColor: '#0212EB',
+  },
+  quizTitleBadgeDark: {
+    backgroundColor: '#E1FF00',
+  },
+  quizTitleBadgeText: {
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.4,
   },
   quizPageTitleRow: {
     marginTop: 0,
@@ -4181,23 +5622,13 @@ const styles = StyleSheet.create({
   },
   quizPageTitleDark: {
     color: '#E1FF00',
-    ...Platform.select({
-      ios: {
-        textShadowColor: 'rgba(225, 255, 0, 0.16)',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 10,
-      },
-      android: {
-        letterSpacing: 1,
-      },
-    }),
   },
   quizPageInner: {
     flexGrow: 0,
     flexShrink: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingTop: 0,
-    paddingBottom: Platform.OS === 'android' ? 4 : 0,
+    paddingBottom: 0,
   },
   readFactsDeck: {
     marginTop: 0,
@@ -4297,40 +5728,46 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: FIGMA_CREAM,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.52)',
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ translateY: -12 }],
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.28,
         shadowRadius: 8,
+      },
+      android: { elevation: 7 },
+    }),
+  },
+  audioFabMiniDark: {
+    backgroundColor: '#161616',
+    borderColor: '#E1FF00',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#E1FF00',
+        shadowOpacity: 0.28,
       },
       android: { elevation: 7 },
     }),
   },
   audioFabMiniLight: {
     backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(2, 18, 235, 0.18)',
+    borderColor: '#0212EB',
     ...Platform.select({
       ios: {
         shadowColor: '#0212EB',
-        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.16,
         shadowRadius: 10,
       },
       android: { elevation: 6 },
     }),
   },
-  audioFabMiniActive: {
-    backgroundColor: '#FAFAF4',
+  audioFabMiniActiveDark: {
+    backgroundColor: '#1E1E1E',
+    borderColor: '#E1FF00',
     ...Platform.select({
       ios: {
-        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.42,
         shadowRadius: 12,
       },
@@ -4339,7 +5776,7 @@ const styles = StyleSheet.create({
   },
   audioFabMiniActiveLight: {
     backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(2, 18, 235, 0.42)',
+    borderColor: '#0212EB',
     ...Platform.select({
       ios: {
         shadowColor: '#0212EB',
@@ -4603,5 +6040,187 @@ const styles = StyleSheet.create({
   },
   paramMenuRowDanger: {
     color: PARAM_MENU_REPORT,
+  },
+  actionsScrollContent: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
+  actionsHeroShadow: {
+    width: '100%',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+  actionsHeroWrap: {
+    width: '100%',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#1A1A1A',
+  },
+  actionsHeroWrapLight: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.12,
+        shadowRadius: 18,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  actionsHeroWrapDark: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#E1FF00',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.14,
+        shadowRadius: 20,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  actionsHeroImg: {
+    width: '100%',
+    aspectRatio: 0.92,
+    minHeight: 300,
+  },
+  actionsHeroGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  actionsPlaceBlock: {
+    marginTop: 12,
+    marginBottom: 6,
+    paddingHorizontal: 16,
+  },
+  actionsCountryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  actionsFlagChip: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionsFlagChipLight: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: 'rgba(30,30,30,0.08)',
+  },
+  actionsFlagChipDark: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: 'rgba(242,242,234,0.14)',
+  },
+  actionsFlagImg: {
+    width: 18,
+    height: 13,
+    borderRadius: 2,
+  },
+  actionsFlagEmoji: {
+    fontSize: 15,
+    lineHeight: 18,
+  },
+  actionsCountryText: {
+    flexShrink: 1,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.2,
+  },
+  actionsCityText: {
+    marginTop: 4,
+    marginLeft: 40,
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0.1,
+  },
+  actionsBtnStack: {
+    marginTop: 12,
+    gap: 11,
+    paddingHorizontal: 16,
+  },
+  actionsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+  },
+  actionsBtnSecondaryLight: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderColor: 'rgba(30,30,30,0.1)',
+  },
+  actionsBtnSecondaryDark: {
+    backgroundColor: 'rgba(20,20,20,0.92)',
+    borderColor: 'rgba(242,242,234,0.18)',
+  },
+  actionsBtnCta: {
+    borderWidth: 0,
+  },
+  actionsBtnCtaShadowLight: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.28,
+        shadowRadius: 14,
+      },
+      android: { elevation: 5 },
+    }),
+  },
+  actionsBtnCtaShadowDark: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#E1FF00',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.32,
+        shadowRadius: 16,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  actionsBtnContinue: {
+    marginTop: 8,
+  },
+  actionsBtnPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.985 }],
+  },
+  actionsBtnCtaPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.98 }],
+  },
+  actionsBtnBusy: {
+    opacity: 0.72,
+  },
+  actionsBtnIconWell: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionsBtnIconWellLight: {
+    backgroundColor: 'rgba(2,18,235,0.08)',
+  },
+  actionsBtnIconWellDark: {
+    backgroundColor: 'rgba(225,255,0,0.1)',
+  },
+  actionsBtnIconWellCtaLight: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  actionsBtnIconWellCtaDark: {
+    backgroundColor: 'rgba(0,0,0,0.14)',
+  },
+  actionsBtnLabel: {
+    flexShrink: 1,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.1,
   },
 });

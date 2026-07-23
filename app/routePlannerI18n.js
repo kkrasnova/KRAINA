@@ -21,6 +21,26 @@ const S = {
     uk: 'Транспорт',
     en: 'Transport',
   },
+  walkShort: {
+    uk: 'Пішки',
+    en: 'Walk',
+  },
+  bikeShort: {
+    uk: 'Вело',
+    en: 'Bike',
+  },
+  driveShort: {
+    uk: 'Авто',
+    en: 'Car',
+  },
+  busShort: {
+    uk: 'Автобус',
+    en: 'Bus',
+  },
+  routeUnlockTeaser: {
+    uk: 'Історії місць відкриються за 50 м — як живий гід на місці.',
+    en: 'Place stories unlock at 50 m — like a live guide on the spot.',
+  },
   navActions: {
     uk: 'Дії',
     en: 'Actions',
@@ -127,8 +147,8 @@ const S = {
     en: 'Let’s go',
   },
   historyRadius: {
-    uk: '(Історія доступна в радіусі 100 метрів)',
-    en: '(Story unlocks within 100 meters)',
+    uk: 'Історія місця відкривається за 50 м. Доти кнопка заблокована — натисніть, щоб побачити, скільки лишилось.',
+    en: 'The place story unlocks at 50 m. Until then the button stays locked — tap to see how far is left.',
   },
   changePath: {
     uk: 'Змінити шлях',
@@ -247,8 +267,8 @@ const S = {
     en: 'Placed on map',
   },
   tapMapToMove: {
-    uk: 'Натисніть на карту — переставити себе',
-    en: 'Tap the map to move yourself',
+    uk: 'Натисніть або перетягніть маркер — переставити себе',
+    en: 'Tap the map or drag the marker to move yourself',
   },
   switchToGps: {
     uk: 'Знову GPS',
@@ -298,6 +318,18 @@ const S = {
     uk: '{dist} — до «{stop}»',
     en: '{dist} — toward «{stop}»',
   },
+  navTooFarNoSteps: {
+    uk: 'Підійдіть ближче — тоді з’являться повороти: ліворуч / праворуч / прямо',
+    en: 'Move closer — then you’ll get turns: left / right / straight',
+  },
+  navWaitingDirections: {
+    uk: 'Будуємо покроковий маршрут…',
+    en: 'Building turn-by-turn directions…',
+  },
+  navRerouting: {
+    uk: 'Ви зійшли з маршруту — будуємо новий шлях звідси…',
+    en: 'You’re off the route — rebuilding from here…',
+  },
   shareRoute: {
     uk: 'Поділитись маршрутом',
     en: 'Share route',
@@ -342,6 +374,10 @@ const S = {
     uk: 'Маршрут збережено. Натисніть «В дорогу», коли будете готові.',
     en: 'Route saved. Tap «Start trip» when you are ready.',
   },
+  exitNavigation: {
+    uk: 'Вийти з навігації',
+    en: 'Exit navigation',
+  },
   goBack: {
     uk: 'Назад',
     en: 'Go back',
@@ -374,9 +410,13 @@ const S = {
     uk: 'Переглянути історію',
     en: 'View story',
   },
+  tapBannerForHistory: {
+    uk: 'Натисніть сюди або кнопку внизу',
+    en: 'Tap here or the button below',
+  },
   metersToHistory: {
-    uk: 'До історії',
-    en: 'To story',
+    uk: 'До місця',
+    en: 'To place',
   },
   navFollowMap: {
     uk: 'Рухайтеся за лінією маршруту на карті.',
@@ -387,12 +427,28 @@ const S = {
     en: 'Add googleMapsApiKey in app.json (Directions API) to snap the route to roads.',
   },
   moveCloserForHistory: {
-    uk: 'Підійдіть ближче до пам’ятки (до 100 м), щоб відкрити історію.',
-    en: 'Move closer to the landmark (within 100 m) to open the story.',
+    uk: 'Підійдіть ближче (до 50 м), щоб відкрити історію цього місця.',
+    en: 'Move closer (within 50 m) to open this place’s story.',
+  },
+  historyLockedTitle: {
+    uk: 'Зараз заблоковано',
+    en: 'Currently locked',
+  },
+  historyLockedHint: {
+    uk: 'Історію можна відкрити лише за {unlock} м від місця.\n\nЗалишилось ще {dist}. Підійдіть ближче — тоді «Переглянути історію» відкриється.',
+    en: 'The story unlocks only within {unlock} m of the place.\n\n{dist} left. Move closer — then «View story» will open.',
   },
   historyToGo: {
-    uk: 'До історії — {dist}',
-    en: '{dist} to story',
+    uk: 'Заблоковано · ще {dist}',
+    en: 'Locked · {dist} left',
+  },
+  historyApproachHint: {
+    uk: 'Через ~50 м ви зможете подивитись історію про «{stop}». Залишилось {dist}.',
+    en: 'In ~50 m you can open the story about «{stop}». {dist} left.',
+  },
+  historyUnlockedHint: {
+    uk: 'Ви вже біля місця — відкрийте історію. Назад у будь-який момент поверне на маршрут.',
+    en: 'You’re at the place — open the story. Back anytime returns to the route.',
   },
   stopProgress: {
     uk: 'Зупинка {current} з {total}',
@@ -407,8 +463,32 @@ const S = {
     en: 'You visited {stops} places and earned {xp} points.',
   },
   routeAutoOpenHint: {
-    uk: 'Підійдіть на 50 м — історія відкриється автоматично.',
-    en: 'Come within 50 m — the story opens automatically.',
+    uk: 'За 50 м з’явиться кнопка — відкрийте історію місця.',
+    en: 'At 50 m a button appears — open the place story.',
+  },
+  audioGuide: {
+    uk: 'Аудіогід',
+    en: 'Audio guide',
+  },
+  audioGuideOn: {
+    uk: 'Аудіогід увімкнено — розповідаємо історію вулиць і будинків по дорозі',
+    en: 'Audio guide on — stories about streets and buildings along the way',
+  },
+  audioGuideOff: {
+    uk: 'Аудіогід вимкнено',
+    en: 'Audio guide off',
+  },
+  audioGuideLoading: {
+    uk: 'Шукаємо історію поруч…',
+    en: 'Looking up nearby history…',
+  },
+  audioGuidePlaying: {
+    uk: 'Аудіогід',
+    en: 'Audio guide',
+  },
+  audioGuideEmpty: {
+    uk: 'Поруч поки немає статті — йдіть далі, спробуємо знову.',
+    en: 'No nearby story yet — keep walking, we’ll try again.',
   },
   aiRouteButton: {
     uk: 'ШІ-маршрут (каталог)',

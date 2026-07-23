@@ -2,7 +2,7 @@ import { stripIntroEmphasis } from './landmarkTextUtils';
 
 /** Текст озвучки для одного слайду пейджера. */
 export function slideAudioTextFromPage(page, fullBodyText) {
-  if (!page || page.type === 'quiz' || page.type === 'compare') return '';
+  if (!page || page.type === 'quiz' || page.type === 'compare' || page.type === 'actions') return '';
   if (page.type === 'fact') {
     return stripIntroEmphasis(page.slide?.fact || '');
   }

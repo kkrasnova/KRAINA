@@ -34,3 +34,11 @@ export const landmarkTtsBodySchema = z.object({
   text: z.string().min(1).max(20_000),
   language: z.enum(['uk', 'en']).default('en'),
 });
+
+export const walkNarrateBodySchema = z.object({
+  title: z.string().max(240).default(''),
+  extract: z.string().min(1).max(4000),
+  street: z.string().max(200).optional().default(''),
+  city: z.string().max(120).optional().default(''),
+  language: z.enum(['uk', 'en']).default('uk'),
+});

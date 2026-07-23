@@ -14,14 +14,13 @@ export const LANDMARK_TITLE_SINGLE_LINE_PROPS = {
   ellipsizeMode: 'tail',
 };
 
-const FIGMA_CREAM = '#F2F2EA';
-
-/** Висота смуги; `borderRadius` ≥ половини — щоб кінці були рівні півкола (stadium / pill). */
-const GLASS_HEADER_MIN_HEIGHT = 56;
+const LEMON = '#E1FF00';
+const ACCENT_BLUE = '#0212EB';
+const HEADER_H = 50;
 
 /**
- * Скляна «пілюля» як на міні-екрані пам’ятки: blur (iOS) + тінт + акцентна обводка.
- * `Shell` — зазвичай `View` або `Animated.View` (для анімації появи).
+ * Pill header: білий + синя обводка/підкреслення (light),
+ * темний + лимонна обводка/підкреслення (dark).
  */
 export default function LandmarkGlassHeaderBar({
   isLight,
@@ -37,22 +36,22 @@ export default function LandmarkGlassHeaderBar({
   accessibilityBackLabel = 'Back',
   accessibilityMoreLabel = 'More',
 }) {
-  const hasBottomContent = !!bottomContent;
+  const onFill = isLight ? ACCENT_BLUE : LEMON;
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const miniBarIosShadow =
     Platform.OS === 'ios'
       ? isLight
         ? {
-            shadowColor: '#0212EB',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.1,
-            shadowRadius: 16,
+            shadowColor: ACCENT_BLUE,
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.14,
+            shadowRadius: 14,
           }
         : {
-            shadowColor: accent,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.28,
-            shadowRadius: 12,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.35,
+            shadowRadius: 14,
           }
       : {};
 
@@ -60,70 +59,68 @@ export default function LandmarkGlassHeaderBar({
     <Shell
       style={[
         styles.miniTopBar,
-        isLight && styles.miniTopBarLight,
+        isLight ? styles.miniTopBarLight : styles.miniTopBarDark,
         miniBarIosShadow,
-        !isLight && { borderColor: accent },
         shellStyle,
       ]}
     >
-      <View style={[styles.miniTopBarClip, hasBottomContent && styles.miniTopBarClipWithBottom]}>
-        {Platform.OS === 'ios' && !isLight ? (
-          <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-        ) : null}
-        <View
-          style={[
-            styles.miniTopBarTint,
-            isLight ? styles.miniTopBarTintLight : { backgroundColor: 'rgba(22,22,22,0.84)' },
-          ]}
+      {Platform.OS === 'ios' ? (
+        <BlurView
+          intensity={isLight ? 40 : 52}
+          tint={isLight ? 'light' : 'dark'}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
         />
-        <View style={styles.miniTopRow}>
-          <Pressable
-            style={isLight ? styles.miniTopIconBtnLight : styles.miniTopIconBtnGlass}
-            onPress={onBack}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel={accessibilityBackLabel}
-            android_ripple={ripple}
-          >
-            <Text style={[styles.backGlyph, isLight && styles.backGlyphLight]}>‹</Text>
-          </Pressable>
+      ) : null}
+      <View
+        style={[
+          styles.miniTopTint,
+          isLight ? styles.miniTopTintLight : styles.miniTopTintDark,
+        ]}
+        pointerEvents="none"
+      />
+
+      <View style={styles.miniTopRow}>
+        <Pressable
+          style={({ pressed }) => [styles.miniTopIconHit, pressed && { opacity: 0.55 }]}
+          onPress={onBack}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityBackLabel}
+          android_ripple={ripple}
+        >
+          <Ionicons name="chevron-back" size={22} color={onFill} />
+        </Pressable>
+
+        <View style={styles.miniTopCenter}>
           <Text
-            style={[
-              styles.miniTopTitle,
-              brandFontHeadMedium,
-              isLight
-                ? {
-                    color: '#1E1E1E',
-                    textShadowColor: 'transparent',
-                    textShadowOffset: { width: 0, height: 0 },
-                    textShadowRadius: 0,
-                  }
-                : { color: FIGMA_CREAM },
-            ]}
+            style={[styles.miniTopTitle, brandFontHeadMedium, { color: onFill }]}
             {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
           >
             {headerTitle}
           </Text>
-          {showMore && typeof onMorePress === 'function' ? (
-            <Pressable
-              style={[
-                isLight ? styles.miniTopIconBtnLight : styles.miniTopIconBtnGlass,
-                moreMenuOpen && (isLight ? styles.miniTopIconBtnLightActive : styles.miniTopIconBtnGlassActive),
-              ]}
-              onPress={onMorePress}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel={accessibilityMoreLabel}
-              accessibilityState={{ expanded: moreMenuOpen }}
-              android_ripple={ripple}
-            >
-              <Ionicons name="ellipsis-vertical" size={20} color={isLight ? '#1E1E1E' : FIGMA_CREAM} />
-            </Pressable>
-          ) : (
-            <View style={styles.moreSpacer} />
-          )}
+          {bottomContent}
         </View>
-        {bottomContent ? <View style={styles.bottomSlot}>{bottomContent}</View> : null}
+
+        {showMore && typeof onMorePress === 'function' ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.miniTopIconHit,
+              moreMenuOpen && { opacity: 0.85 },
+              pressed && { opacity: 0.55 },
+            ]}
+            onPress={onMorePress}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityMoreLabel}
+            accessibilityState={{ expanded: moreMenuOpen }}
+            android_ripple={ripple}
+          >
+            <Ionicons name="ellipsis-vertical" size={18} color={onFill} />
+          </Pressable>
+        ) : (
+          <View style={styles.moreSpacer} />
+        )}
       </View>
     </Shell>
   );
@@ -136,101 +133,64 @@ export const landmarkGlassHeaderDockStyle = {
 const styles = StyleSheet.create({
   miniTopBar: {
     alignSelf: 'stretch',
-    borderRadius: 9999,
-    borderWidth: 1,
+    height: HEADER_H,
+    maxHeight: HEADER_H,
+    borderRadius: HEADER_H / 2,
+    borderWidth: 1.5,
     overflow: 'hidden',
-    minHeight: GLASS_HEADER_MIN_HEIGHT,
-    ...Platform.select({
-      android: { elevation: 10 },
-    }),
-  },
-  miniTopBarLight: {
-    backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(2, 18, 235, 0.08)',
     ...Platform.select({
       android: { elevation: 8 },
     }),
   },
-  miniTopBarClip: {
-    position: 'relative',
-    minHeight: GLASS_HEADER_MIN_HEIGHT,
-    justifyContent: 'center',
+  miniTopBarLight: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(255,255,255,0.82)' : '#FFFFFF',
+    borderColor: ACCENT_BLUE,
   },
-  miniTopBarClipWithBottom: {
-    minHeight: GLASS_HEADER_MIN_HEIGHT + 22,
+  miniTopBarDark: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.88)' : '#141418',
+    borderColor: LEMON,
   },
-  miniTopBarTint: {
+  miniTopTint: {
     ...StyleSheet.absoluteFillObject,
   },
-  miniTopBarTintLight: {
-    backgroundColor: '#FFFFFF',
+  miniTopTintLight: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(255,255,255,0.55)' : '#FFFFFF',
+  },
+  miniTopTintDark: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.72)' : '#141418',
   },
   miniTopRow: {
+    height: HEADER_H,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    minHeight: GLASS_HEADER_MIN_HEIGHT,
-    zIndex: 1,
+    paddingHorizontal: 8,
+    paddingBottom: 2,
   },
-  miniTopIconBtnGlass: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.38)',
+  miniTopCenter: {
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  miniTopIconBtnLight: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
+  miniTopIconHit: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  miniTopIconBtnGlassActive: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderColor: 'rgba(255,255,255,0.62)',
-  },
-  miniTopIconBtnLightActive: {
-    backgroundColor: 'rgba(2, 18, 235, 0.1)',
-    borderColor: 'rgba(2, 18, 235, 0.28)',
-  },
-  backGlyphLight: {
-    color: '#1E1E1E',
+    flexShrink: 0,
   },
   miniTopTitle: {
-    flex: 1,
-    marginHorizontal: 4,
+    width: '100%',
     textAlign: 'center',
-    color: FIGMA_CREAM,
-    fontSize: 16,
-    textShadowColor: 'rgba(0,0,0,0.35)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  backGlyph: {
-    color: '#FFF',
-    fontSize: 28,
-    fontWeight: '300',
-    marginTop: -2,
+    fontSize: 15,
+    lineHeight: 18,
+    marginTop: 0,
+    paddingTop: 0,
+    includeFontPadding: false,
   },
   moreSpacer: {
-    width: 40,
-    height: 40,
-  },
-  bottomSlot: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
+    width: 36,
+    height: 36,
   },
 });

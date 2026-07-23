@@ -46,12 +46,12 @@ const S = {
     en: 'Could not take a photo. Please try again.',
   },
   tapToScan: {
-    uk: 'Натисніть тут або кнопку камери внизу',
-    en: 'Tap here or the camera button below',
+    uk: 'Натисніть синю кнопку сканера внизу по центру',
+    en: 'Tap the blue scanner button in the center of the tab bar',
   },
   simulatorScanHint: {
-    uk: 'Камера недоступна в симуляторі.\nНатисніть рамку, щоб обрати фото.',
-    en: 'Camera is unavailable in the simulator.\nTap the frame to pick a photo.',
+    uk: 'У симуляторі немає камери — натисніть кнопку сканера внизу або оберіть фото з галереї.',
+    en: 'No camera in the simulator — tap the scanner button below or pick a photo from the gallery.',
   },
   addFromGallery: {
     uk: 'Обрати з галереї',
@@ -62,8 +62,8 @@ const S = {
     en: 'Could not start the camera. Try picking a photo from the gallery.',
   },
   captureHint: {
-    uk: 'AR-скан: наведіть пам’ятку в жовту рамку й натисніть затвор. Працює з Wikipedia; з ключем Vision — також за фото.',
-    en: 'AR scan: frame the landmark in the yellow box and tap the shutter. Uses Wikipedia; with a Vision key also matches from the photo.',
+    uk: '3D Scanner: зробіть фото — ми зчитаємо вашу геопозицію й покажемо інформацію про локацію, якщо вона вже є в базі.',
+    en: '3D Scanner: take a photo — we’ll read your geolocation and show info about this place if it exists in our database.',
   },
   more: {
     uk: 'Детальніше',
@@ -72,6 +72,14 @@ const S = {
   miniSwipeHint: {
     uk: 'Свайп вгору або вліво — детальніше',
     en: 'Swipe up or left for details',
+  },
+  pagerPrevPage: {
+    uk: 'Попередня сторінка',
+    en: 'Previous page',
+  },
+  pagerNextPage: {
+    uk: 'Наступна сторінка',
+    en: 'Next page',
   },
   sourceVision: {
     uk: 'Розпізнано за фото (Google Vision + Wikipedia)',
@@ -158,6 +166,42 @@ const S = {
     uk: 'Поділитись локацією',
     en: 'Share location',
   },
+  actionsShare: {
+    uk: 'Поділитись',
+    en: 'Share',
+  },
+  actionsContinue: {
+    uk: 'Продовжити',
+    en: 'Continue',
+  },
+  actionsRouteBuilding: {
+    uk: 'Будуємо маршрут…',
+    en: 'Building route…',
+  },
+  actionsRouteFailed: {
+    uk: 'Не вдалося побудувати маршрут. Спробуйте ще раз.',
+    en: 'Could not build the route. Please try again.',
+  },
+  actionsRouteNoRoad: {
+    uk: 'Немає доступного маршруту для цього транспорту від вашої поточної точки. Спробуйте інший спосіб (пішки / авто / автобус).',
+    en: 'No route available for this transport from your current location. Try another mode (walk / car / bus).',
+  },
+  actionsRoutePickTransport: {
+    uk: 'Оберіть, як дістатися до локації. Маршрут побудуємо від вашої реальної геолокації.',
+    en: 'Choose how to get there. We’ll build the route from your real location.',
+  },
+  actionsRouteTooFar: {
+    uk: 'Ви далеко від цієї локації (~{km} км). Піша навігація в застосунку працює лише поруч. Відкрити маршрут у Google Maps від вашого місця?',
+    en: 'You are far from this place (~{km} km). In-app walking navigation works nearby only. Open Google Maps directions from your location?',
+  },
+  actionsRouteOpenMaps: {
+    uk: 'Відкрити Maps',
+    en: 'Open Maps',
+  },
+  actionsRouteCancel: {
+    uk: 'Скасувати',
+    en: 'Cancel',
+  },
   paramMenuWikipedia: {
     uk: 'Відкрити у Wikipedia',
     en: 'Open in Wikipedia',
@@ -207,20 +251,20 @@ const S = {
     en: 'Thank you',
   },
   notInDatabaseBody: {
-    uk: 'На жаль, цієї історії ще немає в нашій базі.',
-    en: 'Unfortunately, this story is not in our database yet.',
+    uk: 'На жаль, цієї локації ще немає в нашій базі. Поділіться геопозицією — і ми додамо її найближчим часом.',
+    en: 'This location is not in our database yet. Share your geolocation and we’ll add it soon.',
   },
   coordinatesOnMap: {
     uk: '(координати на карті)',
     en: '(coordinates on the map)',
   },
   requestHistory: {
-    uk: 'Запросити історію',
-    en: 'Request this story',
+    uk: 'Поділитися геопозицією',
+    en: 'Share my location',
   },
   requestSent: {
-    uk: 'Дякуємо! Заявку отримано — додамо історію згодом.',
-    en: 'Thanks! We received your request and will add the story later.',
+    uk: 'Дякуємо! Ми отримали вашу геопозицію — додамо цю локацію найближчим часом.',
+    en: 'Thanks! We received your location — we’ll add this place soon.',
   },
   requestSavedLocal: {
     uk: 'Заявку збережено локально — синхронізується, коли з’явиться зв’язок із сервером.',
@@ -231,8 +275,20 @@ const S = {
     en: 'Could not send the request. Please try again.',
   },
   needLocationCoords: {
-    uk: 'Увімкніть доступ до геолокації, щоб передати координати на карті.',
-    en: 'Allow location access to share coordinates on the map.',
+    uk: 'Увімкніть «Геолокація» для KRAÏNA. Кнопка відкриє саме сторінку цього застосунку в Налаштуваннях — не шукайте вручну. Потім поверніться сюди.',
+    en: 'Turn on Location for KRAÏNA. The button opens this app’s Settings page directly. Then return here.',
+  },
+  needGpsFix: {
+    uk: 'Дозвіл на геолокацію вже є, але координати ще не отримано. Зачекайте кілька секунд і натисніть «Спробувати ще» (на симуляторі увімкніть Features → Location).',
+    en: 'Location permission is already on, but we still don’t have coordinates. Wait a moment and tap Retry (on Simulator: Features → Location).',
+  },
+  openLocationSettings: {
+    uk: 'Відкрити KRAÏNA',
+    en: 'Open KRAÏNA Settings',
+  },
+  locationRetry: {
+    uk: 'Спробувати ще',
+    en: 'Retry',
   },
   requestSending: {
     uk: 'Надсилаємо…',

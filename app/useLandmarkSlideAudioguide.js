@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { playSlideNarration } from './landmarkTts';
-import { firstNarratableSlideIndex, lastNarratableSlideIndex } from './landmarkSlideAudioTexts';
+import { firstNarratableSlideIndex } from './landmarkSlideAudioTexts';
 
 /**
  * Аудіогід по слайдах: пауза зберігає слайд, свайп сторінки → інша озвучка,
@@ -58,12 +58,12 @@ export function useLandmarkSlideAudioguide({
           playingIndexRef.current = -1;
           return;
         }
-        const next = firstNarratableSlideIndex(slideScripts, index + 1);
-        if (next >= 0 && gen === genRef.current) {
+        // Silent slides (quiz / compare / actions): always land on the requested page.
+        if (index >= 0) {
           autoNavRef.current = true;
-          goToSectionIndex(next);
-          setUiSlideIndex(next);
-          return playAtIndex(next, gen);
+          goToSectionIndex(index);
+          setUiSlideIndex(index);
+          pausedIndexRef.current = index;
         }
         setAudioguideStatus('idle');
         playingIndexRef.current = -1;
@@ -102,12 +102,20 @@ export function useLandmarkSlideAudioguide({
           return;
         }
 
-        const next = firstNarratableSlideIndex(slideScripts, index + 1);
-        if (next >= 0) {
+        const nextNarratable = firstNarratableSlideIndex(slideScripts, index + 1);
+        if (nextNarratable >= 0) {
           autoNavRef.current = true;
-          goToSectionIndex(next);
-          setUiSlideIndex(next);
-          return playAtIndex(next, gen);
+          goToSectionIndex(nextNarratable);
+          setUiSlideIndex(nextNarratable);
+          return playAtIndex(nextNarratable, gen);
+        }
+        // No more narratable audio — still advance to the next page (e.g. actions).
+        const nextPage = index + 1;
+        if (nextPage < slideScripts.length) {
+          autoNavRef.current = true;
+          goToSectionIndex(nextPage);
+          setUiSlideIndex(nextPage);
+          pausedIndexRef.current = nextPage;
         }
         setAudioguideStatus('idle');
         playingIndexRef.current = -1;
@@ -187,13 +195,22 @@ export function useLandmarkSlideAudioguide({
       const idx = Math.max(0, Math.min(maxIdx, Number(index) || 0));
       pausedIndexRef.current = idx;
       setUiSlideIndex(idx);
+      goToSectionIndex(idx);
       if (statusRef.current === 'playing') {
+        const text = String(slideScripts[idx]?.text || '').trim();
+        if (!text) {
+          // Land on silent page and stop narration.
+          bumpGen();
+          Speech.stop?.();
+          await stopFileAudio?.();
+          setAudioguideStatus('idle');
+          playingIndexRef.current = -1;
+          return;
+        }
         await start(idx);
-      } else if (statusRef.current === 'paused') {
-        goToSectionIndex(idx);
       }
     },
-    [slideScripts.length, start, goToSectionIndex],
+    [slideScripts, start, goToSectionIndex, bumpGen, Speech, stopFileAudio, setAudioguideStatus],
   );
 
   const seekRelative = useCallback(
@@ -204,14 +221,13 @@ export function useLandmarkSlideAudioguide({
           : playingIndexRef.current >= 0
             ? playingIndexRef.current
             : pausedIndexRef.current;
-      const next =
-        delta > 0
-          ? firstNarratableSlideIndex(slideScripts, current + 1)
-          : lastNarratableSlideIndex(slideScripts, current - 1);
-      if (next < 0) return;
+      // Page-step (±1), including silent slides like actions — not narratable-only skip.
+      const maxIdx = Math.max(0, slideScripts.length - 1);
+      const next = Math.max(0, Math.min(maxIdx, current + (delta > 0 ? 1 : -1)));
+      if (next === current) return;
       await seekToSlide(next);
     },
-    [phase, slideScripts, seekToSlide],
+    [phase, slideScripts.length, seekToSlide],
   );
 
   const syncPausedIndex = useCallback((index) => {

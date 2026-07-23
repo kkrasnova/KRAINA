@@ -35,6 +35,7 @@ const ROUTES_WITH_TAB = new Set([
   'RouteNavigation',
   'ProfilePage',
   'ProfileGamificationHub',
+  'ProfileAchievements',
   'ProfileEdit',
   'ProfileFriends',
   'ProfileInvites',
@@ -155,6 +156,7 @@ function LightBottomTabBar() {
     (active === 'HomeTabPager' && pagerTab === HOME_TAB.PROFILE) ||
     active === 'ProfilePage' ||
     active === 'ProfileGamificationHub' ||
+    active === 'ProfileAchievements' ||
     active === 'ProfileEdit' ||
     active === 'ProfileFriends' ||
     active === 'ProfileInvites' ||
@@ -261,9 +263,15 @@ function LightBottomTabBar() {
             pressed && styles.fabPressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Camera"
+          accessibilityLabel={
+            active === 'HomeTabPager' && pagerTab === HOME_TAB.SCANNER ? 'Take photo' : '3D Scanner'
+          }
         >
-          <Ionicons name="scan-outline" size={30} color={fabIconTint} />
+          <Ionicons
+            name={active === 'HomeTabPager' && pagerTab === HOME_TAB.SCANNER ? 'camera' : 'scan-outline'}
+            size={30}
+            color={fabIconTint}
+          />
         </Pressable>
         <Pressable
           onPress={onMap}

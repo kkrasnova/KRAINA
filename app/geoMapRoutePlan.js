@@ -1,4 +1,79 @@
-import { haversineKm, isUserOriginNearRoute, orderStopsFromUserOrigin } from './routePlannerCore';
+import { haversineKm, isUserOriginNearRoute, orderStopsFromUserOrigin, estimateMinutesForKm } from './routePlannerCore';
+
+/** До ~12 км — пішки в застосунку; далі — авто з дорожнім Directions. */
+export const IN_APP_WALK_MAX_KM = 12;
+
+/**
+ * Маршрут від поточної геолокації до однієї точки (пам’ятка) для in-app навігації.
+ * @param {{ latitude?: number, longitude?: number, lat?: number, lng?: number }} userPos
+ * @param {object} dest
+ * @param {{ transport?: 'walk'|'car'|'bike'|'bus'|'train' }} [opts]
+ */
+export function buildWalkPlanFromUserToPoint(userPos, dest, opts = {}) {
+  if (!userPos || !dest) return null;
+  const originLat = Number(userPos.latitude ?? userPos.lat);
+  const originLng = Number(userPos.longitude ?? userPos.lng);
+  const destLat = Number(dest.lat);
+  const destLng = Number(dest.lng);
+  if (
+    !Number.isFinite(originLat) ||
+    !Number.isFinite(originLng) ||
+    !Number.isFinite(destLat) ||
+    !Number.isFinite(destLng)
+  ) {
+    return null;
+  }
+
+  const origin = { lat: originLat, lng: originLng };
+  const title = String(dest.title || '').trim() || '—';
+  const stop = {
+    order: 1,
+    id: String(dest.id || `dest_${destLat}_${destLng}`),
+    title,
+    titleUk: String(dest.titleUk || title).trim() || title,
+    titleEn: String(dest.titleEn || title).trim() || title,
+    lat: destLat,
+    lng: destLng,
+    minutes: Math.max(10, Number(dest.minutes) || 15),
+    thumb: dest.cover_image_url || dest.thumb || null,
+  };
+
+  const totalKm = haversineKm(origin, stop);
+  const transport =
+    opts.transport ||
+    (Number.isFinite(totalKm) && totalKm <= IN_APP_WALK_MAX_KM ? 'walk' : 'car');
+  const totalMinutes = Math.max(3, estimateMinutesForKm(totalKm, transport));
+  const latSpan = Math.abs(originLat - destLat);
+  const lngSpan = Math.abs(originLng - destLng);
+
+  return {
+    regionId: String(dest.regionId || 'direct'),
+    regionTitleUk: 'Маршрут',
+    regionTitleEn: 'Route',
+    countryUk: String(dest.country || dest.city || '').trim(),
+    countryEn: String(dest.country || dest.city || '').trim(),
+    flag: String(dest.flag || '📍'),
+    stops: [stop],
+    coordinates: [
+      { latitude: originLat, longitude: originLng },
+      { latitude: destLat, longitude: destLng },
+    ],
+    totalKm,
+    totalMinutes,
+    transport,
+    freeOnly: transport === 'walk',
+    budgetTier: 'free',
+    generatedFromLandmarkActions: true,
+    mapRegion: {
+      latitude: (originLat + destLat) / 2,
+      longitude: (originLng + destLng) / 2,
+      latitudeDelta: Math.max(0.035, latSpan * 2.4 + 0.02),
+      longitudeDelta: Math.max(0.035, lngSpan * 2.4 + 0.02),
+    },
+    userOrigin: origin,
+    originNearRegion: transport === 'walk' && totalKm <= IN_APP_WALK_MAX_KM,
+  };
+}
 
 /** Мінімальний plan для RouteNavigation з довільних точок на карті. */
 export function buildGeoMapWalkPlan(points, { distanceM, durationSec } = {}, userOrigin = null) {

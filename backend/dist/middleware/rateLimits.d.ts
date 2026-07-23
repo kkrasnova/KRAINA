@@ -11,4 +11,5 @@ export declare const messageSendRateLimiter: import("express-rate-limit").RateLi
 export declare const aiRouteSuggestRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
 export declare const visionLandmarkRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
 export declare const landmarkTtsRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
+export declare const scannerLocationRequestRateLimiter: import("express-rate-limit").RateLimitRequestHandler;
 //# sourceMappingURL=rateLimits.d.ts.map

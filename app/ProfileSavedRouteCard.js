@@ -35,6 +35,8 @@ export default function ProfileSavedRouteCard({
     navigation.navigate('RouteNavigation', {
       ...shell,
       routePlan: plan,
+      autoStartNav: true,
+      forceLiveGps: true,
     });
   };
 

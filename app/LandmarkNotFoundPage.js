@@ -85,6 +85,25 @@ export default function LandmarkNotFoundPage({ navigation, route }) {
     if (submitting) return;
     setSubmitting(true);
     try {
+      let shareLat = attachedLat ?? scanLatitude;
+      let shareLng = attachedLng ?? scanLongitude;
+      if (shareLat == null || shareLng == null) {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const pos = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            shareLat = pos.coords.latitude;
+            shareLng = pos.coords.longitude;
+            setAttachedLat(shareLat);
+            setAttachedLng(shareLng);
+          }
+        } catch {
+          /* keep scan coords if any */
+        }
+      }
+
       const uid =
         user?.id != null
           ? String(user.id)
@@ -98,8 +117,8 @@ export default function LandmarkNotFoundPage({ navigation, route }) {
         userEmail: typeof user?.email === 'string' ? user.email : null,
         scanLatitude,
         scanLongitude,
-        attachedLatitude: attachedLat,
-        attachedLongitude: attachedLng,
+        attachedLatitude: shareLat,
+        attachedLongitude: shareLng,
         visionHintTitle,
         hasPhoto: !!photoUri,
       });

@@ -1154,6 +1154,8 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
               navigation.navigate('RouteNavigation', {
                 ...shell,
                 routePlan: hydrated,
+                autoStartNav: true,
+                forceLiveGps: true,
               }),
           },
           {

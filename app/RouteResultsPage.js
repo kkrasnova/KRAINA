@@ -67,6 +67,13 @@ function transportIcon(transport) {
   }
 }
 
+const ROUTE_RESULT_TRANSPORTS = [
+  { id: 'walk', icon: 'walk-outline', key: 'walkShort' },
+  { id: 'bike', icon: 'bicycle-outline', key: 'bikeShort' },
+  { id: 'car', icon: 'car-outline', key: 'driveShort' },
+  { id: 'bus', icon: 'bus-outline', key: 'busShort' },
+];
+
 function parseHoursSafe(text) {
   const m = String(text || '').match(/(\d+[.,]?\d*)/);
   if (m) return Math.min(12, Math.max(1, parseFloat(m[1].replace(',', '.')) || 6));
@@ -126,6 +133,13 @@ export default function RouteResultsPage({ navigation, route }) {
   const [focusedStopId, setFocusedStopId] = useState(null);
   const [routeActionBusy, setRouteActionBusy] = useState(false);
   const [excludedStopIds, setExcludedStopIds] = useState([]);
+  const [activeTransport, setActiveTransport] = useState(
+    () => route?.params?.transport || plan?.transport || 'walk',
+  );
+
+  useEffect(() => {
+    setActiveTransport(route?.params?.transport || plan?.transport || 'walk');
+  }, [plan?.transport, route?.params?.transport, plan?.regionId]);
 
   const includedStops = useMemo(() => {
     if (!plan?.stops?.length) return [];
@@ -142,7 +156,11 @@ export default function RouteResultsPage({ navigation, route }) {
     );
   }, [plan, includedStops]);
 
-  const routingPlan = displayPlan || plan;
+  const routingPlan = useMemo(() => {
+    const base = displayPlan || plan;
+    if (!base) return base;
+    return { ...base, transport: activeTransport || base.transport || 'walk' };
+  }, [displayPlan, plan, activeTransport]);
 
   const toggleStopIncluded = useCallback(
     (stopId) => {
@@ -207,11 +225,11 @@ export default function RouteResultsPage({ navigation, route }) {
   const tabBarClearance = lightTabBarOverlayBottomInset(insets.bottom, 8);
   const stopCount = plan?.stops?.length || 2;
   const proposalSheetHeight = useMemo(() => {
-    const footerH = 168;
+    const footerH = 268;
     const headerH = 40;
     const rowH = 58;
     const ideal = headerH + footerH + stopCount * rowH;
-    return Math.min(Math.round(windowHeight * 0.52), Math.max(268, ideal));
+    return Math.min(Math.round(windowHeight * 0.58), Math.max(340, ideal));
   }, [stopCount, windowHeight]);
   const mapOverlayBottom = tabBarClearance + proposalSheetHeight + 10;
   const stopsScrollable = stopCount > 3;
@@ -458,6 +476,7 @@ export default function RouteResultsPage({ navigation, route }) {
         routePlan: routingPlan,
         mapPolyline: poly && poly.length >= 2 ? poly : null,
         autoStartNav,
+        forceLiveGps: true,
         walkOrigin: navWalkOrigin,
       };
     },
@@ -481,10 +500,10 @@ export default function RouteResultsPage({ navigation, route }) {
         budgetTier: route.params?.budgetTier || plan?.budgetTier || 'medium',
         interests: route.params?.interests || plan?.interests,
         freeOnly: !!(route.params?.freeOnly || plan?.freeOnly),
-        transport: route.params?.transport || plan?.transport || 'walk',
+        transport: activeTransport || route.params?.transport || plan?.transport || 'walk',
       });
     },
-    [navigation, route.params, shell, language, plan],
+    [navigation, route.params, shell, language, plan, activeTransport],
   );
 
   const onAnother = useCallback(async () => {
@@ -499,7 +518,7 @@ export default function RouteResultsPage({ navigation, route }) {
         route.params?.hoursText || String(Math.max(1, Math.round((plan.totalMinutes || 120) / 60))),
       );
       const query = route.params?.placeQuery || routeRegionTitle(language, plan);
-      const transport = route.params?.transport || plan.transport || 'walk';
+      const transport = activeTransport || route.params?.transport || plan.transport || 'walk';
       const tier = route.params?.budgetTier || (route.params?.freeOnly ? 'free' : 'medium');
       const interests = route.params?.interests || plan.interests;
 
@@ -605,7 +624,7 @@ export default function RouteResultsPage({ navigation, route }) {
     } finally {
       setRouteActionBusy(false);
     }
-  }, [plan, routeActionBusy, route.params, language, replaceWithPlan]);
+  }, [plan, routeActionBusy, route.params, language, replaceWithPlan, activeTransport]);
 
   const effectiveKm = useMemo(() => {
     if (roadDistanceM != null && roadDistanceM > 0) return roadDistanceM / 1000;
@@ -1071,7 +1090,7 @@ export default function RouteResultsPage({ navigation, route }) {
               </View>
               <View style={[styles.statsBarDivider, { backgroundColor: chrome.panelBorder }]} />
               <View style={styles.statsBarItem}>
-                <Ionicons name={transportIcon(plan.transport)} size={14} color={accent} />
+                <Ionicons name={transportIcon(activeTransport || plan.transport)} size={14} color={accent} />
                 <Text style={[styles.statsBarText, brandFontSansSemibold, { color: textMain }]}>{kmDisplay}</Text>
               </View>
               <View style={[styles.statsBarDivider, { backgroundColor: chrome.panelBorder }]} />
@@ -1086,6 +1105,99 @@ export default function RouteResultsPage({ navigation, route }) {
             {!getGoogleMapsApiKey() ? (
               <Text style={[styles.keyHint, brandFontSansMedium, { color: textMuted }]}>{rp(language, 'addMapsKeyHint')}</Text>
             ) : null}
+
+            <View style={styles.transportBlock}>
+              <Text style={[styles.transportBlockLabel, brandFontSansSemibold, { color: textMuted }]}>
+                {rp(language, 'transportSection')}
+              </Text>
+              <View style={styles.transportSwitchRow}>
+                {ROUTE_RESULT_TRANSPORTS.map((t) => {
+                  const sel = activeTransport === t.id;
+                  const label = rp(language, t.key);
+                  const onTint = onAccentButtonText(isLight);
+                  return (
+                    <Pressable
+                      key={t.id}
+                      onPress={() => setActiveTransport(t.id)}
+                      style={({ pressed }) => [
+                        styles.transportTileOuter,
+                        sel && styles.transportTileOuterSelected,
+                        pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: sel }}
+                      accessibilityLabel={label}
+                    >
+                      {sel ? (
+                        <LinearGradient
+                          colors={goGradient}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.transportTile}
+                        >
+                          <View style={[styles.transportIconOrb, { backgroundColor: 'rgba(255,255,255,0.22)' }]}>
+                            <Ionicons name={t.icon} size={18} color={onTint} />
+                          </View>
+                          <Text
+                            style={[styles.transportSwitchChipText, brandFontSansBold, { color: onTint }]}
+                            numberOfLines={1}
+                          >
+                            {label}
+                          </Text>
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={[
+                            styles.transportTile,
+                            {
+                              backgroundColor: isLight ? '#F3F4F8' : '#2A2A2E',
+                              borderColor: chrome.panelBorder,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.transportIconOrb,
+                              { backgroundColor: isLight ? 'rgba(2,18,235,0.08)' : 'rgba(225,255,0,0.12)' },
+                            ]}
+                          >
+                            <Ionicons name={t.icon} size={18} color={accent} />
+                          </View>
+                          <Text
+                            style={[styles.transportSwitchChipText, brandFontSansSemibold, { color: textMain }]}
+                            numberOfLines={1}
+                          >
+                            {label}
+                          </Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.historyLockCard,
+                {
+                  backgroundColor: isLight ? 'rgba(2,18,235,0.06)' : 'rgba(225,255,0,0.10)',
+                  borderColor: chrome.panelBorder,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.historyLockIcon,
+                  { backgroundColor: isLight ? 'rgba(2,18,235,0.12)' : 'rgba(225,255,0,0.18)' },
+                ]}
+              >
+                <Ionicons name="lock-closed" size={14} color={accent} />
+              </View>
+              <Text style={[styles.historyLockHint, brandFontSansMedium, { color: textMain }]}>
+                {rp(language, 'routeUnlockTeaser')}
+              </Text>
+            </View>
 
             <View style={styles.actionsPrimary}>
               <Pressable
@@ -1481,6 +1593,82 @@ const styles = StyleSheet.create({
   stopMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   stopMeta: { fontSize: 12, lineHeight: 16 },
   keyHint: { fontSize: 11, lineHeight: 15, marginBottom: 8, textAlign: 'center' },
+  transportBlock: {
+    marginBottom: 8,
+  },
+  transportBlockLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  transportSwitchRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 6,
+  },
+  transportTileOuter: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  transportTileOuterSelected: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.22,
+        shadowRadius: 8,
+      },
+      android: { elevation: 5 },
+    }),
+  },
+  transportTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    minHeight: 72,
+    gap: 6,
+  },
+  transportIconOrb: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transportSwitchChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: 'center',
+  },
+  historyLockCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  historyLockIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyLockHint: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   markerOuter: { alignItems: 'center' },
   markerWrap: {
     width: 46,

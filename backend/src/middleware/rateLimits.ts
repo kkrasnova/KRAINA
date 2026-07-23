@@ -169,3 +169,25 @@ export const landmarkTtsRateLimiter = rateLimit({
     res.status(429).json({ error: 'rate_limited' });
   },
 });
+
+export const walkNarrateRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 24,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: rateLimitValidate,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'rate_limited' });
+  },
+});
+
+export const scannerLocationRequestRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: rateLimitValidate,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'rate_limited' });
+  },
+});

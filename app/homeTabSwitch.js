@@ -18,6 +18,7 @@ const OVERLAY_TAB_ROUTES = new Set([
   'RouteNavigation',
   'ProfilePage',
   'ProfileGamificationHub',
+  'ProfileAchievements',
   'ProfileEdit',
   'ProfileFriends',
   'ProfileInvites',

@@ -72,7 +72,8 @@ import { hydrateLocalFeedPostStats } from './feedLocalInteractions';
 import { peekPostLikeState, warmPostLikeStateFromStats } from './feedInteractionHotCache';
 import { getVisitLog } from './visitStatsStorage';
 import { computeGamificationFromVisits } from './visitGamification';
-import { getLandmarkQuizBonusXpTotal } from './landmarkQuizRewards';
+import { getLandmarkQuizBonusXpTotal, getLandmarkQuizPendingXpTotal, getQuizWheelSpentXp } from './landmarkQuizRewards';
+import { formatQuizXpAsMoney } from './quizPointsCurrency';
 import { getPhysicalVisitBonusXpTotal } from './physicalVisitRewards';
 import ProfileLevelBadge from './ProfileLevelBadge';
 import { brandFontHeadMedium, brandFontSans, brandFontSansSemibold } from './brandFont';
@@ -198,6 +199,7 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
   const [selfStories, setSelfStories] = useState([]);
   const [selfStoryHasUnviewed, setSelfStoryHasUnviewed] = useState(false);
   const [gamify, setGamify] = useState(() => computeGamificationFromVisits([]));
+  const [wheelSpentXp, setWheelSpentXp] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
   const user = route?.params?.user || {};
@@ -262,6 +264,20 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       : null;
 
   const profileDisplayLevel = ownServerGamify?.level ?? gamify.level ?? 1;
+
+  const profilePointsBalance = useMemo(() => {
+    if (!isOwnProfile) return 0;
+    const serverXp =
+      profileMeXp != null && Number.isFinite(Number(profileMeXp)) ? Math.round(Number(profileMeXp)) : 0;
+    const localXp = Math.max(0, Math.round(Number(gamify?.xp) || 0));
+    const base = Math.max(serverXp, localXp);
+    return Math.max(0, base - Math.max(0, Math.round(Number(wheelSpentXp) || 0)));
+  }, [isOwnProfile, profileMeXp, gamify?.xp, wheelSpentXp]);
+
+  const profilePointsMoney = useMemo(
+    () => formatQuizXpAsMoney(profilePointsBalance, language),
+    [profilePointsBalance, language],
+  );
 
   const hasActiveStory = selfStories.length > 0;
   const effectiveUser = isOwnProfile ? authUser || user : user;
@@ -511,12 +527,17 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
       }
       const [sv, places] = await Promise.all([getSavedRoutes(), getSavedLandmarks()]);
       try {
-        const [visitLog, quizBonusXp, physicalBonusXp] = await Promise.all([
+        const [visitLog, quizBonusXp, quizPendingXp, physicalBonusXp, spentXp] = await Promise.all([
           getVisitLog({ physicalOnly: true }),
           getLandmarkQuizBonusXpTotal(),
+          getLandmarkQuizPendingXpTotal(),
           getPhysicalVisitBonusXpTotal(),
+          getQuizWheelSpentXp(),
         ]);
-        setGamify(computeGamificationFromVisits(visitLog, quizBonusXp + physicalBonusXp));
+        setGamify(
+          computeGamificationFromVisits(visitLog, quizBonusXp + quizPendingXp + physicalBonusXp),
+        );
+        setWheelSpentXp(spentXp);
       } catch {
         setGamify(computeGamificationFromVisits([]));
       }
@@ -858,6 +879,11 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
     },
     [navigation, shell, authUser, user],
   );
+
+  const openOwnRewardsHub = useCallback(() => {
+    if (!isOwnProfile) return;
+    openProfileScreen('ProfileGamificationHub');
+  }, [isOwnProfile, openProfileScreen]);
 
   const openStoryCamera = useCallback(() => {
     if (!user?.id || !isOwnProfile) return;
@@ -1244,6 +1270,55 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
               </Text>
             </Pressable>
           </View>
+        ) : null}
+
+        {isOwnProfile ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.pointsCard,
+              {
+                backgroundColor: isLight ? 'rgba(2,18,235,0.07)' : 'rgba(225,255,0,0.1)',
+                borderColor: isLight ? 'rgba(2,18,235,0.18)' : 'rgba(225,255,0,0.28)',
+              },
+              pressed && { opacity: 0.9 },
+            ]}
+            onPress={openOwnRewardsHub}
+            android_ripple={headerRipple}
+            accessibilityRole="button"
+            accessibilityLabel={pf(language, 'profilePointsA11y')}
+          >
+            <View
+              style={[
+                styles.pointsIconWrap,
+                { backgroundColor: isLight ? accent : '#E1FF00' },
+              ]}
+            >
+              <Ionicons
+                name="sparkles"
+                size={16}
+                color={isLight ? '#FFFFFF' : '#121212'}
+              />
+            </View>
+            <View style={styles.pointsCopy}>
+              <Text style={[styles.pointsLabel, brandFontSans, { color: textMuted }]}>
+                {pf(language, 'profilePointsLabel')}
+              </Text>
+              <Text style={[styles.pointsValue, brandFontSansSemibold, { color: textMain }]}>
+                {profilePointsBalance} XP
+                <Text style={[styles.pointsMoney, { color: accent }]}>
+                  {`  ·  ${profilePointsMoney.amountLabel}`}
+                </Text>
+              </Text>
+              <Text style={[styles.pointsHint, brandFontSans, { color: textMuted }]}>
+                {pf(language, 'profilePointsHint')}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={isLight ? accent : '#E1FF00'}
+            />
+          </Pressable>
         ) : null}
 
         <View
@@ -1712,6 +1787,46 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth * 2,
   },
   socialShortcutText: { fontSize: 14, fontWeight: '600' },
+  pointsCard: {
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 10,
+  },
+  pointsIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointsCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pointsLabel: {
+    fontSize: 12,
+    lineHeight: 14,
+    marginBottom: 2,
+  },
+  pointsValue: {
+    fontSize: 17,
+    lineHeight: 21,
+  },
+  pointsMoney: {
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  pointsHint: {
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 2,
+  },
   tabRail: {
     flexDirection: 'row',
     marginHorizontal: GRID_H_PAD,

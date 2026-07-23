@@ -26,7 +26,8 @@ import { gm } from './geoMapI18n';
 import { fetchPublishedLocations, searchLocationsPublished } from './locationsApi';
 import { fetchGoogleDirectionsPolyline, getGoogleMapsApiKey, openGoogleMapsDirections } from './googleMapsRoute';
 import { orderStopsFromUserOrigin, isUserOriginNearRoute } from './routePlannerCore';
-import { reverseGeocodeLabel, searchPlaces } from './googleGeocode';
+import { reverseGeocodeLabel, searchPlaces, geocodeAddress } from './googleGeocode';
+import { searchLocalMapPlaces, mapZoomForPlace } from './mapLocationSearch';
 import { buildGeoMapWalkPlan } from './geoMapRoutePlan';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { getSavedLandmarks } from './savedLandmarksStorage';
@@ -132,6 +133,7 @@ export default function GeoMapExplorer({
   const [debouncedQ, setDebouncedQ] = useState('');
   const [catalog, setCatalog] = useState([]);
   const [searchHits, setSearchHits] = useState([]);
+  const [localHits, setLocalHits] = useState([]);
   const [geocodeHits, setGeocodeHits] = useState([]);
   const [geocoding, setGeocoding] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -148,6 +150,8 @@ export default function GeoMapExplorer({
   const [mapLayoutEpoch, setMapLayoutEpoch] = useState(0);
   const [mapFault, setMapFault] = useState(false);
   const mapTabActiveRef = useRef(false);
+  const userNavigatedViaSearchRef = useRef(false);
+  const listDataRef = useRef([]);
   const [savedList, setSavedList] = useState([]);
   const [showSaved, setShowSaved] = useState(false);
 
@@ -211,12 +215,14 @@ export default function GeoMapExplorer({
     const q = debouncedQ;
     if (q.length < 2) {
       setSearchHits([]);
+      setLocalHits([]);
       setGeocodeHits([]);
       setSearching(false);
       setGeocoding(false);
       setSearchNetworkError(false);
       return undefined;
     }
+    setLocalHits(searchLocalMapPlaces(q, language));
     setSearching(true);
     setGeocoding(true);
     setSearchNetworkError(false);
@@ -316,10 +322,29 @@ export default function GeoMapExplorer({
     [route?.params?.user, route?.params?.countryId, language, isLight],
   );
 
+  const listData = useMemo(() => {
+    if (debouncedQ.length < 2) return [];
+    const seen = new Set();
+    const out = [];
+    const push = (row) => {
+      const key = `${Number(row.lat).toFixed(5)}_${Number(row.lng).toFixed(5)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(row);
+    };
+    for (const row of localHits) push(row);
+    for (const row of geocodeHits) push(row);
+    for (const row of searchHits) push(row);
+    return out;
+  }, [debouncedQ, localHits, searchHits, geocodeHits]);
+
+  listDataRef.current = listData;
+
   const displayPins = useMemo(() => {
-    if (debouncedQ.length >= 2) return searchHits;
+    if (debouncedQ.length >= 2 && listData.length > 0) return listData;
+    if (debouncedQ.length >= 2) return [...localHits, ...geocodeHits, ...searchHits];
     return catalog;
-  }, [debouncedQ, searchHits, catalog]);
+  }, [debouncedQ, listData, localHits, geocodeHits, searchHits, catalog]);
 
   const markerPins = useMemo(() => {
     const byId = new Map();
@@ -339,21 +364,6 @@ export default function GeoMapExplorer({
   }, [routeSeq, userPos?.latitude, userPos?.longitude]);
 
   const displayRouteSeq = orderedRouteSeq.length >= 2 ? orderedRouteSeq : routeSeq;
-
-  const listData = useMemo(() => {
-    if (debouncedQ.length < 2) return [];
-    const seen = new Set();
-    const out = [];
-    const push = (row) => {
-      const key = `${Number(row.lat).toFixed(5)}_${Number(row.lng).toFixed(5)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push(row);
-    };
-    for (const row of geocodeHits) push(row);
-    for (const row of searchHits) push(row);
-    return out;
-  }, [debouncedQ, searchHits, geocodeHits]);
 
   const drawCoords = useMemo(() => {
     if (roadPath && roadPath.length >= 2) return roadPath;
@@ -491,7 +501,7 @@ export default function GeoMapExplorer({
   }, [mapReady, routeSeq, fitAll]);
 
   useEffect(() => {
-    if (!mapReady || routeSeq.length > 0) return;
+    if (!mapReady || routeSeq.length > 0 || userNavigatedViaSearchRef.current) return;
     const t = setTimeout(() => focusMapOverview(), 320);
     return () => clearTimeout(t);
   }, [mapReady, userPos, routeSeq.length, focusMapOverview]);
@@ -612,6 +622,7 @@ export default function GeoMapExplorer({
       routePlan: plan,
       mapPolyline: roadPath && roadPath.length >= 2 ? roadPath : null,
       autoStartNav: true,
+      forceLiveGps: true,
     });
   }, [routeSeq, orderedRouteSeq, meta, userPos, navigation, shell, roadPath]);
 
@@ -630,6 +641,7 @@ export default function GeoMapExplorer({
   }, [routeSeq, orderedRouteSeq, userPos]);
 
   const centerUser = useCallback(async () => {
+    userNavigatedViaSearchRef.current = false;
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted' || !mapRef.current) return;
     const pos = userPos
@@ -743,16 +755,75 @@ export default function GeoMapExplorer({
 
   const focusMapOn = useCallback((loc) => {
     if (!loc || !mapRef.current) return;
+    const zoom = mapZoomForPlace(loc);
+    userNavigatedViaSearchRef.current = true;
     mapRef.current.animateToRegion(
       {
         latitude: loc.lat,
         longitude: loc.lng,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
+        latitudeDelta: zoom.latitudeDelta,
+        longitudeDelta: zoom.longitudeDelta,
       },
-      400,
+      450,
     );
   }, []);
+
+  const goToSearchResult = useCallback(
+    (item) => {
+      if (!item) return;
+      focusMapOn(item);
+      setQuery('');
+      Keyboard.dismiss();
+    },
+    [focusMapOn],
+  );
+
+  const submitSearch = useCallback(async () => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    Keyboard.dismiss();
+
+    const local = searchLocalMapPlaces(q, language);
+    if (local.length > 0) {
+      goToSearchResult(local[0]);
+      return;
+    }
+
+    if (listDataRef.current.length > 0) {
+      goToSearchResult(listDataRef.current[0]);
+      return;
+    }
+
+    setGeocoding(true);
+    try {
+      const key = getGoogleMapsApiKey();
+      let placeRows = [];
+      if (key) {
+        placeRows = await searchPlaces(q, language);
+        if (!placeRows.length) {
+          placeRows = await geocodeAddress(q, language);
+        }
+      } else {
+        try {
+          const expoRows = await Location.geocodeAsync(q);
+          placeRows = (Array.isArray(expoRows) ? expoRows : []).slice(0, 8).map((g, i) => ({
+            id: `expo_${i}_${g.latitude}_${g.longitude}`,
+            label: q,
+            lat: g.latitude,
+            lng: g.longitude,
+          }));
+        } catch {
+          placeRows = [];
+        }
+      }
+      const hit = placeRows
+        .map((row) => normGeocodeRow(row, q, language))
+        .filter(Boolean)[0];
+      if (hit) goToSearchResult(hit);
+    } finally {
+      setGeocoding(false);
+    }
+  }, [query, language, goToSearchResult]);
 
   const topChrome = (
     <View style={[styles.topBlock, { paddingTop: topPad }]}>
@@ -784,11 +855,12 @@ export default function GeoMapExplorer({
             autoCapitalize="none"
             clearButtonMode="never"
             underlineColorAndroid="transparent"
-            onSubmitEditing={() => Keyboard.dismiss()}
+            onSubmitEditing={submitSearch}
           />
           {query.length > 0 ? (
             <Pressable
               onPress={() => {
+                userNavigatedViaSearchRef.current = false;
                 setQuery('');
                 Keyboard.dismiss();
               }}
@@ -842,16 +914,16 @@ export default function GeoMapExplorer({
         </View>
       ) : null}
 
-      {listData.length > 0 ? (
+      {debouncedQ.length >= 2 && (listData.length > 0 || searching || geocoding) ? (
         <View
           style={[
             styles.listCard,
             { backgroundColor: cardBg, borderColor: cardBorder, maxHeight: 156 },
           ]}
         >
-          {searching || geocoding ? (
+          {(searching || geocoding) && listData.length === 0 ? (
             <ActivityIndicator style={{ padding: 20 }} color={accent} />
-          ) : (
+          ) : listData.length > 0 ? (
             <RenderProfiler id="GeoMapExplorer:search">
               <FlashList
                 keyboardShouldPersistTaps="handled"
@@ -861,17 +933,16 @@ export default function GeoMapExplorer({
                 keyExtractor={(it) => it.id}
                 renderItem={({ item }) => {
                   const inR = routeSeq.some((x) => x.id === item.id);
+                  const sourceLabel = item.isGeocode
+                    ? gm(language, 'searchWorldSource')
+                    : item.isLocal && item.placeKind === 'city'
+                      ? gm(language, 'searchLocalSource')
+                      : [item.city, item.country].filter(Boolean).join(' · ') ||
+                        gm(language, 'searchCatalogSource');
                   return (
                     <View style={[styles.rowOuter, { borderBottomColor: cardBorder }]}>
                       <Pressable
-                        onPress={() => {
-                          toggleInRoute(item);
-                          focusMapOn(item);
-                          if (item.isGeocode) {
-                            setQuery('');
-                            Keyboard.dismiss();
-                          }
-                        }}
+                        onPress={() => goToSearchResult(item)}
                         android_ripple={ripple}
                         style={({ pressed }) => [styles.rowToggle, pressed && { opacity: 0.92 }]}
                       >
@@ -880,20 +951,28 @@ export default function GeoMapExplorer({
                             {item.title}
                           </Text>
                           <Text style={[styles.rowSub, { color: textMuted }]} numberOfLines={2}>
-                            {item.isGeocode
-                              ? gm(language, 'searchWorldSource')
-                              : [item.city, item.country].filter(Boolean).join(' · ') ||
-                                gm(language, 'searchCatalogSource')}
+                            {sourceLabel}
                           </Text>
                         </View>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => toggleInRoute(item)}
+                        hitSlop={8}
+                        android_ripple={ripple}
+                        style={({ pressed }) => [
+                          styles.rowRouteBtn,
+                          { opacity: pressed ? 0.88 : 1 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={inR ? gm(language, 'clearRoute') : gm(language, 'addHint')}
+                      >
                         <Ionicons
                           name={inR ? 'checkmark-circle' : 'add-circle-outline'}
                           size={26}
                           color={accent}
-                          style={styles.rowRouteIcon}
                         />
                       </Pressable>
-                      {!item.isGeocode ? (
+                      {!item.isGeocode && item.placeKind !== 'city' ? (
                       <Pressable
                         onPress={() => openCard(item)}
                         android_ripple={ripple}
@@ -913,7 +992,7 @@ export default function GeoMapExplorer({
                 }}
               />
             </RenderProfiler>
-          )}
+          ) : null}
         </View>
       ) : debouncedQ.length >= 2 && !searching && !geocoding && !searchNetworkError ? (
         <View style={[styles.hintPill, { backgroundColor: cardBg, borderColor: cardBorder }]}>
@@ -1531,6 +1610,12 @@ const styles = StyleSheet.create({
     minHeight: 52,
   },
   rowRouteIcon: { marginLeft: 4 },
+  rowRouteBtn: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    minWidth: 48,
+  },
   rowTitle: { fontSize: 15, lineHeight: 20 },
   rowSub: { fontSize: 12, marginTop: 3, lineHeight: 16 },
   rowCardBtn: {

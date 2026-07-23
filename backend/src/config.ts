@@ -97,6 +97,11 @@ export const visionConfig = {
   apiKey: opt('GOOGLE_VISION_API_KEY'),
 };
 
+export const telegramConfig = {
+  botToken: opt('TELEGRAM_BOT_TOKEN'),
+  chatId: opt('TELEGRAM_LANDMARK_REQUESTS_CHAT_ID'),
+};
+
 export const config = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   sentryDsn: opt('SENTRY_DSN'),

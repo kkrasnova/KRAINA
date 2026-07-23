@@ -16,6 +16,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 
@@ -26,11 +27,15 @@ import { appLangBase } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
 
 import { ls } from './landmarkScannerI18n';
-import { identifyLandmark } from './landmarkIdentify';
-import { parseCityFromSubtitle, inferVisitCategoryFromTitle } from './visitStatsStorage';
+import { buildNotFoundLandmarkResult } from './landmarkIdentify';
+import { ROUTE_REGIONS } from './routeRegionsData';
+import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
+import { distanceMetersFromCoords } from './landmarkProximity';
 import { getAppTheme, THEME_CHANGED_EVENT, resolveAppTheme } from './themeStorage';
 import { LANDMARK_SCANNER_CAPTURE_EVENT } from './homeTabPagerConstants';
-import { lightTabBarScrollContentPadding } from './LightBottomTabBar';
+import {
+  lightTabBarExtraScrollPadding,
+} from './LightBottomTabBar';
 import { accentForTheme, ACCENT_LEMON } from './themeAccent';
 import { tryLoadExpoCamera } from './tryLoadExpoCamera';
 import { errorToUserText } from './errorText';
@@ -48,9 +53,14 @@ function CameraNativeMissing({ navigation, route }) {
   );
 }
 
-const FRAME_SIDE_INSET = 0.08;
+const FRAME_SIDE_INSET = 16;
 const CORNER_ARM = 58;
 const CORNER_STROKE = 5;
+
+/** Відступ знизу під плаваючу tab bar (без scroll clearance — лише для камери). */
+function scannerTabBarInset(safeAreaBottom = 0) {
+  return Math.max(0, Number(safeAreaBottom) || 0) + lightTabBarExtraScrollPadding();
+}
 
 function cornerGlowStyle(color) {
   return Platform.select({
@@ -141,16 +151,16 @@ function ScanCorner({ color, placement }) {
   );
 }
 
-function CornerFrame({ color, topInset, bottomInset, busy, onCapturePress, captureDisabled }) {
+function CornerFrame({ color, topInset, bottomInset, busy }) {
   const { width: winW, height: winH } = useWindowDimensions();
   const pulse = useRef(new Animated.Value(0)).current;
   const scan = useRef(new Animated.Value(0)).current;
 
-  const sideInset = winW * FRAME_SIDE_INSET;
-  const frameTop = topInset + 36;
-  const frameBottom = bottomInset + 20;
-  const frameHeight = Math.max(160, winH - frameTop - frameBottom);
-  const frameWidth = Math.max(160, winW - sideInset * 2);
+  const sideInset = FRAME_SIDE_INSET;
+  const frameTop = topInset + 12;
+  const frameBottom = bottomInset;
+  const frameHeight = Math.max(200, winH - frameTop - frameBottom);
+  const frameWidth = Math.max(200, winW - sideInset * 2);
 
   useEffect(() => {
     const pulseLoop = Animated.loop(
@@ -219,7 +229,7 @@ function CornerFrame({ color, topInset, bottomInset, busy, onCapturePress, captu
         ]}
       />
 
-      <Pressable
+      <View
         style={[
           styles.scanWindow,
           {
@@ -229,10 +239,7 @@ function CornerFrame({ color, topInset, bottomInset, busy, onCapturePress, captu
             height: frameHeight,
           },
         ]}
-        onPress={onCapturePress}
-        disabled={busy || captureDisabled}
-        accessibilityRole="button"
-        accessibilityLabel="Scan landmark"
+        pointerEvents="none"
       >
         <View style={styles.scanLineClip} pointerEvents="none">
           <Animated.View
@@ -252,7 +259,7 @@ function CornerFrame({ color, topInset, bottomInset, busy, onCapturePress, captu
           <ScanCorner color={color} placement="bl" />
           <ScanCorner color={color} placement="br" />
         </Animated.View>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -276,7 +283,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
   const cameraReadyRef = useRef(false);
   /** Перемонтаж застряглого прев'ю (є в'юха, але немає onCameraReady) — до 2 разів. */
   const readyKickRef = useRef(0);
-  const MAX_READY_KICKS = 2;
+  const MAX_READY_KICKS = 3;
   const [ready, setReady] = useState(isVirtualDevice);
   const [busy, setBusy] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
@@ -356,7 +363,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
       readyKickRef.current += 1;
       if (__DEV__) console.warn('[LandmarkScanner] preview kick', readyKickRef.current);
       setCameraSession((s) => s + 1);
-    }, 1600);
+    }, 2200);
     return () => clearTimeout(t);
   }, [isTabActive, cameraError, cameraSession, language]);
 
@@ -423,83 +430,95 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
 
-  const navigateWithScanResult = useCallback(
-    async (result, { photoUri, latitude, longitude }) => {
-      if (result.notFound) {
-        navigation.navigate('LandmarkNotFound', {
-          user: route?.params?.user,
-          language,
-          ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-          appTheme,
-          photoUri,
-          requestRef: result.requestRef,
-          scanLatitude: result.latitude,
-          scanLongitude: result.longitude,
-          visionHintTitle: result.visionHintTitle,
-        });
-        return;
-      }
+  const findNearestCatalogLandmark = useCallback((latitude, longitude) => {
+    const lat = typeof latitude === 'number' ? latitude : null;
+    const lng = typeof longitude === 'number' ? longitude : null;
+    if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-      const visitCity = parseCityFromSubtitle(result.subtitle) || '';
-      navigation.navigate('LandmarkResult', {
-        user: route?.params?.user,
-        language,
-        ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
-        appTheme,
-        photoUri,
-        title: result.title,
-        headerTitle: result.title,
-        subtitle: result.subtitle,
-        extract: result.extract,
-        miniExtract: result.miniExtract,
-        wikipediaUrl: result.wikipediaUrl,
-        source: result.source,
-        fromScanner: true,
-        visitCity,
-        visitCategory: inferVisitCategoryFromTitle(result.title),
-        startPhase: 'mini',
-        ...(latitude != null &&
-        longitude != null &&
-        Number.isFinite(latitude) &&
-        Number.isFinite(longitude)
-          ? { visitLat: latitude, visitLng: longitude }
-          : {}),
-      });
-    },
-    [navigation, route, language, appTheme],
-  );
+    let best = null;
+    for (const region of Object.values(ROUTE_REGIONS || {})) {
+      const list = Array.isArray(region?.landmarks) ? region.landmarks : [];
+      for (const lm of list) {
+        const dM = distanceMetersFromCoords(lat, lng, lm?.lat, lm?.lng);
+        if (dM == null) continue;
+        if (!best || dM < best.distanceM) {
+          best = { region, lm, distanceM: dM };
+        }
+      }
+    }
+    return best;
+  }, []);
+
+  const resolveScanLocation = useCallback(async () => {
+    let latitude = null;
+    let longitude = null;
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return { latitude, longitude };
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        latitude = pos.coords.latitude;
+        longitude = pos.coords.longitude;
+      } catch {
+        const last = await Location.getLastKnownPositionAsync();
+        if (last?.coords) {
+          latitude = last.coords.latitude;
+          longitude = last.coords.longitude;
+        }
+      }
+    } catch {
+      /* ignore location */
+    }
+    return { latitude, longitude };
+  }, []);
 
   const processLandmarkScan = useCallback(
-    async ({ base64, photoUri }) => {
-      let latitude = null;
-      let longitude = null;
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          latitude = pos.coords.latitude;
-          longitude = pos.coords.longitude;
-        }
-      } catch {
-        /* ignore location */
-      }
-
-      const result = await identifyLandmark({
-        base64,
-        latitude,
-        longitude,
-        language,
-      });
+    async ({ photoUri }) => {
+      const { latitude, longitude } = await resolveScanLocation();
 
       if (Platform.OS === 'android') {
         Vibration.vibrate(22);
       }
 
-      await navigateWithScanResult(result, { photoUri, latitude, longitude });
+      const nearest = findNearestCatalogLandmark(latitude, longitude);
+      // UX: якщо користувач реально біля точки — відкриваємо одразу. Інакше — «немає такої локації».
+      const MATCH_RADIUS_M = 450;
+      if (nearest?.lm && nearest?.region && nearest.distanceM != null && nearest.distanceM <= MATCH_RADIUS_M) {
+        const params = buildLandmarkResultParamsFromHomeLandmark({
+          lm: nearest.lm,
+          region: nearest.region,
+          countryId: route?.params?.countryId,
+          language,
+          appTheme,
+          user: route?.params?.user,
+        });
+        navigation.navigate('LandmarkResult', {
+          ...params,
+          fromScanner: true,
+          ...(photoUri ? { photoUri } : {}),
+          ...(typeof latitude === 'number' && typeof longitude === 'number'
+            ? { visitLat: latitude, visitLng: longitude }
+            : {}),
+        });
+        return;
+      }
+
+      const notFound = buildNotFoundLandmarkResult({ latitude, longitude, visionHintTitle: null });
+      navigation.navigate('LandmarkNotFound', {
+        user: route?.params?.user,
+        language,
+        ...(route?.params?.countryId != null ? { countryId: route.params.countryId } : {}),
+        appTheme,
+        ...(photoUri ? { photoUri } : {}),
+        requestRef: notFound.requestRef,
+        scanLatitude: notFound.latitude,
+        scanLongitude: notFound.longitude,
+        visionHintTitle: null,
+      });
     },
-    [language, navigateWithScanResult],
+    [resolveScanLocation, findNearestCatalogLandmark, navigation, route, language, appTheme],
   );
 
   const pickFromGallery = useCallback(async () => {
@@ -566,8 +585,8 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
       const photo = await camRef.current.takePictureAsync({
         quality: 0.85,
         base64: true,
-        // Для identifyLandmark нужен base64. На Android skipProcessing может
-        // приводить к отсутствию/пустому base64, поэтому оставляем обработку включенной.
+        // Base64 потрібен для UI-потоку з фото (на деяких девайсах без обробки base64 може бути порожнім),
+        // тому залишаємо обробку увімкненою.
         skipProcessing: false,
       });
       let base64 = photo?.base64 && String(photo.base64).length > 80 ? photo.base64 : null;
@@ -656,85 +675,78 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
     );
   }
 
-  const scanReady = isVirtualDevice || ready;
-  const scanHintKey = isVirtualDevice ? 'simulatorScanHint' : 'tapToScan';
+  const tabBarInset = scannerTabBarInset(insets.bottom);
 
   return (
     <View style={styles.screen}>
-      {isVirtualDevice ? (
-        <View style={styles.simulatorPreview}>
-          <LinearGradient
-            colors={isLight ? ['#E4E6EC', '#D8DCE6', '#ECEFF4'] : ['#1a1a1a', '#0a0a0a', '#111111']}
-            style={StyleSheet.absoluteFill}
+      <View style={styles.cameraShell}>
+        {isVirtualDevice ? (
+          <View style={[styles.simulatorPreview, { width: scanW, height: scanH }]}>
+            <LinearGradient
+              colors={isLight ? ['#E4E6EC', '#D8DCE6', '#ECEFF4'] : ['#1a1a1a', '#0a0a0a', '#111111']}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={
+                isLight
+                  ? ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.42)']
+                  : ['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)']
+              }
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+        ) : (
+          <CameraView
+            key={`scanner-cam-${cameraSession}`}
+            ref={camRef}
+            style={[styles.cameraBase, { width: scanW, height: scanH }]}
+            facing="back"
+            mode="picture"
+            active={isTabActive}
+            animateShutter
+            {...(Platform.OS === 'android' ? { ratio: '16:9' } : null)}
+            onCameraReady={() => {
+              if (__DEV__) console.warn('[LandmarkScanner] onCameraReady');
+              cameraReadyRef.current = true;
+              mountRetryRef.current = 0;
+              setReady(true);
+              setCameraError(null);
+            }}
+            onMountError={(e) => {
+              if (__DEV__) console.warn('[LandmarkScanner] onMountError', e?.message, JSON.stringify(e || {}));
+              if (!isVirtualDevice && mountRetryRef.current < MAX_MOUNT_RETRIES) {
+                mountRetryRef.current += 1;
+                setTimeout(() => setCameraSession((s) => s + 1), 350);
+                return;
+              }
+              setReady(false);
+              setCameraError(e?.message || ls(language, 'cameraError'));
+            }}
           />
-          <LinearGradient
-            colors={
-              isLight
-                ? ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.42)']
-                : ['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)']
-            }
-            style={StyleSheet.absoluteFill}
-          />
-        </View>
-      ) : (
-        <CameraView
-          key={`scanner-cam-${cameraSession}`}
-          ref={camRef}
-          // Явні розміри: під Fabric absoluteFill інколи дає ширину 0 → прев'ю біле.
-          style={[StyleSheet.absoluteFill, { width: scanW, height: scanH }]}
-          facing="back"
-          mode="picture"
-          active={isTabActive}
-          animateShutter
-          onCameraReady={() => {
-            if (__DEV__) console.warn('[LandmarkScanner] onCameraReady');
-            cameraReadyRef.current = true;
-            mountRetryRef.current = 0;
-            setReady(true);
-            setCameraError(null);
-          }}
-          onMountError={(e) => {
-            if (__DEV__) console.warn('[LandmarkScanner] onMountError', e?.message, JSON.stringify(e || {}));
-            if (!isVirtualDevice && mountRetryRef.current < MAX_MOUNT_RETRIES) {
-              mountRetryRef.current += 1;
-              setTimeout(() => setCameraSession((s) => s + 1), 350);
-              return;
-            }
-            setReady(false);
-            setCameraError(e?.message || ls(language, 'cameraError'));
-          }}
-        />
-      )}
+        )}
+      </View>
       <CornerFrame
         color={accent}
         topInset={insets.top}
-        bottomInset={lightTabBarScrollContentPadding(insets.bottom)}
+        bottomInset={tabBarInset}
         busy={busy}
-        captureDisabled={!scanReady && !cameraError}
-        onCapturePress={() => {
-          pendingCaptureRef.current = false;
-          void runCapture();
-        }}
       />
-      {!busy && scanReady ? (
-        <View
-          pointerEvents="none"
-          style={[styles.scanHintWrap, { bottom: lightTabBarScrollContentPadding(insets.bottom, 12) }]}
-        >
-          <Text style={styles.scanHintText}>{ls(language, scanHintKey)}</Text>
-        </View>
-      ) : null}
-      {cameraError && !isVirtualDevice ? (
-        <View
-          pointerEvents="box-none"
-          style={[styles.scanHintWrap, { bottom: lightTabBarScrollContentPadding(insets.bottom, 56) }]}
-        >
-          <Pressable onPress={() => void pickFromGallery()} hitSlop={8}>
-            <Text style={[styles.scanHintText, { color: accent }]}>{ls(language, 'addFromGallery')}</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      {insets.top > 0 ? <View style={{ height: insets.top }} pointerEvents="none" /> : null}
+      <Pressable
+        style={[
+          styles.galleryFab,
+          {
+            bottom: tabBarInset + 12,
+            borderColor: `${accent}88`,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+          },
+        ]}
+        onPress={() => void pickFromGallery()}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel={ls(language, 'addFromGallery')}
+      >
+        <Ionicons name="images-outline" size={22} color={accent} />
+      </Pressable>
       {busy ? (
         <View style={styles.busyOverlay}>
           <ActivityIndicator size="large" color="#FFFFFF" />
@@ -749,6 +761,14 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  cameraShell: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: '#0a0a0a',
+  },
+  cameraBase: {
+    ...StyleSheet.absoluteFillObject,
   },
   centered: {
     flex: 1,
@@ -799,18 +819,6 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     opacity: 0.92,
   },
-  scanHintWrap: {
-    position: 'absolute',
-    left: 24,
-    right: 24,
-    alignItems: 'center',
-    zIndex: 12,
-  },
-  scanHintText: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 13,
-    textAlign: 'center',
-  },
   scanCornerRoot: {
     position: 'absolute',
     width: CORNER_ARM,
@@ -831,6 +839,26 @@ const styles = StyleSheet.create({
   simulatorPreview: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
+  },
+  galleryFab: {
+    position: 'absolute',
+    left: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.22,
+        shadowRadius: 8,
+      },
+      android: { elevation: 8 },
+    }),
   },
 });
 

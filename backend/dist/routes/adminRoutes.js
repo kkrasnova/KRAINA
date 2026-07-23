@@ -6,6 +6,7 @@ import { adminGrantSubscriptionSchema } from '../schemas/admin.schemas.js';
 import { grantSubscriptionByEmail } from '../services/adminSubscriptionService.js';
 import { searchUsersByEmailFragment } from '../services/adminUsersSearchService.js';
 import { listCancelFeedbackForAdmin } from '../services/subscriptionCancelFeedbackService.js';
+import { listLandmarkStoryRequestsForAdmin } from '../services/landmarkStoryRequestService.js';
 import { HttpError } from '../errors/HttpError.js';
 const router = Router();
 router.get('/users/search', adminActionRateLimiter, authenticateToken, requireAdmin, async (req, res, next) => {
@@ -26,6 +27,16 @@ router.get('/subscription-cancel-feedback', adminActionRateLimiter, authenticate
     try {
         const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 80));
         const rows = await listCancelFeedbackForAdmin(limit);
+        res.status(200).json({ items: rows });
+    }
+    catch (e) {
+        next(e);
+    }
+});
+router.get('/landmark-story-requests', adminActionRateLimiter, authenticateToken, requireAdmin, async (req, res, next) => {
+    try {
+        const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 80));
+        const rows = await listLandmarkStoryRequestsForAdmin(limit);
         res.status(200).json({ items: rows });
     }
     catch (e) {

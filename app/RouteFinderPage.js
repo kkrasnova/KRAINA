@@ -33,10 +33,10 @@ import { fetchPublishedLocations } from './locationsApi';
 
 const ROUTE_BUDGET_TIER = 'medium';
 const TRANSPORT_OPTIONS = [
-  { id: 'walk', rpKey: 'walk', icon: 'walk-outline' },
-  { id: 'bike', rpKey: 'bike', icon: 'bicycle-outline' },
-  { id: 'car', rpKey: 'drive', icon: 'car-outline' },
-  { id: 'bus', rpKey: 'bus', icon: 'bus-outline' },
+  { id: 'walk', rpKey: 'walkShort', icon: 'walk-outline' },
+  { id: 'bike', rpKey: 'bikeShort', icon: 'bicycle-outline' },
+  { id: 'car', rpKey: 'driveShort', icon: 'car-outline' },
+  { id: 'bus', rpKey: 'busShort', icon: 'bus-outline' },
 ];
 
 const TIME_OPTIONS = [
@@ -793,30 +793,71 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
 
           {section(
             <>
-              <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>{rp(language, 'transportSection')}</Text>
-              <View style={s.transportRow}>
+              <Text style={[s.miniLabel, brandFontSansSemibold, { color: textMuted }]}>
+                {rp(language, 'transportSection')}
+              </Text>
+              <View style={s.transportGrid}>
                 {TRANSPORT_OPTIONS.map((t) => {
                   const sel = selectedTransport === t.id;
+                  const label = rp(language, t.rpKey);
+                  const onTint = onAccentButtonText(isLight);
                   return (
                     <Pressable
                       key={t.id}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: sel }}
+                      accessibilityLabel={label}
                       onPress={() => setSelectedTransport(t.id)}
                       style={({ pressed }) => [
-                        s.transportPill,
-                        {
-                          backgroundColor: sel ? selectedPillBg : pageBg,
-                          borderColor: sel ? accent : cardBorder,
-                        },
-                        pressed && { opacity: 0.9 },
+                        s.transportTileOuter,
+                        sel && s.transportTileOuterSelected,
+                        pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
                       ]}
                       android_ripple={ripple}
                     >
-                      <Ionicons name={t.icon} size={18} color={sel ? onAccentButtonText(isLight) : textMuted} />
-                      <Text style={[s.transportPillTxt, brandFontSansSemibold, { color: sel ? onAccentButtonText(isLight) : textMain }]}>
-                        {rp(language, t.rpKey)}
-                      </Text>
+                      {sel ? (
+                        <LinearGradient
+                          colors={isLight ? ['#0212EB', '#1A3AFF'] : ['#E1FF00', '#C8E600']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={s.transportTile}
+                        >
+                          <View style={[s.transportIconOrb, { backgroundColor: 'rgba(255,255,255,0.22)' }]}>
+                            <Ionicons name={t.icon} size={22} color={onTint} />
+                          </View>
+                          <Text
+                            style={[s.transportTileTxt, brandFontSansBold, { color: onTint }]}
+                            numberOfLines={1}
+                          >
+                            {label}
+                          </Text>
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={[
+                            s.transportTile,
+                            {
+                              backgroundColor: pageBg,
+                              borderColor: cardBorder,
+                            },
+                          ]}
+                        >
+                          <View
+                            style={[
+                              s.transportIconOrb,
+                              { backgroundColor: isLight ? 'rgba(2,18,235,0.08)' : 'rgba(225,255,0,0.12)' },
+                            ]}
+                          >
+                            <Ionicons name={t.icon} size={22} color={accent} />
+                          </View>
+                          <Text
+                            style={[s.transportTileTxt, brandFontSansSemibold, { color: textMain }]}
+                            numberOfLines={1}
+                          >
+                            {label}
+                          </Text>
+                        </View>
+                      )}
                     </Pressable>
                   );
                 })}
@@ -824,6 +865,28 @@ export default function RouteFinderPage({ navigation, route, embedHeroPaddingTop
             </>,
             'transport',
           )}
+
+          <View
+            style={[
+              s.unlockTeaser,
+              {
+                backgroundColor: isLight ? 'rgba(2,18,235,0.06)' : 'rgba(225,255,0,0.10)',
+                borderColor: isLight ? 'rgba(2,18,235,0.14)' : 'rgba(225,255,0,0.22)',
+              },
+            ]}
+          >
+            <View
+              style={[
+                s.unlockTeaserIcon,
+                { backgroundColor: isLight ? 'rgba(2,18,235,0.12)' : 'rgba(225,255,0,0.18)' },
+              ]}
+            >
+              <Ionicons name="lock-closed" size={16} color={accent} />
+            </View>
+            <Text style={[s.unlockTeaserTxt, brandFontSansMedium, { color: textMain }]}>
+              {rp(language, 'routeUnlockTeaser')}
+            </Text>
+          </View>
 
           {/* ─── CTA Button ─── */}
           <Animated.View style={{ transform: [{ scale: ctaPulse }] }}>
@@ -1044,23 +1107,71 @@ const s = StyleSheet.create({
     fontSize: 13,
   },
 
-  /* Transport — pill row */
-  transportRow: {
+  /* Transport — icon tiles */
+  transportGrid: {
     flexDirection: 'row',
     gap: 8,
   },
-  transportPill: {
+  transportTileOuter: {
     flex: 1,
-    flexDirection: 'row',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  transportTileOuterSelected: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0212EB',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.28,
+        shadowRadius: 12,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  transportTile: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+    borderRadius: 16,
     borderWidth: 1,
-    gap: 5,
+    borderColor: 'transparent',
+    minHeight: 88,
+    gap: 8,
   },
-  transportPillTxt: {
+  transportIconOrb: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transportTileTxt: {
     fontSize: 12,
+    lineHeight: 15,
+    textAlign: 'center',
+  },
+  unlockTeaser: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  unlockTeaserIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unlockTeaserTxt: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
 
   /* CTA */

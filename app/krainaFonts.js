@@ -18,6 +18,9 @@ export const KRAINA_FONT_MAP = {
   'e-UkraineHead-Bold': require('./assets/fonts/e-ukraine-head/e-UkraineHead-Bold.otf'),
   'e-UkraineHead-LOGO': require('./assets/fonts/e-ukraine-head/e-UkraineHead-LOGO.otf'),
 
+  /** Рукописний display для quiz title (кирилиця). */
+  'Caveat-Bold': require('./assets/fonts/caveat/Caveat-Bold.ttf'),
+
   PangramSans: require('./assets/fonts/pangram/PPPangramSans-CompactRegular.otf'),
   'PangramSans-Medium': require('./assets/fonts/pangram/PPPangramSans-Medium.otf'),
   'PangramSans-Bold': require('./assets/fonts/pangram/PPPangramSans-Bold.otf'),

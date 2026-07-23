@@ -105,15 +105,42 @@ const MAIDAN_STORY = buildLandmarkIntroStory({
   pageBodiesUk: MAIDAN_INTRO_PAGE_BODIES_UK,
   pageMedia: MAIDAN_PAGE_MEDIA,
   quiz: {
-    questionUk: 'Що стоїть на вершині Монументу Незалежності на Майдані?',
-    questionEn: 'What stands atop the Independence Monument on Maidan?',
-    options: [
-      { textUk: 'Оранта-Україна', textEn: 'Oranta-Ukraine', correct: true },
-      { textUk: 'Золотий Архангел Михаїл', textEn: 'Golden Archangel Michael', correct: false },
-      { textUk: 'Червона зірка', textEn: 'Red star', correct: false },
+    xpPerCorrect: 5,
+    questions: [
+      {
+        questionUk: 'Що стоїть на вершині Монументу Незалежності на Майдані?',
+        questionEn: 'What stands atop the Independence Monument on Maidan?',
+        options: [
+          { textUk: 'Оранта-Україна', textEn: 'Oranta-Ukraine', correct: true },
+          { textUk: 'Золотий Архангел Михаїл', textEn: 'Golden Archangel Michael', correct: false },
+          { textUk: 'Червона зірка', textEn: 'Red star', correct: false },
+        ],
+        multiHintUk: 'Погляньте на білу колону в центрі площі — там дівчина з калиновою гілкою.',
+        multiHintEn: 'Look at the white column in the square — a woman with a viburnum branch.',
+      },
+      {
+        questionUk: 'Як називали це місце до того, як воно стало Майданом?',
+        questionEn: 'What was this place called before it became Maidan?',
+        options: [
+          { textUk: 'Козине болото', textEn: 'Goat swamp', correct: true },
+          { textUk: 'Золоті ворота', textEn: 'Golden Gate', correct: false },
+          { textUk: 'Поділ', textEn: 'Podil', correct: false },
+        ],
+        multiHintUk: 'До XIX століття тут була заболочена рівнина, куди виганяли кіз.',
+        multiHintEn: 'Until the 19th century this was a marshy plain where goats were grazed.',
+      },
+      {
+        questionUk: 'Хто стоїть на вершині Лядських воріт на Майдані?',
+        questionEn: 'Who stands atop the Lyadski Gate on Maidan?',
+        options: [
+          { textUk: 'Архангел Михаїл', textEn: 'Archangel Michael', correct: true },
+          { textUk: 'Княгиня Ольга', textEn: 'Princess Olga', correct: false },
+          { textUk: 'Богдан Хмельницький', textEn: 'Bohdan Khmelnytsky', correct: false },
+        ],
+        multiHintUk: 'Покровитель Києва з вогненним мечем — золотий Архангел Михаїл.',
+        multiHintEn: 'Kyiv’s patron with a flaming sword — golden Archangel Michael.',
+      },
     ],
-    multiHintUk: 'Погляньте на білу колону в центрі площі — там дівчина з калиновою гілкою.',
-    multiHintEn: 'Look at the white column in the square — a woman with a viburnum branch.',
   },
   ttsEnabled: true,
 });
@@ -150,15 +177,42 @@ const SOPHIA_STORY = buildLandmarkIntroStory({
   pageBodiesUk: SOPHIA_INTRO_PAGE_BODIES_UK,
   pageMedia: SOPHIA_PAGE_MEDIA,
   quiz: {
-    questionUk: 'Скільки відтінків налічує палітра мозаїк Софійського собору?',
-    questionEn: 'How many shades does the mosaic palette of Saint Sophia Cathedral contain?',
-    options: [
-      { textUk: '77', textEn: '77', correct: false },
-      { textUk: '177', textEn: '177', correct: true },
-      { textUk: '277', textEn: '277', correct: false },
+    xpPerCorrect: 5,
+    questions: [
+      {
+        questionUk: 'Скільки відтінків налічує палітра мозаїк Софійського собору?',
+        questionEn: 'How many shades does the mosaic palette of Saint Sophia Cathedral contain?',
+        options: [
+          { textUk: '77', textEn: '77', correct: false },
+          { textUk: '177', textEn: '177', correct: true },
+          { textUk: '277', textEn: '277', correct: false },
+        ],
+        multiHintUk: 'Підказка: додайте відтінки зеленого, золотого, синього та червоного зі слайду про мозаїки.',
+        multiHintEn: 'Hint: add up the green, gold, blue, and red shades from the mosaics slide.',
+      },
+      {
+        questionUk: 'Скільки куполів має Софійський собор?',
+        questionEn: 'How many domes does Saint Sophia Cathedral have?',
+        options: [
+          { textUk: '7', textEn: '7', correct: false },
+          { textUk: '13', textEn: '13', correct: true },
+          { textUk: '21', textEn: '21', correct: false },
+        ],
+        multiHintUk: 'Центральний купол — Христос, дванадцять менших — апостоли.',
+        multiHintEn: 'The central dome is Christ; twelve smaller ones are the apostles.',
+      },
+      {
+        questionUk: 'За якого князя збудували Софійський собор?',
+        questionEn: 'Under which prince was Saint Sophia Cathedral built?',
+        options: [
+          { textUk: 'Ярослав Мудрий', textEn: 'Yaroslav the Wise', correct: true },
+          { textUk: 'Володимир Великий', textEn: 'Volodymyr the Great', correct: false },
+          { textUk: 'Данило Галицький', textEn: 'Danylo of Galicia', correct: false },
+        ],
+        multiHintUk: 'Собор звели в XI столітті за часів Ярослава Мудрого.',
+        multiHintEn: 'The cathedral was built in the 11th century under Yaroslav the Wise.',
+      },
     ],
-    multiHintUk: 'Підказка: додайте відтінки зеленого, золотого, синього та червоного зі слайду про мозаїки.',
-    multiHintEn: 'Hint: add up the green, gold, blue, and red shades from the mosaics slide.',
   },
   ttsEnabled: false,
 });
@@ -285,15 +339,42 @@ const LAVRA_STORY = buildLandmarkIntroStory({
   pageBodiesUk: LAVRA_INTRO_PAGE_BODIES_UK,
   pageMedia: LAVRA_PAGE_MEDIA,
   quiz: {
-    questionUk: 'У якому році засновано Лавру?',
-    questionEn: 'In what year was the Lavra founded?',
-    options: [
-      { textUk: '988', textEn: '988', correct: false },
-      { textUk: '1051', textEn: '1051', correct: true },
-      { textUk: '1240', textEn: '1240', correct: false },
+    xpPerCorrect: 5,
+    questions: [
+      {
+        questionUk: 'У якому році засновано Лавру?',
+        questionEn: 'In what year was the Lavra founded?',
+        options: [
+          { textUk: '988', textEn: '988', correct: false },
+          { textUk: '1051', textEn: '1051', correct: true },
+          { textUk: '1240', textEn: '1240', correct: false },
+        ],
+        multiHintUk: 'Пам’ятайте рік заснування — він згадується на другому слайді про ченця Антонія.',
+        multiHintEn: 'Recall the founding year — it appears on slide 2 about monk Anthony.',
+      },
+      {
+        questionUk: 'Яка висота Великої лаврської дзвіниці?',
+        questionEn: 'How tall is the Great Lavra Bell Tower?',
+        options: [
+          { textUk: '76 м', textEn: '76 m', correct: false },
+          { textUk: '96,5 м', textEn: '96.5 m', correct: true },
+          { textUk: '120 м', textEn: '120 m', correct: false },
+        ],
+        multiHintUk: 'Це найвища точка Києва XVIII століття — майже 97 метрів.',
+        multiHintEn: 'It was Kyiv’s highest point in the 18th century — nearly 97 meters.',
+      },
+      {
+        questionUk: 'Хто заснував Києво-Печерську лавру?',
+        questionEn: 'Who founded the Kyiv-Pechersk Lavra?',
+        options: [
+          { textUk: 'Антоній Печерський', textEn: 'Anthony of the Caves', correct: true },
+          { textUk: 'Нестор Літописець', textEn: 'Nestor the Chronicler', correct: false },
+          { textUk: 'Іларіон Київський', textEn: 'Hilarion of Kyiv', correct: false },
+        ],
+        multiHintUk: 'Монах з Афону викопав печеру на схилах Дніпра — так почалась Лавра.',
+        multiHintEn: 'A monk from Athos dug a cave on the Dnipro slopes — that is how the Lavra began.',
+      },
     ],
-    multiHintUk: 'Пам’ятайте рік заснування — він згадується на другому слайді про ченця Антонія.',
-    multiHintEn: 'Recall the founding year — it appears on slide 2 about monk Anthony.',
   },
   ttsEnabled: true,
 });
@@ -459,7 +540,9 @@ const KHANENKO_PAGE_MEDIA = [
     secondaryHeroThumb: 'khanenkoBelliniMadonna',
     illustrationThumb: 'khanenkoDavidHoche',
     illustrationLinkUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    illustrationLinkEn: 'Jacques-Louis David, «Portrait of Lazare Hoche», 1793',
     illustrationCaptionUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    illustrationCaptionEn: 'Jacques-Louis David, «Portrait of Lazare Hoche», 1793',
     introHeroSideBySide: true,
     heroCaptionUk: 'Річард Ерлом, за композицією П.П. Рубенса, «Bacchanalia»',
     heroCaptionEn: 'Richard Earlom, after P.P. Rubens, «Bacchanalia»',
@@ -496,17 +579,44 @@ const KHANENKO_STORY = buildLandmarkIntroStory({
   pageBodiesUk: KHANENKO_INTRO_PAGE_BODIES_UK,
   pageMedia: KHANENKO_PAGE_MEDIA,
   quiz: {
-    questionUk: 'Скільки предметів налічують фонди Музею Ханенків?',
-    questionEn: 'How many items are in the Khanenko Museum collection?',
-    options: [
-      { textUk: '5 000', textEn: '5,000', correct: false },
-      { textUk: '25 000', textEn: '25,000', correct: true },
-      { textUk: '100 000', textEn: '100,000', correct: false },
+    xpPerCorrect: 5,
+    questions: [
+      {
+        questionUk: 'Скільки предметів налічують фонди Музею Ханенків?',
+        questionEn: 'How many items are in the Khanenko Museum collection?',
+        options: [
+          { textUk: '5 000', textEn: '5,000', correct: false },
+          { textUk: '25 000', textEn: '25,000', correct: true },
+          { textUk: '100 000', textEn: '100,000', correct: false },
+        ],
+        multiHintUk:
+          'Пам’ятайте число зі слайду про фонди — воно згадується і на вступному, і на слайді «Цікавий факт».',
+        multiHintEn:
+          'Recall the number from the slide about the museum funds — it appears on the intro and the “Interesting fact” slide.',
+      },
+      {
+        questionUk: 'Хто заснував колекцію Музею Ханенків?',
+        questionEn: 'Who founded the Khanenko Museum collection?',
+        options: [
+          { textUk: 'Богдан і Варвара Ханенки', textEn: 'Bohdan and Varvara Khanenko', correct: true },
+          { textUk: 'Микола Терещенко', textEn: 'Mykola Tereshchenko', correct: false },
+          { textUk: 'Іван Мазепа', textEn: 'Ivan Mazepa', correct: false },
+        ],
+        multiHintUk: 'Подружжя меценатів зібрало колекцію і передало її місту.',
+        multiHintEn: 'A philanthropist couple built the collection and gave it to the city.',
+      },
+      {
+        questionUk: 'Які ікони особливо відомі в зібранні Ханенків?',
+        questionEn: 'Which icons are especially famous in the Khanenko collection?',
+        options: [
+          { textUk: 'Візантійські VI століття', textEn: '6th-century Byzantine icons', correct: true },
+          { textUk: 'Давньоєгипетські папіруси', textEn: 'Ancient Egyptian papyri', correct: false },
+          { textUk: 'Китайські сувої XVIII ст.', textEn: '18th-century Chinese scrolls', correct: false },
+        ],
+        multiHintUk: 'У музеї є рідкісні візантійські ікони VI століття.',
+        multiHintEn: 'The museum holds rare 6th-century Byzantine icons.',
+      },
     ],
-    multiHintUk:
-      'Пам’ятайте число зі слайду про фонди — воно згадується і на вступному, і на слайді «Цікавий факт».',
-    multiHintEn:
-      'Recall the number from the slide about the museum funds — it appears on the intro and the “Interesting fact” slide.',
   },
   ttsEnabled: true,
 });
@@ -556,7 +666,9 @@ if (Array.isArray(KHANENKO_STORY.introPagesUk) && KHANENKO_STORY.introPagesUk[2]
     secondaryHeroThumb: 'khanenkoBelliniMadonna',
     illustrationThumb: 'khanenkoDavidHoche',
     illustrationLinkUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    illustrationLinkEn: 'Jacques-Louis David, «Portrait of Lazare Hoche», 1793',
     illustrationCaptionUk: 'Жак-Луї Давід, «Портрет Лазаря Гоша», 1793',
+    illustrationCaptionEn: 'Jacques-Louis David, «Portrait of Lazare Hoche», 1793',
     introHeroSideBySide: true,
     introHeroBleedTop: false,
     introHeroInsetRounded: true,

@@ -30,6 +30,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { landmarkContentAdminRouter } from './routes/landmarkContentAdminRoutes.js';
 import { metricsRouter } from './routes/metricsRoutes.js';
 import { callRouter } from './routes/callRoutes.js';
+import { landmarkStoryRequestRouter } from './routes/landmarkStoryRequestRoutes.js';
 import { apnsConfigFromEnv, initApnsProvider } from './services/apnsService.js';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +90,7 @@ export function createApp(): express.Application {
   }
 
   app.use('/api/calls', callRouter);
+  app.use('/api/scanner/location-requests', landmarkStoryRequestRouter);
   app.get('/health', async (_req, res) => {
     const start = Date.now();
     let dbOk = false;

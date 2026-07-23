@@ -17,6 +17,9 @@ export const brandFontHeadMedium = { fontFamily: 'e-UkraineHead-Medium' };
 /** Варіант LOGO з набору e-Ukraine Head. */
 export const brandFontHeadLogo = { fontFamily: 'e-UkraineHead-LOGO' };
 
+/** Рукописний display (Caveat) — quiz hero title. */
+export const brandFontScript = { fontFamily: 'Caveat-Bold' };
+
 /** PP Pangram Sans — інтерфейсний санс (free for personal use). */
 export const brandFontSans = { fontFamily: 'PangramSans' };
 export const brandFontSansMedium = { fontFamily: 'PangramSans-Medium' };

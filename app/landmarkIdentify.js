@@ -18,6 +18,8 @@ const UA = {
 const EXTRACT_MAX = 2200;
 const MINI_EXTRACT_MAX = 340;
 const WIKI_NEARBY_RADII_M = [1200, 4500, 15000];
+/** Радіуси для аудіогіда під час пішої навігації (що саме поруч). */
+const WIKI_WALK_RADII_M = [90, 180, 320, 500];
 
 function trimExtract(text) {
   if (!text || typeof text !== 'string') return '';
@@ -73,6 +75,11 @@ export function buildNotFoundLandmarkResult(coordsHint = {}) {
 }
 
 function getVisionKey() {
+  const fromEnv =
+    typeof process !== 'undefined' && process.env.EXPO_PUBLIC_GOOGLE_VISION_API_KEY
+      ? String(process.env.EXPO_PUBLIC_GOOGLE_VISION_API_KEY).trim()
+      : '';
+  if (fromEnv) return fromEnv;
   const extra = Constants.expoConfig?.extra;
   if (extra && typeof extra.googleVisionApiKey === 'string' && extra.googleVisionApiKey.trim()) {
     return extra.googleVisionApiKey.trim();
@@ -83,50 +90,65 @@ function getVisionKey() {
 async function visionLandmarkTitleViaBackend(base64Image) {
   if (!base64Image || !API_BASE_URL) return null;
   try {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 12000) : null;
     const res = await fetch(`${API_BASE_URL}/api/ai/vision-landmark`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ base64: base64Image }),
+      signal: controller?.signal,
     });
+    if (timer) clearTimeout(timer);
+    if (res.status === 503) {
+      if (__DEV__) console.warn('[landmarkIdentify] backend vision_not_configured');
+      return null;
+    }
     if (!res.ok) return null;
     const json = await res.json();
     const title = json?.title && String(json.title).trim();
     return title || null;
-  } catch {
+  } catch (e) {
+    if (__DEV__) console.warn('[landmarkIdentify] backend vision failed', e?.message || e);
     return null;
   }
 }
 
-async function visionLandmarkTitle(base64Image) {
+async function visionLandmarkTitleClient(base64Image) {
   const key = getVisionKey();
-  if (key && base64Image) {
-    const url = `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(key)}`;
-    const body = {
-      requests: [
-        {
-          image: { content: base64Image },
-          features: [{ type: 'LANDMARK_DETECTION', maxResults: 8 }],
-        },
-      ],
-    };
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (!json?.responses?.[0]?.error) {
-        const list = json?.responses?.[0]?.landmarkAnnotations;
-        if (Array.isArray(list) && list.length > 0) {
-          const best = list.reduce((a, b) => ((b.score || 0) > (a.score || 0) ? b : a));
-          const title = best?.description?.trim();
-          if (title) return title;
-        }
-      }
-    }
-  }
-  return visionLandmarkTitleViaBackend(base64Image);
+  if (!key || !base64Image) return null;
+  const url = `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(key)}`;
+  const body = {
+    requests: [
+      {
+        image: { content: base64Image },
+        features: [{ type: 'LANDMARK_DETECTION', maxResults: 8 }],
+      },
+    ],
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  if (json?.responses?.[0]?.error) return null;
+  const list = json?.responses?.[0]?.landmarkAnnotations;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const best = list.reduce((a, b) => ((b.score || 0) > (a.score || 0) ? b : a));
+  const title = best?.description?.trim();
+  return title || null;
+}
+
+async function visionLandmarkTitle(base64Image) {
+  const normalized =
+    base64Image && typeof base64Image === 'string'
+      ? base64Image.replace(/^data:image\/\w+;base64,/, '')
+      : null;
+  if (!normalized) return null;
+  const fromBackend = await visionLandmarkTitleViaBackend(normalized);
+  if (fromBackend) return fromBackend;
+  return visionLandmarkTitleClient(normalized);
 }
 
 async function wikiSearchFirstTitle(query, wikiLang) {
@@ -279,6 +301,20 @@ async function wikiNearbyAtRadius(lat, lng, wikiLang, radiusM) {
 
 async function wikipediaNearby(lat, lng, wikiLang) {
   for (const r of WIKI_NEARBY_RADII_M) {
+    const hit = await wikiNearbyAtRadius(lat, lng, wikiLang, r);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Wikipedia біля пішохода (малі радіуси) — для аудіогіда на маршруті.
+ * @returns {Promise<null | { source: string, title: string, subtitle: string, extract: string, wikipediaUrl: string }>}
+ */
+export async function fetchWikipediaNearbyWalk(lat, lng, language) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const wikiLang = appLangBase(language || 'uk') === 'uk' ? 'uk' : 'en';
+  for (const r of WIKI_WALK_RADII_M) {
     const hit = await wikiNearbyAtRadius(lat, lng, wikiLang, r);
     if (hit) return hit;
   }

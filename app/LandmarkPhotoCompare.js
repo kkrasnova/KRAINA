@@ -35,6 +35,9 @@ const CompareLayerImage = React.memo(function CompareLayerImage({
  * - drag handle up => shows more "before" (historic) photo
  * - drag handle down => shows more "after/current" photo
  */
+const KNOB_SIZE = 44;
+const LINE_HEIGHT = 2.5;
+
 export default function LandmarkPhotoCompare({
   beforeUri,
   afterUri,
@@ -154,11 +157,11 @@ export default function LandmarkPhotoCompare({
   const topSource = normalizeCompareSource(afterSource, afterUri);
   const bottomSource = normalizeCompareSource(beforeSource, beforeUri);
 
-  const lineColor = isLight ? 'rgba(12,47,168,0.75)' : 'rgba(255,255,255,0.92)';
+  const lineColor = isLight ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.92)';
   const knobBg = isLight ? 'rgba(255,255,255,0.96)' : 'rgba(66,72,74,0.94)';
-  const knobBorder = isLight ? 'rgba(12,47,168,0.35)' : 'rgba(225,255,0,0.72)';
-  const knobArrowColor = isLight ? '#0C2FA8' : '#E1FF00';
-  const knobDividerColor = isLight ? 'rgba(12,47,168,0.55)' : 'rgba(225,255,0,0.78)';
+  const knobBorder = isLight ? 'rgba(255,255,255,0.9)' : 'rgba(225,255,0,0.72)';
+  const knobArrowColor = isLight ? '#0212EB' : '#E1FF00';
+  const knobDividerColor = isLight ? 'rgba(2,18,235,0.55)' : 'rgba(225,255,0,0.78)';
 
   const topClipHeight = animatedDividerY;
   const bottomClipTop = animatedDividerY;
@@ -185,11 +188,12 @@ export default function LandmarkPhotoCompare({
       }),
     [animatedDividerY, clipRanges, effectiveHeight],
   );
+  // Лінія і кружок завжди центруються на dividerY (раніше кружок «відставав» при русі вниз).
   const lineTop = useMemo(
     () =>
       animatedDividerY.interpolate({
         ...clipRanges,
-        outputRange: [0, Math.max(0, effectiveHeight - 2)],
+        outputRange: [-LINE_HEIGHT / 2, effectiveHeight - LINE_HEIGHT / 2],
       }),
     [animatedDividerY, clipRanges, effectiveHeight],
   );
@@ -197,7 +201,7 @@ export default function LandmarkPhotoCompare({
     () =>
       animatedDividerY.interpolate({
         ...clipRanges,
-        outputRange: [0, Math.max(0, effectiveHeight - 88)],
+        outputRange: [-KNOB_SIZE / 2, effectiveHeight - KNOB_SIZE / 2],
       }),
     [animatedDividerY, clipRanges, effectiveHeight],
   );
@@ -243,13 +247,23 @@ export default function LandmarkPhotoCompare({
       ) : null}
 
       <Animated.View
-        style={[styles.line, { top: lineTop, backgroundColor: lineColor }]}
+        style={[
+          styles.line,
+          { top: lineTop, height: LINE_HEIGHT, backgroundColor: lineColor },
+        ]}
         pointerEvents="none"
       />
       <Animated.View
         style={[
           styles.knob,
-          { top: knobTop, backgroundColor: knobBg, borderColor: knobBorder },
+          {
+            top: knobTop,
+            width: KNOB_SIZE,
+            height: KNOB_SIZE,
+            borderRadius: KNOB_SIZE / 2,
+            backgroundColor: knobBg,
+            borderColor: knobBorder,
+          },
         ]}
         pointerEvents="none"
       >
@@ -293,41 +307,36 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 2.5,
+    height: LINE_HEIGHT,
     zIndex: 2,
   },
   knob: {
     position: 'absolute',
     alignSelf: 'center',
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: 'rgba(66,72,74,0.94)',
     borderWidth: 1.5,
-    borderColor: 'rgba(225,255,0,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 3,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 5 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.22,
+        shadowRadius: 5,
       },
-      android: { elevation: 5 },
+      android: { elevation: 4 },
     }),
   },
   knobArrow: {
-    fontSize: 18,
-    lineHeight: 20,
+    fontSize: 10,
+    lineHeight: 11,
     fontWeight: '800',
     textAlign: 'center',
   },
   knobDivider: {
-    width: 24,
+    width: 14,
     height: 1.5,
     borderRadius: 999,
-    marginVertical: 4,
+    marginVertical: 1,
   },
 });

@@ -8,7 +8,7 @@ import LazyScreen from './LazyScreen';
 import { markReturningUserAfterSuccessfulAuth } from './onboardingStorage';
 import { useAppTheme } from './useAppTheme';
 import { RenderProfiler, markEnd } from './performanceMetrics';
-import { HOME_TAB_SWITCH_EVENT } from './homeTabPagerConstants';
+import { HOME_TAB_SWITCH_EVENT, HOME_TAB } from './homeTabPagerConstants';
 import {
   loadFeedPage,
   loadLandmarkScannerPage,
@@ -37,8 +37,8 @@ export default function HomeTabPagerPage({ navigation, route }) {
   /* Лише активна вкладка + головна змонтовані одразу — решта підвантажуються після першого кадру
      або при першому відкритті, щоб не тримати 4 важкі екрани в памʼяті одночасно. */
   const [mountedTabs, setMountedTabs] = useState(() => {
-    const initial = new Set([0]);
-    if (tabIndex !== 0) initial.add(tabIndex);
+    const initial = new Set([HOME_TAB.MAIN]);
+    if (tabIndex !== HOME_TAB.MAIN) initial.add(tabIndex);
     return initial;
   });
 
@@ -52,9 +52,9 @@ export default function HomeTabPagerPage({ navigation, route }) {
     const task = InteractionManager.runAfterInteractions(() => {
       prefetchHomeTabScreens();
       setMountedTabs((prev) => {
-        if (prev.has(3)) return prev;
+        if (prev.has(HOME_TAB.MAP)) return prev;
         const next = new Set(prev);
-        next.add(3);
+        next.add(HOME_TAB.MAP);
         return next;
       });
       if (bootUser) {
@@ -220,10 +220,14 @@ export default function HomeTabPagerPage({ navigation, route }) {
           style={styles.page}
           collapsable={false}
           removeClippedSubviews={false}
-          pointerEvents={activeTabIndex === 0 ? 'auto' : 'none'}
+          pointerEvents={activeTabIndex === HOME_TAB.MAIN ? 'auto' : 'none'}
         >
-          {mountedTabs.has(0) ? (
-            <MainPage navigation={navigation} route={mainRoute} isTabActive={activeTabIndex === 0} />
+          {mountedTabs.has(HOME_TAB.MAIN) ? (
+            <MainPage
+              navigation={navigation}
+              route={mainRoute}
+              isTabActive={activeTabIndex === HOME_TAB.MAIN}
+            />
           ) : null}
         </View>
         <View
@@ -231,10 +235,14 @@ export default function HomeTabPagerPage({ navigation, route }) {
           style={styles.page}
           collapsable={false}
           removeClippedSubviews={Platform.OS === 'android'}
-          pointerEvents={activeTabIndex === 1 ? 'auto' : 'none'}
+          pointerEvents={activeTabIndex === HOME_TAB.FEED ? 'auto' : 'none'}
         >
-          {mountedTabs.has(1) ? (
-            <FeedPage navigation={navigation} route={feedRoute} isTabActive={activeTabIndex === 1} />
+          {mountedTabs.has(HOME_TAB.FEED) ? (
+            <FeedPage
+              navigation={navigation}
+              route={feedRoute}
+              isTabActive={activeTabIndex === HOME_TAB.FEED}
+            />
           ) : null}
         </View>
         <View

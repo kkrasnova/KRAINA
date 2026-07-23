@@ -32,6 +32,7 @@ import {
   loadProfileLikesPage,
   loadProfileEditPublicationPage,
   loadProfileGamificationHubPage,
+  loadProfileAchievementsPage,
   loadSocialConnectionsPage,
   loadSocialUserProfilePage,
   loadSettingsPage,
@@ -240,6 +241,9 @@ const ProfilePageComponent = (p) => (
 );
 const ProfileGamificationHubPageComponent = (p) => (
   <LazyScreen loader={loadProfileGamificationHubPage} {...p} />
+);
+const ProfileAchievementsPageComponent = (p) => (
+  <LazyScreen loader={loadProfileAchievementsPage} {...p} />
 );
 const DevDBComponent = (p) => <LazyScreen loader={makeLazyLoader(() => require('./DevDB'))} {...p} />;
 const AdminPanelPage = (p) => (
@@ -763,6 +767,11 @@ export default function App() {
               <Stack.Screen
                 name="ProfileGamificationHub"
                 component={ProfileGamificationHubPageComponent}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="ProfileAchievements"
+                component={ProfileAchievementsPageComponent}
                 options={{ headerShown: false }}
               />
               <Stack.Screen name="AdminPanel" component={AdminPanelPage} options={{ headerShown: false }} />

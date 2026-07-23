@@ -1,8 +1,13 @@
 import { haversineKm } from './routePlannerCore';
 
-/** Фізичний візит / відкриття історії на маршруті — 100 м (як у макеті навігації). */
+/** Фізичний візит / XP — у радіусі 100 м від пам’ятки. */
 export const PHYSICAL_VISIT_RADIUS_M = 100;
 export const PHYSICAL_VISIT_RADIUS_KM = PHYSICAL_VISIT_RADIUS_M / 1000;
+
+/** Підказка «скоро історія» з’являється з цієї відстані. */
+export const HISTORY_APPROACH_RADIUS_M = 100;
+/** Кнопка «Переглянути історію» активна з цієї відстані. */
+export const HISTORY_UNLOCK_RADIUS_M = 50;
 
 export function distanceMetersFromCoords(userLat, userLng, targetLat, targetLng) {
   if (
@@ -28,4 +33,19 @@ export function isWithinPhysicalVisitRadiusKm(distanceKm) {
     Number(distanceKm) >= 0 &&
     Number(distanceKm) <= PHYSICAL_VISIT_RADIUS_KM
   );
+}
+
+/** 50–100 м: ще підходимо, історію вже анонсуємо. */
+export function isApproachingHistoryMeters(distanceM) {
+  return (
+    distanceM != null &&
+    Number.isFinite(distanceM) &&
+    distanceM > HISTORY_UNLOCK_RADIUS_M &&
+    distanceM <= HISTORY_APPROACH_RADIUS_M
+  );
+}
+
+/** ≤50 м: можна відкрити повну картку локації. */
+export function isHistoryUnlockedMeters(distanceM) {
+  return distanceM != null && Number.isFinite(distanceM) && distanceM <= HISTORY_UNLOCK_RADIUS_M;
 }

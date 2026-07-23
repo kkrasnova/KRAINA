@@ -11,6 +11,7 @@ const STR = {
   },
   searchWorldSource: { uk: 'По всьому світу', en: 'Worldwide' },
   searchCatalogSource: { uk: 'KRAÏNA', en: 'KRAÏNA' },
+  searchLocalSource: { uk: 'Місто KRAÏNA', en: 'KRAÏNA city' },
   tapMapHint: { uk: 'Торкніться карти, щоб додати точку', en: 'Tap the map to add a point' },
   routeReadyHint: {
     uk: 'Маршрут готовий — натисніть «Іти» внизу',

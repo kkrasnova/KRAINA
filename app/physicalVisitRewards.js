@@ -43,3 +43,19 @@ export async function getPhysicalVisitBonusXpTotal() {
     return 0;
   }
 }
+
+/** Кількість унікальних фізичних візитів із нагородою. */
+export async function getPhysicalVisitClaimedCount() {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    if (!map || typeof map !== 'object') return 0;
+    let n = 0;
+    for (const v of Object.values(map)) {
+      if (v && v.claimed) n += 1;
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}

@@ -49,6 +49,14 @@ const S = {
     uk: 'Вікторина',
     en: 'Quiz',
   },
+  quizHeroHint: {
+    uk: 'Пройди вікторину та дізнайся цікаві факти про серце України',
+    en: 'Take the quiz and discover curious facts about the heart of Ukraine',
+  },
+  questionWord: {
+    uk: 'Питання',
+    en: 'Question',
+  },
   chooseOptionHint: {
     uk: 'Оберіть один варіант — відповідь одразу, повторити не можна.',
     en: 'Pick one option — your answer is final.',
@@ -80,6 +88,22 @@ const S = {
   continueNext: {
     uk: 'Далі',
     en: 'Next',
+  },
+  continueNextQuestion: {
+    uk: 'Наступне питання',
+    en: 'Next question',
+  },
+  quizSessionPoints: {
+    uk: 'Разом за цю локацію: +{n} балів',
+    en: 'Total for this place: +{n} points',
+  },
+  quizQuestionPoints: {
+    uk: '+{n} балів за правильну відповідь',
+    en: '+{n} points for the correct answer',
+  },
+  quizMoneyHint: {
+    uk: 'Після повного проходження локації бали стануть {money}',
+    en: 'After you finish this place, points become {money}',
   },
   pointsBurst: {
     uk: '+{n} балів',
