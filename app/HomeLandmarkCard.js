@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -11,9 +11,12 @@ import { mt, mtHomePlaceLine } from './mainPageI18n';
 import {
   resolveHomeLandmarkThumbSource,
   homeLandmarkThumbKey,
+  homeImageRecyclingKey,
+  normalizeHomeExpoImageSource,
 } from './homeLandmarkDisplay';
 import { HERO_THUMB_MAP } from './krainaHeroThumbs';
 import { countryFlagSource } from './WavingCountryFlag';
+import FittingText from './FittingText';
 
 export const HOME_LANDMARK_CARD_DARK = '#1A1A1A';
 export const HOME_LANDMARK_CARD_BORDER_DARK = '#2A2A2A';
@@ -48,14 +51,27 @@ function HomeLandmarkCard({
     () => ({ regionId: region?.id, landmarkId: lm?.id }),
     [region?.id, lm?.id],
   );
-  const title = resolveCatalogLandmarkTitle(lm, language, catalogCtx);
+  const title = resolveCatalogLandmarkTitle(lm, language, {
+    ...catalogCtx,
+    region,
+  });
   const desc = resolveLandmarkDescI18n(lm, language, catalogCtx);
   const thumbKey = homeLandmarkThumbKey(lm);
-  const [thumbSource, setThumbSource] = useState(() => resolveHomeLandmarkThumbSource(lm));
-
-  useEffect(() => {
-    setThumbSource(resolveHomeLandmarkThumbSource(lm));
-  }, [lm?.id, thumbKey, homeLocationsEpoch]);
+  const resolvedThumb = useMemo(() => {
+    const raw = resolveHomeLandmarkThumbSource(lm);
+    return normalizeHomeExpoImageSource(raw) || raw || null;
+  }, [lm, thumbKey, homeLocationsEpoch]);
+  const thumbIdentity = `${region?.id || ''}:${lm?.id || ''}:${thumbKey}:${homeLocationsEpoch}`;
+  const [failedIdentity, setFailedIdentity] = useState(null);
+  const fallbackSource = useMemo(
+    () => normalizeHomeExpoImageSource(HERO_THUMB_MAP.t1) || HERO_THUMB_MAP.t1,
+    [],
+  );
+  const thumbSource = failedIdentity === thumbIdentity ? fallbackSource : resolvedThumb;
+  const imageRecyclingKey = useMemo(
+    () => homeImageRecyclingKey(`${region?.id || ''}:${lm?.id || ''}`, thumbSource, 'home-lm-card'),
+    [region?.id, lm?.id, thumbSource],
+  );
 
   return (
     <View style={[styles.locCard, { backgroundColor: cardBg, borderColor: cardBorder }, style]}>
@@ -68,13 +84,16 @@ function HomeLandmarkCard({
         accessibilityLabel={title}
       >
         <ExpoImage
+          key={imageRecyclingKey}
           source={thumbSource}
           style={styles.locThumbImg}
           contentFit="cover"
           contentPosition="center"
           cachePolicy="memory-disk"
+          recyclingKey={imageRecyclingKey}
           transition={0}
-          onError={() => setThumbSource(HERO_THUMB_MAP.t1)}
+          allowDownscaling
+          onError={() => setFailedIdentity(thumbIdentity)}
         />
       </Pressable>
       <Pressable
@@ -92,7 +111,7 @@ function HomeLandmarkCard({
                 <ExpoImage
                   source={flagImgSrc}
                   style={styles.locFlagImg}
-                  contentFit="contain"
+                  contentFit="cover"
                   cachePolicy="memory-disk"
                   transition={0}
                 />
@@ -127,9 +146,9 @@ function HomeLandmarkCard({
               <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={15} color={accent} />
             </Pressable>
           </View>
-          <Text style={[styles.locTitle, { color: textMain }]} numberOfLines={2} ellipsizeMode="tail">
+          <FittingText style={[styles.locTitle, { color: textMain }]} numberOfLines={2} minimumFontScale={0.6}>
             {title}
-          </Text>
+          </FittingText>
           <Text style={[styles.locDesc, { color: textMuted }]} numberOfLines={2} ellipsizeMode="tail">
             {desc}
           </Text>
@@ -163,8 +182,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
   locThumbImg: {
-    width: '100%',
-    height: '100%',
+    width: 76,
+    height: 76,
   },
   locBody: {
     flex: 1,
@@ -183,7 +202,12 @@ const styles = StyleSheet.create({
     marginRight: 6,
     minWidth: 0,
   },
-  locFlagImg: { width: 16, height: 12, borderRadius: 2 },
+  locFlagImg: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
   locFlagFallback: { fontSize: 11, lineHeight: 14 },
   locMeta: { fontSize: 11, flex: 1, marginRight: 0 },
   saveCircle: {
@@ -198,6 +222,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     marginTop: 2,
+    width: '100%',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   locDesc: {

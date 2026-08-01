@@ -10,8 +10,8 @@ import {
   Animated,
   Easing,
   Keyboard,
+  Image,
 } from 'react-native';
-import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsive } from './useResponsive';
 import Lemon3DButton from './Lemon3DButton';
@@ -21,23 +21,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { LANG_PICKER_DONE_KEY } from './onboardingStorage';
 import { KFONT, fontPad } from './appTypography';
 import { brandFontHeadBold } from './brandFont';
+import FittingText from './FittingText';
+import { APP_LANGUAGE_OPTIONS } from './appLanguageOptions';
+import { SECOND_PAGE_TEXTS } from './europeLangPacks';
 
 const LANGUAGE_STORAGE_KEY = '@kraina_app_language';
 
-
-const CAROUSEL_QUANTITY = 10;
-const CAROUSEL_FACE_RGB = [
-  [142, 249, 252],
-  [142, 252, 204],
-  [142, 252, 157],
-  [215, 252, 142],
-  [252, 252, 142],
-  [252, 208, 142],
-  [252, 142, 142],
-  [252, 142, 239],
-  [204, 142, 252],
-  [142, 202, 252],
-];
 
 const CAROUSEL_FACE_SOURCES = [
   require('./assets/carousel/premium_photo-1689371089286-6f75a9ecd4ca.webp'),
@@ -63,7 +52,7 @@ const SCROLL_PEEK_BUTTON_H = 40;
 
 const SCROLL_PEEK_CLIP = 0;
 
-const LANG_LIST_BOTTOM_INSET = 6;
+const LANG_LIST_BOTTOM_INSET = 0;
 const LIST_CARD_INNER_BG = 'rgba(20, 22, 28, 0.97)';
 
 let storage = null;
@@ -90,20 +79,7 @@ const safeSetItem = async (key, value) => {
   } catch (e) {}
 };
 
-
-const LANGUAGES = [
-  { id: 'en', label: 'English', flag: '🇬🇧' },
-  { id: 'uk', label: 'Українська', flag: '🇺🇦' },
-  { id: 'de', label: 'Deutsch', flag: '🇩🇪' },
-  { id: 'pl', label: 'Polski', flag: '🇵🇱' },
-  { id: 'nl', label: 'Nederlands', flag: '🇳🇱' },
-  { id: 'es', label: 'Español', flag: '🇪🇸' },
-  { id: 'lt', label: 'Lietuvių', flag: '🇱🇹' },
-  { id: 'lv', label: 'Latviešu', flag: '🇱🇻' },
-  { id: 'ro', label: 'Română', flag: '🇷🇴' },
-  { id: 'it', label: 'Italiano', flag: '🇮🇹' },
-  { id: 'hy', label: 'Հայերեն', flag: '🇦🇲' },
-];
+const LANGUAGES = APP_LANGUAGE_OPTIONS;
 
 const TEXTS = {
   uk: {
@@ -172,6 +148,23 @@ const TEXTS = {
     continue: 'Շարունակել',
     searchLanguage: 'Որոնել լեզու',
   },
+  fr: {
+    chooseLanguage: 'Choisissez la langue',
+    language: '(Langue)',
+    continue: 'Continuer',
+    searchLanguage: 'Rechercher une langue',
+  },
+  ...Object.fromEntries(
+    Object.entries(SECOND_PAGE_TEXTS || {}).map(([lang, row]) => [
+      lang,
+      {
+        chooseLanguage: row.chooseLanguage,
+        language: row.language?.startsWith('(') ? row.language : `(${row.language})`,
+        continue: row.continue,
+        searchLanguage: row.searchLanguage,
+      },
+    ]),
+  ),
 };
 
 const SCROLL_HINT = {
@@ -186,6 +179,10 @@ const SCROLL_HINT = {
   ro: 'Derulează în jos pentru mai multe limbi',
   it: 'Scorri verso il basso per altre lingue',
   hy: 'Ոլորեք ներքև՝ այլ լեզուներ տեսնելու համար',
+  fr: 'Faites défiler pour voir plus de langues',
+  ...Object.fromEntries(
+    Object.entries(SECOND_PAGE_TEXTS || {}).map(([lang, row]) => [lang, row.scrollHint]),
+  ),
 };
 
 const DEFAULT_TEXTS = {
@@ -582,17 +579,37 @@ function renderHighlightedLabel(label, query, selected, textExtraStyle, highligh
   const hl =
     highlightStyle ??
     (pillVariant === 'glow'
-      ? styles.langGlowPillSearchHighlight
+      ? selected
+        ? styles.langGlowPillSearchHighlightOnLemon
+        : styles.langGlowPillSearchHighlight
       : pillVariant === 'lemon'
         ? styles.langPillSearchHighlight
         : styles.optionTextHighlight);
   const source = String(label || '');
   const qPrefix = normalizeForSearch(String(query || '').trim()).slice(0, SEARCH_QUERY_MAX_LEN);
-  const lineProps = pillVariant ? { numberOfLines: 2 } : {};
-  if (!qPrefix) return <Text style={base} {...lineProps}>{source}</Text>;
+  const lineProps = pillVariant
+    ? { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.55 }
+    : {};
+  if (!qPrefix) {
+    return pillVariant ? (
+      <FittingText style={base} minimumFontScale={0.55}>
+        {source}
+      </FittingText>
+    ) : (
+      <Text style={base}>{source}</Text>
+    );
+  }
 
   const end = prefixHighlightEnd(source, qPrefix);
-  if (end <= 0) return <Text style={base} {...lineProps}>{source}</Text>;
+  if (end <= 0) {
+    return pillVariant ? (
+      <FittingText style={base} minimumFontScale={0.55}>
+        {source}
+      </FittingText>
+    ) : (
+      <Text style={base}>{source}</Text>
+    );
+  }
 
   const match = source.slice(0, end);
   const after = source.slice(end);
@@ -794,11 +811,22 @@ export default function SecondPage({ navigation }) {
     r.width - 2 * r.horizontalPadding,
     r?.isTablet ? (r?.contentMaxWidth ?? 560) : r.width,
   );
-  const listCardInnerPad = 12;
+  const listCardInnerPad = 40;
   const listInnerW = contentW - listCardInnerPad;
-  const langPillMinH = r.isShortScreen
-    ? Math.max(46, Math.round(52 * Math.min(r.scale, 1.1)))
-    : Math.max(48, Math.round(54 * Math.min(r.scale, 1.1)));
+  const langRowGap = 8;
+  const langPillMinH = r.isShortScreen ? 48 : 52;
+  /** 5 полных строк + половинка 6-й — чтобы было видно, что можно листать. */
+  const langListScrollPadTop = 4;
+  const langListVisibleRows = 5.5;
+  const langListScrollH = Math.round(
+    langListScrollPadTop +
+      langListVisibleRows * langPillMinH +
+      Math.floor(langListVisibleRows) * langRowGap,
+  );
+  /** Без нижнего «чёрного» поля — 6-й язык уходит до края панели. */
+  const listCardPadTop = 10;
+  const listCardPadBottom = 0;
+  const listPanelMaxH = langListScrollH + listCardPadTop + listCardPadBottom;
 
   let langGridCols = r.isTablet ? 2 : 1;
   let langTileW = (listInnerW - LANGUAGE_GRID_GAP * (langGridCols - 1)) / langGridCols;
@@ -870,34 +898,15 @@ export default function SecondPage({ navigation }) {
   const titleFontSize = Math.max(20, Math.round(r.titleFontSize * 0.84));
   const titleLineHeight = titleFontSize + 5;
 
-  const carouselScale =
-    Math.min(r.scale, 1.08) * 0.88 * (r.isShortScreen ? 0.58 : 0.88) * 0.96;
+  const carouselCardW = r.isShortScreen ? 96 : 110;
+  const carouselCardH = r.isShortScreen ? 128 : 148;
+  const carouselWrapperMinH = carouselCardH + 8;
 
-  const carouselCardW = Math.round(116 * carouselScale);
-  const carouselCardH = Math.round(164 * carouselScale);
+  const listPanelMarginTop = r.isShortScreen ? 2 : 4;
 
-  const carouselRingR = carouselCardW + carouselCardH;
+  const bottomClusterLift = 0;
 
-  const carouselRingStageW = Math.max(carouselRingR * 2 + carouselCardW + 16, sw);
-  const carouselRingStageH = Math.max(carouselCardH + carouselRingR * 0.28, carouselRingR * 1.05) + 8;
-
-  const carouselIdealH = Math.max(120, carouselRingStageH);
-  const carouselMaxH = Math.round(sh * (r.isShortScreen ? 0.14 : 0.17));
-  const carouselWrapperMinH = Math.max(
-    r.isShortScreen ? 68 : 78,
-    Math.min(carouselIdealH, carouselMaxH),
-  );
-
-  /** Ті самі зміщення, що на iPhone — однакова 3D-карусель на Android. */
-  const carouselRingNudgeDown = -4;
-  const carouselRingTranslateY = -88 + 68 + carouselRingNudgeDown;
-
-  const listPanelMarginTop = r.isShortScreen ? 2 : 6;
-  const listPanelMaxH = Math.round(sh * (r.isShortScreen ? 0.34 : 0.36));
-
-  const bottomClusterLift = r.isShortScreen ? -8 : -12;
-
-  const continueBeforeRingGap = r.isShortScreen ? 12 : 16;
+  const continueBeforeRingGap = r.isShortScreen ? 10 : 12;
   const scrollbarThumbH = useMemo(() => {
     const trackH = languageScrollbarTrackH;
     const vh = languageListScrollViewportH.current;
@@ -916,21 +925,6 @@ export default function SecondPage({ navigation }) {
     return (y / maxY) * travel;
   }, [languageScrollbarTrackH, scrollbarThumbH, languageScrollbarTick]);
 
-  const [ringRotationRad, setRingRotationRad] = useState(0);
-  useEffect(() => {
-    let rotation = 0;
-    let intervalId = null;
-    const startId = setTimeout(() => {
-      intervalId = setInterval(() => {
-        rotation = (rotation + Math.PI / 96) % (Math.PI * 2);
-        setRingRotationRad(rotation);
-      }, 120);
-    }, 500);
-    return () => {
-      clearTimeout(startId);
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, []);
   return (
     <View style={styles.container}>
       <View style={styles.bgDecor} pointerEvents="none">
@@ -1166,9 +1160,11 @@ export default function SecondPage({ navigation }) {
                     contentContainerStyle={[
                       styles.langGridScrollContent,
                       {
+                        paddingTop: langListScrollPadTop,
                         paddingBottom: LANG_LIST_BOTTOM_INSET,
-                        paddingLeft: 14,
-                        paddingRight: 14,
+                        paddingLeft: 8,
+                        paddingRight: 8,
+                        gap: langRowGap,
                       },
                     ]}
                     onLayout={(e) => {
@@ -1181,10 +1177,12 @@ export default function SecondPage({ navigation }) {
                     }}
                     onScroll={handleLanguageListScroll}
                     scrollEventThrottle={16}
-                    showsVerticalScrollIndicator={true}
+                    showsVerticalScrollIndicator={false}
                     persistentScrollbar={Platform.OS === 'android'}
                     indicatorStyle="white"
-                    scrollIndicatorInsets={{ top: 2, bottom: 2, right: 1 }}
+                    scrollIndicatorInsets={{ top: 6, bottom: 4, right: 1 }}
+                    contentInset={{ bottom: 0 }}
+                    contentInsetAdjustmentBehavior="never"
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="on-drag"
                     decelerationRate="fast"
@@ -1195,10 +1193,16 @@ export default function SecondPage({ navigation }) {
                   {(filteredLanguages || []).map((opt) => {
                     const selected = language === opt.id;
                     return (
-                      <View key={opt.id} style={[styles.langPillCell, { width: langTileW }]}>
+                      <View
+                        key={opt.id}
+                        style={[
+                          styles.langPillCell,
+                          langGridCols === 1 ? { width: '100%' } : { width: langTileW },
+                        ]}
+                      >
                         <GlowingLanguageButton
                           flag={opt.flag ?? ''}
-                          flagFontSize={Math.max(19, 21 * r.scale)}
+                          flagFontSize={Math.max(17, 18 * r.scale)}
                           labelNode={renderHighlightedLabel(
                             opt.label ?? '',
                             searchQuery,
@@ -1225,42 +1229,7 @@ export default function SecondPage({ navigation }) {
                     </Text>
                   ) : null}
                   </ScrollView>
-                  {languageListNeedsScroll ? (
-                    <View
-                      style={styles.languageScrollbarTrack}
-                      onLayout={(e) => setLanguageScrollbarTrackH(e.nativeEvent.layout.height)}
-                      // Do not steal every tap from nearby controls on Android.
-                      onStartShouldSetResponder={() => false}
-                      onMoveShouldSetResponder={(_, e) => Math.abs(e?.dy || 0) > 2}
-                      onResponderGrant={(e) => {
-                        const usable = Math.max(1, languageScrollbarTrackH - scrollbarThumbH);
-                        const nextTop = Math.max(
-                          0,
-                          Math.min(usable, e.nativeEvent.locationY - scrollbarThumbH / 2),
-                        );
-                        scrollLanguageListToRatio(nextTop / usable);
-                      }}
-                      onResponderMove={(e) => {
-                        const usable = Math.max(1, languageScrollbarTrackH - scrollbarThumbH);
-                        const nextTop = Math.max(
-                          0,
-                          Math.min(usable, e.nativeEvent.locationY - scrollbarThumbH / 2),
-                        );
-                        scrollLanguageListToRatio(nextTop / usable);
-                      }}
-                    >
-                      <View
-                        pointerEvents="none"
-                        style={[
-                          styles.languageScrollbarThumb,
-                          {
-                            height: scrollbarThumbH || 28,
-                            transform: [{ translateY: scrollbarThumbTop }],
-                          },
-                        ]}
-                      />
-                    </View>
-                  ) : null}
+
                 </View>
                 
               </View>
@@ -1274,8 +1243,7 @@ export default function SecondPage({ navigation }) {
         <Animated.View
           style={[
             styles.continueFooter,
-            styles.continueFooterAboveRing,
-            { marginBottom: continueBeforeRingGap },
+            { marginTop: 4, marginBottom: continueBeforeRingGap },
             {
               opacity: footerBlockOpacity,
               transform: [{ translateY: footerBlockTranslateY }],
@@ -1296,49 +1264,29 @@ export default function SecondPage({ navigation }) {
           />
         </Animated.View>
 
-        <Animated.View
+        <View
           style={[
             styles.bottomCarouselOnly,
             {
               marginHorizontal: -r.horizontalPadding,
               width: sw,
               alignSelf: 'center',
-              opacity: footerBlockOpacity,
-              transform: [{ translateY: footerBlockTranslateY }],
             },
           ]}
         >
           <View
-            style={[styles.carouselWrapper, { minHeight: carouselWrapperMinH }]}
+            style={[styles.carouselWrapper, { minHeight: carouselWrapperMinH, height: carouselCardH }]}
             pointerEvents="none"
             accessibilityElementsHidden
             {...(Platform.OS === 'android' ? { importantForAccessibility: 'no-hide-descendants' } : {})}
           >
-            <View style={styles.carouselInnerAnchor}>
-              <View
-                collapsable={false}
-                style={[
-                  styles.carouselRingStage,
-                  {
-                    width: carouselRingStageW,
-                    height: carouselRingStageH,
-                    transform: [
-                      { perspective: 900 },
-                      { translateY: carouselRingTranslateY },
-                    ],
-                  },
-                ]}
-              >
-                <CarouselCylinderFaces
-                  carouselCardW={carouselCardW}
-                  carouselCardH={carouselCardH}
-                  ringRadius={carouselRingR}
-                  rotationRad={ringRotationRad}
-                />
-              </View>
-            </View>
+            <LangPhotoStrip
+              cardW={carouselCardW}
+              cardH={carouselCardH}
+              screenW={sw}
+            />
           </View>
-        </Animated.View>
+        </View>
       </View>
       </Pressable>
     </View>
@@ -1591,62 +1539,37 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     width: '100%',
-    borderRadius: 14,
-    padding: 1,
-    backgroundColor: 'rgba(225, 255, 0, 0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(225, 255, 0, 0.2)',
+    borderRadius: 20,
+    padding: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
     position: 'relative',
     zIndex: 1,
     overflow: 'visible',
   },
   listCardShadow: {
-    position: 'absolute',
-    left: 6,
-    right: -4,
-    top: 8,
-    bottom: -8,
-    backgroundColor: '#050604',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#000000',
-    zIndex: 0,
+    display: 'none',
   },
   listCard: {
     flex: 1,
     minHeight: 0,
     position: 'relative',
     width: '100%',
-    borderRadius: 14,
+    borderRadius: 24,
     zIndex: 2,
     borderWidth: 1,
-    borderColor: 'rgba(225, 255, 0, 0.38)',
-    backgroundColor: LIST_CARD_INNER_BG,
-    paddingTop: 5,
-    paddingBottom: 5,
-    paddingHorizontal: 8,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(16, 17, 14, 0.94)',
+    paddingTop: 10,
+    paddingBottom: 0,
+    paddingHorizontal: 12,
     overflow: 'hidden',
-    shadowColor: '#E1FF00',
-    shadowOpacity: 0.22,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
   },
   listCardTopFrost: {
-    position: 'absolute',
-    top: 0,
-    left: 12,
-    right: 12,
-    height: 1,
-    borderRadius: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    zIndex: 15,
+    display: 'none',
   },
   listCardGlow: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(225, 255, 0, 0.1)',
+    display: 'none',
   },
   langScrollFill: {
     flex: 1,
@@ -1654,25 +1577,10 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   languageScrollbarTrack: {
-    position: 'absolute',
-    top: 6,
-    right: 2,
-    bottom: 6,
-    width: 10,
-    borderRadius: 999,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    zIndex: 25,
+    display: 'none',
   },
   languageScrollbarThumb: {
-    position: 'absolute',
-    left: 1,
-    right: 1,
-    top: 0,
-    borderRadius: 999,
-    backgroundColor: 'rgba(225,255,0,0.95)',
-    borderWidth: 1,
-    borderColor: 'rgba(12,12,12,0.35)',
+    display: 'none',
   },
   scroll: {
     flex: 1,
@@ -1688,6 +1596,9 @@ const styles = StyleSheet.create({
   },
   langPillCell: {
     marginBottom: 0,
+    overflow: 'visible',
+    borderRadius: 20,
+    alignSelf: 'stretch',
   },
   langPillOptionText: {
     fontFamily: KFONT.semibold,
@@ -1696,6 +1607,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     letterSpacing: 0.2,
     color: '#0d0d0d',
+    width: '100%',
     ...fontPad,
   },
   langPillOptionTextSelected: {
@@ -1711,24 +1623,29 @@ const styles = StyleSheet.create({
   langGlowPillOptionText: {
     fontFamily: KFONT.semibold,
     fontWeight: '400',
-    fontSize: 13,
-    lineHeight: 17,
-    letterSpacing: 0.22,
-    color: '#f0f1f6',
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0.15,
+    color: 'rgba(245,246,240,0.92)',
+    width: '100%',
     ...fontPad,
   },
   langGlowPillOptionTextSelected: {
-    fontFamily: KFONT.medium,
-    fontWeight: '400',
-    color: '#E1FF00',
-    textShadowColor: 'rgba(225, 255, 0, 0.45)',
+    fontFamily: KFONT.semibold,
+    fontWeight: '700',
+    color: '#0A0B0C',
+    textShadowColor: 'transparent',
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
+    textShadowRadius: 0,
     ...fontPad,
   },
   langGlowPillSearchHighlight: {
-    color: '#bef264',
+    color: '#E1FF00',
     fontWeight: '800',
+  },
+  langGlowPillSearchHighlightOnLemon: {
+    color: '#1a3800',
+    fontWeight: '900',
   },
 
   bottomCluster: {
@@ -1738,13 +1655,13 @@ const styles = StyleSheet.create({
   },
 
   continueFooterAboveRing: {
-    marginTop: 52,
+    marginTop: 0,
   },
   continueFooter: {
     width: '100%',
     maxWidth: 560,
     alignSelf: 'center',
-    marginTop: 4,
+    marginTop: 0,
     marginBottom: 0,
     paddingTop: 0,
     paddingBottom: 0,
@@ -1755,8 +1672,10 @@ const styles = StyleSheet.create({
   },
 
   carouselSpacer: {
-    flex: 1,
-    minHeight: 0,
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 4,
+    maxHeight: 16,
     width: '100%',
   },
   bottomCarouselOnly: {
@@ -1765,7 +1684,8 @@ const styles = StyleSheet.create({
     elevation: 0,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingBottom: 2,
+    paddingTop: 6,
+    paddingBottom: 4,
     overflow: 'visible',
   },
 
@@ -1775,11 +1695,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'visible',
     marginTop: 0,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingBottom: 0,
     paddingTop: 0,
-    paddingVertical: 4,
   },
   carouselInnerAnchor: {
     alignItems: 'center',
@@ -1804,10 +1723,25 @@ const styles = StyleSheet.create({
   },
   carouselImg: {
     position: 'absolute',
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  stripClip: {
+    overflow: 'hidden',
+    alignSelf: 'center',
+  },
+  stripRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stripCard: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(225, 255, 0, 0.4)',
+    backgroundColor: '#111',
   },
   optionText: {
     fontFamily: KFONT.regular,
@@ -1876,69 +1810,64 @@ const styles = StyleSheet.create({
 });
 
 
-function CarouselCylinderFaces({ carouselCardW, carouselCardH, ringRadius, rotationRad }) {
-  const R = ringRadius;
-  const hw = carouselCardW / 2;
-  const hh = carouselCardH / 2;
 
-  const faces = Array.from({ length: CAROUSEL_QUANTITY }, (_, i) => {
-    const θ = (2 * Math.PI * i) / CAROUSEL_QUANTITY + rotationRad;
-    const depth = Math.cos(θ);
-    const x = R * Math.sin(θ);
-    const scale = 0.82 + 0.18 * Math.max(0, depth);
-    const opacity = depth > -0.08 ? 1 : 0;
-    const zIndex = Math.round(50 + 50 * depth);
-    return { i, θ, depth, x, scale, opacity, zIndex };
-  });
+/** Лёгкая горизонтальная лента: native-driver, RN Image (стабильно на iOS). */
+const LangPhotoStrip = React.memo(function LangPhotoStrip({ cardW, cardH, screenW }) {
+  const gap = 12;
+  const sources = CAROUSEL_FACE_SOURCES;
+  const loopW = (cardW + gap) * sources.length;
+  const shift = useRef(new Animated.Value(0)).current;
 
-  faces.sort((a, b) => a.depth - b.depth);
+  useEffect(() => {
+    shift.setValue(0);
+    const anim = Animated.loop(
+      Animated.timing(shift, {
+        toValue: -loopW,
+        duration: Math.max(16000, sources.length * 2000),
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    const t = setTimeout(() => anim.start(), 300);
+    return () => {
+      clearTimeout(t);
+      anim.stop();
+    };
+  }, [shift, loopW, sources.length]);
 
-  return faces.map(({ i, x, scale, opacity, zIndex, depth }) => {
-    const src = CAROUSEL_FACE_SOURCES[i];
-    const [cr, cg, cb] = CAROUSEL_FACE_RGB[i] ?? [225, 255, 0];
-    const depthNorm = Math.max(0, depth);
-    const showBorder = depthNorm > 0.5;
-    if (opacity <= 0) return null;
-    return (
+  const sidePad = 16;
+  const cards = (keyPrefix) =>
+    sources.map((src, i) => (
       <View
-        key={`carousel-${i}`}
-        collapsable={false}
+        key={`${keyPrefix}-${i}`}
         style={[
-          styles.carouselRingFaceOuter,
+          styles.stripCard,
+          { width: cardW, height: cardH, marginRight: gap },
+        ]}
+      >
+        <Image
+          source={src}
+          style={{ width: cardW, height: cardH }}
+          resizeMode="cover"
+          fadeDuration={0}
+        />
+      </View>
+    ));
+
+  return (
+    <View style={[styles.stripClip, { width: screenW, height: cardH }]}>
+      <Animated.View
+        style={[
+          styles.stripRow,
           {
-            width: carouselCardW,
-            height: carouselCardH,
-            marginLeft: -hw,
-            marginTop: -hh,
-            zIndex,
-            opacity,
-            ...(Platform.OS === 'android' ? { elevation: Math.max(0, zIndex) } : {}),
-            transform: [{ translateX: x }, { scale }],
+            paddingLeft: sidePad,
+            transform: [{ translateX: shift }],
           },
         ]}
       >
-        <View
-          style={[
-            styles.carouselCard,
-            {
-              width: carouselCardW,
-              height: carouselCardH,
-              borderWidth: showBorder ? 2 : 0,
-              borderColor: showBorder ? `rgba(${cr}, ${cg}, ${cb}, 0.92)` : 'transparent',
-            },
-          ]}
-        >
-          <ExpoImage
-            source={src}
-            style={styles.carouselImg}
-            contentFit="cover"
-            transition={0}
-            allowDownscaling={false}
-            cachePolicy="memory-disk"
-            accessibilityIgnoresInvertColors
-          />
-        </View>
-      </View>
-    );
-  });
-}
+        {cards('a')}
+        {cards('b')}
+      </Animated.View>
+    </View>
+  );
+});

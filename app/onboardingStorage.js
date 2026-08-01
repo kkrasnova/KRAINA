@@ -58,7 +58,8 @@ export async function getHasUsedAppBefore() {
 
 /**
  * Після того, як користувач реально досяг головної сторінки (HomeTabPager) — наступні холодні старти
- * без активної сесії показують лише FirstPage → BackendAuth, без банерів/вибору мови.
+ * без активної сесії показують FirstPage → BackendAuth (SplashAuth відновить з Keychain або покаже вхід),
+ * без банерів/вибору мови.
  */
 export async function markReturningUserAfterSuccessfulAuth() {
   try {

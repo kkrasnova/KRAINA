@@ -5,18 +5,24 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { brandFontHeadMedium } from './brandFont';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 
-/** Ті самі властивості заголовка, що на `LandmarkResultPage`. */
-export const LANDMARK_TITLE_SINGLE_LINE_PROPS = {
-  numberOfLines: 1,
-  adjustsFontSizeToFit: true,
-  minimumFontScale: 0.58,
-  maxFontSizeMultiplier: 1.34,
+/**
+ * Довгі назви пам’яток: перенесення на наступні рядки (замість стиснення в 1 рядок).
+ * Alias `LANDMARK_TITLE_SINGLE_LINE_PROPS` лишаємо для сумісності імпортів.
+ */
+export const LANDMARK_TITLE_WRAP_PROPS = {
+  numberOfLines: 3,
   ellipsizeMode: 'tail',
+  maxFontSizeMultiplier: 1.35,
 };
+
+/** @deprecated використовуйте LANDMARK_TITLE_WRAP_PROPS — назва історична. */
+export const LANDMARK_TITLE_SINGLE_LINE_PROPS = LANDMARK_TITLE_WRAP_PROPS;
 
 const LEMON = '#E1FF00';
 const ACCENT_BLUE = '#0212EB';
-const HEADER_H = 50;
+const HEADER_MIN_H = 50;
+const HEADER_MAX_H = 92;
+const HEADER_RADIUS = 25;
 
 /**
  * Pill header: білий + синя обводка/підкреслення (light),
@@ -95,7 +101,7 @@ export default function LandmarkGlassHeaderBar({
         <View style={styles.miniTopCenter}>
           <Text
             style={[styles.miniTopTitle, brandFontHeadMedium, { color: onFill }]}
-            {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
+            {...LANDMARK_TITLE_WRAP_PROPS}
           >
             {headerTitle}
           </Text>
@@ -133,9 +139,9 @@ export const landmarkGlassHeaderDockStyle = {
 const styles = StyleSheet.create({
   miniTopBar: {
     alignSelf: 'stretch',
-    height: HEADER_H,
-    maxHeight: HEADER_H,
-    borderRadius: HEADER_H / 2,
+    minHeight: HEADER_MIN_H,
+    maxHeight: HEADER_MAX_H,
+    borderRadius: HEADER_RADIUS,
     borderWidth: 1.5,
     overflow: 'hidden',
     ...Platform.select({
@@ -143,11 +149,11 @@ const styles = StyleSheet.create({
     }),
   },
   miniTopBarLight: {
-    backgroundColor: Platform.OS === 'ios' ? 'rgba(255,255,255,0.82)' : '#FFFFFF',
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.92)',
     borderColor: ACCENT_BLUE,
   },
   miniTopBarDark: {
-    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.88)' : '#141418',
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.55)' : 'rgba(20,20,24,0.92)',
     borderColor: LEMON,
   },
   miniTopTint: {
@@ -160,18 +166,18 @@ const styles = StyleSheet.create({
     backgroundColor: Platform.OS === 'ios' ? 'rgba(20,20,24,0.72)' : '#141418',
   },
   miniTopRow: {
-    height: HEADER_H,
+    minHeight: HEADER_MIN_H,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingBottom: 2,
+    paddingVertical: 8,
   },
   miniTopCenter: {
     flex: 1,
     minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
   },
   miniTopIconHit: {
     width: 36,
@@ -179,11 +185,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    alignSelf: 'center',
   },
   miniTopTitle: {
     width: '100%',
     textAlign: 'center',
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 18,
     marginTop: 0,
     paddingTop: 0,
@@ -192,5 +199,6 @@ const styles = StyleSheet.create({
   moreSpacer: {
     width: 36,
     height: 36,
+    flexShrink: 0,
   },
 });

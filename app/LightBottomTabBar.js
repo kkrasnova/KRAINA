@@ -10,6 +10,8 @@ import {
   tabBarFabBackground,
   tabBarFabIconTint,
   TAB_ICON_INACTIVE_DARK,
+  ACCENT_BLUE,
+  ACCENT_LEMON,
 } from './themeAccent';
 import { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { HOME_TAB, LANDMARK_SCANNER_CAPTURE_EVENT } from './homeTabPagerConstants';
@@ -81,7 +83,7 @@ export function lightTabBarExtraScrollPadding() {
 /** Мінімальний зазор між останнім елементом списку і панеллю вкладок. */
 export const LIGHT_TAB_BAR_SCROLL_CLEARANCE = 32;
 /** Додатковий зазор для головної з високими картками локацій. */
-export const HOME_TAB_SCROLL_CLEARANCE = 64;
+export const HOME_TAB_SCROLL_CLEARANCE = 36;
 
 /** paddingBottom для ScrollView / FlatList / FlashList на екранах з tab bar. */
 export function lightTabBarScrollContentPadding(safeAreaBottom = 0, extraClearance = 0) {
@@ -115,7 +117,7 @@ function LightBottomTabBar() {
     let cancelled = false;
     (async () => {
       const t = await getAppTheme();
-      if (!cancelled) setTheme(t === 'light' ? 'light' : 'dark');
+      if (!cancelled) setTheme(t === 'dark' ? 'dark' : 'light');
     })();
     return () => {
       cancelled = true;
@@ -145,7 +147,8 @@ function LightBottomTabBar() {
   const barFill = isLight ? BAR_FILL_LIGHT : BAR_FILL_DARK;
   const screenUnderBar = lightTabBarUnderlayColor(isLight, routeName);
   const transparentSafeUnderlay = lightTabBarTransparentSafeUnderlay(routeName);
-  const barBorder = isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.1)';
+  /** Тонка обводка: світла — синя, темна — лимонна. */
+  const barBorder = isLight ? ACCENT_BLUE : ACCENT_LEMON;
 
   const active = routeName;
   const routeTabActive =
@@ -329,7 +332,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 100,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     ...Platform.select({
       ios: {
         shadowColor: '#000',

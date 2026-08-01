@@ -50,7 +50,7 @@ async function main() {
   const fromEnv = (process.env.ADMIN_PASSWORD || '').trim();
 
   if (!emailArg || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailArg)) {
-    console.error('Usage: ADMIN_PASSWORD=… npm run create-admin 
+    console.error('Usage: ADMIN_PASSWORD=… npm run create-admin');
     console.error('   or: node scripts/create-admin.mjs <email> <password>');
     process.exit(1);
   }

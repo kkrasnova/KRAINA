@@ -43,6 +43,10 @@ export function isLandmarkSwipeComplete(g, threshold = LANDMARK_SWIPE_THRESHOLD)
 /**
  * Горизонтальний свайп для пейджера локацій:
  * dx < 0 — наступна сторінка, dx > 0 — назад / попередня.
+ *
+ * Коли preferVerticalScroll() === true (intro/quiz зі ScrollView),
+ * вертикальні й діагональні жести віддаємо нативному скролу;
+ * горизонтальний пейдж — лише при явному горизонтальному домінуванні.
  */
 export function createLandmarkPagerPanResponder({
   enabled = true,
@@ -63,8 +67,10 @@ export function createLandmarkPagerPanResponder({
   const hasSwipeRight = typeof onSwipeRight === 'function';
   const captureHorizontal =
     horizontalEnabled && (hasSwipeLeft || hasSwipeRight);
+  const prefersScroll = () =>
+    typeof preferVerticalScroll === 'function' && preferVerticalScroll();
   const shouldDeferToVerticalScroll = (g) => {
-    if (typeof preferVerticalScroll !== 'function' || !preferVerticalScroll()) return false;
+    if (!prefersScroll()) return false;
     const ax = Math.abs(g.dx);
     const ay = Math.abs(g.dy);
     // Будь-який помітно вертикальний рух одразу віддаємо скролу — менше випадкових
@@ -74,7 +80,7 @@ export function createLandmarkPagerPanResponder({
   const isStrongHorizontalSwipe = (g) => {
     const ax = Math.abs(g.dx);
     const ay = Math.abs(g.dy);
-    if (typeof preferVerticalScroll === 'function' && preferVerticalScroll()) {
+    if (prefersScroll()) {
       // Перегортаємо лише на явно горизонтальний жест (домінування 2×),
       // інакше вертикальний скрол лишається у ScrollView.
       return ax > 22 && ax > ay * 2;
@@ -88,25 +94,50 @@ export function createLandmarkPagerPanResponder({
     if (ax >= threshold) return true;
     return Math.abs(g.vx || 0) > 0.32 && ax > 16;
   };
+  // На сторінках зі скролом не перехоплюємо вертикальний dismiss у capture —
+  // pull-to-dismiss робить сам ScrollView (overscroll).
+  const allowVerticalDismissCapture = () => !prefersScroll();
   return PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onStartShouldSetPanResponderCapture: () => false,
     onMoveShouldSetPanResponderCapture: (_, g) => {
       if (shouldDeferToVerticalScroll(g)) return false;
-      if (hasSwipeDown && (canSwipeDown?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'down')) return true;
-      if (hasSwipeUp && (canSwipeUp?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'up')) return true;
+      if (
+        allowVerticalDismissCapture() &&
+        hasSwipeDown &&
+        (canSwipeDown?.() ?? true) &&
+        isLandmarkVerticalDismissSwipe(g, 'down')
+      ) {
+        return true;
+      }
+      if (
+        allowVerticalDismissCapture() &&
+        hasSwipeUp &&
+        (canSwipeUp?.() ?? true) &&
+        isLandmarkVerticalDismissSwipe(g, 'up')
+      ) {
+        return true;
+      }
       return captureHorizontal && isStrongHorizontalSwipe(g);
     },
     onMoveShouldSetPanResponder: (_, g) => {
       if (shouldDeferToVerticalScroll(g)) return false;
-      if (hasSwipeDown && (canSwipeDown?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'down')) return true;
-      if (hasSwipeUp && (canSwipeUp?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'up')) return true;
+      if (hasSwipeDown && (canSwipeDown?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'down')) {
+        return true;
+      }
+      if (hasSwipeUp && (canSwipeUp?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'up')) {
+        return true;
+      }
       return captureHorizontal && isStrongHorizontalSwipe(g) && Math.abs(g.dx) > 16;
     },
-    onPanResponderTerminationRequest: (_, g) =>
-      !(captureHorizontal && isStrongHorizontalSwipe(g)) &&
-      !(hasSwipeUp && (canSwipeUp?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'up')) &&
-      !(hasSwipeDown && (canSwipeDown?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'down')),
+    onPanResponderTerminationRequest: (_, g) => {
+      if (shouldDeferToVerticalScroll(g)) return true;
+      return (
+        !(captureHorizontal && isStrongHorizontalSwipe(g)) &&
+        !(hasSwipeUp && (canSwipeUp?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'up')) &&
+        !(hasSwipeDown && (canSwipeDown?.() ?? true) && isLandmarkVerticalDismissSwipe(g, 'down'))
+      );
+    },
     onPanResponderRelease: (_, g) => {
       if (hasSwipeDown && (canSwipeDown?.() ?? true) && isLandmarkVerticalDismissComplete(g, 'down')) {
         onSwipeDown?.();

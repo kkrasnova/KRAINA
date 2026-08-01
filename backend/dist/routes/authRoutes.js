@@ -7,8 +7,13 @@ import { authenticateToken } from '../middleware/authMiddleware.js';
 import { HttpError } from '../errors/HttpError.js';
 import { authLoginRateLimiter, authRegisterRateLimiter, authGoogleRateLimiter, authAppleRateLimiter, authRefreshRateLimiter, authForgotPasswordRateLimiter, authResetPasswordRateLimiter, } from '../middleware/rateLimits.js';
 async function withFirebaseCustomToken(out) {
-    const token = await createFirebaseCustomToken(out.user.id);
-    return token ? { ...out, firebase_custom_token: token } : out;
+    try {
+        const token = await createFirebaseCustomToken(out.user.id);
+        return token ? { ...out, firebase_custom_token: token } : out;
+    }
+    catch (e) {
+        return out;
+    }
 }
 const router = Router();
 function zodFirstCode(err) {

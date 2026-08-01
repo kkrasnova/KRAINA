@@ -1,7 +1,8 @@
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { brandFontText } from './brandFont';
 import { rippleOnDarkSurface } from './androidFeedback';
+import FittingText from './FittingText';
 
 const ACCENT = '#E1FF00';
 const LEMON_BRIGHT = '#EEFF66';
@@ -67,17 +68,17 @@ export default function ForgotPasswordStepRail({ steps, currentIndex, onStepPres
           const active = index <= currentIndex;
           const current = index === currentIndex;
           return (
-            <Text
+            <FittingText
               key={`${step.id}-label`}
               style={[
                 styles.label,
                 active && styles.labelActive,
                 current && styles.labelCurrent,
               ]}
-              numberOfLines={1}
+              minimumFontScale={0.65}
             >
               {step.label}
-            </Text>
+            </FittingText>
           );
         })}
       </View>
@@ -166,6 +167,7 @@ const styles = StyleSheet.create({
   },
   label: {
     flex: 1,
+    minWidth: 0,
     textAlign: 'center',
     fontSize: 11,
     lineHeight: 14,

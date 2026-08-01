@@ -30,7 +30,7 @@ function HomeCategoryChips({ language, appTheme, selectedId, onSelect }) {
         contentContainerStyle={styles.scroll}
         decelerationRate="fast"
         keyboardShouldPersistTaps="handled"
-        removeClippedSubviews
+        removeClippedSubviews={false}
       >
         {HOME_CATEGORY_IDS.map((id) => {
           const selected = id === selectedId;

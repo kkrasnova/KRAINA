@@ -112,6 +112,18 @@ export const adminActionRateLimiter = rateLimit({
   },
 });
 
+/** Polling AI enrich job status (CMS polls ~every 1.5s). */
+export const adminAiJobPollRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 180,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: rateLimitValidate,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'rate_limited' });
+  },
+});
+
 
 export const billingVerifyRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

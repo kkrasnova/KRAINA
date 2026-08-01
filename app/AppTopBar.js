@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import PddHeaderWordmark from './PddHeaderWordmark';
 import { brandFontHeadMedium, brandFontSansMedium } from './brandFont';
+import FittingText from './FittingText';
 import { hasMessageApiToken, messagesListThreads } from './messageApi';
 import { useAuthStore } from './auth/authStore';
 import {
@@ -295,7 +296,7 @@ export default memo(function AppTopBar({
             <>
               <PddHeaderWordmark isLight={isLight} fontSize={isLight ? 20 : 21} />
               {centerSubtitle ? (
-                <Text
+                <FittingText
                   style={[
                     styles.centerSubtitle,
                     brandFontSansMedium,
@@ -303,25 +304,24 @@ export default memo(function AppTopBar({
                     Platform.OS === 'android' && styles.centerSubtitleAndroid,
                     Platform.OS === 'ios' && styles.centerSubtitleIOS,
                   ]}
-                  numberOfLines={1}
+                  minimumFontScale={0.78}
                 >
                   {centerSubtitle}
-                </Text>
+                </FittingText>
               ) : null}
             </>
           ) : titleOnly ? (
-            <Text
+            <FittingText
               style={[
                 styles.replaceTitle,
                 brandFontHeadMedium,
                 { color: isLight ? '#181818' : 'rgba(255, 255, 255, 0.92)' },
               ]}
               numberOfLines={2}
-              adjustsFontSizeToFit={Platform.OS === 'ios'}
-              minimumFontScale={0.82}
+              minimumFontScale={0.72}
             >
               {titleOnly}
-            </Text>
+            </FittingText>
           ) : (
             <View style={styles.centerSpacer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
           )}

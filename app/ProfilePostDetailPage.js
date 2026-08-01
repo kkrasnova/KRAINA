@@ -13,6 +13,7 @@ import {
   DeviceEventEmitter,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import RemotePhoto from './RemotePhoto';
 import { Video, ResizeMode } from './expoAvCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -549,7 +550,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                 }}
                 maxToRenderPerBatch={3}
                 windowSize={3}
-                removeClippedSubviews={Platform.OS === 'android'}
+                removeClippedSubviews={false}
                 initialNumToRender={3}
                 renderItem={({ item }) => {
                   const u = String(item || '');
@@ -563,7 +564,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
                       shouldPlay={false}
                     />
                   ) : (
-                    <ExpoImage
+                    <RemotePhoto
                       source={{ uri: u }}
                       style={slideStyle}
                       contentFit="cover"
@@ -584,7 +585,7 @@ export default function ProfilePostDetailPage({ navigation, route }) {
               </View>
             </View>
           ) : coverUrl ? (
-            <ExpoImage
+            <RemotePhoto
               source={{ uri: coverUrl }}
               style={slideStyle}
               contentFit="cover"

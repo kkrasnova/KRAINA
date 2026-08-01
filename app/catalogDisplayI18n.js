@@ -15,8 +15,31 @@ function pickRow(lang, row) {
   return pickI18n(lang, row);
 }
 
+/** «Костел (Київ)» / «Church — Kyiv» → лише назва локації. */
+export function stripCitySuffixFromLandmarkTitle(title, region) {
+  let t = String(title || '').trim();
+  if (!t) return '';
+  t = t.replace(/\s*[\(（][^)）]{0,48}[\)）]\s*$/u, '').trim();
+  const cityNames = [];
+  if (region && typeof region === 'object') {
+    [region.titleUk, region.titleEn].forEach((n) => {
+      const s = String(n || '').trim();
+      if (s.length >= 2) cityNames.push(s);
+    });
+  }
+  for (const name of cityNames) {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    t = t.replace(new RegExp(`\\s*[—\\-–,|/]\\s*${esc}\\s*$`, 'iu'), '').trim();
+  }
+  return t || String(title || '').trim();
+}
+
 export function resolveLandmarkDescI18n(lm, language, context = {}) {
   const lang = appLangBase(language);
+  if (lm?.descI18n && typeof lm.descI18n === 'object') {
+    const t = pickRow(lang, lm.descI18n);
+    if (t) return t;
+  }
   const { regionId, landmarkId } = context;
   const intro = getLandmarkIntroI18n(regionId, landmarkId);
   if (intro?.desc) {
@@ -33,17 +56,27 @@ export function resolveLandmarkDescI18n(lm, language, context = {}) {
 }
 
 export function resolveCatalogLandmarkTitle(lm, language, context = {}) {
-  const fromIntro = resolveLandmarkTitleI18n(lm, language, context);
-  if (fromIntro) return fromIntro;
-  const { regionId, landmarkId } = context;
-  const catalog = landmarkCatalogTitleRow(regionId, landmarkId);
-  if (catalog) {
-    const t = pickI18n(appLangBase(language), catalog);
-    if (t) return t;
-  }
   const lang = appLangBase(language);
-  if (lang === 'uk') return String(lm?.titleUk || lm?.titleEn || '').trim();
-  return String(lm?.titleEn || lm?.titleUk || '').trim();
+  let title = '';
+  if (lm?.titleI18n && typeof lm.titleI18n === 'object') {
+    title = pickI18n(lang, lm.titleI18n) || '';
+  }
+  if (!title) {
+    const fromIntro = resolveLandmarkTitleI18n(lm, language, context);
+    if (fromIntro) title = fromIntro;
+  }
+  if (!title) {
+    const { regionId, landmarkId } = context;
+    const catalog = landmarkCatalogTitleRow(regionId, landmarkId);
+    if (catalog) title = pickI18n(lang, catalog) || '';
+  }
+  if (!title) {
+    title =
+      lang === 'uk'
+        ? String(lm?.titleUk || lm?.titleEn || '').trim()
+        : String(lm?.titleEn || lm?.titleUk || '').trim();
+  }
+  return stripCitySuffixFromLandmarkTitle(title, context.region);
 }
 
 export function resolveCatalogRegionTitle(region, language) {

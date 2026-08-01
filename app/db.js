@@ -1447,6 +1447,12 @@ export async function saveSession(user) {
   }
   const merged = await mergeAppLanguageBidirectional({ ...user });
   await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: sanitizeUserForSession(merged) }));
+  try {
+    const { markSignedIn } = require('./signedInStorage');
+    await markSignedIn(merged);
+  } catch {
+    /* ignore */
+  }
   if (merged.appLanguage !== user.appLanguage) {
     await persistUser(merged);
   }
@@ -1480,6 +1486,12 @@ export async function setAppLanguagePreference(languageId) {
 export async function clearSession() {
   await signOutFirebaseAuth();
   await AsyncStorage.removeItem(SESSION_KEY);
+  try {
+    const { clearSignedIn } = require('./signedInStorage');
+    await clearSignedIn();
+  } catch {
+    /* ignore */
+  }
   try {
     await AsyncStorage.multiRemove([
       REMEMBER_ME_KEY,

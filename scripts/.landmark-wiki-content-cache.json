@@ -6059,39 +6059,33 @@
   },
   "kyiv:st_nicholas_cathedral": {
     "story": {
-      "shortIntroUk": "Неоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.",
-      "shortIntroEn": "Early 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.",
-      "miniPreviewUk": "Неоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.",
-      "miniPreviewEn": "Early 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.",
-      "introPage1Uk": "Вітаємо біля **Костел Святого Миколая**. Неоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.\n\n**Як дізнатися більше:** увімкніть аудіогід 👆 — і ми розповімо історію цього місця.",
-      "introPage1En": "Welcome to **St. Nicholas Roman Catholic Cathedral**. Early 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.\n\n**Learn more:** tap the audio guide 👆 to hear the story of this place.",
+      "shortIntroUk": "Неоготичний костел 1899–1909 років архітектора Владислава Городецького; вежі близько 60 м, органна зала й католицька парафія.",
+      "shortIntroEn": "Neo-Gothic church built 1899–1909 by Władysław Horodecki; twin towers ~60 m, shared with the National Organ Hall.",
+      "miniPreviewUk": "Неоготичний костел 1899–1909 років архітектора Владислава Городецького; вежі близько 60 м, органна зала й католицька парафія.",
+      "miniPreviewEn": "Neo-Gothic church built 1899–1909 by Władysław Horodecki; twin towers ~60 m, shared with the National Organ Hall.",
+      "introPage1Uk": "Вітаємо біля **Костел Святого Миколая**.\n\nКостел Свято́го Микола́я в Києві — римо-католицький костел у Києві, один із двох римсько-католицьких у місті, побудованих до 1917 року. Розташований у центрі Києва на Великій Васильківській вулиці.\n\nКостел був побудований у 1899—1909 роках у неоготичному стилі українським та польським архітектором Владиславом Городецьким за проєктом С. В. Валовського (або Воловського). Дозвіл на спорудження храму отримав граф Владислав Міхал Пій Браницький, який також надав кошти для будівництва.\n\n**Як дізнатися більше:** увімкніть аудіогід 👆 — і ми розповімо історію цього місця.",
+      "introPage1En": "Welcome to **St. Nicholas Roman Catholic Cathedral**.\n\nThe Church of St. Nicholas (Ukrainian: Костел Св. Миколая, translit.: Kostel Sviatoho Mykolaia; Polish: Kościół Świętego Mikołaja w Kijowie) is the second oldest Catholic church standing in Kyiv, the capital of Ukraine, after the St. Alexander Roman Catholic Cathedral. Today the building is shared between the Catholic Church and the National Organ and Chamber Music Hall of Ukraine.\n\nIt was constructed in 1899–1909 and was built by the Latin Catholic community in a Gothic type construction, by architects Stanisław Wołowski and Władysław Horodecki. It stands at vulytsia Velyka Vasylkivska (Greater Vasylkiv street) in Pecherskyi District next to the Kyiv National Linguistic University between the National Sports Complex Olimpiysky and the railroad station Kyiv-Tovarnyi.\n\n**Learn more:** tap the audio guide 👆 to hear the story of this place.",
       "introPagesUk": [
         {
-          "body": "**Костел Святого Миколая** — історичний контекст\n\nНеоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.",
           "heroHeightRatio": 0.4,
           "heroHeightMax": 340,
           "introHeroInsetRounded": true,
           "heroStackGap": 22,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/7/7b/St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg",
-          "illustrationUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg/3840px-Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg"
+          "body": "У 1936 році влада СРСР припинила богослужіння у костелі. З будівлі зняли хрести, дзвони, скульптури, деякі вітражі, можливо передавши їх (а також ікони та начиння) Київській кіностудії як реквізит до фільмів. 21 березня 1938 року його закрили. Відтоді споруду використовували як складські приміщення. 1943 року сталася пожежа, серед можливих причин — загорілося майно у церкві або радянський артобстріл."
         },
         {
-          "body": "**Костел Святого Миколая** — порівняння «було / стало»\n\nЦе місце варто побачити на власні очі.",
           "compareHeroHeightRatio": 0.6,
           "compareHeroHeightMax": 540,
           "compareHeroTopInset": 22,
           "introCompareRounded": true,
           "heroStackGap": 22,
-          "compareBeforeUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg/3840px-Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg",
-          "compareAfterUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg/1280px-Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg"
+          "body": "У результаті постраждали інтер'єри, згорів перший орган. Через три роки, після ремонту, приміщення зайняв Київський обласний архів. Частину площ усередині займали системи глушіння «ворожих» західних радіостанцій, а антени системи було розвішано ззовні на баштах костелу. 1954 року на фасаді будівлі почали першочергові ремонтно-реставраційні роботи. З 1956 по 1963 роки костел був пам'яткою архітектури."
         },
         {
-          "body": "**Костел Святого Миколая** — архітектурні деталі\n\nЦе місце варто побачити на власні очі.",
           "introHeroBleedTop": true,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg/1280px-Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg"
+          "body": "У 1978 році за наказом Ради Міністрів УРСР будівлю костелу віддали під створення Київського будинку органної та камерної музики, який відкрили 1979 року. Для цього в Чехословаччині замовили орган компанії «Rieger-Kloss». У 1981 році було закінчено реставрацію, і того ж року в костелі почав діяти концертний зал."
         },
         {
-          "body": "**Костел Святого Миколая** — інтер'єр та атмосфера\n\nЦе місце варто побачити на власні очі.",
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.68,
           "heroHeightMax": 600,
@@ -6099,10 +6093,9 @@
             "left": "72%",
             "top": "50%"
           },
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2880%29.jpg/1280px-Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2880%29.jpg"
+          "body": "29 вересня 1991 року відбулося перше богослужіння, а 4 січня 1992 року храм знову освятили — обряд провів єпископ Ян Пурвінський. 2001 році костел відвідав Папа Римський Іван Павло II."
         },
         {
-          "body": "**Костел Святого Миколая** — культурне значення\n\nЦе місце варто побачити на власні очі.",
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.48,
           "heroHeightMax": 400,
@@ -6110,103 +6103,78 @@
             "left": "50%",
             "top": "34%"
           },
-          "secondaryStackGap": 0,
-          "secondaryHeroPosition": {
-            "left": "50%",
-            "top": "40%"
-          },
-          "secondaryHeroHeightRatio": 0.3,
-          "secondaryHeroHeightMax": 260,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/f/fe/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2811%29.jpg",
-          "secondaryPhotoUri": "https://upload.wikimedia.org/wikipedia/commons/2/2a/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2812%29.jpg"
+          "body": "За часи незалежності України костел Святого Миколая поділили поміж собою Національний будинок органної та камерної музики України, як приміщення для концертів, та парафія Святого Миколая Римсько-католицької церкви в Україні, яка проводить у ньому богослужіння для релігійної громади."
         },
         {
-          "body": "**Костел Святого Миколая** — околиці та контекст\n\nЦе місце варто побачити на власні очі.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.42,
           "heroHeightMax": 360,
           "heroStackGap": 18,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/2/2a/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2812%29.jpg"
+          "body": "Влада відмовлялася передати приміщення Римсько-католицькій церкві повністю до розв'язання питання щодо нового місця розташування Органного залу. Приміщення перебувало в аварійному стані. Міністерство культури України спланувало до кінця 2023 року реалізувати проєкт будівництва в Києві Будинку музики та перемістити до нього Національний будинок органної та камерної музики України."
         },
         {
-          "body": "**Костел Святого Миколая** — історична хронологія\n\nЦе місце варто побачити на власні очі.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.42,
           "heroHeightMax": 360,
           "heroStackGap": 18,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/4/4c/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2813%29.jpg"
+          "body": "Також у костелі почали службу священники зі Згромадження Місіонерів Облатів Непорочної Марії."
         },
         {
-          "body": "**Костел Святого Миколая** — місцеві традиції\n\nЦе місце варто побачити на власні очі.",
           "introHeroAfterText": true,
           "heroHeightRatio": 0.5,
           "heroHeightMax": 420,
           "introHeroInsetRounded": true,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg/1280px-St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg"
+          "body": "3 вересня 2021 року в костелі виникла пожежа площею 80 м², яка поширилася на два поверхи костелу та дах. 80 рятувальників та 16 одиниць техніки ліквідували її за півтори години. Унаслідок пожежі покрівля будівлі була дуже пошкоджена, та повністю згорів унікальний орган, виготовлений із металу і дорогих порід чорного та червоного дерева."
         },
         {
-          "body": "**Костел Святого Миколая** — сучасне життя\n\nЦе місце варто побачити на власні очі.",
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.44,
           "heroHeightMax": 380,
-          "secondaryStackGap": 12,
-          "secondaryHeroHeightRatio": 0.28,
-          "secondaryHeroHeightMax": 240,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%9A%D0%B8%D1%97%D0%B2_2017_DSC7963.jpg/1280px-%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%9A%D0%B8%D1%97%D0%B2_2017_DSC7963.jpg",
-          "secondaryPhotoUri": "https://upload.wikimedia.org/wikipedia/commons/1/10/%D0%A0%D0%BE%D0%BC%D0%B0%D0%BD%D0%BE-%D0%BA%D0%B0%D1%82%D0%BE%D0%BB%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BA%D0%BE%D1%81%D1%82%D0%B5%D0%BB_%D0%A1%D0%B2%D1%8F%D1%82%D0%BE%D0%B3%D0%BE_%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%BB%D0%B8%D1%81%D1%82%D1%96%D0%B2%D0%BA%D0%B0.jpg"
+          "body": "Основною версією виникнення пожежі було загоряння електропроводів у дерев'яному корпусі органу, що мали понад 40 років. Постраждалих серед людей не було. Протягом доби після пожежі українські бізнеси пожертвували 18 млн грн на відновлення костелу. За попередньою оцінкою Міністерства культури та інформаційної політики, відновлення костелу мало коштувати 75 млн грн, іншу частину грошей мала надати держава."
         },
         {
-          "body": "**Костел Святого Миколая** — цікаві факти\n\nЦе місце варто побачити на власні очі.",
           "introFactCard": true,
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.55,
           "heroHeightMax": 480,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/1/10/%D0%A0%D0%BE%D0%BC%D0%B0%D0%BD%D0%BE-%D0%BA%D0%B0%D1%82%D0%BE%D0%BB%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BA%D0%BE%D1%81%D1%82%D0%B5%D0%BB_%D0%A1%D0%B2%D1%8F%D1%82%D0%BE%D0%B3%D0%BE_%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%BB%D0%B8%D1%81%D1%82%D1%96%D0%B2%D0%BA%D0%B0.jpg"
+          "body": "20 грудня 2024 року костел зазнав пошкоджень від уламків збитих ракет під час удару по Києву, завданого росіянами. Було пошкоджено фасад та центральний вітраж у формі готичної «троянди». Вибухова хвиля зруйнувала віконні рами сходових клітин, які ведуть до шпилів північної та південної веж, відомих як Хрестоцвіти."
         },
         {
-          "body": "**Костел Святого Миколая** — фотогалерея\n\nЦе місце варто побачити на власні очі.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.36,
           "heroHeightMax": 300,
           "heroStackGap": 16,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg/1280px-Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg"
+          "body": ""
         },
         {
-          "body": "**Костел Святого Миколая** — завершення\n\nЦе місце варто побачити на власні очі.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.38,
           "heroHeightMax": 320,
           "heroStackGap": 20,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/6/6c/ChristAsSol.jpg"
+          "body": ""
         }
       ],
       "introPagesEn": [
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — historic context\n\nEarly 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.",
           "heroHeightRatio": 0.4,
           "heroHeightMax": 340,
           "introHeroInsetRounded": true,
           "heroStackGap": 22,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/7/7b/St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg",
-          "illustrationUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg/3840px-Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg"
+          "body": "The church was constructed to accommodate the expanding Polish community, which more than doubled in size between 1897 and 1909. The building permission was obtained thanks to the efforts of Count Władysław Branicki. A design competition held in 1898 selected Stanisław Wołowski, whose entry was a Gothic type construction with two 60 m (197 ft) towers."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — before / after\n\nThis place is worth seeing in person.",
           "compareHeroHeightRatio": 0.6,
           "compareHeroHeightMax": 540,
           "compareHeroTopInset": 22,
           "introCompareRounded": true,
           "heroStackGap": 22,
-          "compareBeforeUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg/3840px-Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg",
-          "compareAfterUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg/1280px-Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg"
+          "body": "The final revision and management of the project was assigned to the Polish architect Władysław Horodecki. Emilio Sala added sculptural decoration in artificial stone to the construction. To increase the stability of the construction on the uneven Kyiv ground, it was ensured by bore-and-stuffed piles, a newly introduced invention of Anton Strauss."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — architectural details\n\nThis place is worth seeing in person.",
           "introHeroBleedTop": true,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg/1280px-Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2801%29.jpg"
+          "body": "The construction work was carried out by exclusively from voluntary donations, and lasted for ten years (1899–1909). In 1909, the church was consecrated in the name of Saint Nicholas, however the construction was not yet completed. A Gothic style three-story house was built for the parish clergy to the left of the church."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — interior and atmosphere\n\nThis place is worth seeing in person.",
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.68,
           "heroHeightMax": 600,
@@ -6214,10 +6182,9 @@
             "left": "72%",
             "top": "50%"
           },
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2880%29.jpg/1280px-Destructions_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2880%29.jpg"
+          "body": "In 1938, Soviet authorities closed the church after its Roman Catholic priest was \"absent\" for two years due to the Soviet persecution of Christians. For some time after its closure, the building was used by the punitive organs for technical purposes, and, at some point, served as a KGB service building."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — cultural significance\n\nThis place is worth seeing in person.",
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.48,
           "heroHeightMax": 400,
@@ -6225,109 +6192,103 @@
             "left": "50%",
             "top": "34%"
           },
-          "secondaryStackGap": 0,
-          "secondaryHeroPosition": {
-            "left": "50%",
-            "top": "40%"
-          },
-          "secondaryHeroHeightRatio": 0.3,
-          "secondaryHeroHeightMax": 260,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/f/fe/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2811%29.jpg",
-          "secondaryPhotoUri": "https://upload.wikimedia.org/wikipedia/commons/2/2a/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2812%29.jpg"
+          "body": "After its restoration in 1979–1980, commissioned by the Rada of Ministers of the Ukrainian SSR, by the architects O. Grauzhis and I. Tukalevskiy, the church was turned into the National House of Organ and Chamber Music of Ukraine (Ukrainian: Національний будинок органної та камерної музики України; translit.: Natsional'nyi budynok orhannoyi ta kamernoi muzyky Ukrainy)."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — surroundings\n\nThis place is worth seeing in person.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.42,
           "heroHeightMax": 360,
           "heroStackGap": 18,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/2/2a/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2812%29.jpg"
+          "body": "For the reconstruction and restoration of the severely damaged church, the building's stained glass windows were manufactured in the Baltics, its furniture was created in Lviv, and the high-quality wood floors were produced in the Ivano-Frankivsk Oblast. The company, Rieger–Kloss then located in Czechoslovakia (Sudetenland), manufactured an organ for the church."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — historical timeline\n\nThis place is worth seeing in person.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.42,
           "heroHeightMax": 360,
           "heroStackGap": 18,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/4/4c/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2813%29.jpg"
+          "body": "Its manufacturer tried to architecturally tie the organ to the building itself. Since 1992, Catholic Masses and concerts have been held here. Bishop Jan Purwinski consecrated the church and a Mass was celebrated there on 4 January 1992. Currently, it belongs to the Kyivan Municipal Department for Culture, but the [Catholic Church hopes it will be returned to the local Latin Catholic community."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — local traditions\n\nThis place is worth seeing in person.",
           "introHeroAfterText": true,
           "heroHeightRatio": 0.5,
           "heroHeightMax": 420,
           "introHeroInsetRounded": true,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg/1280px-St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg"
+          "body": "The Kyiv city municipality refuse to hand over the building until the issue of transferring the House of Organ Music will be solved. Since 2009 the building is in emergency conditions. As of 2020 the Ukrainian Ministry of Culture plans to construct a building for the House of Organ Music by 2023. Religious liturgies are celebrated by priests of the Missionary Oblates of Mary Immaculate."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — modern life\n\nThis place is worth seeing in person.",
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.44,
           "heroHeightMax": 380,
-          "secondaryStackGap": 12,
-          "secondaryHeroHeightRatio": 0.28,
-          "secondaryHeroHeightMax": 240,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%9A%D0%B8%D1%97%D0%B2_2017_DSC7963.jpg/1280px-%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%9A%D0%B8%D1%97%D0%B2_2017_DSC7963.jpg",
-          "secondaryPhotoUri": "https://upload.wikimedia.org/wikipedia/commons/1/10/%D0%A0%D0%BE%D0%BC%D0%B0%D0%BD%D0%BE-%D0%BA%D0%B0%D1%82%D0%BE%D0%BB%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BA%D0%BE%D1%81%D1%82%D0%B5%D0%BB_%D0%A1%D0%B2%D1%8F%D1%82%D0%BE%D0%B3%D0%BE_%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%BB%D0%B8%D1%81%D1%82%D1%96%D0%B2%D0%BA%D0%B0.jpg"
+          "body": "Most are conducted in the Ukrainian language, while on some days they are conducted in Polish, Latin and in Spanish. On the night of 3 September 2021, the church caught fire and was severely damaged. The fire destroyed the organ and damaged the interior of the church. A large chandelier also fell to the floor. There were no casualties."
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — interesting facts\n\nThis place is worth seeing in person.",
           "introFactCard": true,
           "introHeroBleedTop": true,
           "heroHeightRatio": 0.55,
           "heroHeightMax": 480,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/1/10/%D0%A0%D0%BE%D0%BC%D0%B0%D0%BD%D0%BE-%D0%BA%D0%B0%D1%82%D0%BE%D0%BB%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BA%D0%BE%D1%81%D1%82%D0%B5%D0%BB_%D0%A1%D0%B2%D1%8F%D1%82%D0%BE%D0%B3%D0%BE_%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%BB%D0%B8%D1%81%D1%82%D1%96%D0%B2%D0%BA%D0%B0.jpg"
+          "body": ""
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — photo gallery\n\nThis place is worth seeing in person.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.36,
           "heroHeightMax": 300,
           "heroStackGap": 16,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg/1280px-Bezbozhnik_u_stanka_-_Run_along%2C_Lord%2C_1931%2C_n._22.jpg"
+          "body": ""
         },
         {
-          "body": "**St. Nicholas Roman Catholic Cathedral** — closing\n\nThis place is worth seeing in person.",
           "introHeroInsetRounded": true,
           "heroHeightRatio": 0.38,
           "heroHeightMax": 320,
           "heroStackGap": 20,
-          "photoUri": "https://upload.wikimedia.org/wikipedia/commons/6/6c/ChristAsSol.jpg"
+          "body": ""
         }
       ],
       "quiz": {
-        "questionUk": "Як називається ця локація?",
-        "questionEn": "What is the name of this landmark?",
+        "questionUk": "Хто був головним архітектором костелу Святого Миколая в Києві?",
+        "questionEn": "Who was the lead architect of St. Nicholas Cathedral in Kyiv?",
         "options": [
           {
-            "textUk": "Костел Святого Миколая",
-            "textEn": "St. Nicholas Roman Catholic Cathedral",
+            "textUk": "Владислав Городецький",
+            "textEn": "Władysław Horodecki",
             "correct": true
           },
           {
-            "textUk": "Батьківщина-Мати",
-            "textEn": "Motherland Monument",
+            "textUk": "Вікентій Беретті",
+            "textEn": "Vincenzo Beretti",
             "correct": false
           },
           {
-            "textUk": "Київська Сахара",
-            "textEn": "Kyiv Sahara Dunes",
+            "textUk": "Андрій Меленський",
+            "textEn": "Andriy Melenskyi",
             "correct": false
           }
         ],
-        "multiHintUk": "Підказка: назва в заголовку — **Костел Святого Миколая**.",
-        "multiHintEn": "Hint: the title says **St. Nicholas Roman Catholic Cathedral**."
+        "multiHintUk": "Погляньте на табличку біля входу — ім’я **Городецького** згадується в історії будівництва.",
+        "multiHintEn": "Look for **Horodecki** — he finalized the Gothic design after the 1898 competition."
       },
-      "audioScriptUk": "Вітаємо біля **Костел Святого Миколая**. Неоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.\n\n**Як дізнатися більше:** увімкніть аудіогід 👆 — і ми розповімо історію цього місця.\n\n**Костел Святого Миколая** — історичний контекст\n\nНеоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.\n\n**Костел Святого Миколая** — порівняння «було / стало»\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — архітектурні деталі\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — інтер'єр та атмосфера\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — культурне значення\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — околиці та контекст\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — історична хронологія\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — місцеві традиції\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — сучасне життя\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — цікаві факти\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — фотогалерея\n\nЦе місце варто побачити на власні очі.\n\n**Костел Святого Миколая** — завершення\n\nЦе місце варто побачити на власні очі.",
-      "audioScriptEn": "Welcome to **St. Nicholas Roman Catholic Cathedral**. Early 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.\n\n**Learn more:** tap the audio guide 👆 to hear the story of this place.\n\n**St. Nicholas Roman Catholic Cathedral** — historic context\n\nEarly 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.\n\n**St. Nicholas Roman Catholic Cathedral** — before / after\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — architectural details\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — interior and atmosphere\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — cultural significance\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — surroundings\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — historical timeline\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — local traditions\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — modern life\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — interesting facts\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — photo gallery\n\nThis place is worth seeing in person.\n\n**St. Nicholas Roman Catholic Cathedral** — closing\n\nThis place is worth seeing in person.",
+      "audioScriptUk": "Вітаємо біля **Костел Святого Миколая**.\n\nКостел Свято́го Микола́я в Києві — римо-католицький костел у Києві, один із двох римсько-католицьких у місті, побудованих до 1917 року. Розташований у центрі Києва на Великій Васильківській вулиці.\n\nКостел був побудований у 1899—1909 роках у неоготичному стилі українським та польським архітектором Владиславом Городецьким за проєктом С. В. Валовського (або Воловського). Дозвіл на спорудження храму отримав граф Владислав Міхал Пій Браницький, який також надав кошти для будівництва.\n\n**Як дізнатися більше:** увімкніть аудіогід 👆 — і ми розповімо історію цього місця.\n\nУ 1936 році влада СРСР припинила богослужіння у костелі. З будівлі зняли хрести, дзвони, скульптури, деякі вітражі, можливо передавши їх (а також ікони та начиння) Київській кіностудії як реквізит до фільмів. 21 березня 1938 року його закрили. Відтоді споруду використовували як складські приміщення. 1943 року сталася пожежа, серед можливих причин — загорілося майно у церкві або радянський артобстріл.\n\nУ результаті постраждали інтер'єри, згорів перший орган. Через три роки, після ремонту, приміщення зайняв Київський обласний архів. Частину площ усередині займали системи глушіння «ворожих» західних радіостанцій, а антени системи було розвішано ззовні на баштах костелу. 1954 року на фасаді будівлі почали першочергові ремонтно-реставраційні роботи. З 1956 по 1963 роки костел був пам'яткою архітектури.\n\nУ 1978 році за наказом Ради Міністрів УРСР будівлю костелу віддали під створення Київського будинку органної та камерної музики, який відкрили 1979 року. Для цього в Чехословаччині замовили орган компанії «Rieger-Kloss». У 1981 році було закінчено реставрацію, і того ж року в костелі почав діяти концертний зал.\n\n29 вересня 1991 року відбулося перше богослужіння, а 4 січня 1992 року храм знову освятили — обряд провів єпископ Ян Пурвінський. 2001 році костел відвідав Папа Римський Іван Павло II.\n\nЗа часи незалежності України костел Святого Миколая поділили поміж собою Національний будинок органної та камерної музики України, як приміщення для концертів, та парафія Святого Миколая Римсько-католицької церкви в Україні, яка проводить у ньому богослужіння для релігійної громади.\n\nВлада відмовлялася передати приміщення Римсько-католицькій церкві повністю до розв'язання питання щодо нового місця розташування Органного залу. Приміщення перебувало в аварійному стані. Міністерство культури України спланувало до кінця 2023 року реалізувати проєкт будівництва в Києві Будинку музики та перемістити до нього Національний будинок органної та камерної музики України.\n\nТакож у костелі почали службу священники зі Згромадження Місіонерів Облатів Непорочної Марії.\n\n3 вересня 2021 року в костелі виникла пожежа площею 80 м², яка поширилася на два поверхи костелу та дах. 80 рятувальників та 16 одиниць техніки ліквідували її за півтори години. Унаслідок пожежі покрівля будівлі була дуже пошкоджена, та повністю згорів унікальний орган, виготовлений із металу і дорогих порід чорного та червоного дерева.\n\nОсновною версією виникнення пожежі було загоряння електропроводів у дерев'яному корпусі органу, що мали понад 40 років. Постраждалих серед людей не було. Протягом доби після пожежі українські бізнеси пожертвували 18 млн грн на відновлення костелу. За попередньою оцінкою Міністерства культури та інформаційної політики, відновлення костелу мало коштувати 75 млн грн, іншу частину грошей мала надати держава.\n\n20 грудня 2024 року костел зазнав пошкоджень від уламків збитих ракет під час удару по Києву, завданого росіянами. Було пошкоджено фасад та центральний вітраж у формі готичної «троянди». Вибухова хвиля зруйнувала віконні рами сходових клітин, які ведуть до шпилів північної та південної веж, відомих як Хрестоцвіти.\n\n\n\n",
+      "audioScriptEn": "Welcome to **St. Nicholas Roman Catholic Cathedral**.\n\nThe Church of St. Nicholas (Ukrainian: Костел Св. Миколая, translit.: Kostel Sviatoho Mykolaia; Polish: Kościół Świętego Mikołaja w Kijowie) is the second oldest Catholic church standing in Kyiv, the capital of Ukraine, after the St. Alexander Roman Catholic Cathedral. Today the building is shared between the Catholic Church and the National Organ and Chamber Music Hall of Ukraine.\n\nIt was constructed in 1899–1909 and was built by the Latin Catholic community in a Gothic type construction, by architects Stanisław Wołowski and Władysław Horodecki. It stands at vulytsia Velyka Vasylkivska (Greater Vasylkiv street) in Pecherskyi District next to the Kyiv National Linguistic University between the National Sports Complex Olimpiysky and the railroad station Kyiv-Tovarnyi.\n\n**Learn more:** tap the audio guide 👆 to hear the story of this place.\n\nThe church was constructed to accommodate the expanding Polish community, which more than doubled in size between 1897 and 1909. The building permission was obtained thanks to the efforts of Count Władysław Branicki. A design competition held in 1898 selected Stanisław Wołowski, whose entry was a Gothic type construction with two 60 m (197 ft) towers.\n\nThe final revision and management of the project was assigned to the Polish architect Władysław Horodecki. Emilio Sala added sculptural decoration in artificial stone to the construction. To increase the stability of the construction on the uneven Kyiv ground, it was ensured by bore-and-stuffed piles, a newly introduced invention of Anton Strauss.\n\nThe construction work was carried out by exclusively from voluntary donations, and lasted for ten years (1899–1909). In 1909, the church was consecrated in the name of Saint Nicholas, however the construction was not yet completed. A Gothic style three-story house was built for the parish clergy to the left of the church.\n\nIn 1938, Soviet authorities closed the church after its Roman Catholic priest was \"absent\" for two years due to the Soviet persecution of Christians. For some time after its closure, the building was used by the punitive organs for technical purposes, and, at some point, served as a KGB service building.\n\nAfter its restoration in 1979–1980, commissioned by the Rada of Ministers of the Ukrainian SSR, by the architects O. Grauzhis and I. Tukalevskiy, the church was turned into the National House of Organ and Chamber Music of Ukraine (Ukrainian: Національний будинок органної та камерної музики України; translit.: Natsional'nyi budynok orhannoyi ta kamernoi muzyky Ukrainy).\n\nFor the reconstruction and restoration of the severely damaged church, the building's stained glass windows were manufactured in the Baltics, its furniture was created in Lviv, and the high-quality wood floors were produced in the Ivano-Frankivsk Oblast. The company, Rieger–Kloss then located in Czechoslovakia (Sudetenland), manufactured an organ for the church.\n\nIts manufacturer tried to architecturally tie the organ to the building itself. Since 1992, Catholic Masses and concerts have been held here. Bishop Jan Purwinski consecrated the church and a Mass was celebrated there on 4 January 1992. Currently, it belongs to the Kyivan Municipal Department for Culture, but the [Catholic Church hopes it will be returned to the local Latin Catholic community.\n\nThe Kyiv city municipality refuse to hand over the building until the issue of transferring the House of Organ Music will be solved. Since 2009 the building is in emergency conditions. As of 2020 the Ukrainian Ministry of Culture plans to construct a building for the House of Organ Music by 2023. Religious liturgies are celebrated by priests of the Missionary Oblates of Mary Immaculate.\n\nMost are conducted in the Ukrainian language, while on some days they are conducted in Polish, Latin and in Spanish. On the night of 3 September 2021, the church caught fire and was severely damaged. The fire destroyed the organ and damaged the interior of the church. A large chandelier also fell to the floor. There were no casualties.\n\n\n\n\n\n",
       "ttsEnabled": true,
       "audioUri": "",
-      "wikipediaUrl": "",
+      "wikipediaUrl": "https://uk.wikipedia.org/wiki/Костел_Святого_Миколая_(Київ)",
       "_introBuilt": true,
-      "_wikiGenerated": true
+      "_wikiGenerated": true,
+      "photoFact": {
+        "titleUk": "Цікаво знати",
+        "titleEn": "Did you know?",
+        "bodyUk": "За повідомленням Міністерства культури та стратегічних комунікацій України, костел планували відновити за автентичними кресленнями. Реставрація  мала повернути будівлі автентичність XIX ст. та історичну велич.",
+        "bodyEn": "According to the Ministry of Culture and Information Policy, the fire broke out during an organ music rehearsal. The church has been shared between the Roman Catholic Church of Ukraine and the National Organ and Chamber Music Hall of Ukraine, which hosted organ concerts. Significant damage to the building was avoided, but the organ was lost."
+      },
+      "secondFact": {
+        "titleUk": "Ще один штрих",
+        "titleEn": "One more detail",
+        "bodyUk": "6 січня 2026 року Міністерство культури України передало приміщення костелу в безоплатне користування римо-католицькій парафії терміном на 50 років. Будівля лишилася в державній власності.",
+        "bodyEn": "The church's stained glass windows were damaged during a Russian missile attack on 20 December 2024 during the Russian invasion of Ukraine."
+      },
+      "_wikiTextRebuilt": true
     },
     "imageCount": 14,
-    "wikiTitle": "St. Nicholas Roman Catholic Cathedral"
+    "wikiTitle": "Костел Святого Миколая (Київ)"
   },
   "kyiv:lysa_hora": {
     "story": {

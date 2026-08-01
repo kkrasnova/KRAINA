@@ -47,6 +47,12 @@ export default function HomeTabPagerPage({ navigation, route }) {
      ми показуємо лише FirstPage → BackendAuth, без вибору мови та банерів онбордингу. */
   useEffect(() => {
     markReturningUserAfterSuccessfulAuth();
+    try {
+      const { markSignedIn } = require('./signedInStorage');
+      if (route.params?.user) void markSignedIn(route.params.user);
+    } catch {
+      /* ignore */
+    }
     markEnd('home_tabs_mounted');
     const bootUser = route.params?.user;
     const task = InteractionManager.runAfterInteractions(() => {
@@ -213,6 +219,9 @@ export default function HomeTabPagerPage({ navigation, route }) {
         onPageSelected={onPageSelected}
         overdrag={false}
         offscreenPageLimit={1}
+        // Таби лише через нижню панель — інакше PagerView краде вертикальний скрол
+        // у вкладених FlashList / FlatList на Home / Feed / Profile.
+        scrollEnabled={false}
         {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
       >
         <View
@@ -234,7 +243,7 @@ export default function HomeTabPagerPage({ navigation, route }) {
           key="1"
           style={styles.page}
           collapsable={false}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           pointerEvents={activeTabIndex === HOME_TAB.FEED ? 'auto' : 'none'}
         >
           {mountedTabs.has(HOME_TAB.FEED) ? (
@@ -249,7 +258,7 @@ export default function HomeTabPagerPage({ navigation, route }) {
           key="2"
           style={styles.page}
           collapsable={false}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           pointerEvents={activeTabIndex === 2 ? 'auto' : 'none'}
         >
           {mountedTabs.has(2) ? (
@@ -279,7 +288,7 @@ export default function HomeTabPagerPage({ navigation, route }) {
           key="4"
           style={styles.page}
           collapsable={false}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           pointerEvents={activeTabIndex === 4 ? 'auto' : 'none'}
         >
           {mountedTabs.has(4) ? (

@@ -57,7 +57,13 @@ export default function LandmarkQuizBrushHero({
   const fadeStop = isLight ? '#F8F8FA' : '#08080A';
 
   return (
-    <View style={[styles.root, { width: w, height: h }, style]}>
+    <View
+      style={[styles.root, { width: w, height: h }, style]}
+      collapsable={false}
+      needsOffscreenAlphaCompositing={Platform.OS === 'android'}
+      renderToHardwareTextureAndroid
+      shouldRasterizeIOS
+    >
       <MaskedView
         style={StyleSheet.absoluteFill}
         maskElement={

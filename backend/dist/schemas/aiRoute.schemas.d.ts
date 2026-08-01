@@ -11,16 +11,16 @@ export declare const aiSuggestRouteBodySchema: z.ZodObject<{
         architecture: z.ZodOptional<z.ZodBoolean>;
         secret: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
-        landmark?: boolean | undefined;
         park?: boolean | undefined;
         museum?: boolean | undefined;
+        landmark?: boolean | undefined;
         cafe?: boolean | undefined;
         architecture?: boolean | undefined;
         secret?: boolean | undefined;
     }, {
-        landmark?: boolean | undefined;
         park?: boolean | undefined;
         museum?: boolean | undefined;
+        landmark?: boolean | undefined;
         cafe?: boolean | undefined;
         architecture?: boolean | undefined;
         secret?: boolean | undefined;
@@ -43,9 +43,9 @@ export declare const aiSuggestRouteBodySchema: z.ZodObject<{
     place: string;
     language?: string | undefined;
     interests?: {
-        landmark?: boolean | undefined;
         park?: boolean | undefined;
         museum?: boolean | undefined;
+        landmark?: boolean | undefined;
         cafe?: boolean | undefined;
         architecture?: boolean | undefined;
         secret?: boolean | undefined;
@@ -61,9 +61,9 @@ export declare const aiSuggestRouteBodySchema: z.ZodObject<{
     hours?: number | undefined;
     language?: string | undefined;
     interests?: {
-        landmark?: boolean | undefined;
         park?: boolean | undefined;
         museum?: boolean | undefined;
+        landmark?: boolean | undefined;
         cafe?: boolean | undefined;
         architecture?: boolean | undefined;
         secret?: boolean | undefined;
@@ -90,5 +90,24 @@ export declare const landmarkTtsBodySchema: z.ZodObject<{
 }, {
     text: string;
     language?: "uk" | "en" | undefined;
+}>;
+export declare const walkNarrateBodySchema: z.ZodObject<{
+    title: z.ZodDefault<z.ZodString>;
+    extract: z.ZodString;
+    street: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    city: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    language: z.ZodDefault<z.ZodEnum<["uk", "en"]>>;
+}, "strip", z.ZodTypeAny, {
+    title: string;
+    city: string;
+    language: "uk" | "en";
+    street: string;
+    extract: string;
+}, {
+    extract: string;
+    title?: string | undefined;
+    city?: string | undefined;
+    language?: "uk" | "en" | undefined;
+    street?: string | undefined;
 }>;
 //# sourceMappingURL=aiRoute.schemas.d.ts.map

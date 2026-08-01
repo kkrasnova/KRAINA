@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Platform, Pressable, Switch } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { accentForTheme, onAccentButtonText } from './themeAccent';
+import FittingText from './FittingText';
 
 export function settingsCleanPalette(isLight) {
   return {
@@ -33,14 +34,13 @@ export function SettingsCleanHero({ palette, icon, iconPosition = 'left', title,
       <View style={styles.hero}>
         <View style={styles.heroTopRow}>
           <View style={styles.heroTextCol}>
-            <Text
+            <FittingText
               style={[styles.heroTitle, styles.heroTitleInRow, titleStyle, { color: palette.textMain }]}
               numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.84}
+              minimumFontScale={0.72}
             >
               {title}
-            </Text>
+            </FittingText>
             {subtitle ? (
               <Text style={[styles.heroLead, subtitleStyle, { color: palette.textMuted }]}>{subtitle}</Text>
             ) : null}
@@ -54,14 +54,12 @@ export function SettingsCleanHero({ palette, icon, iconPosition = 'left', title,
   return (
     <View style={styles.hero}>
       {iconEl ? <View style={styles.heroMark}>{iconEl}</View> : null}
-      <Text
+      <FittingText
         style={[styles.heroTitle, titleStyle, { color: palette.textMain }]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.84}
+        minimumFontScale={0.72}
       >
         {title}
-      </Text>
+      </FittingText>
       {subtitle ? (
         <Text style={[styles.heroLead, subtitleStyle, { color: palette.textMuted }]}>{subtitle}</Text>
       ) : null}
@@ -96,7 +94,9 @@ export function SettingsCleanSwitchRow({
         <Ionicons name={icon} size={22} color={palette.accent} />
       </View>
       <View style={styles.rowTexts}>
-        <Text style={[styles.rowTitle, titleStyle, { color: palette.textMain }]}>{title}</Text>
+        <FittingText style={[styles.rowTitle, titleStyle, { color: palette.textMain }]} minimumFontScale={0.78}>
+          {title}
+        </FittingText>
         {subtitle ? (
           <Text style={[styles.rowSubtitle, subtitleStyle, { color: palette.textMuted }]}>{subtitle}</Text>
         ) : null}
@@ -147,7 +147,9 @@ export function SettingsCleanPressRow({
         <Ionicons name={icon} size={22} color={palette.accent} />
       </View>
       <View style={styles.rowTexts}>
-        <Text style={[styles.rowTitle, titleStyle, { color: palette.textMain }]}>{title}</Text>
+        <FittingText style={[styles.rowTitle, titleStyle, { color: palette.textMain }]} minimumFontScale={0.78}>
+          {title}
+        </FittingText>
         {subtitle ? (
           <Text style={[styles.rowSubtitle, subtitleStyle, { color: palette.textMuted }]}>{subtitle}</Text>
         ) : null}
@@ -257,6 +259,8 @@ const styles = StyleSheet.create({
   },
   rowTitle: {
     fontSize: 15,
+    flexShrink: 1,
+    minWidth: 0,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   rowSubtitle: {

@@ -1,16 +1,17 @@
 import React, { memo, useMemo, useCallback, useState, useEffect, useRef } from 'react';
-import { FlashList } from '@shopify/flash-list';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   Pressable,
+  FlatList,
   Platform,
   DeviceEventEmitter,
   Animated,
   Easing,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -26,8 +27,9 @@ import {
   brandFontTextMedium,
   brandFontHeadBold,
 } from './brandFont';
+import FittingText from './FittingText';
 
-import { saveCountryForUser } from './countryStorage';
+import { getSavedCountryIdForUser, saveCountryForUser } from './countryStorage';
 import { saveHomeCityRegionId } from './homeCityStorage';
 import {
   ROUTE_REGIONS,
@@ -38,72 +40,70 @@ import { RenderProfiler } from './performanceMetrics';
 import { mt, mtHomeLocationsCount } from './mainPageI18n';
 import { accentForTheme } from './themeAccent';
 import OfflineStatusBanner from './OfflineStatusBanner';
-import { countRegionLandmarks } from './homeExploreData';
+import {
+  countRegionLandmarks,
+  resolveRegionHeroSource,
+  getHomeCountryHeroAsset,
+  HOME_COUNTRY_ORDER,
+  HOME_REGION_IDS_BY_COUNTRY_ID,
+} from './homeExploreData';
 import { useHomeLocationsEpoch } from './useHomeLocationsEpoch';
+import { countryFlagSource } from './WavingCountryFlag';
+import HomeScrollSafeMedia, { homeScrollSafeImageStyle } from './HomeScrollSafeMedia';
 
-/** Групи країн із регіонами — статичні дані, не змінюються під час роботи. */
-const ALL_COUNTRY_GROUPS = collectAllCountriesWithRegions();
-
-function keyExtractorPlain(c) { return String(c.countryId); }
-
-/** Як у HomeExploreSection / MainPage. */
-const CARD_DARK = '#1A1A1A';
-const BORDER_DARK = '#2A2A2A';
-const BORDER_LIGHT = 'rgba(30,30,30,0.08)';
-const MUTED_DARK = '#9A9A9A';
-const MUTED_LIGHT = '#5C5C5C';
-
-const HOME_SCROLL_PAD_H = 24;
-const HOME_GAP_AFTER_TOPBAR = 16;
-/** Як на головній під пошуком. */
-const HOME_GAP_AFTER_SEARCH = 12;
-
-const LOCAL_FLAGS_PNG = {
-  ua: require('./assets/flags/ua.png'),
-  fr: require('./assets/flags/fr.png'),
-  it: require('./assets/flags/it.png'),
-  es: require('./assets/flags/es.png'),
-  de: require('./assets/flags/de.png'),
-  pl: require('./assets/flags/pl.png'),
-  nl: require('./assets/flags/nl.png'),
-  ro: require('./assets/flags/ro.png'),
-  lt: require('./assets/flags/lt.png'),
-  lv: require('./assets/flags/lv.png'),
-  am: require('./assets/flags/am.png'),
-};
-
-function localFlagSource(countryId) {
-  const code = String(countryId || '').trim().toLowerCase();
-  if (!/^[a-z]{2}$/.test(code)) return null;
-  return LOCAL_FLAGS_PNG[code] ?? null;
+/** Ті самі card-hero, що на головній (карусель «Обери країну»). */
+function resolveCountryListHero(countryId) {
+  const src = getHomeCountryHeroAsset(countryId);
+  return { primary: src, fallback: src };
 }
 
-function CrispCountryFlag({ countryId, emoji, variant = 'row' }) {
-  const src = localFlagSource(countryId);
-  const isHome = variant === 'home';
-  const isAvatar = variant === 'avatar';
+function keyExtractorPlain(c) {
+  return String(c.countryId);
+}
+
+const CARD_H = 176;
+const CARD_GAP = 14;
+const REGIONS_NEST_TOP = 10;
+const HOME_SCROLL_PAD_H = 20;
+const HOME_GAP_AFTER_TOPBAR = 14;
+const HOME_GAP_AFTER_SEARCH = 14;
+
+function CrispCountryFlag({ countryId, emoji }) {
+  const src = countryFlagSource(countryId);
   if (src != null) {
     return (
-      <Image
+      <ExpoImage
         source={src}
-        style={isHome ? s.homeFlagImg : isAvatar ? s.flagAvatarImg : s.flagRasterList}
-        resizeMode="cover"
+        style={s.flagImg}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={`flag:${countryId}`}
+        transition={0}
         accessibilityIgnoresInvertColors
       />
     );
   }
   return (
-    <Text style={isHome ? s.flagEmojiHome : isAvatar ? s.flagEmojiAvatar : s.flagEmojiList} allowFontScaling={false}>
+    <Text style={s.flagEmoji} allowFontScaling={false}>
       {emoji || '🏳️'}
     </Text>
   );
+}
+
+function citiesWord(langUk, n) {
+  if (!langUk) return n === 1 ? 'city' : 'cities';
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'місто';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'міста';
+  return 'міст';
 }
 
 export default function AllCountriesLocationsPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const user = route?.params?.user || {};
   const language = useSyncedAppLanguage(route, 'en');
-  const [appTheme, setAppTheme] = useState(route?.params?.appTheme === 'light' ? 'light' : 'dark');
+  const [appTheme, setAppTheme] = useState(route?.params?.appTheme === 'dark' ? 'dark' : 'light');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
@@ -111,9 +111,12 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const debounceTimerRef = useRef(null);
   const [expandedCountry, setExpandedCountry] = useState(null);
+  const [selectedCountryId, setSelectedCountryId] = useState(
+    () => String(route?.params?.countryId || '').trim().toUpperCase() || null,
+  );
   const homeLocationsEpoch = useHomeLocationsEpoch();
+  const listRef = useRef(null);
 
-  /** Debounce пошуку: 150мс, щоб не перераховувати список на кожен символ. */
   useEffect(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => setDebouncedQuery(query), 150);
@@ -123,13 +126,14 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
   }, [query]);
 
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
-  const textMuted = isLight ? MUTED_LIGHT : MUTED_DARK;
-  const cardBg = isLight ? '#F2F2F2' : CARD_DARK;
-  const cardBorder = isLight ? BORDER_LIGHT : BORDER_DARK;
+  const textMuted = isLight ? '#5C5C5C' : '#9A9A9A';
+  const pageBg = isLight ? LIGHT_BAR_BG : APP_SCREEN_BG;
+  const nestBg = isLight ? '#F2F2F2' : '#1A1A1A';
+  const nestBorder = isLight ? 'rgba(30,30,30,0.08)' : '#2A2A2A';
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
+      setAppTheme(v === 'dark' ? 'dark' : 'light');
     });
     return () => sub.remove();
   }, []);
@@ -139,26 +143,60 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
       let cancelled = false;
       (async () => {
         const t = await getAppTheme();
-        if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
+        if (!cancelled) setAppTheme(t === 'dark' ? 'dark' : 'light');
+        const saved = await getSavedCountryIdForUser(user);
+        if (!cancelled) {
+          const fromRoute = String(route?.params?.countryId || '').trim().toUpperCase();
+          const next = fromRoute || String(saved || '').trim().toUpperCase() || null;
+          setSelectedCountryId(next);
+        }
       })();
-      return () => { cancelled = true; };
-    }, []),
+      return () => {
+        cancelled = true;
+      };
+    }, [user, route?.params?.countryId]),
   );
 
   const countries = useMemo(() => {
     const countryList = countriesForSelectCountryScreen(language);
     const byId = Object.fromEntries(countryList.map((c) => [c.id, c]));
-    return ALL_COUNTRY_GROUPS.map((g) => {
-      const regions = g.regionIds.map((id) => ROUTE_REGIONS[id]).filter(Boolean);
-      const totalLandmarks = regions.reduce((n, r) => n + countRegionLandmarks(r), 0);
-      return {
-        countryId: g.countryId,
-        title: byId[g.countryId]?.label || (langUk ? g.countryUk : g.countryEn),
-        flag: g.flag,
-        regions,
-        totalLandmarks,
-      };
-    });
+    // Live catalog: built-in Europe + CMS/AI overlays (not a frozen module snapshot).
+    const liveGroups = collectAllCountriesWithRegions();
+    const byGroupId = Object.fromEntries(liveGroups.map((g) => [g.countryId, g]));
+    const orderIds = [];
+    const seen = new Set();
+    const pushId = (id) => {
+      const cid = String(id || '').trim().toUpperCase();
+      if (!cid || seen.has(cid)) return;
+      seen.add(cid);
+      orderIds.push(cid);
+    };
+    (Array.isArray(HOME_COUNTRY_ORDER) ? HOME_COUNTRY_ORDER : []).forEach(pushId);
+    liveGroups.forEach((g) => pushId(g.countryId));
+
+    return orderIds
+      .map((countryId) => {
+        const g = byGroupId[countryId];
+        const regionIds =
+          (g && g.regionIds) ||
+          HOME_REGION_IDS_BY_COUNTRY_ID[countryId] ||
+          [];
+        const regions = regionIds.map((id) => ROUTE_REGIONS[id]).filter(Boolean);
+        if (!regions.length && !g) return null;
+        const totalLandmarks = regions.reduce((n, r) => n + countRegionLandmarks(r), 0);
+        const heroPair = resolveCountryListHero(countryId);
+        const first = regions[0];
+        return {
+          countryId,
+          title: byId[countryId]?.label || (langUk ? g?.countryUk || first?.countryUk : g?.countryEn || first?.countryEn) || countryId,
+          flag: g?.flag || first?.flag || '🏳️',
+          regions,
+          totalLandmarks,
+          hero: heroPair.primary,
+          heroFallback: heroPair.fallback,
+        };
+      })
+      .filter(Boolean);
   }, [language, langUk, homeLocationsEpoch]);
 
   const filtered = useMemo(() => {
@@ -186,10 +224,10 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
     }
   }, [debouncedQuery, filtered, expandedCountry]);
 
-  /** Тільки країна: головна з цією країною, локації за збереженим/першим містом. */
   const onPickCountry = useCallback(
     async (countryId) => {
       if (!countryId) return;
+      setSelectedCountryId(String(countryId).toUpperCase());
       await saveCountryForUser(user, countryId);
       navigation.navigate('HomeTabPager', {
         user,
@@ -203,7 +241,6 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
     [navigation, user, language, appTheme],
   );
 
-  /** Місто/село/регіон: головна з цією країною і саме цим місцем. */
   const onPickRegion = useCallback(
     async (countryId, regionId) => {
       await saveCountryForUser(user, countryId);
@@ -220,37 +257,58 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
     [navigation, user, language, appTheme],
   );
 
+  const onToggleExpand = useCallback((countryId) => {
+    setExpandedCountry((prev) => (prev === countryId ? null : countryId));
+  }, []);
+
   const renderCountryCard = useCallback(
     ({ item: c, index: idx }) => (
-      <CountryCard
+      <CountryHeroCard
         country={c}
         langUk={langUk}
         language={language}
+        selected={selectedCountryId === c.countryId}
         expanded={expandedCountry === c.countryId}
-        onToggle={() => setExpandedCountry((prev) => (prev === c.countryId ? null : c.countryId))}
+        onToggle={() => onToggleExpand(c.countryId)}
         onPickCountry={onPickCountry}
         onPickRegion={onPickRegion}
+        accent={accent}
+        isLight={isLight}
+        nestBg={nestBg}
+        nestBorder={nestBorder}
         textMain={textMain}
         textMuted={textMuted}
-        cardBg={cardBg}
-        cardBorder={cardBorder}
-        accent={accent}
         isLast={idx === filtered.length - 1}
       />
     ),
     [
-      langUk, language, expandedCountry,
-      onPickCountry, onPickRegion,
-      textMain, textMuted, cardBg, cardBorder, accent, filtered,
+      langUk,
+      language,
+      selectedCountryId,
+      expandedCountry,
+      onToggleExpand,
+      onPickCountry,
+      onPickRegion,
+      accent,
+      isLight,
+      nestBg,
+      nestBorder,
+      textMain,
+      textMuted,
+      filtered.length,
     ],
   );
 
   const listIntro = debouncedQuery.trim()
-    ? (langUk ? 'За твоїм запитом' : 'Matching your search')
-    : (langUk ? 'Обери країну' : 'Pick a country');
+    ? langUk
+      ? 'За твоїм запитом'
+      : 'Matching your search'
+    : langUk
+      ? 'Обери країну'
+      : 'Pick a country';
 
   return (
-    <View style={[s.safe, { backgroundColor: isLight ? LIGHT_BAR_BG : APP_SCREEN_BG }]}>
+    <View style={[s.safe, { backgroundColor: pageBg }]}>
       <AppTopBar
         appTheme={appTheme}
         leftMode="back"
@@ -259,79 +317,91 @@ export default function AllCountriesLocationsPage({ navigation, route }) {
         replaceCenterTitle={mt(language, 'homeAllCountriesScreenTitle')}
       />
       <RenderProfiler id="AllCountriesLocationsPage">
-      <FlashList
-        data={filtered}
-        keyExtractor={keyExtractorPlain}
-        estimatedItemSize={72}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: HOME_SCROLL_PAD_H,
-          paddingTop: HOME_GAP_AFTER_TOPBAR,
-          paddingBottom: Math.max(24, insets.bottom + 24),
-        }}
-        keyboardShouldPersistTaps="handled"
-        removeClippedSubviews={Platform.OS === 'android'}
-        maxToRenderPerBatch={10}
-        windowSize={7}
-        initialNumToRender={8}
-        {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
-        {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
-        ListHeaderComponent={
-          <>
-            <View style={{ marginBottom: HOME_GAP_AFTER_SEARCH }}>
-              <HomeSearchBar
-                variant={isLight ? 'light' : 'dark'}
-                placeholder={langUk ? 'Пошук країни чи міста…' : 'Search country or city…'}
-                value={query}
-                onChangeText={setQuery}
-                editable
-                wrapStyle={s.searchWrap}
-              />
-              {query.length > 0 ? (
-                <Pressable onPress={() => setQuery('')} style={s.clearQuery} hitSlop={12} android_ripple={noAndroidRipple}>
-                  <Text style={[s.clearQueryText, brandFontTextMedium, { color: accent }]}>
-                    {langUk ? 'Очистити пошук' : 'Clear search'}
-                  </Text>
-                </Pressable>
+        <FlatList
+          ref={listRef}
+          data={filtered}
+          keyExtractor={keyExtractorPlain}
+          extraData={`${selectedCountryId}:${expandedCountry}`}
+          renderItem={renderCountryCard}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            paddingHorizontal: HOME_SCROLL_PAD_H,
+            paddingTop: HOME_GAP_AFTER_TOPBAR,
+            paddingBottom: Math.max(28, insets.bottom + 28),
+          }}
+          {...(Platform.OS === 'android' ? { overScrollMode: 'never' } : {})}
+          {...(Platform.OS === 'ios' ? { contentInsetAdjustmentBehavior: 'never' } : {})}
+          ListHeaderComponent={
+            <>
+              <View style={{ marginBottom: HOME_GAP_AFTER_SEARCH }}>
+                <HomeSearchBar
+                  variant={isLight ? 'light' : 'dark'}
+                  placeholder={langUk ? 'Пошук країни чи міста…' : 'Search country or city…'}
+                  value={query}
+                  onChangeText={setQuery}
+                  editable
+                  wrapStyle={s.searchWrap}
+                />
+                {query.length > 0 ? (
+                  <Pressable
+                    onPress={() => setQuery('')}
+                    style={s.clearQuery}
+                    hitSlop={12}
+                    android_ripple={noAndroidRipple}
+                  >
+                    <Text style={[s.clearQueryText, brandFontTextMedium, { color: accent }]}>
+                      {langUk ? 'Очистити пошук' : 'Clear search'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {filtered.length > 0 ? (
+                <Text style={[s.sectionTitle, brandFontHeadBold, { color: textMain }]}>{listIntro}</Text>
               ) : null}
+            </>
+          }
+          ListEmptyComponent={
+            <View style={s.empty}>
+              <View style={[s.emptyIconWell, { backgroundColor: nestBg }]}>
+                <Ionicons name="earth-outline" size={32} color={textMuted} />
+              </View>
+              <Text style={[s.emptyTxt, brandFontText, { color: textMuted }]}>
+                {langUk ? 'Нічого не знайдено' : 'Nothing found'}
+              </Text>
             </View>
-            {filtered.length > 0 ? (
-              <Text style={[s.sectionTitle, brandFontHeadBold, { color: textMain }]}>{listIntro}</Text>
-            ) : null}
-          </>
-        }
-        ListEmptyComponent={
-          <View style={s.empty}>
-            <Ionicons name="search" size={36} color={textMuted} />
-            <Text style={[s.emptyTxt, brandFontText, { color: textMuted }]}>
-              {langUk ? 'Нічого не знайдено' : 'Nothing found'}
-            </Text>
-          </View>
-        }
-        renderItem={renderCountryCard}
-      />
+          }
+        />
       </RenderProfiler>
       <OfflineStatusBanner isLight={isLight} top={insets.top + 66} />
     </View>
   );
 }
 
-const CountryCard = memo(function CountryCard({
+const CountryHeroCard = memo(function CountryHeroCard({
   country,
   langUk,
   language,
+  selected,
   expanded,
   onToggle,
   onPickCountry,
   onPickRegion,
+  accent,
+  isLight,
+  nestBg,
+  nestBorder,
   textMain,
   textMuted,
-  cardBg,
-  cardBorder,
-  accent,
   isLast,
 }) {
   const rotate = useRef(new Animated.Value(expanded ? 1 : 0)).current;
+
   useEffect(() => {
     Animated.timing(rotate, {
       toValue: expanded ? 1 : 0,
@@ -340,55 +410,99 @@ const CountryCard = memo(function CountryCard({
       useNativeDriver: true,
     }).start();
   }, [expanded, rotate]);
+
   const rotateDeg = rotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] });
 
+  const citiesLine = `${country.regions.length} ${citiesWord(langUk, country.regions.length)}`;
+  const locsLine = mtHomeLocationsCount(language, country.totalLandmarks);
+  const heroSrc = country.hero || country.heroFallback;
+  const heroKey = `all-countries:${country.countryId}`;
+
   return (
-    <View style={{ marginBottom: isLast ? 0 : 8 }}>
+    <View style={{ marginBottom: isLast && !expanded ? 0 : CARD_GAP }}>
       <View
         style={[
-          s.countryRow,
-          {
-            backgroundColor: cardBg,
-            borderColor: cardBorder,
-          },
+          s.heroOuter,
+          { height: CARD_H },
+          selected && { borderColor: accent, borderWidth: 2 },
         ]}
+        collapsable={false}
       >
+        <HomeScrollSafeMedia style={s.heroMediaBg}>
+          {heroSrc ? (
+            <ExpoImage
+              key={heroKey}
+              source={heroSrc}
+              style={homeScrollSafeImageStyle}
+              contentFit="cover"
+              contentPosition="center"
+              cachePolicy="memory-disk"
+              recyclingKey={heroKey}
+              transition={0}
+              allowDownscaling
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View style={[homeScrollSafeImageStyle, { backgroundColor: '#2A2A2A' }]} />
+          )}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(0,0,0,0.08)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.90)']}
+            locations={[0, 0.45, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </HomeScrollSafeMedia>
         <Pressable
           onPress={() => onPickCountry?.(country.countryId)}
-          style={s.countryRowMain}
+          style={StyleSheet.absoluteFill}
           android_ripple={noAndroidRipple}
+          accessibilityRole="button"
+          accessibilityLabel={country.title}
+          accessibilityState={{ selected: !!selected }}
         >
-          <View
-            style={[
-              s.homeFlagWrap,
-              { backgroundColor: cardBg === CARD_DARK ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
-            ]}
-          >
-            <CrispCountryFlag countryId={country.countryId} emoji={country.flag} variant="home" />
-          </View>
-          <View style={s.countryTextCol}>
-            <Text style={[s.countryName, brandFontTextMedium, { color: textMain }]} numberOfLines={1}>
-              {country.title}
-            </Text>
-            <Text style={[s.countryHint, brandFontSans, { color: textMuted }]} numberOfLines={1}>
-              {country.regions.length}{' '}
-              {langUk ? (country.regions.length === 1 ? 'місто' : 'міст') : country.regions.length === 1 ? 'city' : 'cities'}
-              {' · '}
-              {mtHomeLocationsCount(language, country.totalLandmarks)}
-            </Text>
+          <View style={s.heroContent} pointerEvents="box-none">
+            <View style={s.flagChip}>
+              <CrispCountryFlag countryId={country.countryId} emoji={country.flag} />
+            </View>
+            <View style={s.heroTextBlock}>
+              <FittingText style={[s.heroTitle, brandFontHeadBold]} minimumFontScale={0.55}>
+                {country.title}
+              </FittingText>
+              <Text style={[s.heroMeta, brandFontSans]} numberOfLines={1}>
+                {citiesLine}
+                {'  ·  '}
+                {locsLine}
+              </Text>
+            </View>
           </View>
         </Pressable>
+
         <Pressable
           onPress={onToggle}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={s.countryRowChevron}
+          hitSlop={10}
+          style={[
+            s.expandBtn,
+            {
+              backgroundColor: selected
+                ? accent
+                : isLight
+                  ? 'rgba(255,255,255,0.92)'
+                  : 'rgba(18,18,18,0.72)',
+            },
+          ]}
           android_ripple={noAndroidRipple}
           accessibilityRole="button"
           accessibilityLabel={langUk ? 'Показати міста' : 'Show cities'}
         >
-          <Animated.View style={{ transform: [{ rotate: rotateDeg }] }}>
-            <Ionicons name="chevron-forward" size={18} color={accent} />
-          </Animated.View>
+          {selected ? (
+            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+          ) : (
+            <Animated.View style={{ transform: [{ rotate: rotateDeg }] }}>
+              <Ionicons name="chevron-forward" size={18} color={accent} />
+            </Animated.View>
+          )}
         </Pressable>
       </View>
 
@@ -397,31 +511,50 @@ const CountryCard = memo(function CountryCard({
           {country.regions.map((region, idx) => {
             const name = regionTitle(region, langUk);
             const n = countRegionLandmarks(region);
-            const first = region.landmarks?.[0];
+            const thumb = resolveRegionHeroSource(region);
+            const thumbKey = `region-thumb:${region.id}`;
             return (
               <Pressable
                 key={region.id}
                 onPress={() => onPickRegion(country.countryId, region.id)}
-                style={[
+                style={({ pressed }) => [
                   s.regionRow,
                   {
-                    backgroundColor: cardBg,
-                    borderColor: cardBorder,
+                    backgroundColor: nestBg,
+                    borderColor: nestBorder,
                     marginBottom: idx === country.regions.length - 1 ? 0 : 8,
+                    opacity: pressed ? 0.85 : 1,
                   },
                 ]}
                 android_ripple={noAndroidRipple}
               >
+                <View style={s.regionThumbWrap} collapsable={false}>
+                  {thumb ? (
+                    <ExpoImage
+                      key={thumbKey}
+                      source={thumb}
+                      style={s.regionThumb}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      recyclingKey={thumbKey}
+                      transition={0}
+                      allowDownscaling
+                    />
+                  ) : (
+                    <View style={[s.regionThumb, { backgroundColor: isLight ? '#E4E4E4' : '#2A2A2A' }]}>
+                      <Ionicons name="location" size={16} color={textMuted} style={{ alignSelf: 'center', marginTop: 14 }} />
+                    </View>
+                  )}
+                </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[s.regionName, brandFontTextMedium, { color: textMain }]} numberOfLines={1}>
+                  <FittingText style={[s.regionName, brandFontTextMedium, { color: textMain }]} minimumFontScale={0.55}>
                     {name}
-                  </Text>
+                  </FittingText>
                   <Text style={[s.regionMeta, brandFontSans, { color: textMuted }]} numberOfLines={1}>
                     {mtHomeLocationsCount(language, n)}
-                    {first ? ` · ${langUk ? first.titleUk : first.titleEn}` : ''}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={accent} />
+                <Ionicons name="chevron-forward" size={16} color={accent} />
               </Pressable>
             );
           })}
@@ -433,10 +566,7 @@ const CountryCard = memo(function CountryCard({
 
 const s = StyleSheet.create({
   safe: { flex: 1 },
-
-  searchWrap: {
-    marginBottom: 0,
-  },
+  searchWrap: { marginBottom: 0 },
   clearQuery: {
     alignSelf: 'flex-end',
     marginTop: 8,
@@ -447,126 +577,126 @@ const s = StyleSheet.create({
     textDecorationLine: 'underline',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-
-  listBlock: {
-    marginTop: 4,
-  },
   sectionTitle: {
-    fontSize: 15,
-    marginBottom: 10,
-    letterSpacing: -0.35,
+    fontSize: 16,
+    marginBottom: 12,
+    letterSpacing: -0.4,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
 
-  countryRow: {
+  heroOuter: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#121212',
+    borderWidth: 0,
+    borderColor: 'transparent',
+  },
+  heroMediaBg: {
+    backgroundColor: '#121212',
+  },
+  heroContent: {
+    position: 'absolute',
+    left: 14,
+    right: 56,
+    bottom: 14,
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingLeft: 4,
-    paddingRight: 4,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 2,
+    alignItems: 'flex-end',
+    gap: 12,
   },
-  countryRowMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: 2,
-    gap: 10,
-    minWidth: 0,
-  },
-  countryRowChevron: {
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  homeFlagWrap: {
-    width: 40,
-    height: 40,
+  flagChip: {
+    width: 36,
+    height: 36,
     borderRadius: 10,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  homeFlagImg: {
-    width: 40,
-    height: 40,
-  },
-  flagEmojiHome: {
-    fontSize: 24,
-    lineHeight: 40,
+  flagImg: { width: 36, height: 36 },
+  flagEmoji: {
+    fontSize: 22,
+    lineHeight: 36,
     textAlign: 'center',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  countryTextCol: {
-    flex: 1,
-    minWidth: 0,
+  heroTextBlock: { flex: 1, minWidth: 0, paddingBottom: 1 },
+  heroTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    letterSpacing: -0.55,
+    width: '100%',
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
-  countryName: {
-    fontSize: 15,
-    letterSpacing: -0.2,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  countryHint: {
-    fontSize: 12,
+  heroMeta: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12.5,
     marginTop: 3,
-    letterSpacing: 0.05,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+    letterSpacing: 0.1,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
+  },
+  expandBtn: {
+    position: 'absolute',
+    right: 12,
+    bottom: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
 
   regionsNested: {
-    marginTop: 8,
+    marginTop: REGIONS_NEST_TOP,
+    paddingLeft: 2,
   },
   regionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 14,
     borderWidth: 1,
-    gap: 8,
+    gap: 10,
+  },
+  regionThumbWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 11,
+    overflow: 'hidden',
+  },
+  regionThumb: {
+    width: 44,
+    height: 44,
   },
   regionName: {
-    fontSize: 14,
-    letterSpacing: -0.1,
+    fontSize: 15,
+    letterSpacing: -0.2,
+    width: '100%',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   regionMeta: {
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
-    letterSpacing: 0.05,
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-
-  flagAvatarImg: {
-    width: 38,
-    height: 38,
-  },
-  flagEmojiAvatar: {
-    fontSize: 22,
-    lineHeight: 24,
-    textAlign: 'center',
-    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
-  },
-  flagRasterList: {
-    width: 56,
-    height: 42,
-    borderRadius: 3,
-  },
-  flagEmojiList: {
-    fontSize: Platform.OS === 'ios' ? 40 : 36,
-    lineHeight: Platform.OS === 'ios' ? 46 : 42,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
 
   empty: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
-    gap: 12,
+    paddingVertical: 64,
+    gap: 14,
+  },
+  emptyIconWell: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyTxt: {
     fontSize: 15,

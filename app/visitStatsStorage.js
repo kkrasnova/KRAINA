@@ -60,12 +60,14 @@ export function parseCityFromSubtitle(subtitle) {
 /** Категорія для кругової діаграми: monument | park | museum | other */
 export function dominantVisitCategoryFromLandmark(lm) {
   if (!lm || typeof lm !== 'object') return 'other';
+  const raw = typeof lm.category === 'string' ? lm.category.trim() : '';
+  if (raw === 'monument' || raw === 'park' || raw === 'museum' || raw === 'other') return raw;
   const tags = inferLandmarkInterestTags(lm);
   if (tags.has('museum')) return 'museum';
   if (tags.has('park')) return 'park';
   if (tags.has('cafe')) return 'other';
   if (tags.has('landmark')) return 'monument';
-  return 'other';
+  return inferVisitCategoryFromTitle(lm.titleUk || lm.titleEn || lm.title || '');
 }
 
 /** Категорія відвідування за назвою пам’ятки (після AR-скану). */

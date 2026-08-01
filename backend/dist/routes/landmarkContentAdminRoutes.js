@@ -31,9 +31,14 @@ router.put('/bundle', adminActionRateLimiter, authenticateToken, requireAdmin, a
             next(new HttpError(400, 'invalid_body'));
             return;
         }
-        await saveLandmarkContentBundle(req.body);
-        const firestore = await publishLandmarkBundleToFirestore(req.body);
-        res.status(200).json({ ok: true, firestore });
+        const saved = await saveLandmarkContentBundle(req.body);
+        const firestore = await publishLandmarkBundleToFirestore(saved);
+        res.status(200).json({
+            ok: true,
+            firestore,
+            version: saved?._meta?.version || null,
+            publishedAt: saved?._meta?.publishedAt || null,
+        });
     }
     catch (e) {
         next(e);

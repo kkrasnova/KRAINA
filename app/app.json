@@ -90,7 +90,7 @@
     "orientation": "portrait",
     "backgroundColor": "#000000",
     "icon": "./assets/app-icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "autolinking": {
       "exclude": [
         "expo-av"

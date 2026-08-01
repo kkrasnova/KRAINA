@@ -42,7 +42,7 @@
     "orientation": "portrait",
     "backgroundColor": "#000000",
     "icon": "./assets/logo.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "autolinking": {
       "android": {
         "buildFromSource": []

@@ -1,4 +1,6 @@
 import { APP_LANG_IDS, appLangBase } from './appLang';
+import { MAIN_UI_EXTRA } from './europeLangPacks';
+import { mtFromEnglish } from './europePhraseMt';
 
 /** Resolve a per-language string from a row keyed by locale (uk/en/…). */
 export function pickI18n(lang, row) {
@@ -8,7 +10,8 @@ export function pickI18n(lang, row) {
 }
 
 /**
- * Ensures every `APP_LANG_IDS` key exists on each string row (missing → en, then uk).
+ * Ensures every `APP_LANG_IDS` key exists on each string row.
+ * Missing → MAIN_UI_EXTRA (same key) → EUROPE_EN_MT(en) → en → uk.
  * Mutates `bundle` in place.
  */
 export function fillBundleMissingLangs(bundle) {
@@ -20,7 +23,14 @@ export function fillBundleMissingLangs(bundle) {
     const next = { ...row };
     for (const id of APP_LANG_IDS) {
       if (next[id] === undefined || next[id] === null || next[id] === '') {
-        next[id] = fb;
+        const fromExtra = MAIN_UI_EXTRA?.[id]?.[key];
+        const fromPhrase = fb ? mtFromEnglish(fb, id) : '';
+        next[id] =
+          fromExtra != null && fromExtra !== ''
+            ? fromExtra
+            : fromPhrase != null && fromPhrase !== ''
+              ? fromPhrase
+              : fb;
       }
     }
     bundle[key] = next;

@@ -1,8 +1,8 @@
 import { WAVE_STROKE_PAD } from './AuthHeroHeader';
 
-/** Єдиний помірний зазор «лаймова хвиля / фото → текст» на Android (усі екрани й мови). */
-export const ANDROID_HERO_TEXT_GAP_MIN_PX = 10;
-export const ANDROID_HERO_TEXT_GAP_MAX_PX = 14;
+/** Єдиний маленький зазор «лаймова хвиля / фото → текст» (усі екрани й мови). */
+export const ANDROID_HERO_TEXT_GAP_MIN_PX = 8;
+export const ANDROID_HERO_TEXT_GAP_MAX_PX = 10;
 
 /** Android: зсув фото й лаймової хвилі вниз (+translateY) на всіх баннерах. */
 export const ANDROID_HERO_BANNER_DOWN_MIN_PX = 24;

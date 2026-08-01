@@ -413,7 +413,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
     let c = false;
     (async () => {
       const t = await getAppTheme();
-      if (!c) setAppTheme(t === 'light' ? 'light' : 'dark');
+      if (!c) setAppTheme(t === 'dark' ? 'dark' : 'light');
     })();
     return () => {
       c = true;
@@ -422,7 +422,7 @@ function LandmarkScannerPageInner({ navigation, route, cameraMod, isTabActive = 
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
+      setAppTheme(v === 'dark' ? 'dark' : 'light');
     });
     return () => sub.remove();
   }, []);

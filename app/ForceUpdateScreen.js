@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { getAppTheme, getAppThemeSync, THEME_CHANGED_EVENT } from './themeStorage';
 import { fetchAppVersionGate } from './fetchAppVersionGate';
 import { getForceUpdateTexts } from './appUpdateGateI18n';
 import { appLangBase } from './appLang';
@@ -38,7 +38,7 @@ export default function ForceUpdateScreen({ gate, onRecheckResult }) {
     let cancelled = false;
     (async () => {
       const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
+      if (!cancelled) setAppTheme(t === 'dark' ? 'dark' : 'light');
       try {
         const raw = await AsyncStorage.getItem('@kraina_app_language');
         if (!cancelled && raw && typeof raw === 'string') {
@@ -56,7 +56,7 @@ export default function ForceUpdateScreen({ gate, onRecheckResult }) {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
+      setAppTheme(v === 'dark' ? 'dark' : 'light');
     });
     return () => sub.remove();
   }, []);

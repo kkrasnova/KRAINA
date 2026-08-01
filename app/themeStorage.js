@@ -5,48 +5,41 @@ import { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 
 export const THEME_STORAGE_KEY = '@kraina_app_theme';
 export const THEME_USER_CHOSEN_KEY = '@kraina_app_theme_user_chosen';
-export const THEME_POLICY_MIGRATION_KEY = '@kraina_app_theme_policy_v2';
+/**
+ * Одноразовий скид на світлу.
+ * v6: попередні міграції могли лишити темну в AsyncStorage — знову чистимо.
+ */
+export const THEME_POLICY_MIGRATION_V6_KEY = '@kraina_app_theme_policy_v6_light_default';
 export const THEME_CHANGED_EVENT = 'kraina_app_theme_changed';
 
-/**
- * Нормалізує збережене значення: світла тема лише якщо користувач явно обрав «light».
- * Усі інші значення (відсутнє, auto, сміття) → темна за замовчуванням.
- */
-function normalizeStoredTheme(raw) {
-  if (typeof raw !== 'string') return 'dark';
-  return raw.trim().toLowerCase() === 'light' ? 'light' : 'dark';
+/** За замовчуванням завжди світла. Темна — лише після явного вибору в Налаштуваннях. */
+export const DEFAULT_APP_THEME = 'light';
+
+/** Синхронний кеш. */
+let cachedAppTheme = DEFAULT_APP_THEME;
+/** true лише якщо користувач сам увімкнув темну в Налаштуваннях. */
+let cachedPreferDark = false;
+
+function setCachedPreferDark(preferDark) {
+  cachedPreferDark = preferDark === true;
+  cachedAppTheme = preferDark ? 'dark' : 'light';
 }
 
-/** Синхронний кеш — однакова тема на всіх екранах без очікування AsyncStorage. */
-let cachedAppTheme = null;
-/** Світла тема лише після явного перемикання в Налаштуваннях. */
-let cachedThemeUserChosen = false;
-
-function setCachedAppTheme(theme) {
-  cachedAppTheme = normalizeStoredTheme(theme);
-}
-
-function setCachedThemeUserChosen(chosen) {
-  cachedThemeUserChosen = chosen === true;
-}
-
-/** Чи користувач сам обрав тему в налаштуваннях (інакше завжди темна). */
+/** @deprecated лишаємо для сумісності викликів */
 export function getThemeUserChosenSync() {
-  return cachedThemeUserChosen;
-}
-
-/** Поточна тема з памʼяті (після hydrate — збігається зі сховищем). */
-export function getAppThemeSync() {
-  if (!getThemeUserChosenSync()) return 'dark';
-  return cachedAppTheme ?? 'dark';
+  return cachedPreferDark;
 }
 
 /**
- * Актуальна тема для екранів: збережений вибір користувача (кеш/AsyncStorage).
- * route.params.appTheme ігнорується — він часто застарілий після перемикача в Налаштуваннях.
+ * Поточна тема:
+ * — світла за замовчуванням;
+ * — dark лише якщо користувач увімкнув темну в Налаштуваннях.
  */
+export function getAppThemeSync() {
+  return cachedPreferDark ? 'dark' : 'light';
+}
+
 export function resolveAppTheme(_routeTheme) {
-  if (!getThemeUserChosenSync()) return 'dark';
   return getAppThemeSync();
 }
 
@@ -69,44 +62,49 @@ export function navThemeForAppTheme(appTheme) {
   };
 }
 
-async function migrateThemePolicyV2() {
+async function migrateToLightDefaultV6() {
   try {
-    const done = await AsyncStorage.getItem(THEME_POLICY_MIGRATION_KEY);
+    const done = await AsyncStorage.getItem(THEME_POLICY_MIGRATION_V6_KEY);
     if (done === '1') return;
-    setCachedAppTheme('dark');
-    setCachedThemeUserChosen(false);
-    await AsyncStorage.multiRemove([THEME_STORAGE_KEY, THEME_USER_CHOSEN_KEY]);
-    await AsyncStorage.setItem(THEME_POLICY_MIGRATION_KEY, '1');
-    DeviceEventEmitter.emit(THEME_CHANGED_EVENT, 'dark');
+    setCachedPreferDark(false);
+    await AsyncStorage.multiRemove([
+      THEME_STORAGE_KEY,
+      THEME_USER_CHOSEN_KEY,
+      '@kraina_app_theme_policy_v5_light_default',
+      '@kraina_app_theme_policy_v4',
+      '@kraina_app_theme_policy_v3',
+      '@kraina_app_theme_policy_v2',
+    ]);
+    await AsyncStorage.setItem(THEME_POLICY_MIGRATION_V6_KEY, '1');
+    DeviceEventEmitter.emit(THEME_CHANGED_EVENT, DEFAULT_APP_THEME);
   } catch (_) {
-    setCachedAppTheme('dark');
-    setCachedThemeUserChosen(false);
+    setCachedPreferDark(false);
   }
 }
 
 async function hydrateThemeFromStorage() {
   try {
-    await migrateThemePolicyV2();
+    await migrateToLightDefaultV6();
     const [themeRaw, chosenRaw] = await Promise.all([
       AsyncStorage.getItem(THEME_STORAGE_KEY),
       AsyncStorage.getItem(THEME_USER_CHOSEN_KEY),
     ]);
-    setCachedAppTheme(themeRaw);
-    setCachedThemeUserChosen(chosenRaw === 'true' || chosenRaw === '1');
+    const userChosen = chosenRaw === 'true' || chosenRaw === '1';
+    // Темна лише якщо користувач явно зберіг dark після міграції.
+    const preferDark = userChosen && String(themeRaw || '').trim().toLowerCase() === 'dark';
+    setCachedPreferDark(preferDark);
   } catch (_) {
-    setCachedAppTheme('dark');
-    setCachedThemeUserChosen(false);
+    setCachedPreferDark(false);
   }
 }
 
-/** Скинути тему до тёмної (вихід з акаунту). */
+/** Скинути до світлої (вихід з акаунту). */
 export async function resetAppThemeToDefault() {
-  setCachedAppTheme('dark');
-  setCachedThemeUserChosen(false);
+  setCachedPreferDark(false);
   try {
     await AsyncStorage.multiRemove([THEME_STORAGE_KEY, THEME_USER_CHOSEN_KEY]);
   } catch (_) {}
-  DeviceEventEmitter.emit(THEME_CHANGED_EVENT, 'dark');
+  DeviceEventEmitter.emit(THEME_CHANGED_EVENT, DEFAULT_APP_THEME);
 }
 
 export async function getAppTheme() {
@@ -114,15 +112,21 @@ export async function getAppTheme() {
   return getAppThemeSync();
 }
 
+/** Зберегти вибір з Налаштувань: light | dark. */
 export async function setAppTheme(theme) {
-  const v = theme === 'light' || String(theme).trim().toLowerCase() === 'light' ? 'light' : 'dark';
-  setCachedAppTheme(v);
-  setCachedThemeUserChosen(true);
+  const preferDark = !(theme === 'light' || String(theme).trim().toLowerCase() === 'light');
+  setCachedPreferDark(preferDark);
+  const v = preferDark ? 'dark' : 'light';
   try {
-    await AsyncStorage.multiSet([
-      [THEME_STORAGE_KEY, v],
-      [THEME_USER_CHOSEN_KEY, 'true'],
-    ]);
+    if (preferDark) {
+      await AsyncStorage.multiSet([
+        [THEME_STORAGE_KEY, 'dark'],
+        [THEME_USER_CHOSEN_KEY, 'true'],
+      ]);
+    } else {
+      // Світла = дефолт: прибираємо «явний» вибір.
+      await AsyncStorage.multiRemove([THEME_STORAGE_KEY, THEME_USER_CHOSEN_KEY]);
+    }
   } catch (_) {}
   DeviceEventEmitter.emit(THEME_CHANGED_EVENT, v);
   return v;

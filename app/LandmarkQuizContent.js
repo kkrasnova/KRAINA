@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,16 +18,61 @@ import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
 import { brandFontHeadMedium, brandFontSans } from './brandFont';
 import { pickI18n } from './i18nBundle';
 import { lq } from './landmarkQuizI18n';
-import { resolveCorrectOptionIndex, resolveLandmarkQuizXpPerCorrect, getQuizQuestions, hasPlayableStoryQuiz } from './landmarkQuizUtils';
+import { resolveLandmarkQuizXpPerCorrect, getQuizQuestions, hasPlayableStoryQuiz } from './landmarkQuizUtils';
 import { applyLandmarkQuizQuestionReward, getLandmarkQuizPendingXp } from './landmarkQuizRewards';
 import { loadLandmarkQuizAnswer, saveLandmarkQuizAnswer } from './landmarkQuizAnswers';
 import { formatQuizXpAsMoney } from './quizPointsCurrency';
 import { LinearGradient } from 'expo-linear-gradient';
 import LandmarkGlassHeaderBar, { landmarkGlassHeaderDockStyle } from './LandmarkGlassHeaderBar';
+import FittingText from './FittingText';
 
 const FIGMA_CREAM = '#F2F2EA';
 const IS_ANDROID = Platform.OS === 'android';
 const ANDROID_TEXT = IS_ANDROID ? { includeFontPadding: false } : null;
+
+/** Render plain text with **bold** segments (quiz hints/explanations). */
+function TextWithInlineBold({ text, style, boldStyle, numberOfLines }) {
+  const src = String(text || '');
+  if (!/\*\*/.test(src)) {
+    return (
+      <Text style={style} numberOfLines={numberOfLines}>
+        {src}
+      </Text>
+    );
+  }
+  const parts = [];
+  const re = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m;
+  let key = 0;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > last) {
+      parts.push(
+        <Text key={`p-${key++}`} style={style}>
+          {src.slice(last, m.index)}
+        </Text>,
+      );
+    }
+    parts.push(
+      <Text key={`b-${key++}`} style={[style, boldStyle, { fontWeight: '700' }]}>
+        {m[1]}
+      </Text>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) {
+    parts.push(
+      <Text key={`p-${key++}`} style={style}>
+        {src.slice(last)}
+      </Text>,
+    );
+  }
+  return (
+    <Text style={style} numberOfLines={numberOfLines}>
+      {parts}
+    </Text>
+  );
+}
 
 function QuizContinueButton({ onPress, label, isLight, ripple, inline }) {
   return (
@@ -70,7 +115,7 @@ function QuizContinueButton({ onPress, label, isLight, ripple, inline }) {
 /**
  * Тіло вікторини: окремий екран (`LandmarkQuizPage`) або друга сторінка пейджера в `LandmarkResultPage`.
  */
-export default function LandmarkQuizContent({
+const LandmarkQuizContent = forwardRef(function LandmarkQuizContent({
   navigation,
   route,
   /** У пейджері: без PanResponder, щоб не конфліктувати з горизонтальним свайпом */
@@ -83,7 +128,7 @@ export default function LandmarkQuizContent({
   onContinue,
   /** Після відповіді — прокрутити батьківський ScrollView. */
   onAfterReveal,
-}) {
+}, ref) {
   const insets = useSafeAreaInsets();
   const language = useSyncedAppLanguage(route, 'uk');
   const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
@@ -145,7 +190,23 @@ export default function LandmarkQuizContent({
   const totalQuestions = quizQuestions.length;
   const isLastQuestion = qIndex >= Math.max(0, totalQuestions - 1);
 
-  const correctIdx = useMemo(() => resolveCorrectOptionIndex(activeQuestion), [activeQuestion]);
+  const correctIdx = useMemo(() => {
+    if (!activeQuestion?.options) return 0;
+    const indexed = activeQuestion.options
+      .map((o, i) => {
+        const tUk = String(o?.textUk || '').trim();
+        const tEn = String(o?.textEn || '').trim();
+        const fromI18n =
+          Array.isArray(activeQuestion._optionsI18n) && activeQuestion._optionsI18n[i]
+            ? String(pickI18n(language, activeQuestion._optionsI18n[i].text) || '').trim()
+            : '';
+        const label = fromI18n || (langUk ? tUk || tEn : tEn || tUk);
+        return { i, label, correct: !!o?.correct || !!activeQuestion._optionsI18n?.[i]?.correct };
+      })
+      .filter((row) => row.label && row.label !== '—' && row.label !== '-');
+    const hit = indexed.findIndex((row) => row.correct);
+    return hit >= 0 ? hit : 0;
+  }, [activeQuestion, langUk, language]);
 
   const question = useMemo(() => {
     if (!activeQuestion) return '';
@@ -158,13 +219,13 @@ export default function LandmarkQuizContent({
 
   const options = useMemo(() => {
     if (!activeQuestion?.options) return [];
-    if (Array.isArray(activeQuestion._optionsI18n) && activeQuestion._optionsI18n.length > 0) {
-      return activeQuestion._optionsI18n.map((o) => String(pickI18n(language, o.text) || '').trim());
-    }
-    return activeQuestion.options.map((o) => {
-      const t = langUk ? o?.textUk : o?.textEn;
-      return String(t || o?.textUk || o?.textEn || '').trim();
-    });
+    const raw = Array.isArray(activeQuestion._optionsI18n) && activeQuestion._optionsI18n.length > 0
+      ? activeQuestion._optionsI18n.map((o) => String(pickI18n(language, o.text) || '').trim())
+      : activeQuestion.options.map((o) => {
+          const t = langUk ? o?.textUk : o?.textEn;
+          return String(t || o?.textUk || o?.textEn || '').trim();
+        });
+    return raw.filter((t) => t && t !== '—' && t !== '-');
   }, [activeQuestion, langUk, language]);
 
   const optionIndices = useMemo(() => options.map((_, i) => i), [options]);
@@ -522,6 +583,73 @@ export default function LandmarkQuizContent({
     if (typeof onContinue === 'function') onContinue();
   }, [isLastQuestion, quizLandmarkKey, onResetRound, onContinue, answerHint]);
 
+  const goPrevQuestion = useCallback(async () => {
+    const cur = qIndexRef.current;
+    if (cur <= 0) return false;
+    const prev = cur - 1;
+    setQIndex(prev);
+    const prevLog = answersLogRef.current[prev];
+    if (prevLog && typeof prevLog.selectedIndex === 'number') {
+      selectedRef.current = prevLog.selectedIndex;
+      setSelectedIndex(prevLog.selectedIndex);
+      revealedRef.current = true;
+      setRevealed(true);
+      setAnswerHint(typeof prevLog.answerHint === 'string' ? prevLog.answerHint : '');
+    } else {
+      onResetRound();
+    }
+    if (quizLandmarkKey) {
+      await saveLandmarkQuizAnswer(quizLandmarkKey, {
+        qIndex: prev,
+        answers: answersLogRef.current,
+        selectedIndex: selectedRef.current ?? 0,
+        revealed: !!revealedRef.current,
+        won: !!answersLogRef.current[prev]?.won,
+        rewardXp: sessionXpRef.current,
+        rewardAlready: false,
+        answerHint: typeof answerHint === 'string' ? answerHint : '',
+        finished: false,
+      });
+    }
+    return true;
+  }, [quizLandmarkKey, onResetRound, answerHint]);
+
+  /** Стрілки пейджера на екрані вікторини: питання ↔ питання, не наступна сторінка. */
+  useImperativeHandle(
+    ref,
+    () => ({
+      /** @returns {'stayed'|'advanced'|'finished'|'noop'} */
+      handlePagerNext: async () => {
+        if (!revealedRef.current) {
+          const sel = selectedRef.current;
+          if (sel == null) return 'noop';
+          await submitAnswer(sel);
+          return 'stayed';
+        }
+        if (!isLastQuestion) {
+          await goNextQuestionOrContinue();
+          return 'advanced';
+        }
+        await goNextQuestionOrContinue();
+        return 'finished';
+      },
+      /** @returns {boolean} true якщо лишилися на вікторині */
+      handlePagerPrev: async () => {
+        const moved = await goPrevQuestion();
+        return moved;
+      },
+      canPagerPrev: () => qIndexRef.current > 0,
+      canPagerNext: () => true,
+      getState: () => ({
+        qIndex: qIndexRef.current,
+        totalQuestions,
+        revealed: !!revealedRef.current,
+        isLastQuestion: qIndexRef.current >= Math.max(0, totalQuestions - 1),
+      }),
+    }),
+    [goNextQuestionOrContinue, goPrevQuestion, isLastQuestion, totalQuestions, submitAnswer],
+  );
+
   const tryReveal = useCallback(async () => {
     const sel = selectedRef.current;
     if (sel == null || revealedRef.current) return;
@@ -531,11 +659,19 @@ export default function LandmarkQuizContent({
   const panResponder = useMemo(() => {
     if (pagerMode || inlineMode) return null;
     return PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 14 || Math.abs(g.dy) > 14,
+      // Лише явні горизонтальні жести — вертикальний скрол квізу не чіпаємо.
+      onMoveShouldSetPanResponder: (_, g) => {
+        const ax = Math.abs(g.dx);
+        const ay = Math.abs(g.dy);
+        return ax > 18 && ax > ay * 1.6;
+      },
       onPanResponderRelease: (_, g) => {
         const { dx, dy, vx, vy } = g;
-        const back = vx < -0.32 || dx < -56 || vy < -0.32 || dy < -56;
-        const forward = vx > 0.32 || dx > 56 || vy > 0.32 || dy > 56;
+        const ax = Math.abs(dx);
+        const ay = Math.abs(dy);
+        if (ay >= ax * 0.9) return;
+        const back = vx < -0.32 || dx < -56;
+        const forward = vx > 0.32 || dx > 56;
         if (back) {
           navigation?.goBack?.();
           return;
@@ -588,13 +724,14 @@ export default function LandmarkQuizContent({
         ]}
       >
         <View style={styles.arenaHero}>
-          <View style={styles.arenaHeroTop}>
+          <View style={[styles.arenaHeroTop, inlineMode && styles.arenaHeroTopCompact]}>
             <View style={styles.arenaQLabelRow}>
-              <View style={styles.arenaQWrap}>
+              <View style={[styles.arenaQWrap, inlineMode && styles.arenaQWrapCompact]}>
                 <Animated.View
                   pointerEvents="none"
                   style={[
                     styles.arenaQHalo,
+                    inlineMode && styles.arenaQHaloCompact,
                     {
                       borderColor: isLight ? 'rgba(2,18,235,0.18)' : 'rgba(225,255,0,0.22)',
                       opacity: orbPulse.interpolate({
@@ -615,6 +752,7 @@ export default function LandmarkQuizContent({
                 <View
                   style={[
                     styles.arenaQOrb,
+                    inlineMode && styles.arenaQOrbCompact,
                     {
                       backgroundColor: accent,
                       borderColor: accent,
@@ -624,6 +762,7 @@ export default function LandmarkQuizContent({
                   <Text
                     style={[
                       styles.arenaQOrbText,
+                      inlineMode && styles.arenaQOrbTextCompact,
                       brandFontHeadMedium,
                       { color: isLight ? '#FFFFFF' : '#121212' },
                     ]}
@@ -687,20 +826,23 @@ export default function LandmarkQuizContent({
           </View>
 
           <View style={styles.arenaQuestionRow}>
-            <Text
+            <FittingText
               style={[
                 styles.arenaQuestion,
+                inlineMode && styles.arenaQuestionCompact,
                 brandFontHeadMedium,
                 ANDROID_TEXT,
                 { color: textMain, flex: 1 },
               ]}
+              numberOfLines={inlineMode ? 3 : 3}
+              minimumFontScale={0.78}
             >
               {question}
-            </Text>
+            </FittingText>
           </View>
         </View>
 
-        <View style={styles.arenaBody}>
+        <View style={[styles.arenaBody, inlineMode && styles.arenaBodyCompact]}>
           {optionIndices.map((i) => {
             const isSel = selectedIndex === i;
             const isCor = revealed && i === correctIdx;
@@ -750,6 +892,7 @@ export default function LandmarkQuizContent({
                     onPress={() => void submitAnswer(i)}
                     style={({ pressed }) => [
                       styles.arenaOpt,
+                      inlineMode && styles.arenaOptCompact,
                       {
                         borderWidth: highlighted || isWrongSel ? 1.5 : 1,
                         borderColor: isCor
@@ -781,6 +924,7 @@ export default function LandmarkQuizContent({
                     <View
                       style={[
                         styles.arenaLetter,
+                        inlineMode && styles.arenaLetterCompact,
                         {
                           borderWidth: 1,
                           borderColor: highlighted
@@ -821,9 +965,10 @@ export default function LandmarkQuizContent({
                         {prefix(i)}
                       </Text>
                     </View>
-                    <Text
+                    <FittingText
                       style={[
                         styles.arenaOptText,
+                        inlineMode && styles.arenaOptTextCompact,
                         brandFontSans,
                         ANDROID_TEXT,
                         {
@@ -837,12 +982,13 @@ export default function LandmarkQuizContent({
                         },
                       ]}
                       numberOfLines={2}
+                      minimumFontScale={0.82}
                     >
                       {options[i]}
-                    </Text>
-                    {isCor ? <Ionicons name="checkmark-circle" size={18} color={accent} /> : null}
+                    </FittingText>
+                    {isCor ? <Ionicons name="checkmark-circle" size={inlineMode ? 16 : 18} color={accent} /> : null}
                     {isWrongSel ? (
-                      <Ionicons name="close-circle" size={18} color="#FF5A5A" />
+                      <Ionicons name="close-circle" size={inlineMode ? 16 : 18} color="#FF5A5A" />
                     ) : null}
                   </Pressable>
                 </Animated.View>
@@ -854,6 +1000,7 @@ export default function LandmarkQuizContent({
             <View
               style={[
                 styles.arenaFeedback,
+                inlineMode && styles.arenaFeedbackCompact,
                 {
                   backgroundColor: wonAnswer
                     ? isLight
@@ -885,26 +1032,28 @@ export default function LandmarkQuizContent({
                     ANDROID_TEXT,
                     { color: textMain },
                   ]}
+                  numberOfLines={1}
                 >
                   {wonAnswer ? lq(language, 'feedbackLike') : lq(language, 'feedbackDislike')}
                 </Text>
-                {wonAnswer && lastGainXp > 0 ? (
+                {/* Inline: keep feedback short so the CTA never gets pushed off-screen */}
+                {wonAnswer && lastGainXp > 0 && !inlineMode ? (
                   <Text style={[styles.arenaFeedbackHint, brandFontSans, { color: accent }]}>
                     {lq(language, 'quizQuestionPoints', { n: lastGainXp })}
                   </Text>
                 ) : null}
-                {wonAnswer && sessionXp > 0 ? (
+                {wonAnswer && sessionXp > 0 && !inlineMode ? (
                   <Text style={[styles.arenaFeedbackHint, brandFontSans, { color: accent }]}>
                     {lq(language, 'quizSessionPoints', { n: sessionXp })}
                     {` · ${formatQuizXpAsMoney(sessionXp, language).amountLabel}`}
                   </Text>
                 ) : null}
-                {wonAnswer && rewardAlready ? (
+                {wonAnswer && rewardAlready && !inlineMode ? (
                   <Text style={[styles.arenaFeedbackHint, brandFontSans, { color: textMuted }]}>
                     {lq(language, 'pointsAlready')}
                   </Text>
                 ) : null}
-                {wonAnswer && isLastQuestion && sessionXp > 0 ? (
+                {wonAnswer && isLastQuestion && sessionXp > 0 && !inlineMode ? (
                   <Text style={[styles.arenaFeedbackHint, brandFontSans, { color: textMuted }]}>
                     {lq(language, 'quizMoneyHint', {
                       money: formatQuizXpAsMoney(sessionXp, language).amountLabel,
@@ -912,14 +1061,20 @@ export default function LandmarkQuizContent({
                   </Text>
                 ) : null}
                 {wonAnswer && explanationText ? (
-                  <Text style={[styles.arenaFeedbackHint, brandFontSans, { color: textMuted }]}>
-                    {explanationText}
-                  </Text>
+                  <TextWithInlineBold
+                    text={explanationText}
+                    style={[styles.arenaFeedbackHint, brandFontSans, { color: textMuted }]}
+                    boldStyle={{ color: textMain }}
+                    numberOfLines={inlineMode ? 2 : undefined}
+                  />
                 ) : null}
                 {!wonAnswer && answerHint ? (
-                  <Text style={[styles.arenaFeedbackHint, brandFontSans, { color: textMuted }]}>
-                    {answerHint}
-                  </Text>
+                  <TextWithInlineBold
+                    text={answerHint}
+                    style={[styles.arenaFeedbackHint, brandFontSans, { color: textMuted }]}
+                    boldStyle={{ color: textMain }}
+                    numberOfLines={inlineMode ? 2 : undefined}
+                  />
                 ) : null}
               </View>
             </View>
@@ -1030,7 +1185,9 @@ export default function LandmarkQuizContent({
       </ScrollView>
     </View>
   );
-}
+});
+
+export default LandmarkQuizContent;
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -1466,6 +1623,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     minHeight: 40,
   },
+  arenaHeroTopCompact: {
+    marginBottom: 4,
+    minHeight: 32,
+  },
   arenaQLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1477,10 +1638,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  arenaQWrapCompact: {
+    width: 34,
+    height: 34,
+  },
   arenaQHalo: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 22,
     borderWidth: 1.5,
+  },
+  arenaQHaloCompact: {
+    borderRadius: 17,
   },
   arenaQOrb: {
     width: 40,
@@ -1490,10 +1658,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  arenaQOrbCompact: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
   arenaQOrbText: {
     fontSize: 14,
     lineHeight: 16,
     letterSpacing: 0.4,
+  },
+  arenaQOrbTextCompact: {
+    fontSize: 12,
+    lineHeight: 14,
   },
   arenaQuestionWord: {
     fontSize: 12,
@@ -1525,31 +1702,37 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     letterSpacing: -0.15,
   },
-  arenaAccentBar: {
-    marginTop: 10,
-    width: 36,
-    height: 3,
-    borderRadius: 999,
-  },
-  arenaHint: {
-    marginTop: 8,
-    fontSize: 12,
-    lineHeight: 16,
+  arenaQuestionCompact: {
+    fontSize: 15,
+    lineHeight: 19,
   },
   arenaBody: {
     paddingHorizontal: 10,
-    paddingTop: 4,
-    paddingBottom: 8,
-    rowGap: 7,
+    paddingTop: 2,
+    paddingBottom: 6,
+    rowGap: 6,
+  },
+  arenaBodyCompact: {
+    paddingHorizontal: 8,
+    paddingTop: 0,
+    paddingBottom: 4,
+    rowGap: 5,
   },
   arenaOpt: {
-    minHeight: 46,
+    minHeight: 44,
     borderRadius: 14,
     paddingHorizontal: 10,
-    paddingVertical: 9,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     columnGap: 10,
+  },
+  arenaOptCompact: {
+    minHeight: 38,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    columnGap: 8,
   },
   arenaLetter: {
     width: 32,
@@ -1557,6 +1740,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  arenaLetterCompact: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
   },
   arenaLetterText: {
     fontSize: 13,
@@ -1567,6 +1755,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
+  arenaOptTextCompact: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
   arenaFeedback: {
     marginTop: 2,
     borderWidth: 1,
@@ -1576,6 +1768,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     columnGap: 8,
+  },
+  arenaFeedbackCompact: {
+    marginTop: 0,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   arenaFeedbackCopy: {
     flex: 1,
@@ -1605,8 +1803,8 @@ const styles = StyleSheet.create({
     }),
   },
   continueBtnGrad: {
-    minHeight: Platform.OS === 'android' ? 46 : 44,
-    paddingHorizontal: 18,
+    minHeight: Platform.OS === 'android' ? 42 : 40,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1617,7 +1815,8 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.985 }],
   },
   continueBtnInline: {
-    marginBottom: 2,
+    marginTop: 4,
+    marginBottom: 0,
   },
   continueBtnText: {
     fontSize: 15,

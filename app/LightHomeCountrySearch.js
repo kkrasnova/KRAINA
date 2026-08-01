@@ -25,6 +25,7 @@ import { mt } from './mainPageI18n';
 import HomeSearchBar from './HomeSearchBar';
 import { useAuthStore } from './auth/authStore';
 import { hasSocialApi, socialSearchProfiles } from './socialApi';
+import { countryFlagSource } from './WavingCountryFlag';
 
 const ACCENT_LIME = '#E1FF00';
 const ACCENT_LIME_SOFT = 'rgba(225, 255, 0, 0.14)';
@@ -38,19 +39,6 @@ const VISIBLE_ROWS = 7;
 const LIST_MAX_H = ROW_H * VISIBLE_ROWS;
 const ACCENT_STRIP_H = 4;
 const PANEL_BODY_MIN_H = 240;
-const COUNTRY_FLAG_IMAGES = {
-  ua: require('./assets/flags/ua.png'),
-  pl: require('./assets/flags/pl.png'),
-  de: require('./assets/flags/de.png'),
-  es: require('./assets/flags/es.png'),
-  fr: require('./assets/flags/fr.png'),
-  it: require('./assets/flags/it.png'),
-  nl: require('./assets/flags/nl.png'),
-  lt: require('./assets/flags/lt.png'),
-  lv: require('./assets/flags/lv.png'),
-  ro: require('./assets/flags/ro.png'),
-  am: require('./assets/flags/am.png'),
-};
 
 /** Шари каталогу в «лінзі» — іконка + ключ фільтра + рядок i18n. */
 const LENS_KIND_SPECS = [
@@ -866,11 +854,11 @@ export default memo(function LightHomeCountrySearch({
                             >
                               <View style={styles.rowPreviewWrap} importantForAccessibility="no">
                                 {row.type === 'country' ? (
-                                  COUNTRY_FLAG_IMAGES[row.countryId] ? (
+                                  countryFlagSource(row.countryId) ? (
                                     <Image
-                                      source={COUNTRY_FLAG_IMAGES[row.countryId]}
+                                      source={countryFlagSource(row.countryId)}
                                       style={styles.countryFlagImage}
-                                      resizeMode="contain"
+                                      resizeMode="cover"
                                     />
                                   ) : (
                                     <Text style={styles.flag} importantForAccessibility="no">
@@ -985,11 +973,11 @@ export default memo(function LightHomeCountrySearch({
                             >
                               <View style={styles.rowPreviewWrap} importantForAccessibility="no">
                                 {row.type === 'country' ? (
-                                  COUNTRY_FLAG_IMAGES[row.countryId] ? (
+                                  countryFlagSource(row.countryId) ? (
                                     <Image
-                                      source={COUNTRY_FLAG_IMAGES[row.countryId]}
+                                      source={countryFlagSource(row.countryId)}
                                       style={styles.countryFlagImage}
-                                      resizeMode="contain"
+                                      resizeMode="cover"
                                     />
                                   ) : (
                                     <Text style={styles.flag} importantForAccessibility="no">
@@ -1433,8 +1421,8 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   countryFlagImage: {
-    width: 28,
-    height: 20,
+    width: '100%',
+    height: '100%',
   },
   flag: {
     fontSize: 22,

@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,15 +13,18 @@ import {
   TextInput,
   type TextInput as RNTextInput,
   View,
+  Keyboard,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { brandFontText } from '../brandFont';
 import { noAndroidRipple, rippleOnDarkSurface } from '../androidFeedback';
 import { getTermsContentForLanguage } from '../termsContentI18n';
+import TermsOfUseSheetModal from '../TermsOfUseSheetModal';
+import FittingText from '../FittingText';
 import { thirdPageUi } from '../thirdPageUiStrings';
+import { useAuthTabSwipePanHandlers } from '../useAuthTabSwipe';
 import { useAuthStore } from './authStore';
 import { formatAuthError } from './formatError';
 import type { AuthStackParamList } from './navigation.types';
@@ -113,6 +115,13 @@ function deriveBackendUsername(displayName: string, email: string) {
 export default function AuthMainScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'login' | 'register'>(route?.params?.tab ?? 'login');
+  const switchAuthTab = (next: string) => {
+    if (next !== 'login' && next !== 'register') return;
+    if (next === tab) return;
+    Keyboard.dismiss();
+    setTab(next);
+  };
+  const authTabSwipePanHandlers = useAuthTabSwipePanHandlers(tab, switchAuthTab);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -136,19 +145,22 @@ export default function AuthMainScreen({ navigation, route }: Props) {
 
   const termsContent = useMemo(() => getTermsContentForLanguage(UI_LANG), []);
 
+  const closeTermsModal = useCallback(() => {
+    setShowTermsModal(false);
+  }, []);
+
   const busy = useAuthStore((s) => s.busy);
   const loginWithPassword = useAuthStore((s) => s.loginWithPassword);
   const registerWithPassword = useAuthStore((s) => s.registerWithPassword);
 
   const win = Dimensions.get('window');
   const scr = Dimensions.get('screen');
-  const { width, height } = win;
+  const { width } = win;
   const bgWidth = Math.max(win.width, scr.width);
   const bgHeight = Math.max(win.height, scr.height);
   const contentWidth = Math.min(width - 48, MAX_WIDTH);
   const hPad = Math.max(24, (width - MAX_WIDTH) / 2);
   const tabSegmentWidth = Math.max(0, Math.floor((contentWidth - 8 - 6) / 2));
-  const termsModalHeight = Math.min(height * 0.78, 680);
 
   const mismatchMsg = 'Паролі не збігаються';
   const weakPasswordMsg = 'Пароль: мінімум 8 символів і хоча б одна цифра.';
@@ -366,7 +378,9 @@ export default function AuthMainScreen({ navigation, route }: Props) {
             >
               <View style={[s.forgotCard, { width: forgotCardW }]}>
                 <View style={s.forgotAccentCap} />
-                <Text style={s.forgotTitle}>Відновлення пароля</Text>
+                <FittingText style={s.forgotTitle} numberOfLines={2} minimumFontScale={0.72}>
+                  Відновлення пароля
+                </FittingText>
                 <Text style={s.forgotHint}>Вкажіть email — надішлемо посилання для скидання пароля.</Text>
                 <TextInput
                   ref={forgotInputRef}
@@ -420,7 +434,10 @@ export default function AuthMainScreen({ navigation, route }: Props) {
 
   return (
     <View style={s.screen}>
-      <View style={[s.overlay, { paddingTop: insets.top, paddingBottom: insets.bottom + 16 }]}>
+      <View
+        style={[s.overlay, { paddingTop: insets.top, paddingBottom: insets.bottom + 16, flex: 1 }]}
+        {...authTabSwipePanHandlers}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.kav}>
           <ScrollView
             style={s.scrollView}
@@ -433,21 +450,22 @@ export default function AuthMainScreen({ navigation, route }: Props) {
             ]}
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
-            scrollEnabled={false}
-            bounces={false}
+            scrollEnabled
+            bounces
             alwaysBounceVertical={false}
             overScrollMode="never"
-            nestedScrollEnabled={false}
+            nestedScrollEnabled
+            keyboardDismissMode="on-drag"
           >
             <View style={{ width: contentWidth, alignSelf: 'center' }}>
-              <Text style={s.formTitle}>
+              <FittingText style={s.formTitle} numberOfLines={2} minimumFontScale={0.72}>
                 {tab === 'register' ? 'Реєстрація' : 'Вхід'}
-              </Text>
+              </FittingText>
 
               <View style={[s.tabs, s.loginFormTabsCompact]} accessibilityRole="tablist">
                 <View style={[s.tabCol, { width: tabSegmentWidth, flexGrow: 0, flexShrink: 0 }]}>
                   <Pressable
-                    onPress={() => setTab('login')}
+                    onPress={() => switchAuthTab('login')}
                     style={({ pressed }) => [s.tabTouchableFill, pressed && s.tabTouchablePressed]}
                     android_ripple={rippleOnDarkSurface}
                     hitSlop={{ top: 8, bottom: 8, left: 4, right: 2 }}
@@ -456,20 +474,19 @@ export default function AuthMainScreen({ navigation, route }: Props) {
                     accessibilityState={{ selected: tab === 'login' }}
                   >
                     <View style={[s.tabPill, tab === 'login' && s.tabPillActive, s.loginFormTabPillCompact]}>
-                      <Text
+                      <FittingText
                         style={[s.tabText, tab === 'login' && s.tabTextActive]}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
+                        minimumFontScale={0.7}
                       >
                         Увійти
-                      </Text>
+                      </FittingText>
                     </View>
                   </Pressable>
                 </View>
                 <View style={s.tabMidGap} pointerEvents="none" />
                 <View style={[s.tabCol, { width: tabSegmentWidth, flexGrow: 0, flexShrink: 0 }]}>
                   <Pressable
-                    onPress={() => setTab('register')}
+                    onPress={() => switchAuthTab('register')}
                     style={({ pressed }) => [s.tabTouchableFill, pressed && s.tabTouchablePressed]}
                     android_ripple={rippleOnDarkSurface}
                     hitSlop={{ top: 8, bottom: 8, left: 2, right: 4 }}
@@ -478,13 +495,12 @@ export default function AuthMainScreen({ navigation, route }: Props) {
                     accessibilityState={{ selected: tab === 'register' }}
                   >
                     <View style={[s.tabPill, tab === 'register' && s.tabPillActive, s.loginFormTabPillCompact]}>
-                      <Text
+                      <FittingText
                         style={[s.tabText, tab === 'register' && s.tabTextActive]}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
+                        minimumFontScale={0.7}
                       >
                         Реєстрація
-                      </Text>
+                      </FittingText>
                     </View>
                   </Pressable>
                 </View>
@@ -724,7 +740,9 @@ export default function AuthMainScreen({ navigation, route }: Props) {
                       <View style={[s.checkboxSquare, rememberMe && s.checkboxSquareChecked]} />
                       {rememberMe ? <Text style={s.checkboxCheckIcon}>✓</Text> : null}
                     </View>
-                    <Text style={s.checkboxLabel}>{"Запам'ятати мене"}</Text>
+                    <FittingText style={s.checkboxLabel} minimumFontScale={0.68}>
+                      {"Запам'ятати мене"}
+                    </FittingText>
                   </Pressable>
                   <Pressable
                     style={s.forgotWrap}
@@ -736,7 +754,9 @@ export default function AuthMainScreen({ navigation, route }: Props) {
                       setForgotMode(true);
                     }}
                   >
-                    <Text style={s.forgotText}>Забули пароль?</Text>
+                    <FittingText style={s.forgotText} minimumFontScale={0.72}>
+                      Забули пароль?
+                    </FittingText>
                   </Pressable>
                 </View>
               ) : (
@@ -755,14 +775,19 @@ export default function AuthMainScreen({ navigation, route }: Props) {
                       {termsAccepted ? <Text style={s.checkboxCheckIcon}>✓</Text> : null}
                     </View>
                     <View style={s.termsLabelWrap}>
-                      <Text style={s.checkboxLabel}>{thirdPageUi(UI_LANG, 'agreePrefix')}</Text>
+                      <FittingText style={[s.checkboxLabel, s.termsAgreeText]} minimumFontScale={0.68}>
+                        {thirdPageUi(UI_LANG, 'agreePrefix')}
+                      </FittingText>
                       <Pressable
                         onPress={() => setShowTermsModal(true)}
                         android_ripple={rippleOnDarkSurface}
                         accessibilityRole="link"
                         hitSlop={4}
+                        style={s.termsLinkPressable}
                       >
-                        <Text style={s.termsInlineLink}>{thirdPageUi(UI_LANG, 'termsLink')}</Text>
+                        <FittingText style={s.termsInlineLink} minimumFontScale={0.68}>
+                          {thirdPageUi(UI_LANG, 'termsLink')}
+                        </FittingText>
                       </Pressable>
                     </View>
                   </Pressable>
@@ -813,40 +838,13 @@ export default function AuthMainScreen({ navigation, route }: Props) {
         </KeyboardAvoidingView>
       </View>
 
-      <Modal visible={showTermsModal} transparent animationType="fade" onRequestClose={() => setShowTermsModal(false)}>
-        <View style={s.termsModalOverlay}>
-          <View style={[s.termsModalBox, { height: termsModalHeight }]}>
-            <Pressable
-              onPress={() => setShowTermsModal(false)}
-              hitSlop={12}
-              android_ripple={rippleOnDarkSurface}
-              style={s.termsModalBackBtn}
-              accessibilityRole="button"
-              accessibilityLabel={thirdPageUi(UI_LANG, 'close')}
-            >
-              <Ionicons name="chevron-back" size={24} color={ACCENT} />
-            </Pressable>
-
-            <View style={s.termsHandle} />
-            <View style={s.termsHeader}>
-              <Text style={s.termsTitle}>Умови користування</Text>
-              <Text style={s.termsSubtitle}>KRAÏNA x ITty Company</Text>
-            </View>
-            <View style={s.termsDivider} />
-
-            <ScrollView
-              style={s.termsScroll}
-              contentContainerStyle={s.termsScrollContent}
-              scrollEnabled
-              showsVerticalScrollIndicator
-              indicatorStyle="white"
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={s.termsBodyText}>{termsContent}</Text>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <TermsOfUseSheetModal
+        visible={showTermsModal}
+        onClose={closeTermsModal}
+        title="Умови користування"
+        content={termsContent}
+        backAccessibilityLabel={thirdPageUi(UI_LANG, 'close')}
+      />
     </View>
   );
 }
@@ -1170,6 +1168,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
     minHeight: 36,
     paddingVertical: 6,
     paddingRight: 12,
@@ -1185,6 +1184,7 @@ const s = StyleSheet.create({
     marginRight: 10,
     borderRadius: 6,
     overflow: 'hidden',
+    flexShrink: 0,
   },
   checkboxBoxChecked: {
     shadowColor: 'transparent',
@@ -1218,14 +1218,28 @@ const s = StyleSheet.create({
     color: TEXT_LIGHT,
     backgroundColor: 'transparent',
     opacity: 1,
+    flex: 1,
+    minWidth: 0,
     flexShrink: 1,
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : {}),
   },
   termsLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  termsAgreeText: {
+    flex: 0,
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  termsLinkPressable: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '58%',
   },
   termsInlineLink: {
     ...BRAND_TEXT_FONT,
@@ -1237,6 +1251,8 @@ const s = StyleSheet.create({
   },
   forgotWrap: {
     flexShrink: 1,
+    maxWidth: '46%',
+    minWidth: 0,
     alignSelf: 'center',
     paddingVertical: 4,
     paddingHorizontal: 2,
@@ -1367,15 +1383,22 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 14,
     left: 14,
-    zIndex: 2,
-    minWidth: 40,
-    height: 36,
-    borderRadius: 18,
+    zIndex: 20,
+    elevation: 20,
+    minWidth: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
     backgroundColor: 'transparent',
     overflow: 'hidden',
+  },
+  termsDragZone: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   termsHandle: {
     alignSelf: 'center',

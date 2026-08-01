@@ -2,11 +2,12 @@ import * as SecureStore from 'expo-secure-store';
 
 /**
  * Токени сесії — лише на цьому пристрої, без міграції на новий iPhone.
- * На iOS такі записи зникають при видаленні застосунку, але лишаються,
- * якщо очистили лише AsyncStorage (дані застосунку без деінсталяції).
+ * AFTER_FIRST_UNLOCK: читаються після першого розблокування навіть якщо
+ * Keychain ще «прогрівається» на cold start — інакше WHEN_UNLOCKED інколи
+ * не віддає токени і після закриття вкладки/застосунку знову показує вхід.
  */
 export const AUTH_TOKEN_KEYCHAIN_OPTIONS = {
-  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
   keychainService: 'kraina.auth',
 };
 

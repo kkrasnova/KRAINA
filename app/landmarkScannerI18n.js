@@ -170,9 +170,49 @@ const S = {
     uk: 'Поділитись',
     en: 'Share',
   },
+  actionsSources: {
+    uk: 'Джерела інформації',
+    en: 'Information sources',
+  },
+  actionsSourcesTitle: {
+    uk: 'Звідки ця інформація',
+    en: 'Where this info comes from',
+  },
+  actionsSourcesLead: {
+    uk: 'Матеріал зібрано з відкритих джерел. Натисніть, щоб відкрити:',
+    en: 'Content was collected from public sources. Tap to open:',
+  },
+  actionsSourcesEmpty: {
+    uk: 'Список джерел для цієї локації поки порожній.',
+    en: 'No source links are available for this landmark yet.',
+  },
+  actionsSourcesClose: {
+    uk: 'Закрити',
+    en: 'Close',
+  },
+  actionsSourcesOpenSlide: {
+    uk: 'Відкрити слайд із джерелами',
+    en: 'Open sources slide',
+  },
   actionsContinue: {
     uk: 'Продовжити',
     en: 'Continue',
+  },
+  actionsCategoryMonument: {
+    uk: 'Історична памʼятка',
+    en: 'Historical landmark',
+  },
+  actionsCategoryMuseum: {
+    uk: 'Музей',
+    en: 'Museum',
+  },
+  actionsCategoryPark: {
+    uk: 'Парк',
+    en: 'Park',
+  },
+  actionsCategoryOther: {
+    uk: 'Памʼятка',
+    en: 'Landmark',
   },
   actionsRouteBuilding: {
     uk: 'Будуємо маршрут…',

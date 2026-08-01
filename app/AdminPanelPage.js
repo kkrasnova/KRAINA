@@ -35,7 +35,7 @@ import AdminLandmarkStoryFields from './AdminLandmarkStoryFields';
 import AdminSubscriptionGrantSection from './AdminSubscriptionGrantSection';
 import AdminSubscriptionCancelFeedbackSection from './AdminSubscriptionCancelFeedbackSection';
 import { emptyLandmarkStory, normalizeLandmarkStory } from './landmarkStorySchema';
-import { parseGoogleMapsLatLng } from './adminLandmarkAiAssist';
+import { parseGoogleMapsLatLng, runAiEnrichJobAndWait } from './adminLandmarkAiAssist';
 import { OFFLINE_OUTBOX_CHANGED, getOutboxItems } from './offline/outboxStore';
 import { flushOutboxNow } from './offline/syncEngine';
 
@@ -73,6 +73,10 @@ function normalizeTextKey(v) {
 const CITY_TRANSLATIONS = {
   kyiv: { uk: 'Київ', en: 'Kyiv' },
   kiev: { uk: 'Київ', en: 'Kyiv' },
+  київ: { uk: 'Київ', en: 'Kyiv' },
+  києва: { uk: 'Київ', en: 'Kyiv' },
+  киев: { uk: 'Київ', en: 'Kyiv' },
+  киева: { uk: 'Київ', en: 'Kyiv' },
   odessa: { uk: 'Одеса', en: 'Odesa' },
   odesa: { uk: 'Одеса', en: 'Odesa' },
   kharkiv: { uk: 'Харків', en: 'Kharkiv' },
@@ -117,10 +121,46 @@ function splitCitiesFromCommand(text) {
     .filter(Boolean);
 }
 
+function splitImportItemsFromCommand(text) {
+  const raw = String(text || '').trim();
+  const listMatch =
+    raw.match(/(?:локац(?:ії|ии|ий|іїв)|пам(?:'|’)?ятки|достопримечательности|locations|landmarks)\s*[:\-]\s*([\s\S]+)/i) ||
+    raw.match(/(?:перелік|список|list)\s*[:\-]\s*([\s\S]+)/i);
+  const chunk = listMatch?.[1] || raw;
+  return chunk
+    .split(/\n|;|•/g)
+    .flatMap((line) => {
+      const t = line.trim();
+      if (!t) return [];
+      if (/^(додай|додати|добавь|add)\b/i.test(t)) return [];
+      if (/^(країн|краина|страна|country|місто|город|city)\b/i.test(t)) return [];
+      if (t.includes(',') && t.length < 180) return t.split(',').map((x) => x.trim());
+      return [t];
+    })
+    .map((line) => line.replace(/^\d+[\).]\s*/, '').trim())
+    .map((line) => {
+      const parts = line.split(/\s+[—-]\s+|\s+\|\s+/g).map((x) => x.trim()).filter(Boolean);
+      return { name: parts[0] || line, address: parts.slice(1).join(', ') };
+    })
+    .filter((item) => item.name.length >= 2)
+    .filter((item) => !/^(україна|украина|ukraine|київ|киев|kyiv|kiev)$/i.test(item.name));
+}
+
+function cityFromImportCommand(text) {
+  const raw = String(text || '');
+  const direct =
+    raw.match(/(?:місто|город|city)\s*[:\-]\s*([^\n,;]+)/i)?.[1] ||
+    raw.match(/(?:для|в|у|to)\s+(Києва|Київ|Киева|Киев|Kyiv|Kiev)\b/i)?.[1] ||
+    '';
+  return direct.trim();
+}
+
 const COUNTRY_ALIASES = {
   ukraine: 'UA',
   украина: 'UA',
+  украины: 'UA',
   україна: 'UA',
+  україни: 'UA',
   ucrania: 'UA',
   ucraina: 'UA',
   germany: 'DE',
@@ -180,6 +220,8 @@ export default function AdminPanelPage({ navigation, route }) {
   const [landmarkMapsUrls, setLandmarkMapsUrls] = useState({});
   const [aiAdminPrompt, setAiAdminPrompt] = useState('');
   const [aiAdminPhotoUris, setAiAdminPhotoUris] = useState([]);
+  const [aiAdminBusy, setAiAdminBusy] = useState(false);
+  const [aiAdminProgress, setAiAdminProgress] = useState(null);
   const [offlinePendingCount, setOfflinePendingCount] = useState(0);
   const [jsonTab, setJsonTab] = useState('import');
   const [importJsonText, setImportJsonText] = useState('');
@@ -393,8 +435,14 @@ export default function AdminPanelPage({ navigation, route }) {
       }
     }
     try {
-      await saveAdminLocationBundle(clone(draft));
-      Alert.alert('', st(language, 'adminSaved'));
+      const out = await saveAdminLocationBundle(clone(draft), { publish: true });
+      const published =
+        out?.firestore?.status === 'published'
+          ? ` Firestore: ${out.firestore.written}.`
+          : out?.firestore?.status
+            ? ` Firestore: ${out.firestore.status}.`
+            : '';
+      Alert.alert('', `${st(language, 'adminSaved')}${published}`);
     } catch {
       Alert.alert('', st(language, 'adminSaveFailed'));
     }
@@ -804,12 +852,13 @@ export default function AdminPanelPage({ navigation, route }) {
 
   const region = selectedRegionId ? draft.regions[selectedRegionId] : null;
 
-  const runAiAdminAssistant = useCallback(() => {
+  const runAiAdminAssistant = useCallback(async () => {
     const prompt = String(aiAdminPrompt || '').trim();
     if (!prompt) {
       Alert.alert('', 'Напиши команду для AI-помічника.');
       return;
     }
+    if (aiAdminBusy) return;
     const countryMatch =
       prompt.match(/(?:країн[ауеиы]|краина|стран[ауеы]|country)\s*[:\-]?\s*([^\n,;]+)/i) ||
       prompt.match(/дод(?:ай|ати|ать)\s+(?:країн[ауеиы]|краину|страну)\s*[:\-]?\s*([^\n,;]+)/i);
@@ -840,6 +889,154 @@ export default function AdminPanelPage({ navigation, route }) {
     }
     if (!countryId) {
       Alert.alert('', 'Не вдалося визначити країну. Додай назву країни в запит.');
+      return;
+    }
+
+    const locationItems = splitImportItemsFromCommand(prompt);
+    const looksLikeLocationImport =
+      locationItems.length > 0 &&
+      /(?:локац(?:ії|ии|ий|іїв)|пам(?:'|’)?ятки|достопримечательности|locations|landmarks|список|перелік|list)/i.test(
+        prompt,
+      );
+    if (looksLikeLocationImport) {
+      const selectedRegion = selectedRegionId ? draft.regions[selectedRegionId] : null;
+      const cityPair = selectedRegion
+        ? { titleUk: selectedRegion.titleUk, titleEn: selectedRegion.titleEn }
+        : translateCityPair(cityFromImportCommand(prompt));
+      if (!cityPair.titleUk && !cityPair.titleEn) {
+        Alert.alert('', 'Не вдалося визначити місто. Вибери місто в адмінці або напиши "місто: Київ".');
+        return;
+      }
+
+      setAiAdminBusy(true);
+      setAiAdminProgress({ done: 0, total: locationItems.length, currentName: '', phase: 'enrich', status: 'queued' });
+      try {
+        const countryLabel = countryLabelsEn[countryId] || countryLabels[countryId] || countryId;
+        const baseSnapshot = clone(draft);
+        const jobResult = await runAiEnrichJobAndWait(
+          {
+            country: countryLabel,
+            city: cityPair.titleEn || cityPair.titleUk,
+            items: locationItems,
+            rehostImages: true,
+            autoPublish: true,
+            mergeTarget: {
+              countryId,
+              countryUk: countryLabels[countryId] || countryId,
+              countryEn: countryLabelsEn[countryId] || countryId,
+              regionId: selectedRegionId || '',
+              cityUk: cityPair.titleUk || cityPair.titleEn,
+              cityEn: cityPair.titleEn || cityPair.titleUk,
+            },
+            snapshot: baseSnapshot,
+          },
+          {
+            onProgress: (p) => setAiAdminProgress(p),
+          },
+        );
+        const enriched = Array.isArray(jobResult?.landmarks) ? jobResult.landmarks : [];
+        if (!enriched.length) {
+          Alert.alert('', 'AI не знайшов локації у перевірених джерелах. Перевір назви або додай адреси.');
+          return;
+        }
+
+        const next = clone(baseSnapshot);
+        if (!next.homeCountryOrder.includes(countryId)) next.homeCountryOrder.push(countryId);
+        if (!next.homeRegionIdsByCountry[countryId]) next.homeRegionIdsByCountry[countryId] = [];
+
+        let appliedRegionId = jobResult?.appliedRegionId || selectedRegionId || '';
+        if (!appliedRegionId) {
+          const wanted = normalizeTextKey(cityPair.titleEn || cityPair.titleUk);
+          appliedRegionId =
+            Object.keys(next.regions || {}).find((rid) => {
+              const r = next.regions[rid];
+              return normalizeTextKey(r?.titleEn) === wanted || normalizeTextKey(r?.titleUk) === wanted;
+            }) || '';
+        }
+        if (!appliedRegionId) {
+          appliedRegionId = slugifyRegionName(cityPair.titleEn || cityPair.titleUk) || `region_${Date.now().toString(36)}`;
+        }
+
+        if (!next.regions[appliedRegionId]) {
+          next.regions[appliedRegionId] = {
+            id: appliedRegionId,
+            titleUk: cityPair.titleUk || cityPair.titleEn,
+            titleEn: cityPair.titleEn || cityPair.titleUk,
+            countryUk: countryLabels[countryId] || countryId,
+            countryEn: countryLabelsEn[countryId] || countryId,
+            flag: '🏳️',
+            center: { latitude: 0, longitude: 0, latitudeDelta: 0.12, longitudeDelta: 0.12 },
+            heroThumbRef: 't1',
+            landmarks: [],
+          };
+        }
+        if (!next.homeRegionIdsByCountry[countryId].includes(appliedRegionId)) {
+          next.homeRegionIdsByCountry[countryId].push(appliedRegionId);
+        }
+
+        const r = next.regions[appliedRegionId];
+        r.landmarks = Array.isArray(r.landmarks) ? r.landmarks : [];
+        const existingTitles = new Set(
+          r.landmarks.flatMap((lm) => [normalizeTextKey(lm.titleUk), normalizeTextKey(lm.titleEn)]).filter(Boolean),
+        );
+        const existingIds = new Set(r.landmarks.map((lm) => String(lm.id || '')));
+        enriched.forEach((lm, idx) => {
+          const titleKey = normalizeTextKey(lm.titleUk || lm.titleEn);
+          if (titleKey && existingTitles.has(titleKey)) return;
+          let id = String(lm.id || `lm_${Date.now().toString(36)}_${idx}`).trim();
+          let suffix = 1;
+          while (existingIds.has(id)) {
+            suffix += 1;
+            id = `${lm.id || 'lm'}_${suffix}`;
+          }
+          existingIds.add(id);
+          existingTitles.add(titleKey);
+          const galleryUris = Array.isArray(lm.galleryUris) ? lm.galleryUris.filter(isAcceptedImageUri) : [];
+          r.landmarks.push({
+            id,
+            titleUk: lm.titleUk || lm.titleEn || '',
+            titleEn: lm.titleEn || lm.titleUk || '',
+            lat: Number(lm.lat) || 0,
+            lng: Number(lm.lng) || 0,
+            minutes: Number(lm.minutes) || 35,
+            free: lm.free !== false,
+            descUk: lm.descUk || '',
+            descEn: lm.descEn || '',
+            ...(isAcceptedImageUri(lm.thumbUri) ? { thumbUri: lm.thumbUri } : { thumbRef: 't1' }),
+            ...(galleryUris.length ? { galleryUris } : {}),
+            ...(Array.isArray(lm.sourceUrls) ? { sourceUrls: lm.sourceUrls } : {}),
+            story: normalizeLandmarkStory(lm.story),
+          });
+          if (!r.heroUri && isAcceptedImageUri(lm.thumbUri)) r.heroUri = lm.thumbUri;
+          if (!r.center?.latitude && Number(lm.lat) && Number(lm.lng)) {
+            r.center = { latitude: Number(lm.lat), longitude: Number(lm.lng), latitudeDelta: 0.08, longitudeDelta: 0.08 };
+          }
+        });
+
+        setDraft(next);
+        setSelectedCountryId(countryId);
+        setSelectedRegionId(appliedRegionId);
+        setAiAdminPrompt('');
+
+        if (jobResult?.published) {
+          await saveAdminLocationBundle(next, { publish: false });
+          Alert.alert(
+            '',
+            `Готово: ${enriched.length} локацій для ${cityPair.titleUk || cityPair.titleEn}.\nОпубліковано для всіх користувачів — оновлення App Store не потрібне.`,
+          );
+        } else {
+          await saveAdminLocationBundle(next, { publish: true });
+          Alert.alert('', `Додано і опубліковано: ${enriched.length} локацій для ${cityPair.titleUk || cityPair.titleEn}.`);
+        }
+      } catch (e) {
+        Alert.alert(
+          '',
+          `Не вдалося автоматично зібрати дані (${e?.message || 'error'}). Перевір API/backend і підключення до Wikipedia.`,
+        );
+      } finally {
+        setAiAdminBusy(false);
+        setAiAdminProgress(null);
+      }
       return;
     }
 
@@ -913,7 +1110,17 @@ export default function AdminPanelPage({ navigation, route }) {
     setSelectedCountryId(countryId);
     setAiAdminPrompt('');
     Alert.alert('', `AI-помічник застосував зміни: ${countryId}${cities.length ? `, міст: ${cities.length}` : ''}.`);
-  }, [aiAdminPrompt, aiAdminPhotoUris, countryLabels, countryLabelsEn, countryResolver, selectedCountryId]);
+  }, [
+    aiAdminBusy,
+    aiAdminPhotoUris,
+    aiAdminPrompt,
+    countryLabels,
+    countryLabelsEn,
+    countryResolver,
+    draft.regions,
+    selectedCountryId,
+    selectedRegionId,
+  ]);
 
   const goAdminSecurity = useCallback(() => {
     navigation.navigate('AdminSecurity', {
@@ -1037,14 +1244,17 @@ export default function AdminPanelPage({ navigation, route }) {
         <View style={[styles.aiAdminCard, { borderColor: border, backgroundColor: cardBg }]}>
           <Text style={[styles.workflowTitle, { color: textMain }]}>AI-помічник адміна</Text>
           <Text style={[styles.sectionHint, { color: muted }]}>
-            Напиши задачу текстом: "Додай країну Ukraine; міста: Kyiv, Odesa, Kharkiv". Можна додати 1-3+ фото.
+            Кинь список локацій — AI сам знайде Wikipedia/Commons, тексти, фото, джерела і одразу опублікує для всіх користувачів (без оновлення App Store).
+          </Text>
+          <Text style={[styles.sectionHint, { color: muted, marginTop: 6 }]}>
+            Приклад: "Країна: Ukraine; місто: Kyiv; локації: Saint Sophia Cathedral — Volodymyrska St, 24; Golden Gate; Maidan Nezalezhnosti"
           </Text>
           <View style={styles.fieldBlock}>
             <Text style={[styles.label, { color: muted }]}>Команда для AI</Text>
             <TextInput
               value={aiAdminPrompt}
               onChangeText={setAiAdminPrompt}
-              placeholder="Додай країну Україна; міста: Київ, Одеса, Харків"
+              placeholder="Країна: Україна; місто: Київ; локації: Софійський собор — вул. Володимирська, 24; Золоті ворота"
               placeholderTextColor={muted}
               style={[styles.input, styles.storyInput, { color: textMain, borderColor: border }]}
               multiline
@@ -1055,10 +1265,35 @@ export default function AdminPanelPage({ navigation, route }) {
             <Pressable onPress={pickAiAdminPhotos} style={styles.clearHeroBtn} android_ripple={ripple}>
               <Text style={{ color: accent, fontWeight: '600' }}>Додати фото (multi-select)</Text>
             </Pressable>
-            <Pressable onPress={runAiAdminAssistant} style={styles.clearHeroBtn} android_ripple={ripple}>
-              <Text style={{ color: accent, fontWeight: '700' }}>Виконати команду</Text>
+            <Pressable
+              onPress={runAiAdminAssistant}
+              disabled={aiAdminBusy}
+              style={[styles.clearHeroBtn, aiAdminBusy ? { opacity: 0.55 } : null]}
+              android_ripple={ripple}
+            >
+              <Text style={{ color: accent, fontWeight: '700' }}>
+                {aiAdminBusy ? 'AI працює...' : 'Виконати і опублікувати'}
+              </Text>
             </Pressable>
           </View>
+          {aiAdminProgress ? (
+            <View style={{ marginBottom: 10 }}>
+              <Text style={{ color: textMain, fontWeight: '700', marginBottom: 4 }}>
+                {aiAdminProgress.phase === 'rehost'
+                  ? 'Зберігаю фото на сервер'
+                  : aiAdminProgress.phase === 'publish'
+                    ? 'Публікую для всіх'
+                    : 'Збираю з Wikipedia'}
+                {': '}
+                {aiAdminProgress.done}/{aiAdminProgress.total || '?'}
+              </Text>
+              {aiAdminProgress.currentName ? (
+                <Text style={{ color: muted, fontSize: 13 }} numberOfLines={2}>
+                  Зараз: {aiAdminProgress.currentName}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
           {aiAdminPhotoUris.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
               {aiAdminPhotoUris.map((uri, i) => (

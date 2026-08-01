@@ -240,7 +240,7 @@ export default function PostMapPickerPage({ navigation, route }) {
               keyExtractor={(it) => it.id}
               keyboardShouldPersistTaps="always"
               keyboardDismissMode="on-drag"
-              removeClippedSubviews={Platform.OS === 'android'}
+              removeClippedSubviews={false}
               maxToRenderPerBatch={10}
               windowSize={3}
               initialNumToRender={5}

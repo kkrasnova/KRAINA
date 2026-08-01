@@ -1540,8 +1540,8 @@ const LANDMARK_CATALOG_I18N = {
       hy: 'Սուրբ Նիկոլայի հռոմեական կաթոլիկ տաճար',
     },
     desc: {
-      uk: 'Неоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.',
-      en: 'Early 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.',
+      uk: 'Неоготичний костел 1899–1909 років архітектора Городецького; вежі близько 60 м, органна зала й католицька парафія.',
+      en: 'Neo-Gothic cathedral built 1899–1909 by Horodecki; twin towers about 60 m and the National Organ Hall.',
       de: 'Neugotische Kathedrale aus dem frühen 20. Jahrhundert des Architekten Horodetskyi, 58 Meter hohe Türme und berühmte Orgelhalle.',
       pl: 'Neogotycka katedra z początku XX wieku autorstwa architekta Horodeckiego, 58-metrowe wieże i słynna sala organowa.',
       nl: 'Neogotische kathedraal uit het begin van de 20e eeuw, ontworpen door architect Horodetskyi, torens van 58 meter hoog en de beroemde orgelzaal.',
