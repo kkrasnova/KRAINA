@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect, memo } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef, memo } from 'react';
 import {
   View,
   Text,
@@ -6,33 +6,27 @@ import {
   Pressable,
   Platform,
   DeviceEventEmitter,
+  FlatList,
 } from 'react-native';
-import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import { runAfterInteractions } from './runAfterInteractions';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { rippleOnDarkSurface, rippleOnLightSurface, noAndroidRipple } from './androidFeedback';
 import { getHomeRegionsForCountry, countRegionLandmarks, resolveRegionHeroSource } from './homeExploreData';
 import { buildLandmarkResultParamsFromHomeLandmark } from './homeLandmarkResultParams';
 import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
-import { getSavedHomeCityRegionId, KRAINA_HOME_CITY_CHANGED } from './homeCityStorage';
-import {
-  resolveCatalogLandmarkTitle,
-  resolveCatalogRegionTitle,
-} from './catalogDisplayI18n';
-import { landmarkMatchesHomeCategory } from './homeLandmarkCategories';
-import { mt, mtHomeLocationsCount } from './mainPageI18n';
-import { accentForTheme, onAccentButtonText } from './themeAccent';
+import { getSavedHomeCityRegionId, saveHomeCityRegionId, KRAINA_HOME_CITY_CHANGED } from './homeCityStorage';
+import { mt, mtHomeLocationsCount, mtHomeDistKm } from './mainPageI18n';
+import { accentForTheme } from './themeAccent';
 import {
   resolveHomeLandmarkDistKm,
+  resolveHomeLandmarkThumbSource,
 } from './homeLandmarkDisplay';
-import HomeLandmarkCard, {
-  HOME_LANDMARK_CARD_DARK,
-  HOME_LANDMARK_CARD_BORDER_DARK,
-  HOME_LANDMARK_CARD_BORDER_LIGHT,
+import {
   HOME_LANDMARK_CARD_MUTED_DARK,
   HOME_LANDMARK_CARD_MUTED_LIGHT,
 } from './HomeLandmarkCard';
+import HomeCityTile, { HOME_CITY_TILE_W } from './HomeCityTile';
+import HomeFeaturedLandmarkCard, { HOME_FEATURED_LANDMARK_H } from './HomeFeaturedLandmarkCard';
 import { HOME_TAB_ROUTE, HOME_TAB } from './homeTabPagerConstants';
 import { shellNavigate } from './shellNavigate';
 import {
@@ -41,15 +35,31 @@ import {
   landmarkSaveKey,
   KRAINA_SAVED_LANDMARKS_CHANGED,
 } from './savedLandmarksStorage';
-import { countryFlagSource } from './WavingCountryFlag';
+import {
+  brandFontSans,
+  brandFontHeadBold,
+  brandFontTextMedium,
+} from './brandFont';
+import {
+  resolveCatalogLandmarkTitle,
+  resolveCatalogRegionTitle,
+} from './catalogDisplayI18n';
+import { landmarkMatchesHomeCategory } from './homeLandmarkCategories';
 
-const CARD_DARK = HOME_LANDMARK_CARD_DARK;
-const BORDER_DARK = HOME_LANDMARK_CARD_BORDER_DARK;
-const BORDER_LIGHT = HOME_LANDMARK_CARD_BORDER_LIGHT;
+export { HOME_FEATURED_LANDMARK_H };
+
+const CITY_TILE_STRIDE = HOME_CITY_TILE_W + 10;
+
 const MUTED_DARK = HOME_LANDMARK_CARD_MUTED_DARK;
 const MUTED_LIGHT = HOME_LANDMARK_CARD_MUTED_LIGHT;
 
-function HomeExploreSection({
+const EMPTY_LANDMARKS = Object.freeze([]);
+
+/**
+ * Стан секції «міста + популярні місця» — винесений у хук, щоб MainPage
+ * міг віртуалізувати картки через FlashList без вкладеного ScrollView.
+ */
+export function useHomeExplore({
   user,
   countryId,
   language,
@@ -68,7 +78,6 @@ function HomeExploreSection({
   const [selectedRegionId, setSelectedRegionId] = useState(null);
   const [userCoords, setUserCoords] = useState(null);
   const [savedKeySet, setSavedKeySet] = useState(() => new Set());
-  const [cityHeroBroken, setCityHeroBroken] = useState(false);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const refreshSavedLandmarks = useCallback(async () => {
@@ -89,17 +98,42 @@ function HomeExploreSection({
 
   useEffect(() => {
     let cancelled = false;
+    let watchSub = null;
     const task = runAfterInteractions(async () => {
       try {
         const Location = require('expo-location');
-        const existing = await Location.getForegroundPermissionsAsync();
-        if (existing.status !== 'granted') return;
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          const asked = await Location.requestForegroundPermissionsAsync();
+          status = asked.status;
+        }
+        if (status !== 'granted' || cancelled) return;
+        const apply = (pos) => {
+          if (cancelled || !pos?.coords) return;
+          const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setUserCoords((prev) => {
+            if (
+              prev &&
+              Math.abs(prev.lat - next.lat) < 0.0003 &&
+              Math.abs(prev.lng - next.lng) < 0.0003
+            ) {
+              return prev;
+            }
+            return next;
+          });
+        };
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        if (!cancelled) {
-          setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        }
+        apply(pos);
+        watchSub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            distanceInterval: 80,
+            timeInterval: 30000,
+          },
+          apply,
+        );
       } catch {
         /* ignore */
       }
@@ -107,6 +141,11 @@ function HomeExploreSection({
     return () => {
       cancelled = true;
       task.cancel?.();
+      try {
+        watchSub?.remove?.();
+      } catch {
+        /* ignore */
+      }
     };
   }, [countryId]);
 
@@ -153,16 +192,44 @@ function HomeExploreSection({
     return fresh.find((r) => r.id === selectedRegionId) || fresh[0] || null;
   }, [countryId, selectedRegionId, regions, homeLocationsEpoch, focusEpoch]);
 
+  /** Вибране місто завжди перше в горизонтальному ряду. */
+  const orderedRegions = useMemo(() => {
+    if (!regions.length) return regions;
+    const selectedId = selectedRegionId || regions[0]?.id;
+    if (!selectedId) return regions;
+    const selected = regions.find((r) => r.id === selectedId);
+    if (!selected) return regions;
+    return [selected, ...regions.filter((r) => r.id !== selectedId)];
+  }, [regions, selectedRegionId]);
+
   const filteredLandmarks = useMemo(() => {
-    if (!activeRegion) return [];
+    if (!activeRegion) return EMPTY_LANDMARKS;
+    // Каталожний порядок (distKm) — стабільний. Живі координати лише оновлюють підпис
+    // дистанції; пересорт при GPS змушував FlashList «стрибати» вниз.
     return (activeRegion.landmarks || [])
       .filter((lm) => landmarkMatchesHomeCategory(lm.id, categoryId))
+      .slice()
       .sort((a, b) => {
-        const da = typeof a.distKm === 'number' && Number.isFinite(a.distKm) ? a.distKm : 999;
-        const db = typeof b.distKm === 'number' && Number.isFinite(b.distKm) ? b.distKm : 999;
-        return da - db;
+        const da =
+          typeof a?.distKm === 'number' && Number.isFinite(a.distKm)
+            ? a.distKm
+            : Number.POSITIVE_INFINITY;
+        const db =
+          typeof b?.distKm === 'number' && Number.isFinite(b.distKm)
+            ? b.distKm
+            : Number.POSITIVE_INFINITY;
+        if (da !== db) return da - db;
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
       });
   }, [activeRegion, categoryId]);
+
+  const listRevision = useMemo(() => {
+    const lat =
+      userCoords && Number.isFinite(userCoords.lat) ? userCoords.lat.toFixed(3) : '';
+    const lng =
+      userCoords && Number.isFinite(userCoords.lng) ? userCoords.lng.toFixed(3) : '';
+    return `${savedKeySet.size}:${lat}:${lng}:${language}:${activeRegion?.id || ''}`;
+  }, [userCoords, savedKeySet, language, activeRegion?.id]);
 
   const landmarkNavById = useMemo(() => {
     if (!activeRegion || !countryId) return new Map();
@@ -187,6 +254,15 @@ function HomeExploreSection({
     shellNavigate('HomeCityPicker', { countryId }, appTheme);
   }, [countryId, appTheme]);
 
+  const onPickCity = useCallback(
+    async (regionId) => {
+      if (!countryId || !regionId) return;
+      setSelectedRegionId(regionId);
+      await saveHomeCityRegionId(user, countryId, regionId);
+    },
+    [countryId, user],
+  );
+
   const openLandmark = useCallback(
     (lm) => {
       const params = landmarkNavById.get(lm?.id);
@@ -208,7 +284,7 @@ function HomeExploreSection({
   useEffect(() => {
     if (!filteredLandmarks.length) return undefined;
     const task = runAfterInteractions(() => {
-      for (const lm of filteredLandmarks.slice(0, 10)) {
+      for (const lm of filteredLandmarks.slice(0, 8)) {
         prefetchLandmark(lm);
       }
     });
@@ -237,8 +313,16 @@ function HomeExploreSection({
         countryId,
         regionId: region.id,
         landmarkId: lm.id,
-        titleUk: resolveCatalogLandmarkTitle(lm, 'uk', { regionId: region.id, landmarkId: lm.id }),
-        titleEn: resolveCatalogLandmarkTitle(lm, 'en', { regionId: region.id, landmarkId: lm.id }),
+        titleUk: resolveCatalogLandmarkTitle(lm, 'uk', {
+          regionId: region.id,
+          landmarkId: lm.id,
+          region,
+        }),
+        titleEn: resolveCatalogLandmarkTitle(lm, 'en', {
+          regionId: region.id,
+          landmarkId: lm.id,
+          region,
+        }),
         regionTitleUk: resolveCatalogRegionTitle(region, 'uk'),
         regionTitleEn: resolveCatalogRegionTitle(region, 'en'),
         flag: typeof region.flag === 'string' ? region.flag : '',
@@ -247,129 +331,281 @@ function HomeExploreSection({
     [countryId],
   );
 
-  useEffect(() => {
-    setCityHeroBroken(false);
-  }, [activeRegion?.id, homeLocationsEpoch, focusEpoch]);
-
-  const cityHeroSource = useMemo(() => {
-    if (!activeRegion) return null;
-    if (cityHeroBroken) {
-      return activeRegion.heroThumb || activeRegion.landmarks?.[0]?.thumb || null;
-    }
-    return resolveRegionHeroSource(activeRegion);
-  }, [activeRegion, cityHeroBroken]);
-  const flagSource = useMemo(() => (countryId ? countryFlagSource(countryId) : null), [countryId]);
-
-  if (!countryId || !regions.length || !activeRegion) return null;
-
   const textMain = isLight ? '#1E1E1E' : '#FFFFFF';
   const textMuted = isLight ? MUTED_LIGHT : MUTED_DARK;
-  const cardBg = isLight ? '#F2F2F2' : CARD_DARK;
-  const cardBorder = isLight ? BORDER_LIGHT : BORDER_DARK;
-  const regionLabel = resolveCatalogRegionTitle(activeRegion, language);
+  const regionLabel = activeRegion ? resolveCatalogRegionTitle(activeRegion, language) : '';
 
-  const activeLocationCount = countRegionLandmarks(activeRegion);
+  const getLandmarkRow = useCallback(
+    (lm) => {
+      if (!lm || !activeRegion || !countryId) return null;
+      const dist = resolveHomeLandmarkDistKm(userCoords, lm, activeRegion);
+      const saveKey = landmarkSaveKey(countryId, activeRegion.id, lm.id);
+      const catalogCtx = { regionId: activeRegion.id, landmarkId: lm.id, region: activeRegion };
+      return {
+        title: resolveCatalogLandmarkTitle(lm, language, catalogCtx),
+        distLabel: mtHomeDistKm(language, dist),
+        thumb: resolveHomeLandmarkThumbSource(lm),
+        isSaved: savedKeySet.has(saveKey),
+        lm,
+        region: activeRegion,
+      };
+    },
+    [activeRegion, countryId, language, savedKeySet, userCoords],
+  );
+
+  const getLandmarkRowRef = useRef(getLandmarkRow);
+  getLandmarkRowRef.current = getLandmarkRow;
+  const openLandmarkRef = useRef(openLandmark);
+  openLandmarkRef.current = openLandmark;
+  const prefetchLandmarkRef = useRef(prefetchLandmark);
+  prefetchLandmarkRef.current = prefetchLandmark;
+  const onToggleSaveLandmarkRef = useRef(onToggleSaveLandmark);
+  onToggleSaveLandmarkRef.current = onToggleSaveLandmark;
+
+  const stableGetLandmarkRow = useCallback((lm) => getLandmarkRowRef.current(lm), []);
+  const stableOpenLandmark = useCallback((lm) => openLandmarkRef.current(lm), []);
+  const stablePrefetchLandmark = useCallback((lm) => prefetchLandmarkRef.current(lm), []);
+  const stableToggleSave = useCallback(
+    (lm, region) => onToggleSaveLandmarkRef.current(lm, region),
+    [],
+  );
+
+  return useMemo(
+    () => ({
+      ready: !!(countryId && regions.length && activeRegion),
+      isLight,
+      accent,
+      ripple,
+      regions,
+      orderedRegions,
+      activeRegion,
+      filteredLandmarks,
+      listRevision,
+      textMain,
+      textMuted,
+      regionLabel,
+      language,
+      openCityList,
+      onPickCity,
+      openLandmark: stableOpenLandmark,
+      prefetchLandmark: stablePrefetchLandmark,
+      openRouteFinder,
+      onToggleSaveLandmark: stableToggleSave,
+      getLandmarkRow: stableGetLandmarkRow,
+    }),
+    [
+      countryId,
+      regions,
+      orderedRegions,
+      activeRegion,
+      isLight,
+      accent,
+      ripple,
+      filteredLandmarks,
+      listRevision,
+      textMain,
+      textMuted,
+      regionLabel,
+      language,
+      openCityList,
+      onPickCity,
+      stableOpenLandmark,
+      stablePrefetchLandmark,
+      openRouteFinder,
+      stableToggleSave,
+      stableGetLandmarkRow,
+    ],
+  );
+}
+
+const cityKeyExtractor = (item) => item.id;
+
+/** Міста + заголовок «популярні» — ListHeaderComponent для FlashList на головній. */
+export const HomeExploreListHeader = memo(function HomeExploreListHeader({
+  explore,
+}) {
+  const {
+    ready,
+    accent,
+    orderedRegions,
+    activeRegion,
+    filteredLandmarks,
+    textMain,
+    textMuted,
+    regionLabel,
+    language,
+    openCityList,
+    onPickCity,
+  } = explore;
+
+  const cityListRef = useRef(null);
+  const selectedCityId = activeRegion?.id;
+  const prevCityIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!selectedCityId) return;
+    const prev = prevCityIdRef.current;
+    prevCityIdRef.current = selectedCityId;
+    // Не анімуємо горизонтальний скрол на першому mount — лише при зміні міста.
+    if (prev == null || prev === selectedCityId) return;
+    requestAnimationFrame(() => {
+      try {
+        cityListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      } catch {
+        /* */
+      }
+    });
+  }, [selectedCityId]);
+
+  const renderCity = useCallback(
+    ({ item: region }) => {
+      const selected = region.id === activeRegion?.id;
+      const name = resolveCatalogRegionTitle(region, language);
+      const hero = resolveRegionHeroSource(region);
+      const locs = countRegionLandmarks(region);
+      return (
+        <HomeCityTile
+          regionId={region.id}
+          name={name}
+          hero={hero}
+          locs={locs}
+          selected={selected}
+          accent={accent}
+          language={language}
+          onPress={() => onPickCity(region.id)}
+        />
+      );
+    },
+    [activeRegion?.id, accent, language, onPickCity],
+  );
+
+  if (!ready) return null;
 
   return (
-    <View style={styles.wrap}>
-      <Text style={[styles.sectionTitle, { color: textMain }]}>{mt(language, 'homePickCity')}</Text>
-      <Pressable
-        onPress={openCityList}
-        style={({ pressed }) => [
-          styles.cityListBtn,
-          { backgroundColor: cardBg, borderColor: cardBorder, opacity: pressed ? 0.72 : 1 },
-        ]}
-        android_ripple={ripple}
-        hitSlop={4}
-      >
-        {cityHeroSource ? (
-          <View style={styles.cityListBtnThumbWrap}>
-            <ExpoImage
-              source={cityHeroSource}
-              style={styles.cityListBtnThumb}
-              contentFit="cover"
-              contentPosition="center"
-              cachePolicy="memory-disk"
-              transition={0}
-              onError={() => setCityHeroBroken(true)}
-            />
-          </View>
-        ) : flagSource ? (
-          <ExpoImage source={flagSource} style={styles.cityListBtnFlagImg} contentFit="contain" cachePolicy="memory-disk" transition={0} />
-        ) : (
-          <Text style={styles.cityListBtnFlag}>{activeRegion.flag}</Text>
-        )}
-        <View style={styles.cityListBtnTextCol}>
-          <View style={styles.cityListBtnTitleRow}>
-            {cityHeroSource ? (
-              flagSource ? (
-                <ExpoImage source={flagSource} style={styles.inlineFlagImg} contentFit="contain" cachePolicy="memory-disk" transition={0} />
-              ) : (
-                <Text style={{ fontSize: 14, lineHeight: 16 }}>{activeRegion.flag}</Text>
-              )
-            ) : null}
-            <Text style={[styles.cityListBtnTitle, { color: textMain }]} numberOfLines={1}>
-              {regionLabel}
-            </Text>
-          </View>
-          <Text style={[styles.cityListBtnHint, { color: textMuted }]} numberOfLines={1}>
-            {mtHomeLocationsCount(language, activeLocationCount)}
-            {' · '}
-            {mt(language, 'homePickCityOpenList')}
+    <View style={styles.headerWrap}>
+      <View style={styles.sectionPad}>
+        <View style={styles.cityHeaderRow}>
+          <Text style={[styles.sectionTitle, brandFontHeadBold, { color: textMain, marginBottom: 0 }]}>
+            {mt(language, 'homePickCity')}
           </Text>
+          <Pressable
+            onPress={openCityList}
+            hitSlop={8}
+            style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
+            android_ripple={noAndroidRipple}
+            accessibilityRole="button"
+            accessibilityLabel={mt(language, 'homePickCityOpenList')}
+          >
+            <Text style={[styles.allCitiesLink, brandFontSans, { color: accent }]}>
+              {mt(language, 'homeAllCities')}
+            </Text>
+          </Pressable>
         </View>
-        <Ionicons name="chevron-forward" size={22} color={accent} />
-      </Pressable>
-
-      <View style={styles.popularHeader}>
-        <View style={styles.popularLine}>
-          <Text style={[styles.popularPrefix, { color: textMain }]}>{mt(language, 'homePopularPrefix')}</Text>
-          <Text style={[styles.popularCity, { color: accent }]}>{regionLabel}</Text>
-        </View>
-        <Text style={[styles.popularCount, { color: textMuted }]}>
-          {mtHomeLocationsCount(language, filteredLandmarks.length)}
-        </Text>
       </View>
 
-      {filteredLandmarks.length === 0 ? (
-        <Text style={[styles.emptyCat, { color: textMuted }]}>{mt(language, 'homeNoCategoryResults')}</Text>
-      ) : (
-        filteredLandmarks.map((lm) => {
-          const dist = resolveHomeLandmarkDistKm(userCoords, lm, activeRegion);
-          const saveKey = landmarkSaveKey(countryId, activeRegion.id, lm.id);
-          return (
-            <HomeLandmarkCard
-              key={lm.id}
-              lm={lm}
-              region={activeRegion}
-              countryId={countryId}
-              language={language}
-              isLight={isLight}
-              accent={accent}
-              cardBg={cardBg}
-              cardBorder={cardBorder}
-              textMain={textMain}
-              textMuted={textMuted}
-              regionLabel={regionLabel}
-              dist={dist}
-              isSaved={savedKeySet.has(saveKey)}
-              onOpen={() => openLandmark(lm)}
-              onPressIn={() => prefetchLandmark(lm)}
-              onToggleSave={() => onToggleSaveLandmark(lm, activeRegion)}
-              homeLocationsEpoch={homeLocationsEpoch}
-            />
-          );
-        })
-      )}
+      <FlatList
+        ref={cityListRef}
+        horizontal
+        data={orderedRegions}
+        keyExtractor={cityKeyExtractor}
+        renderItem={renderCity}
+        extraData={selectedCityId}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.cityRow}
+        style={styles.cityScroll}
+        nestedScrollEnabled
+        removeClippedSubviews={false}
+        initialNumToRender={6}
+        maxToRenderPerBatch={6}
+        windowSize={5}
+        getItemLayout={(_, index) => ({
+          length: CITY_TILE_STRIDE,
+          offset: CITY_TILE_STRIDE * index,
+          index,
+        })}
+        {...(Platform.OS === 'android'
+          ? { overScrollMode: 'never' }
+          : { directionalLockEnabled: true, bounces: false, alwaysBounceHorizontal: false })}
+      />
 
-      <Pressable
-        onPress={openRouteFinder}
-        style={({ pressed }) => [styles.moreRoutes, pressed && styles.moreRoutesPressed]}
-        android_ripple={ripple}
-        hitSlop={8}
-      >
-        <Text style={[styles.moreRoutesText, { color: accent }]}>{mt(language, 'homeMoreRoutes')}</Text>
-      </Pressable>
+      <View style={styles.sectionPad}>
+        <View style={styles.popularHeader}>
+          <View style={styles.popularLine}>
+            <Text style={[styles.popularPrefix, brandFontHeadBold, { color: textMain }]}>
+              {mt(language, 'homePopularPrefix')}
+            </Text>
+            <Text style={[styles.popularCity, brandFontHeadBold, { color: accent }]}>{regionLabel}</Text>
+          </View>
+          <Text style={[styles.popularCount, brandFontSans, { color: textMuted }]}>
+            {mtHomeLocationsCount(language, filteredLandmarks.length)}
+          </Text>
+        </View>
+        {filteredLandmarks.length === 0 ? (
+          <Text style={[styles.emptyCat, brandFontSans, { color: textMuted }]}>
+            {mt(language, 'homeNoCategoryResults')}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+});
+
+/** Кнопка «більше маршрутів» — ListFooterComponent. */
+export const HomeExploreListFooter = memo(function HomeExploreListFooter({ explore }) {
+  if (!explore.ready) return null;
+  const { isLight, ripple, language, openRouteFinder } = explore;
+  const linkColor = accentForTheme(!!isLight);
+  return (
+    <Pressable
+      onPress={openRouteFinder}
+      style={({ pressed }) => [styles.moreRoutes, pressed && styles.moreRoutesPressed]}
+      android_ripple={ripple}
+      hitSlop={8}
+    >
+      <Text style={[styles.moreRoutesText, brandFontTextMedium, { color: linkColor }]}>
+        {mt(language, 'homeMoreRoutes')}
+      </Text>
+    </Pressable>
+  );
+});
+
+/** Рядок FlashList для однієї локації. */
+export const HomeExploreLandmarkRow = memo(function HomeExploreLandmarkRow({
+  explore,
+  landmark,
+  listRevision,
+}) {
+  const row = explore.getLandmarkRow(landmark);
+  if (!row) return null;
+  return (
+    <HomeFeaturedLandmarkCard
+      landmarkId={landmark?.id || row.lm?.id}
+      title={row.title}
+      distLabel={row.distLabel}
+      thumb={row.thumb}
+      isSaved={row.isSaved}
+      onPress={() => explore.openLandmark(row.lm)}
+      onPressIn={() => explore.prefetchLandmark(row.lm)}
+      onToggleSave={() => explore.onToggleSaveLandmark(row.lm, row.region)}
+    />
+  );
+}, (prev, next) => (
+  prev.landmark?.id === next.landmark?.id &&
+  prev.listRevision === next.listRevision &&
+  prev.explore === next.explore
+));
+
+/** Fallback: повна секція (якщо хтось імпортує без FlashList). */
+function HomeExploreSection(props) {
+  const explore = useHomeExplore(props);
+  if (!explore.ready) return null;
+  return (
+    <View style={styles.wrap}>
+      <HomeExploreListHeader explore={explore} />
+      {explore.filteredLandmarks.map((lm) => (
+        <HomeExploreLandmarkRow key={lm.id} explore={explore} landmark={lm} />
+      ))}
+      <HomeExploreListFooter explore={explore} />
     </View>
   );
 }
@@ -377,7 +613,11 @@ function HomeExploreSection({
 export default memo(HomeExploreSection);
 
 const styles = StyleSheet.create({
-  wrap: { marginBottom: 28, marginTop: 4, paddingBottom: 12 },
+  wrap: { marginBottom: 4, marginTop: 4, paddingBottom: 0 },
+  headerWrap: { marginTop: 4 },
+  sectionPad: {
+    paddingHorizontal: 24,
+  },
   emptyCat: {
     textAlign: 'center',
     fontSize: 14,
@@ -385,46 +625,53 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 8,
   },
+  cityHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 8,
+  },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 12,
+    letterSpacing: -0.35,
+    flex: 1,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
-  cityListBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 12,
+  allCitiesLink: {
+    fontSize: 14,
+    fontWeight: '700',
   },
-  cityListBtnFlag: { fontSize: 26 },
-  cityListBtnFlagImg: { width: 40, height: 28, borderRadius: 3 },
-  cityListBtnTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+  cityScroll: {
+    alignSelf: 'stretch',
   },
-  inlineFlagImg: { width: 20, height: 14, borderRadius: 2 },
-  cityListBtnThumbWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#333',
+  cityRow: {
+    paddingHorizontal: 24,
+    paddingBottom: 2,
   },
-  cityListBtnThumb: { width: '100%', height: '100%' },
-  cityListBtnTextCol: { flex: 1, minWidth: 0 },
-  cityListBtnTitle: { fontSize: 17, fontWeight: '700' },
-  cityListBtnHint: { fontSize: 13, fontWeight: '600', marginTop: 4 },
   popularHeader: { marginTop: 18, marginBottom: 12 },
   popularLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline' },
-  popularPrefix: { fontSize: 17, fontWeight: '700' },
-  popularCity: { fontSize: 17, fontWeight: '700' },
-  popularCount: { fontSize: 13, fontWeight: '600', marginTop: 4 },
-  moreRoutes: { paddingVertical: 10, alignItems: 'center' },
+  popularPrefix: {
+    fontSize: 17,
+    letterSpacing: -0.3,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  popularCity: {
+    fontSize: 17,
+    letterSpacing: -0.3,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  popularCount: {
+    fontSize: 13,
+    marginTop: 4,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
+  moreRoutes: {
+    paddingTop: 4,
+    paddingBottom: 8,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
   moreRoutesPressed: { opacity: 0.72 },
-  moreRoutesText: { fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
+  moreRoutesText: { fontSize: 14, textDecorationLine: 'underline' },
 });

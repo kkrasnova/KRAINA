@@ -50,8 +50,8 @@ const S = {
     en: 'Quiz',
   },
   quizHeroHint: {
-    uk: 'Пройди вікторину та дізнайся цікаві факти про серце України',
-    en: 'Take the quiz and discover curious facts about the heart of Ukraine',
+    uk: 'Пройди вікторину — цікаві факти чекають на тебе',
+    en: 'Take the quiz — curious facts await',
   },
   questionWord: {
     uk: 'Питання',

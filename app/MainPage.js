@@ -4,13 +4,13 @@ import {
   Text,
   StyleSheet,
   Platform,
-  ScrollView,
   DeviceEventEmitter,
   Keyboard,
   Pressable,
   PanResponder,
   useWindowDimensions,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,7 +26,13 @@ import { mt } from './mainPageI18n';
 import { appLangBase } from './appLang';
 import { KRAINA_APP_LANGUAGE_CHANGED } from './appLanguageEvents';
 import LightHomeCountrySearch from './LightHomeCountrySearch';
-import HomeExploreSection from './HomeExploreSection';
+import {
+  useHomeExplore,
+  HomeExploreListHeader,
+  HomeExploreListFooter,
+  HomeExploreLandmarkRow,
+  HOME_FEATURED_LANDMARK_H,
+} from './HomeExploreSection';
 import HomeCountryCarousel from './HomeCountryCarousel';
 import { getHomeCountriesForCarousel, HOME_COUNTRY_ORDER } from './homeExploreData';
 import { KRAINA_ADMIN_LOCATION_EVENT } from './adminLocationData';
@@ -43,6 +49,8 @@ const BG = APP_SCREEN_BG;
 const HOME_GAP_AFTER_TOPBAR = 16;
 const HOME_GAP_AFTER_SEARCH = 6;
 const HOME_SCROLL_PAD_H = 24;
+const EMPTY_LIST = Object.freeze([]);
+const LANDMARK_ROW_ESTIMATE = HOME_FEATURED_LANDMARK_H + 12;
 
 const MUTED = '#888888';
 
@@ -123,7 +131,7 @@ const SearchDismissLayer = memo(function SearchDismissLayer({ onDismiss, languag
 });
 
 /** Секції під пошуком — memo, щоб тапи/скрол не чіпали поле вводу. */
-const MainPageHomeSections = memo(function MainPageHomeSections({
+const MainPageHomeSectionsHeader = memo(function MainPageHomeSectionsHeader({
   visible,
   language,
   appTheme,
@@ -131,8 +139,7 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
   countryId,
   onHomePickCountry,
   onOpenAllCountries,
-  user,
-  homeLocationsEpoch,
+  explore,
 }) {
   const isLightMain = appTheme === 'light';
   return (
@@ -141,27 +148,23 @@ const MainPageHomeSections = memo(function MainPageHomeSections({
       pointerEvents={visible ? 'auto' : 'none'}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
     >
-      <HomeCountryCarousel
-        language={language}
-        appTheme={appTheme}
-        countries={homeCountries}
-        selectedCountryId={countryId || HOME_COUNTRY_ORDER[0]}
-        onSelectCountry={onHomePickCountry}
-        onOpenAllCountries={onOpenAllCountries}
-      />
-      {!countryId ? (
-        <Text style={[styles.homeHint, { color: isLightMain ? '#3A3A3A' : MUTED }]}>
-          {mt(language, 'homeSelectCountryHint')}
-        </Text>
-      ) : null}
-      <HomeExploreSection
-        user={user}
-        countryId={countryId}
-        language={language}
-        appTheme={appTheme}
-        categoryId="all"
-        homeLocationsEpoch={homeLocationsEpoch}
-      />
+      <View style={styles.homeSectionsInner}>
+        <HomeCountryCarousel
+          language={language}
+          appTheme={appTheme}
+          countries={homeCountries}
+          selectedCountryId={countryId || HOME_COUNTRY_ORDER[0]}
+          onSelectCountry={onHomePickCountry}
+          onOpenAllCountries={onOpenAllCountries}
+        />
+        {!countryId ? (
+          <Text style={[styles.homeHint, { color: isLightMain ? '#3A3A3A' : MUTED }]}>
+            {mt(language, 'homeSelectCountryHint')}
+          </Text>
+        ) : (
+          <HomeExploreListHeader explore={explore} />
+        )}
+      </View>
     </View>
   );
 });
@@ -408,8 +411,8 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
   }, [navigation, user, language, countryId, appTheme]);
 
   const openAllCountriesLocations = useCallback(() => {
-    shellNavigate('AllCountriesLocations', {}, appTheme);
-  }, [appTheme]);
+    shellNavigate('AllCountriesLocations', countryId ? { countryId } : {}, appTheme);
+  }, [appTheme, countryId]);
 
   const bumpSearchReset = useCallback(() => {
     setSearchResetToken((n) => n + 1);
@@ -501,12 +504,143 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
   }, []);
 
   const homeScrollRef = useRef(null);
+  const explore = useHomeExplore({
+    user,
+    countryId,
+    language,
+    appTheme,
+    categoryId: 'all',
+    homeLocationsEpoch,
+  });
+  const exploreRef = useRef(explore);
+  exploreRef.current = explore;
 
   const searchVariant = isLightMain ? 'light' : 'dark';
   const searchPlaceholder = mt(language, 'homeSearchPlaceholder');
   const { height: windowHeight } = useWindowDimensions();
   const searchContentMinHeight = Math.max(360, windowHeight - 168);
   const tabBottomPad = lightTabBarScrollContentPadding(insets.bottom, HOME_TAB_SCROLL_CLEARANCE);
+
+  const landmarkData = showHomeSections && countryId ? explore.filteredLandmarks : EMPTY_LIST;
+
+  const keyExtractorLandmark = useCallback((item) => String(item.id), []);
+
+  const renderLandmark = useCallback(
+    ({ item }) => (
+      <HomeExploreLandmarkRow
+        explore={exploreRef.current}
+        landmark={item}
+        listRevision={exploreRef.current?.listRevision}
+      />
+    ),
+    [],
+  );
+
+  const landmarkListExtraData = useMemo(() => {
+    if (!explore?.ready) return '0';
+    return `${explore.activeRegion?.id || ''}:${explore.listRevision || ''}:${homeLocationsEpoch}`;
+  }, [explore?.ready, explore?.activeRegion?.id, explore?.listRevision, homeLocationsEpoch]);
+
+  // При зміні країни/міста завжди зверху — без «стрибка» в середину списку.
+  const homeScrollAnchor = `${countryId || ''}:${explore?.activeRegion?.id || ''}`;
+  const prevHomeScrollAnchorRef = useRef('');
+  useEffect(() => {
+    if (!explore?.ready || !homeScrollAnchor || homeScrollAnchor.endsWith(':')) return;
+    if (prevHomeScrollAnchorRef.current === homeScrollAnchor) return;
+    prevHomeScrollAnchorRef.current = homeScrollAnchor;
+    requestAnimationFrame(() => {
+      try {
+        homeScrollRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+      } catch {
+        /* */
+      }
+    });
+  }, [homeScrollAnchor, explore?.ready]);
+
+  const searchHeader = useMemo(
+    () => (
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.homeSearchPad,
+          countrySearchLocksScroll ? styles.homeSearchScrollSlot : null,
+        ]}
+      >
+        <MainPageSearchBlock
+          variant={searchVariant}
+          placeholder={searchPlaceholder}
+          language={language}
+          selectedCountryId={countryId}
+          onUnifiedPick={onHomeSearchPick}
+          onParentScrollLockChange={setCountrySearchLocksScroll}
+          resetToken={searchResetToken}
+          dismissSignal={searchDismissSignal}
+          onRequestDismiss={dismissHomeSearch}
+          searchExpanded={countrySearchLocksScroll}
+        />
+      </View>
+    ),
+    [
+      countrySearchLocksScroll,
+      searchVariant,
+      searchPlaceholder,
+      language,
+      countryId,
+      onHomeSearchPick,
+      searchResetToken,
+      searchDismissSignal,
+      dismissHomeSearch,
+    ],
+  );
+
+  const sectionsHeader = useMemo(
+    () => (
+      <MainPageHomeSectionsHeader
+        visible={showHomeSections}
+        language={language}
+        appTheme={appTheme}
+        homeCountries={homeCountries}
+        countryId={countryId}
+        onHomePickCountry={onHomePickCountry}
+        onOpenAllCountries={openAllCountriesLocations}
+        explore={explore}
+      />
+    ),
+    [
+      showHomeSections,
+      language,
+      appTheme,
+      homeCountries,
+      countryId,
+      onHomePickCountry,
+      openAllCountriesLocations,
+      explore.ready,
+      explore.activeRegion?.id,
+      explore.orderedRegions,
+      explore.accent,
+      explore.isLight,
+      // GPS/listRevision навмисно НЕ в deps — інакше FlashList remount header і стрибає вниз
+    ],
+  );
+
+  const listHeader = useMemo(
+    () => (
+      <>
+        {searchHeader}
+        {sectionsHeader}
+      </>
+    ),
+    [searchHeader, sectionsHeader],
+  );
+
+  const listFooter = useMemo(
+    () => (showHomeSections && countryId ? <HomeExploreListFooter explore={explore} /> : null),
+    [showHomeSections, countryId, explore.ready, explore.activeRegion?.id, explore.accent, explore.isLight],
+  );
+
+  const overrideLandmarkLayout = useCallback((layout) => {
+    layout.size = LANDMARK_ROW_ESTIMATE;
+  }, []);
 
   return (
     <View style={[styles.safe, { backgroundColor: isLightMain ? LIGHT_BAR_BG : BG }]}>
@@ -530,8 +664,17 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
               ]}
               pointerEvents={countrySearchLocksScroll ? 'box-none' : 'auto'}
             >
-              <ScrollView
+              <FlashList
                 ref={homeScrollRef}
+                data={landmarkData}
+                keyExtractor={keyExtractorLandmark}
+                renderItem={renderLandmark}
+                extraData={landmarkListExtraData}
+                estimatedItemSize={LANDMARK_ROW_ESTIMATE}
+                drawDistance={480}
+                overrideItemLayout={overrideLandmarkLayout}
+                ListHeaderComponent={listHeader}
+                ListFooterComponent={listFooter}
                 style={styles.homeScroll}
                 contentContainerStyle={[
                   styles.scroll,
@@ -548,47 +691,24 @@ export default function MainPage({ navigation, route, isTabActive = true }) {
                 onScrollBeginDrag={dismissKeyboardOnScroll}
                 scrollEnabled={!countrySearchLocksScroll}
                 scrollEventThrottle={16}
-                nestedScrollEnabled
-                removeClippedSubviews={false}
                 showsVerticalScrollIndicator={!countrySearchLocksScroll}
+                /** false: removeClippedSubviews кліпає / блимає ExpoImage при recycle. */
+                removeClippedSubviews={false}
                 {...(Platform.OS === 'ios'
                   ? {
-                      /** Уникаємо подвійного safe area з UIScrollView і обрізання нижнього контенту. */
                       contentInsetAdjustmentBehavior: 'never',
+                      automaticallyAdjustContentInsets: false,
                       automaticallyAdjustKeyboardInsets: false,
                       directionalLockEnabled: !countrySearchLocksScroll,
+                      bounces: true,
+                      alwaysBounceVertical: false,
+                      alwaysBounceHorizontal: false,
                     }
-                  : {})}
-              >
-                <View
-                  pointerEvents="box-none"
-                  style={countrySearchLocksScroll ? styles.homeSearchScrollSlot : null}
-                >
-                  <MainPageSearchBlock
-                    variant={searchVariant}
-                    placeholder={searchPlaceholder}
-                    language={language}
-                    selectedCountryId={countryId}
-                    onUnifiedPick={onHomeSearchPick}
-                    onParentScrollLockChange={setCountrySearchLocksScroll}
-                    resetToken={searchResetToken}
-                    dismissSignal={searchDismissSignal}
-                    onRequestDismiss={dismissHomeSearch}
-                    searchExpanded={countrySearchLocksScroll}
-                  />
-                </View>
-                <MainPageHomeSections
-                  visible={showHomeSections}
-                  language={language}
-                  appTheme={appTheme}
-                  homeCountries={homeCountries}
-                  countryId={countryId}
-                  onHomePickCountry={onHomePickCountry}
-                  onOpenAllCountries={openAllCountriesLocations}
-                  user={user}
-                  homeLocationsEpoch={homeLocationsEpoch}
-                />
-              </ScrollView>
+                  : {
+                      overScrollMode: 'never',
+                      nestedScrollEnabled: true,
+                    })}
+              />
             </View>
           </View>
         </View>
@@ -618,6 +738,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignSelf: 'stretch',
   },
+  /** Горизонтальний пад лише для пошуку — каруселі без від’ємного margin (інакше кліп при скролі). */
+  homeSearchPad: {
+    paddingHorizontal: HOME_SCROLL_PAD_H,
+    alignSelf: 'stretch',
+  },
   countryOverlayHost: {
     flex: 1,
     position: 'relative',
@@ -638,7 +763,9 @@ const styles = StyleSheet.create({
   },
   center: { justifyContent: 'center', alignItems: 'center' },
   loadingBody: { flex: 1 },
-  scroll: { paddingHorizontal: HOME_SCROLL_PAD_H },
+  scroll: {
+    /* Без paddingHorizontal: full-bleed каруселі, пад у children. */
+  },
   scrollSearchOpen: {
     flexGrow: 1,
   },
@@ -648,13 +775,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     opacity: 0,
   },
+  homeSectionsInner: {
+    alignSelf: 'stretch',
+  },
   homeHint: {
     fontSize: 14,
     lineHeight: 20,
     marginTop: 10,
     marginBottom: 6,
     textAlign: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: HOME_SCROLL_PAD_H + 4,
   },
   lightSearchOuter: {
     paddingHorizontal: 24,

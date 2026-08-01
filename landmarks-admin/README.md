@@ -18,13 +18,21 @@
 
 
 
-- Потрібен **користувач у PostgreSQL** з полем `users.role = 'admin'` (звичайний логін `POST /api/auth/login` з email + password).
+- Потрібен **користувач у PostgreSQL** з полем `users.role = 'admin'` (звичайний логін `POST /api/auth/login` з email + password **або** Google через кнопку на сторінці логіна).
 - Локальні «вбудовані» адміни в застосунку **не** підходять — це **окремі** акаунти в БД.
+- У вкладці **Команда** існуючий адмін може додати нового за email. Далі нова людина заходить Google цією поштою (або email+пароль).
 
 Щойно отримавши адміна, зробіть, наприклад:
 
 ```sql
 UPDATE users SET role = 'admin' WHERE email = 'your@email.com';
+```
+
+або з терміналу:
+
+```bash
+cd backend
+node scripts/create-admin.mjs your@email.com YourPassword123
 ```
 
 

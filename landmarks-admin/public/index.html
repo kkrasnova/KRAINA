@@ -22,7 +22,7 @@
     </script>
     <!-- Абсолютні шляхи: працюють навіть без кінцевого / у URL; не покладаємося на <base> -->
     <link rel="stylesheet" href="/landmarks-cms/fonts.css?v=25" />
-    <link rel="stylesheet" href="/landmarks-cms/style.css?v=33" />
+    <link rel="stylesheet" href="/landmarks-cms/style.css?v=43" />
     <!-- Якщо основний CSS не дійде — мінімальний fallback під світлу тему -->
     <style>
       html {
@@ -128,6 +128,13 @@
               <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
             </label>
             <button type="button" id="btnLogin" class="btn btn-primary btn-block">Увійти</button>
+
+            <div class="login-or" role="separator" aria-label="або">
+              <span>або</span>
+            </div>
+
+            <div id="googleBtnHost" class="google-btn-host" aria-label="Увійти через Google"></div>
+            <p id="loginGoogleHint" class="login-google-hint">Адміни: увійдіть Google-акаунтом з дозволеною поштою, або email + пароль.</p>
             <p id="loginError" class="banner banner-error" hidden></p>
           </div>
         </div>
@@ -156,10 +163,23 @@
 
         <nav class="tabs-wrap">
           <p class="tabs-hint">
-            <strong>Бандл</strong> — редагування JSON · <strong>Як у застосунку</strong> — перегляд карток пам’яток і фото перед публікацією · <strong>Медіа</strong> — завантажити зображення й скопіювати HTTPS-URL у поля бандла.
+            <strong>AI імпорт</strong> — країна→місто→пам’ятки, переклад на всі мови · <strong>Бандл</strong> — JSON ·
+            <strong>Як у застосунку</strong> — прев’ю · <strong>Медіа</strong> — фото · <strong>Команда</strong> — адміни.
           </p>
           <div class="tabs" role="tablist" aria-label="Розділи редактора">
-            <button type="button" class="tab tab-active" data-tab="bundle" role="tab" aria-selected="true">
+            <button type="button" class="tab tab-active" data-tab="ai" role="tab" aria-selected="true">
+              <svg class="tab-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M12 3l1.8 4.8L19 9.6l-4.2 2.2L12 17l-2.8-5.2L5 9.6l5.2-1.8L12 3zM5 18h14"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              AI імпорт
+            </button>
+            <button type="button" class="tab" data-tab="bundle" role="tab" aria-selected="false">
               <svg class="tab-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
                   d="M7 3h8l4 4v13a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"
@@ -195,10 +215,88 @@
               </svg>
               Медіа
             </button>
+            <button type="button" class="tab" data-tab="team" role="tab" aria-selected="false">
+              <svg class="tab-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 20a6 6 0 0112 0M18 8a3 3 0 11-2.8-4M20.5 20a5 5 0 00-4-4.9"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              Команда
+            </button>
           </div>
         </nav>
 
-        <div id="tabBundle" class="tab-pane tab-pane-bundle">
+        <div id="tabAi" class="tab-pane">
+          <div class="card card-elevated">
+            <div class="card-head">
+              <div class="card-icon card-icon--doc" aria-hidden="true"></div>
+              <div class="card-head-text">
+                <h2>AI: додати локації з Wikipedia</h2>
+                <p class="hint hint-tight">
+                  Пиши блоками: країна → місто → пам’ятки (з вулицею через «—»). Можна кілька країн і міст в
+                  одному тексті. AI збере тексти/фото з Wikipedia, перекладе на всі мови застосунку і
+                  опублікує без оновлення App Store.
+                </p>
+              </div>
+            </div>
+
+            <label class="field">
+              <span class="field-label">Країна → місто → пам’ятки</span>
+              <textarea
+                id="aiLocationsText"
+                class="field-input field-textarea ai-locations-textarea"
+                rows="18"
+                spellcheck="true"
+                placeholder="Країна: Україна&#10;Місто: Київ&#10;Софійський собор — вул. Володимирська, 24&#10;Золоті ворота&#10;Майдан Незалежності&#10;&#10;Країна: Польща&#10;Місто: Варшава&#10;Замковий комплекс — plac Zamkowy 4"
+              ></textarea>
+            </label>
+
+            <div class="ai-actions">
+              <button type="button" id="btnAiImport" class="btn btn-primary">Зібрати з Wikipedia і опублікувати</button>
+              <label class="ai-check">
+                <input type="checkbox" id="aiAutoPublish" checked />
+                Одразу опублікувати для всіх користувачів (країни/міста з сервера зберігаються; при схожих локаціях спитаємо)
+              </label>
+            </div>
+
+            <p id="aiProgress" class="ai-progress" hidden></p>
+            <p id="aiError" class="banner banner-error" hidden></p>
+            <div id="aiResult" class="ai-result hint" hidden></div>
+
+            <details id="aiInspector" class="ai-inspector" open>
+              <summary class="ai-inspector-summary">
+                Інспектор імпорту — пошук Wikipedia, текст, фото, переклад
+              </summary>
+              <div class="ai-inspector-body">
+                <div id="aiItemTraces" class="ai-item-traces"></div>
+                <div class="ai-log-wrap">
+                  <div class="ai-log-head">Журнал кроків</div>
+                  <pre id="aiLog" class="ai-log" aria-live="polite"></pre>
+                </div>
+              </div>
+            </details>
+
+            <section class="ai-history" aria-labelledby="aiHistoryTitle">
+              <div class="ai-history-head">
+                <div>
+                  <h2 id="aiHistoryTitle" class="ai-history-title">Історія імпортів</h2>
+                  <p class="hint hint-tight">
+                    Минулі AI-запити: що додано і куди. Можна повторити весь запит або лише невдалі,
+                    відкрити інспектор чи локацію й дописати тексти / фото.
+                  </p>
+                </div>
+                <button type="button" id="btnAiHistoryRefresh" class="btn btn-ghost">Оновити</button>
+              </div>
+              <div id="aiHistoryList" class="ai-history-list"></div>
+            </section>
+          </div>
+        </div>
+
+        <div id="tabBundle" class="tab-pane tab-pane-bundle hidden">
           <aside class="side-guide" aria-labelledby="guide-json-title">
             <span class="side-guide-tag">Швидка довідка</span>
             <h3 id="guide-json-title" class="side-guide-title">Де що лежить у JSON</h3>
@@ -275,8 +373,8 @@
               <div class="card-head-text">
                 <h2>Перегляд пам’яток</h2>
                 <p class="hint hint-tight">
-                  Зліва — список усіх пам’яток із пошуком і швидке редагування полів (запис у JSON). Справа — картки прев’ю. Фото беруться з
-                  <code>thumbUri</code>, <code>galleryUris</code>, <code>story.*Uri</code>; нові файли — вкладка <strong>Медіа</strong>.
+                  Зліва — усі пам’ятки: пошук, редагування, видалення. Справа — деталі (текст, усі фото, сторінки історії як у застосунку) і картки прев’ю.
+                  Фото: <code>thumbUri</code>, <code>galleryUris</code>, фото сторінок; завантаження — вкладка <strong>Медіа</strong>.
                 </p>
               </div>
             </div>
@@ -331,20 +429,45 @@
                     <input type="url" id="previewEditThumbUri" class="field-input" placeholder="https://…" autocomplete="off" />
                   </label>
                   <label class="field">
+                    <span class="field-label">Галерея (galleryUris, по одному URL в рядок)</span>
+                    <textarea id="previewEditGallery" class="field-input field-textarea" rows="4" spellcheck="false" placeholder="https://…"></textarea>
+                  </label>
+                  <label class="field">
                     <span class="field-label">Короткий вступ (story.shortIntroUk)</span>
                     <textarea id="previewEditShortIntro" class="field-input field-textarea" rows="2" spellcheck="true"></textarea>
                   </label>
                   <label class="field">
-                    <span class="field-label">Опис (descUk)</span>
+                    <span class="field-label">Опис EN (descEn)</span>
+                    <textarea id="previewEditDescEn" class="field-input field-textarea" rows="3" spellcheck="true"></textarea>
+                  </label>
+                  <label class="field">
+                    <span class="field-label">Опис UK (descUk)</span>
                     <textarea id="previewEditDescUk" class="field-input field-textarea" rows="4" spellcheck="true"></textarea>
                   </label>
                   <div class="preview-edit-actions">
-                    <button type="button" id="btnPreviewSaveLandmark" class="btn btn-primary btn-compact">Зберегти в JSON</button>
+                    <button type="button" id="btnPreviewSaveLandmark" class="btn btn-primary btn-compact">Зберегти</button>
+                    <button type="button" id="btnPreviewPublishLandmark" class="btn btn-secondary btn-compact">Зберегти і опублікувати</button>
+                    <button type="button" id="btnPreviewDeleteLandmark" class="btn btn-ghost btn-compact preview-btn-danger">Видалити</button>
                     <button type="button" id="btnPreviewClearLandmark" class="btn btn-ghost btn-compact">Зняти вибір</button>
                   </div>
                 </div>
               </aside>
               <div class="preview-main">
+                <div id="previewDetail" class="preview-detail hidden" aria-live="polite">
+                  <div class="preview-detail-head">
+                    <h3 id="previewDetailTitle" class="preview-detail-title">Пам’ятка</h3>
+                    <p id="previewDetailMeta" class="hint hint-tight"></p>
+                  </div>
+                  <h4 class="preview-detail-h">Усі фото</h4>
+                  <div id="previewDetailPhotos" class="preview-detail-photos"></div>
+                  <h4 class="preview-detail-h">Текст</h4>
+                  <div id="previewDetailText" class="preview-detail-text"></div>
+                  <div class="preview-detail-section">
+                    <h4 class="preview-detail-h">Сторінки історії (як у застосунку)</h4>
+                    <div id="previewStoryPages" class="preview-story-pages"></div>
+                    <button type="button" id="btnPreviewAddStoryPage" class="btn btn-ghost btn-compact">+ Додати сторінку</button>
+                  </div>
+                </div>
                 <div id="previewGrid" class="preview-grid"></div>
               </div>
             </div>
@@ -406,8 +529,41 @@
             <p id="mediaEmpty" class="hint media-empty-hint hidden">Ще нічого не завантажено — оберіть файл вище.</p>
           </div>
         </div>
+
+        <div id="tabTeam" class="tab-pane hidden">
+          <div class="card card-elevated">
+            <div class="card-head">
+              <div class="card-icon card-icon--doc" aria-hidden="true"></div>
+              <div class="card-head-text">
+                <h2>Адміністратори CMS</h2>
+                <p class="hint hint-tight">
+                  Хто вже всередині — може додати нового адміна за email. Далі людина заходить через
+                  <strong>Google</strong> цією поштою або через email + пароль (якщо пароль задано).
+                </p>
+              </div>
+            </div>
+            <div class="team-grant-row">
+              <label class="field team-grant-field">
+                <span class="field-label">Email нового адміна</span>
+                <input
+                  id="adminGrantEmail"
+                  type="email"
+                  class="field-input"
+                  placeholder="colleague@gmail.com"
+                  autocomplete="off"
+                />
+              </label>
+              <button type="button" id="btnGrantAdmin" class="btn btn-primary">Додати адміна</button>
+            </div>
+            <p id="teamError" class="banner banner-error" hidden></p>
+            <h3 class="media-grid-title">Поточна команда</h3>
+            <div id="adminsList" class="admins-list"></div>
+            <p id="adminsEmpty" class="hint media-empty-hint hidden">Ще немає записів.</p>
+          </div>
+        </div>
       </section>
     </div>
-    <script src="/landmarks-cms/app.js?v=34" defer></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="/landmarks-cms/app.js?v=51" defer></script>
   </body>
 </html>

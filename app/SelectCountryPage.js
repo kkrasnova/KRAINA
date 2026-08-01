@@ -12,6 +12,8 @@ import {
   Alert,
   Linking,
   Keyboard,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -31,12 +33,16 @@ import {
 } from './appLang';
 import { normalizeForSearch, countryMatchesSearchQuery } from './countrySearch';
 import { useAppLanguage } from './useAppLanguage';
+import { SELECT_COUNTRY_TEXTS } from './europeLangPacks';
+import { EUROPE_COUNTRY_CARD_HEROES } from './europeHeroAssets';
 import { GOOGLE_GEOCODING_API_KEY } from './authConfig';
 import { brandFontText } from './brandFont';
+import FittingText from './FittingText';
+import HomeScrollSafeMedia from './HomeScrollSafeMedia';
 
 export const COUNTRY_STORAGE_KEY = LEGACY_COUNTRY_STORAGE_KEY;
 
-/** Лише країни, що відповідають мовам з екрана вибору мови (SecondPage / APP_LANG_IDS). */
+/** Live країни з europeRegistry (розв’язано від мов UI). */
 const COUNTRIES = countriesAlignedWithAppLanguages();
 const SUPPORTED_COUNTRY_IDS = new Set(COUNTRIES.map((c) => c.id));
 
@@ -53,7 +59,9 @@ const COUNTRY_SELECT_TILE_PHOTOS = {
   RO: require('./assets/romania-card-hero.webp'),
   IT: require('./assets/italy-card-hero.webp'),
   AM: require('./assets/armenia-card-hero.webp'),
-  UA: require('./assets/kyiv-main-hero.webp'),
+  UA: require('./assets/ukraine-card-hero.webp'),
+  FR: require('./assets/france-card-hero.webp'),
+  ...EUROPE_COUNTRY_CARD_HEROES,
 };
 
 const COUNTRY_SELECT_TILE_FALLBACKS = {
@@ -66,6 +74,7 @@ const COUNTRY_SELECT_TILE_FALLBACKS = {
   IT: require('./assets/country-tile-italy-hero.webp'),
   AM: require('./assets/tyquxnnd.webp'),
   UA: require('./assets/country-tile-ua.webp'),
+  FR: require('./assets/paris-main-hero.webp'),
 };
 
 function getCountryTilePhotoCandidates(countryId) {
@@ -79,16 +88,19 @@ function getCountryTilePhotoCandidates(countryId) {
 
 /**
  * scale + translateY від висоти плитки.
- * translateYFrac < 0 — зсунути кадр вгору (RO).
+ * translateYFrac < 0 — зсунути кадр вгору (показати нижню частину: місто, не лише прапор).
+ * Без зайвого zoom — інакше на hero з прапором видно лише полотнище.
  */
+/** translateYFrac > 0 — зсув вниз (краще видно прапор зверху); < 0 — вгору (більше міста). */
+const COUNTRY_TILE_PHOTO_PAN_DEFAULT = { scale: 1.06, translateYFrac: 0 };
 const COUNTRY_TILE_PHOTO_PAN = {
-  NL: { scale: 1.14, translateYFrac: 0.045 },
-  RO: { scale: 1.34, translateYFrac: -0.08 },
+  NL: { scale: 1.08, translateYFrac: 0 },
+  RO: { scale: 1.1, translateYFrac: 0 },
 };
 
 function countryTilePanStyle(countryId, layoutHeight) {
-  const cfg = COUNTRY_TILE_PHOTO_PAN[countryId];
-  if (!cfg || !layoutHeight) return undefined;
+  if (!layoutHeight) return undefined;
+  const cfg = COUNTRY_TILE_PHOTO_PAN[countryId] || COUNTRY_TILE_PHOTO_PAN_DEFAULT;
   const scale = cfg.scale ?? 1;
   const translateYFrac = cfg.translateYFrac ?? 0;
   const transform = [];
@@ -873,6 +885,29 @@ const TEXTS = {
       'Կրկին հպեք «Տեղորոշում» քարտը — համակարգը կարող է նորից հարցնել թույլտվություն: Եթե պատուհանը այլևս չի երևում, միացրեք տեղորոշումը այս հավելվածի կարգավորումներում:',
     alertOk: 'Լավ',
   },
+  fr: {
+    chooseCountry: 'Choisissez votre pays',
+    countryHint: 'Pour les voyages et les alertes — choisissez un pays ou détectez-le avec la géolocalisation',
+    stepLabel: 'Étape 2 sur 3',
+    continue: 'Continuer',
+    scrollHint: 'Faites défiler la grille pour voir tous les pays',
+    useLocation: 'Géolocalisation',
+    useLocationA11y: 'Détecter le pays avec la position de l’appareil',
+    locationDenied: 'Accès à la localisation refusé',
+    locationUnavailable: 'Impossible de détecter le pays',
+    locationServicesOff: 'Activez les services de localisation dans les réglages de l’appareil',
+    geoRegionUnsupportedTitle: 'Votre région n’est pas encore dans la liste',
+    geoRegionUnsupportedBody:
+      'D’après votre position, vous êtes dans un pays que nous ne prenons pas encore en charge. Beaucoup d’autres pays sont disponibles ci-dessous — choisissez-en un manuellement. Nous travaillons à ajouter votre région bientôt, avec le même soin que le reste de KRAÏNA.',
+    locationDetecting: 'Détection…',
+    searchCountry: 'Rechercher',
+    noCountryFound: 'Aucun résultat',
+    openSettings: 'Réglages',
+    locationEnableInSettingsHint:
+      'Appuyez à nouveau sur Géolocalisation — le système peut redemander l’accès. Si la boîte de dialogue n’apparaît plus, activez la localisation pour cette app dans Réglages.',
+    alertOk: 'OK',
+  },
+  ...SELECT_COUNTRY_TEXTS,
 };
 
 const DEFAULT_TEXTS = {
@@ -919,10 +954,48 @@ export default function SelectCountryPage({ navigation, route }) {
   const lang = useAppLanguage(route);
   const user = route?.params?.user || {};
   const previewBeforeAuth = route?.params?.previewBeforeAuth === true;
+  const fromPromoVideo = route?.params?.fromPromoVideo === true;
   const texts = getTexts(lang);
   const { savedAppTheme, isLight, screenBg } = useAppTheme(route?.params?.appTheme, route);
   const accent = accentForTheme(isLight);
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
+
+  /** Після промо-відео — екран «випливає» знизу. */
+  const promoEnterAnim = useRef(new Animated.Value(fromPromoVideo ? 0 : 1)).current;
+  useEffect(() => {
+    if (!fromPromoVideo) {
+      promoEnterAnim.setValue(1);
+      return undefined;
+    }
+    promoEnterAnim.setValue(0);
+    Animated.timing(promoEnterAnim, {
+      toValue: 1,
+      duration: 880,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    return undefined;
+  }, [fromPromoVideo, promoEnterAnim]);
+  const promoEnterStyle = fromPromoVideo
+    ? {
+        flex: 1,
+        opacity: promoEnterAnim,
+        transform: [
+          {
+            translateY: promoEnterAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [72, 0],
+            }),
+          },
+          {
+            scale: promoEnterAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.96, 1],
+            }),
+          },
+        ],
+      }
+    : { flex: 1 };
 
   const [countryId, setCountryId] = useState(null);
   /** Звідки поточний вибір: збережений / гео / ручна плитка — щоб підсвітити картку геолокації як «рекомендовану», як мова за замовчуванням. */
@@ -1194,7 +1267,12 @@ export default function SelectCountryPage({ navigation, route }) {
     if (!countryId) return;
     await saveCountryForUser(user, countryId);
     if (previewBeforeAuth) {
-      navigation?.replace?.('BackendAuth');
+      navigation?.replace?.('ThirdPage', {
+        language: lang,
+        countryId,
+        fromPromoVideo: true,
+        appTheme: savedAppTheme,
+      });
       return;
     }
     const payload = { user, language: lang, countryId, appTheme: savedAppTheme };
@@ -1242,7 +1320,8 @@ export default function SelectCountryPage({ navigation, route }) {
 
   return (
     <View style={[styles.container, { backgroundColor: screenBg }]}>
-      <StatusBar style="light" translucent />
+      {Platform.OS === 'android' ? <StatusBar style="light" translucent /> : null}
+      <Animated.View style={promoEnterStyle}>
       <Pressable
         style={[
           styles.content,
@@ -1261,7 +1340,7 @@ export default function SelectCountryPage({ navigation, route }) {
             { marginTop: headerMarginTop, marginBottom: headerMarginBottom, maxWidth: r.titleBlockWidth, alignSelf: 'center' },
           ]}
         >
-          <Text
+          <FittingText
             style={[
               styles.screenTitleLime,
               {
@@ -1271,9 +1350,11 @@ export default function SelectCountryPage({ navigation, route }) {
                 ...fontUkraine,
               },
             ]}
+            numberOfLines={2}
+            minimumFontScale={0.62}
           >
             {texts.chooseCountry}
-          </Text>
+          </FittingText>
         </View>
 
         <View style={styles.searchWrap}>
@@ -1386,6 +1467,10 @@ export default function SelectCountryPage({ navigation, route }) {
             indicatorStyle={isLight ? 'black' : 'white'}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            nestedScrollEnabled
+            {...(Platform.OS === 'ios'
+              ? { directionalLockEnabled: true }
+              : { overScrollMode: 'never' })}
           >
             <View style={[styles.grid, { gap: GRID_GAP, width: gridInnerW, alignSelf: 'center' }]}>
               <Pressable
@@ -1439,7 +1524,7 @@ export default function SelectCountryPage({ navigation, route }) {
                           importantForAccessibility="no"
                         />
                       )}
-                      <Text
+                      <FittingText
                         style={[
                           styles.geoCardLabel,
                           {
@@ -1449,10 +1534,11 @@ export default function SelectCountryPage({ navigation, route }) {
                             fontWeight: '300',
                           },
                         ]}
-                        numberOfLines={2}
+                        numberOfLines={1}
+                        minimumFontScale={0.5}
                       >
                         {locating ? texts.locationDetecting : texts.useLocation}
-                      </Text>
+                      </FittingText>
                     </View>
                   </View>
                 </View>
@@ -1492,9 +1578,9 @@ export default function SelectCountryPage({ navigation, route }) {
                   >
                     <View style={styles.countryTileLabelRow}>
                       <Text style={flagStyle}>{opt.flag}</Text>
-                      <Text style={nameStyle} numberOfLines={2}>
+                      <FittingText style={nameStyle} numberOfLines={1} minimumFontScale={0.5}>
                         {opt.label}
-                      </Text>
+                      </FittingText>
                     </View>
                   </View>
                 );
@@ -1537,31 +1623,33 @@ export default function SelectCountryPage({ navigation, route }) {
                   >
                     {tilePhoto ? (
                       <>
-                        <View style={styles.countryTileMedia} pointerEvents="none">
-                          <Image
-                            source={tilePhoto}
-                            style={[
-                              styles.countryTilePhotoImage,
-                              countryTilePanStyle(opt.id, countryTileHeight),
+                        <HomeScrollSafeMedia>
+                          <View style={styles.countryTileMedia} pointerEvents="none">
+                            <Image
+                              source={tilePhoto}
+                              style={[
+                                styles.countryTilePhotoImage,
+                                countryTilePanStyle(opt.id, countryTileHeight),
+                              ]}
+                              resizeMode="cover"
+                              onError={handleTilePhotoError}
+                              accessibilityIgnoresInvertColors
+                            />
+                          </View>
+                          <LinearGradient
+                            pointerEvents="none"
+                            colors={[
+                              'rgba(0,0,0,0)',
+                              'rgba(0,0,0,0.06)',
+                              'rgba(0,0,0,0.42)',
+                              'rgba(0,0,0,0.88)',
                             ]}
-                            resizeMode="cover"
-                            onError={handleTilePhotoError}
-                            accessibilityIgnoresInvertColors
+                            locations={[0, 0.42, 0.78, 1]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 0, y: 1 }}
+                            style={styles.countryTilePhotoFade}
                           />
-                        </View>
-                        <LinearGradient
-                          pointerEvents="none"
-                          colors={[
-                            'rgba(0,0,0,0)',
-                            'rgba(0,0,0,0.06)',
-                            'rgba(0,0,0,0.42)',
-                            'rgba(0,0,0,0.88)',
-                          ]}
-                          locations={[0, 0.42, 0.78, 1]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 0, y: 1 }}
-                          style={styles.countryTilePhotoFade}
-                        />
+                        </HomeScrollSafeMedia>
                         {labelBlock}
                         {checkBlock}
                       </>
@@ -1610,6 +1698,7 @@ export default function SelectCountryPage({ navigation, route }) {
           />
         </View>
       </View>
+      </Animated.View>
     </View>
   );
 }
@@ -1657,7 +1746,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#1A1A1A',
   },
   countryTilePhotoImage: {
     ...StyleSheet.absoluteFillObject,

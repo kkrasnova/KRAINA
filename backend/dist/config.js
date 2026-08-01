@@ -44,6 +44,7 @@ function parseGoogleClientIds() {
         ...optList('GOOGLE_CLIENT_ID'),
         ...optList('GOOGLE_IOS_CLIENT_ID'),
         ...optList('GOOGLE_ANDROID_CLIENT_ID'),
+        ...optList('CMS_GOOGLE_CLIENT_ID'),
     ];
     return [...new Set(ids)];
 }
@@ -82,9 +83,55 @@ export const aiRouteConfig = {
     baseUrl: (opt('OPENAI_BASE_URL') || 'https://api.openai.com/v1').replace(/\/$/, ''),
     model: opt('OPENAI_ROUTE_MODEL') || 'gpt-4o-mini',
 };
+/** Claude (Anthropic) — optional for rich landmark story copy. */
+export const claudeConfig = {
+    apiKey: opt('ANTHROPIC_API_KEY') || opt('CLAUDE_API_KEY'),
+    baseUrl: (opt('ANTHROPIC_BASE_URL') || 'https://api.anthropic.com').replace(/\/$/, ''),
+    model: opt('ANTHROPIC_MODEL') || opt('CLAUDE_MODEL') || 'claude-sonnet-4-5',
+    apiVersion: opt('ANTHROPIC_API_VERSION') || '2023-06-01',
+    /**
+     * LANDMARK_GUIDE_PROVIDER=openai → тільки ChatGPT
+     * LANDMARK_GUIDE_PROVIDER=claude → тільки Claude (fallback на OpenAI якщо Claude впав)
+     * порожньо / auto → Claude якщо є ключ, інакше OpenAI
+     */
+    guideProvider: (opt('LANDMARK_GUIDE_PROVIDER') || 'auto').toLowerCase(),
+};
+export function landmarkGuideUsesClaude() {
+    const provider = claudeConfig.guideProvider;
+    if (provider === 'openai')
+        return false;
+    if (!claudeConfig.apiKey)
+        return false;
+    return provider === 'claude' || provider === 'auto';
+}
 export const visionConfig = {
     apiKey: opt('GOOGLE_VISION_API_KEY'),
 };
+/** Google Gemini / Imagen — image generation for landmark covers & story pages. */
+export const geminiConfig = {
+    apiKey: opt('GEMINI_API_KEY') || opt('GOOGLE_AI_API_KEY') || opt('GOOGLE_GENERATIVE_AI_API_KEY'),
+    baseUrl: (opt('GEMINI_BASE_URL') || 'https://generativelanguage.googleapis.com').replace(/\/$/, ''),
+    /** imagen-4.0-generate-001 | imagen-4.0-ultra-generate-001 | imagen-4.0-fast-generate-001 */
+    imagenModel: opt('GEMINI_IMAGEN_MODEL') || 'imagen-4.0-generate-001',
+    /**
+     * LANDMARK_IMAGE_PROVIDER:
+     *   gemini — Imagen only
+     *   openai — gpt-image / DALL·E only
+     *   auto   — Gemini/Imagen if key present, else OpenAI
+     */
+    imageProvider: (opt('LANDMARK_IMAGE_PROVIDER') || 'auto').toLowerCase(),
+};
+export function landmarkImageProviderOrder() {
+    const p = geminiConfig.imageProvider;
+    if (p === 'openai')
+        return ['openai'];
+    if (p === 'gemini')
+        return ['gemini'];
+    // auto
+    if (geminiConfig.apiKey)
+        return ['gemini', 'openai'];
+    return ['openai'];
+}
 export const telegramConfig = {
     botToken: opt('TELEGRAM_BOT_TOKEN'),
     chatId: opt('TELEGRAM_LANDMARK_REQUESTS_CHAT_ID'),
@@ -103,7 +150,9 @@ export const config = {
     jwtSecret: req('JWT_SECRET'),
     refreshPepper: req('REFRESH_SECRET'),
     googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
-    /** Web + iOS + Android OAuth client IDs accepted as id_token audience. */
+    /** Optional dedicated Web client for /landmarks-cms Google Sign-In. */
+    cmsGoogleClientId: opt('CMS_GOOGLE_CLIENT_ID') || process.env.GOOGLE_CLIENT_ID || '',
+    /** Web + iOS + Android (+ CMS) OAuth client IDs accepted as id_token audience. */
     googleClientIds: parseGoogleClientIds(),
     appleClientId: process.env.APPLE_CLIENT_ID ?? '',
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000',

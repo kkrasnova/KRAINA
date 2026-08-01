@@ -1032,7 +1032,7 @@ export default function ProfileEditPage({ navigation, route }) {
               keyExtractor={(item) => item.regionId}
               keyboardShouldPersistTaps="handled"
               style={{ maxHeight: 320 }}
-              removeClippedSubviews={Platform.OS === 'android'}
+              removeClippedSubviews={false}
               maxToRenderPerBatch={10}
               windowSize={5}
               initialNumToRender={8}

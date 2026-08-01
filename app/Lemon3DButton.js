@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { Pressable, View, Text, StyleSheet, Animated, ActivityIndicator, Platform } from 'react-native';
 import { noAndroidRipple } from './androidFeedback';
+import FittingText from './FittingText';
 
 export default function Lemon3DButton({
   label,
@@ -95,7 +96,13 @@ export default function Lemon3DButton({
         ) : children ? (
           children
         ) : (
-          <Text style={[styles.text, isInactive && styles.textDisabled, textStyle]}>{label}</Text>
+          <FittingText
+            style={[styles.text, isInactive && styles.textDisabled, textStyle]}
+            numberOfLines={1}
+            minimumFontScale={0.55}
+          >
+            {label}
+          </FittingText>
         )}
       </Animated.View>
     </Pressable>
@@ -225,6 +232,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   text: {
+    width: '100%',
+    textAlign: 'center',
     fontWeight: '700',
     color: '#0d0d0d',
     fontSize: 16,

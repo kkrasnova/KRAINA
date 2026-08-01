@@ -6,12 +6,13 @@ import { useAuthStore } from './auth/authStore';
 import { effectiveThemeForContext, navThemeContextFromRoute } from './onboardingTheme';
 
 function normalizeTheme(v) {
-  return v === 'light' ? 'light' : 'dark';
+  return v === 'dark' ? 'dark' : 'light';
 }
 
 /**
  * Актуальна тема екрана: AsyncStorage / кеш → THEME_CHANGED_EVENT.
  * До входу в акаунт і на кроках першого онбордингу — завжди темна (див. onboardingTheme.js).
+ * Після входу за замовчуванням світла; темну можна увімкнути в Налаштуваннях.
  *
  * @param {string|undefined} _routeTheme застарілий route.params.appTheme (ігнорується)
  * @param {{ name?: string, params?: object }|undefined} route поточний navigation route

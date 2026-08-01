@@ -2,6 +2,16 @@
  * Пам’ятки згруповані лише всередині одного регіону (місто).
  * Генератор маршруту ніколи не змішує регіони.
  */
+import {
+  EUROPE_EXTRA_REGIONS,
+  EUROPE_EXTRA_COUNTRY_EN_TO_ID,
+  EUROPE_EXTRA_COUNTRY_ORDER,
+} from './europeRegionsData';
+import {
+  EUROPE_CITY_HEROES,
+  EUROPE_LANDMARK_THUMB_FALLBACKS,
+} from './europeHeroAssets';
+
 const T1 = require('./assets/kling_20260405_IMAGE____________5495_1.webp');
 const T2 = require('./assets/screenshot_2026-04-05_15.52.15.webp');
 const T3 = require('./assets/screenshot_2026-04-05_15.55.36.webp');
@@ -1079,6 +1089,8 @@ export const ROUTE_REGIONS = {
         minutes: 40,
         free: true,
         thumb: T3,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/5/5f/Ar-Rahma_Mosque%2C_Kyiv%2C_2016.jpg',
         distKm: 3.5,
         descUk:
           'Перша мечеть Києва з мінаретом і реліквією — волосом Пророка Мухаммада; відкрита для всіх відвідувачів.',
@@ -1125,6 +1137,8 @@ export const ROUTE_REGIONS = {
         minutes: 45,
         free: true,
         thumb: T2,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/4/44/Pokrovsky_mr-1910e.jpg',
         distKm: 3.0,
         descUk:
           'Тихий жіночий монастир кінця XIX століття на Лук’янівці з квітучим садом і архітектурою українського зодчества.',
@@ -1140,6 +1154,8 @@ export const ROUTE_REGIONS = {
         minutes: 50,
         free: true,
         thumb: T3,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/3/34/Babi_Yar-06-194.jpg',
         distKm: 4.0,
         descUk:
           'Аудіовізуальна інсталяція «Дерево Життя» на місці трагедії Бабиного Яру, частина великого меморіалу Голокосту.',
@@ -1155,6 +1171,8 @@ export const ROUTE_REGIONS = {
         minutes: 60,
         free: true,
         thumb: T4,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/9/9e/%D0%92%D0%B8%D0%B4%D1%83%D0%B1%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BC%D0%BE%D0%BD%D0%B0%D1%81%D1%82%D0%B8%D1%80-3.JPG',
         distKm: 3.8,
         descUk:
           'Давній монастир XI століття на схилах Дніпра з легендою про ідола Перуна та краєвидом на ботанічний сад.',
@@ -1170,11 +1188,43 @@ export const ROUTE_REGIONS = {
         minutes: 50,
         free: true,
         thumb: T1,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_3.jpg/1280px-St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_3.jpg',
+        galleryUris: [
+          'https://upload.wikimedia.org/wikipedia/commons/4/4c/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2813%29.jpg',
+          // Distinct Commons shots — enough for 15 story pages without cycling the same facade
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Kiev-StNicholasRomanCatholicCathedral.jpg/1280px-Kiev-StNicholasRomanCatholicCathedral.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/7/7b/St._Nicholas_Roman_Catholic_Cathedral%2C_Kyiv_8.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/St._Nicholas_Cathedral%2C_Kiev_08.jpg/1280px-St._Nicholas_Cathedral%2C_Kiev_08.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Kostel-sviatoho-mykolaia-kyiv-01.JPG/1280px-Kostel-sviatoho-mykolaia-kyiv-01.JPG',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Kostel-sviatoho-mykolaia-kyiv-02.JPG/1280px-Kostel-sviatoho-mykolaia-kyiv-02.JPG',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Kostel-sviatoho-mykolaia-kyiv-03.JPG/1280px-Kostel-sviatoho-mykolaia-kyiv-03.JPG',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%9A%D0%B8%D1%97%D0%B2_2017_DSC7963.jpg/1280px-%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%9A%D0%B8%D1%97%D0%B2_2017_DSC7963.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_DSC6645.jpg/1280px-%D0%9A%D0%BE%D1%81%D1%82%D1%8C%D0%BE%D0%BB_%D1%81%D0%B2._%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_DSC6645.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/1/10/%D0%A0%D0%BE%D0%BC%D0%B0%D0%BD%D0%BE-%D0%BA%D0%B0%D1%82%D0%BE%D0%BB%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BA%D0%BE%D1%81%D1%82%D0%B5%D0%BB_%D0%A1%D0%B2%D1%8F%D1%82%D0%BE%D0%B3%D0%BE_%D0%9C%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D1%8F_%D0%BB%D0%B8%D1%81%D1%82%D1%96%D0%B2%D0%BA%D0%B0.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/MIKO%C5%81AJ.jpg/1280px-MIKO%C5%81AJ.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Kyiv_-_Mykola_church_facade_at_night.jpg/1280px-Kyiv_-_Mykola_church_facade_at_night.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Kyiv_-_Mykola_church_at_night.jpg/1280px-Kyiv_-_Mykola_church_at_night.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Close_up_of_St._Nicholas_Cathedral%2C_Kiev_%28Kyiv%29%2C_Ukraine.jpg/1280px-Close_up_of_St._Nicholas_Cathedral%2C_Kiev_%28Kyiv%29%2C_Ukraine.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Kostel_in_Kyiv_%28Sep_2019%29_1.jpg/1280px-Kostel_in_Kyiv_%28Sep_2019%29_1.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Kostel_in_Kyiv_%28Sep_2019%29_2.jpg/1280px-Kostel_in_Kyiv_%28Sep_2019%29_2.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/Kostel_in_Kyiv_%28Sep_2019%29_3.jpg/1280px-Kostel_in_Kyiv_%28Sep_2019%29_3.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Kyiv_Neo-Gothic.jpg/1280px-Kyiv_Neo-Gothic.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Church_of_St.Nicholas_01.jpg/1280px-Church_of_St.Nicholas_01.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Church_of_St.Nicholas_02.jpg/1280px-Church_of_St.Nicholas_02.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Church_of_St.Nicholas_03.jpg/1280px-Church_of_St.Nicholas_03.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/JohanSilverKyiv_01.jpg/1280px-JohanSilverKyiv_01.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/JohanSilverKyiv_02.jpg/1280px-JohanSilverKyiv_02.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/f/fe/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2811%29.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/2/2a/Saint_Nicholas_cathedral_in_Kyiv_after_Russian_attack%2C_2024-12-20_%2812%29.jpg',
+        ],
         distKm: 1.5,
+        address: 'вул. Велика Васильківська, 77',
+        addressEn: '77 Velyka Vasylkivska St',
         descUk:
-          'Неоготичний костел початку XX століття архітектора Городецького з вежами 58 метрів та органною залою.',
+          'Неоготичний костел 1899–1909 років архітектора Городецького; вежі близько 60 м, органна зала й католицька парафія.',
         descEn:
-          'Early 20th‑century neo‑Gothic cathedral by architect Horodetskyi, 58‑meter towers and famous organ hall.',
+          'Neo-Gothic cathedral built 1899–1909 by Horodecki; twin towers about 60 m and the National Organ Hall.',
       },
       {
         id: 'lysa_hora',
@@ -3266,7 +3316,34 @@ const COUNTRY_EN_TO_ID = {
   lithuania: 'LT',
   latvia: 'LV',
   armenia: 'AM',
+  ...EUROPE_EXTRA_COUNTRY_EN_TO_ID,
 };
+
+(() => {
+  let i = 0;
+  for (const [id, region] of Object.entries(EUROPE_EXTRA_REGIONS)) {
+    const hero = EUROPE_CITY_HEROES[id] || EUROPE_LANDMARK_THUMB_FALLBACKS[0];
+    ROUTE_REGIONS[id] = {
+      ...region,
+      heroThumb: hero,
+      landmarks: (region.landmarks || []).map((lm, j) => ({
+        ...lm,
+        thumb:
+          EUROPE_LANDMARK_THUMB_FALLBACKS[(i + j) % EUROPE_LANDMARK_THUMB_FALLBACKS.length],
+      })),
+    };
+    i += 1;
+  }
+})();
+
+/** Dedicated city hero assets by region id (survives CMS snapshot round-trips). */
+export const BUILTIN_REGION_HERO_THUMBS = (() => {
+  const out = { ...EUROPE_CITY_HEROES };
+  for (const [id, region] of Object.entries(ROUTE_REGIONS)) {
+    if (region?.heroThumb != null && out[id] == null) out[id] = region.heroThumb;
+  }
+  return out;
+})();
 
 /** Усі регіони згруповані за країнами — для сторінки «Всі країни». */
 export function collectAllCountriesWithRegions() {
@@ -3288,7 +3365,20 @@ export function collectAllCountriesWithRegions() {
     }
     map[countryId].regionIds.push(id);
   }
-  const order = ['UA', 'FR', 'IT', 'ES', 'DE', 'PL', 'NL', 'RO', 'LT', 'LV', 'AM'];
+  const order = [
+    'UA',
+    'FR',
+    'IT',
+    'ES',
+    'DE',
+    'PL',
+    'NL',
+    'RO',
+    'LT',
+    'LV',
+    'AM',
+    ...EUROPE_EXTRA_COUNTRY_ORDER,
+  ];
   const ordered = [];
   for (const id of order) if (map[id]) { ordered.push(map[id]); delete map[id]; }
   for (const k of Object.keys(map)) ordered.push(map[k]);

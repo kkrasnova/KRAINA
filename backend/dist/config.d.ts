@@ -14,9 +14,38 @@ export declare const aiRouteConfig: {
     baseUrl: string;
     model: string;
 };
+/** Claude (Anthropic) — optional for rich landmark story copy. */
+export declare const claudeConfig: {
+    apiKey: string;
+    baseUrl: string;
+    model: string;
+    apiVersion: string;
+    /**
+     * LANDMARK_GUIDE_PROVIDER=openai → тільки ChatGPT
+     * LANDMARK_GUIDE_PROVIDER=claude → тільки Claude (fallback на OpenAI якщо Claude впав)
+     * порожньо / auto → Claude якщо є ключ, інакше OpenAI
+     */
+    guideProvider: string;
+};
+export declare function landmarkGuideUsesClaude(): boolean;
 export declare const visionConfig: {
     apiKey: string;
 };
+/** Google Gemini / Imagen — image generation for landmark covers & story pages. */
+export declare const geminiConfig: {
+    apiKey: string;
+    baseUrl: string;
+    /** imagen-4.0-generate-001 | imagen-4.0-ultra-generate-001 | imagen-4.0-fast-generate-001 */
+    imagenModel: string;
+    /**
+     * LANDMARK_IMAGE_PROVIDER:
+     *   gemini — Imagen only
+     *   openai — gpt-image / DALL·E only
+     *   auto   — Gemini/Imagen if key present, else OpenAI
+     */
+    imageProvider: string;
+};
+export declare function landmarkImageProviderOrder(): Array<'gemini' | 'openai'>;
 export declare const telegramConfig: {
     botToken: string;
     chatId: string;
@@ -34,7 +63,9 @@ export declare const config: {
     jwtSecret: string;
     refreshPepper: string;
     googleClientId: string;
-    /** Web + iOS + Android OAuth client IDs accepted as id_token audience. */
+    /** Optional dedicated Web client for /landmarks-cms Google Sign-In. */
+    cmsGoogleClientId: string;
+    /** Web + iOS + Android (+ CMS) OAuth client IDs accepted as id_token audience. */
     googleClientIds: string[];
     appleClientId: string;
     publicBaseUrl: string;

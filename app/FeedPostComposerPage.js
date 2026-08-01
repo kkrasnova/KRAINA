@@ -412,7 +412,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
           }}
           maxToRenderPerBatch={3}
           windowSize={3}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           initialNumToRender={3}
           renderItem={({ item, index }) => {
             const isVid = /\.(mp4|mov)(\?|$)/i.test(String(item));
@@ -601,7 +601,7 @@ export default function FeedPostComposerPage({ navigation, route }) {
                 data={savedRoutes}
                 keyExtractor={(it) => String(it.id)}
                 style={{ maxHeight: 360 }}
-                removeClippedSubviews={Platform.OS === 'android'}
+                removeClippedSubviews={false}
                 maxToRenderPerBatch={10}
                 windowSize={5}
                 initialNumToRender={8}

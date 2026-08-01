@@ -42,11 +42,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { appLangBase, COUNTRY_DISPLAY_LABELS } from './appLang';
 import { useSyncedAppLanguage } from './useAppLanguage';
+import { pickI18n } from './i18nBundle';
 
 import { getSession } from './db';
 import { ls } from './landmarkScannerI18n';
 import { lq } from './landmarkQuizI18n';
-import { hasPlayableStoryQuiz } from './landmarkQuizUtils';
+import { hasPlayableStoryQuiz, ensureThreeQuizQuestions } from './landmarkQuizUtils';
 import { getAppTheme, resolveAppTheme } from './themeStorage';
 import { ACCENT_BLUE, accentForTheme, onAccentButtonText } from './themeAccent';
 import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
@@ -55,6 +56,7 @@ import {
   recordLocationVisit,
   parseCityFromSubtitle,
   shouldRecordVisitFromLandmarkRoute,
+  dominantVisitCategoryFromLandmark,
 } from './visitStatsStorage';
 import { applyPhysicalVisitReward } from './physicalVisitRewards';
 import {
@@ -71,20 +73,33 @@ import {
   KRAINA_SAVED_LANDMARKS_CHANGED,
 } from './savedLandmarksStorage';
 import { brandFontHeadMedium, brandFontHeadBold, brandFontScript, brandFontSans, brandFontSansMedium, brandFontSansSemibold, brandFontSansBold } from './brandFont';
-import LandmarkGlassHeaderBar, { LANDMARK_TITLE_SINGLE_LINE_PROPS } from './LandmarkGlassHeaderBar';
+import LandmarkGlassHeaderBar, { LANDMARK_TITLE_WRAP_PROPS } from './LandmarkGlassHeaderBar';
 import LandmarkQuizContent from './LandmarkQuizContent';
 import LandmarkQuizBrushHero from './LandmarkQuizBrushHero';
+import FittingText from './FittingText';
 import LandmarkPhotoCompare from './LandmarkPhotoCompare';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import { RenderProfiler } from './performanceMetrics';
 import { createLandmarkPagerPanResponder, LANDMARK_SCROLL_PULL_DISMISS_PX } from './landmarkPagerSwipe';
 import { HERO_THUMB_MAP, resolveHeroThumbRef } from './krainaHeroThumbs';
 import { prefetchLandmarkResultParams } from './landmarkImagePrefetch';
-import { introPagesFromStory, homeHeroLayoutFromStory, resolveLandmarkHeroPhotoSource, resolveLandmarkHeroPhotoSourceFromLandmark, normalizeExpoImageSource } from './homeLandmarkResultParams';
+import {
+  introPagesFromStory,
+  homeHeroLayoutFromStory,
+  resolveLandmarkHeroPhotoSource,
+  resolveLandmarkHeroPhotoSourceFromLandmark,
+  resolveActionsHeroPhotoSource,
+  formatLandmarkAddressLine,
+  resolveLandmarkStreetAddress,
+  normalizeExpoImageSource,
+  collectLandmarkRemotePhotoUris,
+  pickUniquePhotoUri,
+  friendlySourceLabel,
+} from './homeLandmarkResultParams';
 import { resolveHomeLandmarkThumbSource } from './homeLandmarkDisplay';
 import { resolveCatalogRegionTitle } from './catalogDisplayI18n';
 import { countryFlagSource } from './WavingCountryFlag';
-import { splitIntroBodyAtHero, INTRO_BODY_HERO_MARKER } from './landmarkTextUtils';
+import { splitIntroBodyAtHero, splitIntroBodyForMidHero, INTRO_BODY_HERO_MARKER } from './landmarkTextUtils';
 import { shellPush } from './shellNavigate';
 import { useAuthStore } from './auth/authStore';
 import { commitLandmarkQuizPendingReward } from './landmarkQuizRewards';
@@ -109,6 +124,14 @@ import {
   TextWithEmphasis,
   LandmarkIntroFormattedBody,
 } from './landmarkResultTextComponents';
+import { stripIntroSectionLead, enrichThinIntroPageBody, markParagraphKeys, takeLeadingParagraphs, allocateParagraphsAcrossPages, isThinPlaceholderBody, dedupeBodyAgainstUsed } from './landmarkIntroSectionLabels';
+import { composeRichLandmarkIntroPage1 } from './landmarkIntroStoryResolve';
+import { normalizeLandmarkStoryProse } from './landmarkStoryProse';
+import {
+  personMentionCaption,
+  personMentionPhotoSource,
+  lookupPersonMentionLive,
+} from './landmarkPersonMentions';
 import {
   resolveAssetAspect,
   fitAssetWithinBox,
@@ -160,7 +183,7 @@ const MINI_SHEET_BACK_VX = 0.26;
 const MINI_SHEET_AXIS_LOCK_PX = 8;
 const INTRO_COMPARE_HPAD = 16;
 /** Share of screen height for intro sub-page hero / compare card. */
-const INTRO_SUB_HERO_HEIGHT_RATIO = 0.56;
+const INTRO_SUB_HERO_HEIGHT_RATIO = 0.58;
 /** Only the intro before/after slider card — keep shorter than map/photo pages. */
 const INTRO_COMPARE_HEIGHT_RATIO = 0.4;
 const INTRO_COMPARE_HEIGHT_MAX = 400;
@@ -184,6 +207,12 @@ const PARAM_MENU_SHEET_DARK = '#141414';
 const PARAM_MENU_SHEET_LIGHT = '#FFFFFF';
 const PARAM_MENU_REPORT = '#EB4335';
 
+function imageSourceStableKey(source, fallback) {
+  if (typeof source === 'number') return `asset:${source}`;
+  if (source && typeof source === 'object' && typeof source.uri === 'string') return `uri:${source.uri}`;
+  return fallback;
+}
+
 export default function LandmarkResultPage({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
@@ -204,7 +233,9 @@ export default function LandmarkResultPage({ navigation, route }) {
         heroThumb: route?.params?.heroThumb,
         lm: catalogLandmark,
       }) ||
+      (catalogLandmark ? resolveHomeLandmarkThumbSource(catalogLandmark) : null) ||
       (catalogLandmark ? resolveLandmarkHeroPhotoSourceFromLandmark(catalogLandmark) : null);
+    if (resolved && resolved !== HERO_THUMB_MAP.t1) return resolved;
     return resolved || HERO_THUMB_MAP.t1;
   }, [
     route?.params?.photoAsset,
@@ -290,8 +321,33 @@ export default function LandmarkResultPage({ navigation, route }) {
       }
     }
     if (!Array.isArray(raw)) return [];
-    return raw
-      .map((page) => {
+    const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+    const descFallback = langUk
+      ? catalogLandmark?.descUk
+      : catalogLandmark?.descEn || catalogLandmark?.descUk;
+    const audioFallback = langUk
+      ? String(catalogLandmark?.story?.audioScriptUk || '').trim()
+      : String(
+          catalogLandmark?.story?.audioScriptEn ||
+            catalogLandmark?.story?.audioScriptUk ||
+            '',
+        ).trim();
+    const pagesTextPool = Array.isArray(raw)
+      ? raw
+          .map((p) => [p?.body, p?.bodyAfterHero].filter(Boolean).join('\n\n'))
+          .filter(Boolean)
+          .join('\n\n')
+      : '';
+    const fillPool = [descFallback, audioFallback, pagesTextPool].filter(Boolean).join('\n\n');
+    const allocated = allocateParagraphsAcrossPages(fillPool, Array.isArray(raw) ? raw.length : 0, {
+      parasPerPage: 3,
+      skipLeading: 3,
+    });
+    const usedKeys = new Set();
+    // Only reserve page-1's first 3 paras — leave the rest of the pool for later slides
+    markParagraphKeys(usedKeys, takeLeadingParagraphs(route?.params?.extract, 3));
+    const mappedPages = raw
+      .map((page, pageIndex) => {
         const compareBeforeThumb =
           typeof page?.compareBeforeThumb === 'string' ? page.compareBeforeThumb.trim() : '';
         const compareAfterThumb =
@@ -325,9 +381,66 @@ export default function LandmarkResultPage({ navigation, route }) {
             };
           }
         }
-        const bodyRaw = typeof page?.body === 'string' ? page.body.trim() : '';
-        const bodyAfterHeroFromPage =
-          typeof page?.bodyAfterHero === 'string' ? page.bodyAfterHero.trim() : '';
+        const pageBodyRaw = typeof page?.body === 'string' ? page.body.trim() : '';
+        const pageIsThin = isThinPlaceholderBody(pageBodyRaw);
+        const allocatedBody = allocated[pageIndex] || '';
+        const allocatedParas = allocatedBody
+          .split(/\n\s*\n/)
+          .map((p) => p.trim())
+          .filter(Boolean).length;
+        // Keep real Wikipedia/CMS text, but never repeat facts from earlier slides
+        let uniqueRich = !pageIsThin ? dedupeBodyAgainstUsed(pageBodyRaw, usedKeys) : '';
+        if (!pageIsThin && !uniqueRich) {
+          // Entire page was duplicate of page 1 / prior slides — refill from unused pool
+          uniqueRich = enrichThinIntroPageBody('', fillPool, {
+            pageIndex,
+            minChars: 420,
+            minParas: 2,
+            maxParas: 3,
+            usedKeys,
+          });
+        }
+        const bodyRaw = normalizeLandmarkStoryProse(
+          uniqueRich
+            ? uniqueRich
+            : allocatedParas >= 2
+              ? (() => {
+                  const d = dedupeBodyAgainstUsed(allocatedBody, usedKeys);
+                  return (
+                    d ||
+                    enrichThinIntroPageBody(pageBodyRaw, fillPool, {
+                      pageIndex,
+                      minChars: 420,
+                      minParas: 3,
+                      maxParas: 3,
+                      usedKeys,
+                    })
+                  );
+                })()
+              : enrichThinIntroPageBody(pageBodyRaw, fillPool, {
+                  pageIndex,
+                  minChars: 420,
+                  minParas: 3,
+                  maxParas: 3,
+                  usedKeys,
+                }),
+        );
+        if (bodyRaw) markParagraphKeys(usedKeys, bodyRaw);
+        // Never invent bodyAfterHero from an empty field — that forced
+        // "all text → tiny photo at bottom" and hid the image.
+        const hadBodyAfterHero =
+          typeof page?.bodyAfterHero === 'string' && !!page.bodyAfterHero.trim();
+        const bodyAfterHeroFromPage = hadBodyAfterHero
+          ? normalizeLandmarkStoryProse(
+              enrichThinIntroPageBody(page.bodyAfterHero.trim(), fillPool, {
+                pageIndex,
+                minChars: 280,
+                minParas: 2,
+                maxParas: 3,
+                usedKeys,
+              }),
+            )
+          : '';
         const splitSource =
           bodyRaw.includes(INTRO_BODY_HERO_MARKER)
             ? bodyRaw
@@ -335,8 +448,25 @@ export default function LandmarkResultPage({ navigation, route }) {
               ? `${bodyRaw}${INTRO_BODY_HERO_MARKER}${bodyAfterHeroFromPage}`
               : bodyRaw;
         const split = splitIntroBodyAtHero(splitSource);
-        const body = split.body;
-        const bodyAfterHero = split.bodyAfterHero;
+        const totalParas = `${split.body}\n\n${split.bodyAfterHero}`
+          .split(/\n\s*\n/)
+          .map((p) => p.trim())
+          .filter(Boolean).length;
+        const wantsMidHero =
+          (page.introHeroAfterText === true || !!split.bodyAfterHero) &&
+          !page.introHeroBleedTop &&
+          !page.introHeroSideBySide &&
+          totalParas >= 4;
+        const mid = wantsMidHero
+          ? splitIntroBodyForMidHero(split.body, split.bodyAfterHero, {
+              maxLeadParas: 1,
+              maxLeadChars: 280,
+            })
+          : split;
+        const body = mid.body;
+        const bodyAfterHero = mid.bodyAfterHero;
+        // Mid-hero only when there is real text under the photo — otherwise keep photo on top
+        const useMidHeroLayout = !!bodyAfterHero;
         if (!body && !bodyAfterHero) return null;
         const heroThumb = typeof page?.heroThumb === 'string' ? page.heroThumb.trim() : '';
         const secondaryHeroThumb =
@@ -399,11 +529,25 @@ export default function LandmarkResultPage({ navigation, route }) {
         const heroCaptionGap = Number(page?.heroCaptionGap);
         const heroTextGap = Number(page?.heroTextGap);
         const secondaryStackGap = Number(page?.secondaryStackGap);
+        const effectiveHeroRatio = useMidHeroLayout
+          ? Math.max(
+              Number.isFinite(heroHeightRatio) && heroHeightRatio > 0 ? heroHeightRatio : 0.52,
+              0.52,
+            )
+          : Number.isFinite(heroHeightRatio) && heroHeightRatio > 0
+            ? Math.max(heroHeightRatio, 0.46)
+            : heroHeightRatio;
+        const effectiveHeroMax = useMidHeroLayout
+          ? Math.max(
+              Number.isFinite(heroHeightMax) && heroHeightMax > 0 ? heroHeightMax : 480,
+              480,
+            )
+          : Number.isFinite(heroHeightMax) && heroHeightMax > 0
+            ? Math.max(heroHeightMax, 400)
+            : heroHeightMax;
         return {
           body,
-          ...(bodyAfterHero
-            ? { bodyAfterHero, introHeroAfterText: true }
-            : {}),
+          ...(bodyAfterHero ? { bodyAfterHero, introHeroAfterText: true } : {}),
           ...(hasCompare
             ? {
                 ...(compareBeforeAsset ? { compareBeforeAsset } : {}),
@@ -427,8 +571,12 @@ export default function LandmarkResultPage({ navigation, route }) {
           ...(heroThumb ? { heroThumb } : {}),
           ...(secondaryHeroThumb ? { secondaryHeroThumb } : {}),
           ...(secondaryPhotoAsset ? { secondaryPhotoAsset } : {}),
-          ...(Number.isFinite(heroHeightRatio) && heroHeightRatio > 0 ? { heroHeightRatio } : {}),
-          ...(Number.isFinite(heroHeightMax) && heroHeightMax > 0 ? { heroHeightMax } : {}),
+          ...(Number.isFinite(effectiveHeroRatio) && effectiveHeroRatio > 0
+            ? { heroHeightRatio: effectiveHeroRatio }
+            : {}),
+          ...(Number.isFinite(effectiveHeroMax) && effectiveHeroMax > 0
+            ? { heroHeightMax: effectiveHeroMax }
+            : {}),
           ...(Number.isFinite(secondaryHeroHeightRatio) && secondaryHeroHeightRatio > 0
             ? { secondaryHeroHeightRatio }
             : {}),
@@ -453,10 +601,13 @@ export default function LandmarkResultPage({ navigation, route }) {
           ...(tertiaryHeroCaption ? { tertiaryHeroCaption } : {}),
           ...(page.introNoHero ? { introNoHero: true } : {}),
           ...(page.introFullBleedPhoto ? { introFullBleedPhoto: true } : {}),
-          ...(page.introHeroAfterText ? { introHeroAfterText: true } : {}),
+          ...(useMidHeroLayout ? { introHeroAfterText: true } : {}),
           ...(page.introHeroBleedTop ? { introHeroBleedTop: true } : {}),
           ...(page.introFactCard ? { introFactCard: true } : {}),
-          ...(page.introHeroInsetRounded ? { introHeroInsetRounded: true } : {}),
+          // Mid-hero overrides inset-rounded — photo sits between text, not as a top card only
+          ...(!useMidHeroLayout && page.introHeroInsetRounded
+            ? { introHeroInsetRounded: true }
+            : {}),
           ...(page.introCompareRounded ? { introCompareRounded: true } : {}),
           ...(page.introHeroSideBySide ? { introHeroSideBySide: true } : {}),
           ...(page.heroPosition && typeof page.heroPosition === 'object'
@@ -497,7 +648,35 @@ export default function LandmarkResultPage({ navigation, route }) {
         };
       })
       .filter(Boolean);
-  }, [route?.params?.introPages, visitLandmarkSaveParam, catalogLandmark, language]);
+
+    // Enforce unique photos across intro pages (cover reserved for page 1).
+    const usedUris = new Set();
+    const reserveUri = (u) => {
+      const s = typeof u === 'string' ? resolveOfflineUriSync(u.trim()) : '';
+      if (s && /^(https?:\/\/|file:\/\/)/i.test(s)) usedUris.add(s);
+    };
+    reserveUri(route?.params?.photoUri);
+    reserveUri(catalogLandmark?.thumbUri);
+    reserveUri(catalogLandmark?.story?.introPage1PhotoUri);
+    const galleryPool = collectLandmarkRemotePhotoUris(catalogLandmark);
+
+    return mappedPages.map((page) => {
+      if (!page || page.compareOnly) return page;
+      if (page.compareBeforeUri && page.compareAfterUri) {
+        const before = pickUniquePhotoUri(page.compareBeforeUri, galleryPool, usedUris);
+        const after = pickUniquePhotoUri(page.compareAfterUri, galleryPool, usedUris);
+        return {
+          ...page,
+          ...(before ? { compareBeforeUri: before } : {}),
+          ...(after ? { compareAfterUri: after } : {}),
+        };
+      }
+      const preferred = typeof page.photoUri === 'string' ? page.photoUri.trim() : '';
+      const next = pickUniquePhotoUri(preferred, galleryPool, usedUris);
+      if (!next) return page;
+      return page.photoUri === next ? page : { ...page, photoUri: next };
+    });
+  }, [route?.params?.introPages, route?.params?.photoUri, route?.params?.extract, visitLandmarkSaveParam, catalogLandmark, language]);
   const headerTitle = useMemo(() => {
     const h = typeof route?.params?.headerTitle === 'string' ? route.params.headerTitle.trim() : '';
     return h || title;
@@ -534,23 +713,49 @@ export default function LandmarkResultPage({ navigation, route }) {
         '';
     }
     const landmarkName = String(title || headerTitle || '').trim();
-    const headerWithCountry =
-      countryName && landmarkName ? `${countryName} - ${landmarkName}` : '';
+    const rawCat =
+      (typeof route?.params?.visitCategory === 'string' && route.params.visitCategory.trim()) ||
+      (catalogLandmark ? dominantVisitCategoryFromLandmark(catalogLandmark) : '') ||
+      'monument';
+    const catKey =
+      rawCat === 'museum'
+        ? 'actionsCategoryMuseum'
+        : rawCat === 'park'
+          ? 'actionsCategoryPark'
+          : rawCat === 'other'
+            ? 'actionsCategoryOther'
+            : 'actionsCategoryMonument';
+    const categoryLabel = ls(language, catKey);
+    const street =
+      (typeof route?.params?.visitAddress === 'string' && route.params.visitAddress.trim()) ||
+      resolveLandmarkStreetAddress(catalogLandmark, language) ||
+      '';
+    const addressLine = formatLandmarkAddressLine({
+      street,
+      cityName,
+      countryName,
+      language,
+    });
     return {
       countryId,
       countryName,
       cityName,
+      street,
+      addressLine,
       flagEmoji,
       landmarkName,
-      headerWithCountry,
+      categoryLabel,
       flagSource: countryId ? countryFlagSource(countryId) : null,
     };
   }, [
     language,
     route?.params?.countryId,
     route?.params?.visitCity,
+    route?.params?.visitAddress,
+    route?.params?.visitCategory,
     route?.params?.subtitle,
     visitLandmarkSaveParam,
+    catalogLandmark,
     title,
     headerTitle,
   ]);
@@ -563,6 +768,11 @@ export default function LandmarkResultPage({ navigation, route }) {
     return Number.isFinite(n) && n > 0 ? n : PREVIEW_BODY_LINES;
   }, [route?.params?.previewBodyLines]);
   const wikipediaUrl = route?.params?.wikipediaUrl;
+  const sourceUrls = useMemo(() => {
+    const raw = route?.params?.sourceUrls;
+    if (!Array.isArray(raw)) return [];
+    return raw.map((u) => String(u || '').trim()).filter((u) => /^https?:\/\//i.test(u));
+  }, [route?.params?.sourceUrls]);
   const source = route?.params?.source;
   const startPhaseParam = route?.params?.startPhase;
   const isLavraHomeMini =
@@ -610,16 +820,17 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (hasExplicitMini) {
       if (isHomeLandmark) {
         if (isLavraHomeMini) {
-          return Math.min(winH * 0.38, 330);
+          return Math.min(winH * 0.42, 360);
         }
-        return Math.min(winH * 0.34, 292);
+        // Leave room for title + 2-line tagline + body + AuthStylePrimaryCta (~60px with lift)
+        return Math.min(winH * 0.44, 390);
       }
       return Math.min(winH * 0.52, 440);
     }
     if (Number.isFinite(previewLines) && previewLines > PREVIEW_BODY_LINES) {
       return Math.min(winH * 0.46, 400);
     }
-    return Math.min(winH * 0.36, 320);
+    return Math.min(winH * 0.4, 360);
   }, [winH, route?.params?.previewBodyLines, route?.params?.miniExtract, startPhaseParam, isLavraHomeMini]);
   const miniHeroClipHeight = useMemo(() => {
     if (startPhaseParam === 'home') return null;
@@ -682,6 +893,7 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const [speaking, setSpeaking] = useState(false);
   const [paramsMenuOpen, setParamsMenuOpen] = useState(false);
+  const [sourcesSheetOpen, setSourcesSheetOpen] = useState(false);
   const [landmarkSaved, setLandmarkSaved] = useState(false);
   const [introPhotoLightbox, setIntroPhotoLightbox] = useState(null);
 
@@ -863,10 +1075,18 @@ export default function LandmarkResultPage({ navigation, route }) {
           '';
         const subtitleUk = typeof it.subtitleUk === 'string' ? it.subtitleUk.trim() : '';
         const subtitleEn = typeof it.subtitleEn === 'string' ? it.subtitleEn.trim() : '';
-        const title = langUk ? titleUk || titleEn : titleEn || titleUk;
-        const fact = langUk ? factUk || factEn : factEn || factUk;
+        const titleFromI18n =
+          it.titleI18n && typeof it.titleI18n === 'object' ? pickI18n(language, it.titleI18n) : '';
+        const factFromI18n =
+          it.factI18n && typeof it.factI18n === 'object' ? pickI18n(language, it.factI18n) : '';
+        const title = String(titleFromI18n || (langUk ? titleUk || titleEn : titleEn || titleUk) || '').trim();
+        const fact = String(factFromI18n || (langUk ? factUk || factEn : factEn || factUk) || '').trim();
         const subtitle = langUk ? subtitleUk || subtitleEn : subtitleEn || subtitleUk;
         if (!rawPhoto || !fact) return null;
+        const factLayout =
+          it.factLayout === 'sheet' || it.factLayout === 'overlay'
+            ? it.factLayout
+            : undefined;
         return {
           id: String(it.id || idx),
           photoUri: rawPhoto,
@@ -875,6 +1095,7 @@ export default function LandmarkResultPage({ navigation, route }) {
           title,
           subtitle,
           fact,
+          ...(factLayout ? { factLayout } : {}),
         };
       })
       .filter(Boolean);
@@ -1075,9 +1296,34 @@ export default function LandmarkResultPage({ navigation, route }) {
   /** Повний екран після «Детальніше»: увесь текст; якщо `extract` порожній (напр. з карти) — показуємо уривок з прев’ю. */
   const fullBodyText = useMemo(() => {
     const e = String(extract ?? '').trim();
-    if (e) return String(extract);
+    if (e) {
+      // Do not re-merge other pages / audio into page 1 — that caused repeats.
+      const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
+      const descFallback = langUk
+        ? catalogLandmark?.descUk
+        : catalogLandmark?.descEn || catalogLandmark?.descUk;
+      // Cap page 1 at 3 paras so later slides keep real facts
+      if (e.length >= 420) return takeLeadingParagraphs(e, 3);
+      return takeLeadingParagraphs(
+        composeRichLandmarkIntroPage1({
+          introPage1: e,
+          shortIntro: String(route?.params?.panelTagline || '').trim(),
+          desc: descFallback || '',
+          title: String(headerTitle || title || '').trim(),
+        }) || e,
+        3,
+      );
+    }
     return String(miniExtract ?? '').trim();
-  }, [extract, miniExtract]);
+  }, [
+    extract,
+    miniExtract,
+    catalogLandmark,
+    language,
+    route?.params?.panelTagline,
+    headerTitle,
+    title,
+  ]);
 
   const hasInlineIntroFactCard = useMemo(
     () => introPages.some((page) => page.introFactCard),
@@ -1190,34 +1436,135 @@ export default function LandmarkResultPage({ navigation, route }) {
     hasInlineIntroFactCard,
   ]);
 
+  // Final pass: every fact/compare slide must use a different photo from intro pages when possible
+  const postQuizSlidesUnique = useMemo(() => {
+    if (!Array.isArray(postQuizSlides) || !postQuizSlides.length) return postQuizSlides;
+    const gallery = [
+      ...collectLandmarkRemotePhotoUris(catalogLandmark),
+      ...((Array.isArray(route?.params?.extraPhotos) && route.params.extraPhotos) || [])
+        .map((p) => (typeof p === 'string' ? p : p?.uri || p?.photoUri || ''))
+        .map((u) => resolveOfflineUriSync(String(u || '').trim()))
+        .filter((u) => /^(https?:\/\/|file:\/\/)/i.test(u)),
+      ...((Array.isArray(route?.params?.photoGallery) && route.params.photoGallery) || [])
+        .map((p) => (typeof p === 'string' ? p : p?.uri || p?.photoUri || ''))
+        .map((u) => resolveOfflineUriSync(String(u || '').trim()))
+        .filter((u) => /^(https?:\/\/|file:\/\/)/i.test(u)),
+    ].filter((u, i, arr) => u && arr.indexOf(u) === i);
+    const used = new Set();
+    const reserve = (u) => {
+      const s = typeof u === 'string' ? resolveOfflineUriSync(u.trim()) : '';
+      if (s && /^(https?:\/\/|file:\/\/)/i.test(s)) used.add(s);
+    };
+    reserve(photoUri);
+    reserve(catalogLandmark?.thumbUri);
+    reserve(catalogLandmark?.story?.introPage1PhotoUri);
+    if (Array.isArray(introPages)) {
+      introPages.forEach((p) => {
+        reserve(p?.photoUri);
+        reserve(p?.compareBeforeUri);
+        reserve(p?.compareAfterUri);
+      });
+    }
+    return postQuizSlides.map((slide) => {
+      if (!slide || typeof slide !== 'object') return slide;
+      const nextPhoto = pickUniquePhotoUri(slide.photoUri, gallery, used);
+      const nextBefore = slide.beforePhotoUri
+        ? pickUniquePhotoUri(slide.beforePhotoUri, gallery, used) || slide.beforePhotoUri
+        : '';
+      const nextAfter = slide.afterPhotoUri
+        ? pickUniquePhotoUri(slide.afterPhotoUri, gallery, used) || nextPhoto || slide.afterPhotoUri
+        : '';
+      return {
+        ...slide,
+        ...(nextPhoto ? { photoUri: nextPhoto } : {}),
+        ...(nextBefore ? { beforePhotoUri: nextBefore } : {}),
+        ...(nextAfter ? { afterPhotoUri: nextAfter } : {}),
+      };
+    });
+  }, [
+    postQuizSlides,
+    catalogLandmark,
+    introPages,
+    photoUri,
+    route?.params?.extraPhotos,
+    route?.params?.photoGallery,
+  ]);
+
+  const actionsHeroPhotoSource = useMemo(() => {
+    const gallery = collectLandmarkRemotePhotoUris(catalogLandmark);
+    const used = new Set();
+    const reserve = (u) => {
+      const s = typeof u === 'string' ? resolveOfflineUriSync(u.trim()) : '';
+      if (s && /^(https?:\/\/|file:\/\/)/i.test(s)) used.add(s);
+    };
+    reserve(photoUri);
+    if (Array.isArray(introPages)) {
+      introPages.forEach((p) => {
+        reserve(p?.photoUri);
+        reserve(p?.compareBeforeUri);
+        reserve(p?.compareAfterUri);
+      });
+    }
+    if (Array.isArray(postQuizSlidesUnique)) {
+      postQuizSlidesUnique.forEach((s) => {
+        reserve(s?.photoUri);
+        reserve(s?.beforePhotoUri);
+        reserve(s?.afterPhotoUri);
+      });
+    }
+    const unique = pickUniquePhotoUri('', gallery, used);
+    if (unique) return { uri: unique };
+    return resolveActionsHeroPhotoSource({
+      photoAsset: route?.params?.photoAsset,
+      photoUri: route?.params?.photoUri,
+      heroThumb: route?.params?.heroThumb,
+      lm: catalogLandmark,
+    });
+  }, [
+    route?.params?.photoAsset,
+    route?.params?.photoUri,
+    route?.params?.heroThumb,
+    catalogLandmark,
+    introPages,
+    postQuizSlidesUnique,
+    photoUri,
+  ]);
+
   const effectiveStoryQuiz = useMemo(() => {
-    if (hasPlayableStoryQuiz(storyQuiz)) return storyQuiz;
     const place = String(headerTitle || title || '').trim() || 'Landmark';
     const placeShort = String(title || headerTitle || '').trim() || place;
-    return {
-      questionUk: `Що найкраще описує "${placeShort}"?`,
-      questionEn: `What best describes "${placeShort}"?`,
-      options: [
-        {
-          textUk: 'Культурна/історична памʼятка',
-          textEn: 'A cultural/historical landmark',
-          correct: true,
-        },
-        {
-          textUk: 'Спортивна арена',
-          textEn: 'A sports arena',
-          correct: false,
-        },
-        {
-          textUk: 'Бізнес-центр',
-          textEn: 'A business center',
-          correct: false,
-        },
-      ],
-      multiHintUk: `${place} має історичну або культурну цінність.`,
-      multiHintEn: `${place} has historical or cultural value.`,
-    };
-  }, [storyQuiz, headerTitle, title]);
+    const base = hasPlayableStoryQuiz(storyQuiz)
+      ? storyQuiz
+      : {
+          questionUk: `Що найкраще описує "${placeShort}"?`,
+          questionEn: `What best describes "${placeShort}"?`,
+          options: [
+            {
+              textUk: 'Культурна/історична памʼятка',
+              textEn: 'A cultural/historical landmark',
+              correct: true,
+            },
+            {
+              textUk: 'Спортивна арена',
+              textEn: 'A sports arena',
+              correct: false,
+            },
+            {
+              textUk: 'Бізнес-центр',
+              textEn: 'A business center',
+              correct: false,
+            },
+          ],
+          multiHintUk: `${place} має історичну або культурну цінність.`,
+          multiHintEn: `${place} has historical or cultural value.`,
+        };
+    return ensureThreeQuizQuestions(base, {
+      titleUk: placeShort,
+      titleEn: placeShort,
+      textUk: String(fullBodyText || extract || ''),
+      textEn: String(fullBodyText || extract || ''),
+    });
+  }, [storyQuiz, headerTitle, title, fullBodyText, extract]);
 
   const quizPagerRoute = useMemo(
     () => ({
@@ -1235,64 +1582,61 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const hasStoryQuiz = hasPlayableStoryQuiz(effectiveStoryQuiz);
   const postQuizSections = useMemo(() => {
-    const pickDifferentUri = (preferred, fallbackPool = []) => {
-      const base = String(preferred || '').trim();
-      for (let i = 0; i < fallbackPool.length; i += 1) {
-        const candidate = String(fallbackPool[i] || '').trim();
-        if (candidate && candidate !== base) return candidate;
-      }
-      return base || '';
-    };
-    const allSlideUris = postQuizSlides
-      .flatMap((s) => [s?.photoUri, s?.beforePhotoUri, s?.afterPhotoUri])
-      .map((u) => String(u || '').trim())
-      .filter(Boolean);
-
     const out = [];
-    postQuizSlides.forEach((slide, idx) => {
+    postQuizSlidesUnique.forEach((slide, idx) => {
+      const fact = String(slide?.fact || '').trim();
+      const title = String(slide?.title || '').trim();
       const currentPhoto = String(slide?.photoUri || '').trim();
       const beforePhoto = String(slide?.beforePhotoUri || '').trim();
       const afterPhoto = String(slide?.afterPhotoUri || '').trim();
-      const neighborPhoto = String(postQuizSlides[idx + 1]?.photoUri || postQuizSlides[idx - 1]?.photoUri || '').trim();
-      const fallbackPool = [neighborPhoto, ...allSlideUris];
-      const compareBottomUri = pickDifferentUri(beforePhoto || currentPhoto, [afterPhoto, ...fallbackPool]);
-      const compareTopUri = pickDifferentUri(afterPhoto || currentPhoto, [beforePhoto, ...fallbackPool]);
+      // Only a real historic/modern pair — never invent a blank compare from one photo
+      const hasRealCompare =
+        !!beforePhoto &&
+        !!afterPhoto &&
+        beforePhoto !== afterPhoto &&
+        /^(https?:\/\/|file:\/\/)/i.test(beforePhoto) &&
+        /^(https?:\/\/|file:\/\/)/i.test(afterPhoto);
 
-      out.push({
-        ...slide,
-        sectionId: `${String(slide.id || idx)}-fact-${idx}`,
-        sectionType: 'fact',
-        compareBottomUri,
-        compareTopUri,
-      });
-      if (slide.photoUri || slide.beforePhotoUri || slide.afterPhotoUri) {
+      if (fact || title) {
+        // Fact card needs at least text; prefer a photo behind it
+        if (currentPhoto || beforePhoto || afterPhoto || hasRealCompare) {
+          const factLayout =
+            slide?.factLayout === 'sheet' || slide?.factLayout === 'overlay'
+              ? slide.factLayout
+              : // Alternate layouts when several wow-facts follow each other
+                out.filter((s) => s.sectionType === 'fact').length % 2 === 1
+                  ? 'sheet'
+                  : 'overlay';
+          out.push({
+            ...slide,
+            factLayout,
+            sectionId: `${String(slide.id || idx)}-fact-${idx}`,
+            sectionType: 'fact',
+            compareBottomUri: beforePhoto || currentPhoto,
+            compareTopUri: afterPhoto || currentPhoto,
+          });
+        }
+      }
+
+      if (hasRealCompare) {
         out.push({
           ...slide,
           sectionId: `${String(slide.id || idx)}-compare-${idx}`,
           sectionType: 'compare',
-          compareBottomUri,
-          compareTopUri,
+          compareBottomUri: beforePhoto,
+          compareTopUri: afterPhoto,
         });
       }
     });
     return out;
-  }, [postQuizSlides]);
+  }, [postQuizSlidesUnique]);
   const fullReadTopClearance = 0;
   const introHeaderClearance = Math.max(insets.top + 86, 104);
-  const isIntroTextShort = useMemo(() => String(fullBodyText || '').trim().length < 220, [fullBodyText]);
-  const introAutoShift = useMemo(() => {
-    if (!isIntroTextShort) return 0;
-    const len = String(fullBodyText || '').trim().length;
-    if (len < 90) return 34;
-    if (len < 150) return 22;
-    return 14;
-  }, [isIntroTextShort, fullBodyText]);
+  // Keep hero photo size stable — do not resize when text length changes (photos "jumped").
+  // Page 1 uses a taller full-bleed hero (see introHeroHeight).
   const smallHeroHeight = useMemo(
-    () =>
-      isIntroTextShort
-        ? Math.min(680, Math.max(400, Math.round(winH * 0.62)))
-        : Math.min(560, Math.max(300, Math.round(winH * 0.48))),
-    [isIntroTextShort, winH],
+    () => Math.min(560, Math.max(300, Math.round(winH * 0.48))),
+    [winH],
   );
   const [fullReadViewportH, setFullReadViewportH] = useState(0);
   const factSlideHeight = useMemo(() => {
@@ -1305,9 +1649,21 @@ export default function LandmarkResultPage({ navigation, route }) {
   const activeSectionIndexRef = useRef(0);
   const pageSections = useMemo(() => {
     const pages = [{ id: 'intro', type: 'intro', introPart: 1 }];
+    const pageHasIntroBody = (page) =>
+      String(page?.body || '').trim().length > 0 ||
+      String(page?.bodyAfterHero || '').trim().length > 0;
+    const pageHasCompare = (page) => {
+      const a = page?.compareBeforeUri || page?.compareBeforeAsset;
+      const b = page?.compareAfterUri || page?.compareAfterAsset;
+      if (!a || !b) return false;
+      if (typeof a === 'string' && typeof b === 'string' && a.trim() === b.trim()) return false;
+      return true;
+    };
+
     if (introPages.length > 0) {
       introPages.forEach((page, i) => {
-        if (page.compareOnly && (page.compareBeforeAsset || page.compareBeforeUri)) {
+        if (page.compareOnly) {
+          if (!pageHasCompare(page)) return; // skip empty compare-only pages
           pages.push({
             id: `intro-compare-${i + 2}`,
             type: 'compare',
@@ -1320,7 +1676,11 @@ export default function LandmarkResultPage({ navigation, route }) {
           });
           return;
         }
+        // Skip empty intro slides — every page must have text or a real before/after pair
+        if (!pageHasIntroBody(page) && !pageHasCompare(page)) return;
+
         if (page.introFactCard) {
+          if (!pageHasIntroBody(page)) return;
           const heroThumb = typeof page.heroThumb === 'string' ? page.heroThumb.trim() : '';
           const photoAsset =
             typeof page.photoAsset === 'number' ? page.photoAsset : resolveHeroThumbRef(heroThumb);
@@ -1419,6 +1779,13 @@ export default function LandmarkResultPage({ navigation, route }) {
       pages.push({ id: 'quiz', type: 'quiz' });
     }
     postQuizSections.forEach((slide) => {
+      const fact = String(slide?.fact || '').trim();
+      if (slide.sectionType === 'fact' && !fact) return;
+      if (slide.sectionType === 'compare') {
+        const a = String(slide.compareBottomUri || '').trim();
+        const b = String(slide.compareTopUri || '').trim();
+        if (!a || !b || a === b) return;
+      }
       pages.push({
         id: slide.sectionId,
         type: slide.sectionType === 'compare' ? 'compare' : 'fact',
@@ -1433,7 +1800,39 @@ export default function LandmarkResultPage({ navigation, route }) {
     [pageSections, fullBodyText],
   );
   const currentPage = pageSections[activeSectionIndex] || pageSections[0];
+  const sourcesSectionIndex = useMemo(
+    () =>
+      pageSections.findIndex(
+        (p) =>
+          p?.type === 'fact' &&
+          (p?.slide?.id === 'story-sources' || String(p?.id || '').includes('story-sources')),
+      ),
+    [pageSections],
+  );
+  const actionsSourceLinks = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const push = (url) => {
+      const u = String(url || '').trim();
+      if (!/^https?:\/\//i.test(u) || seen.has(u)) return;
+      seen.add(u);
+      out.push({ url: u, label: friendlySourceLabel(u) || u });
+    };
+    sourceUrls.forEach(push);
+    if (wikipediaUrl) push(wikipediaUrl);
+    return out;
+  }, [sourceUrls, wikipediaUrl]);
+  // Always show sources entry on the final actions page.
+  const showActionsSources = true;
   const isActionsPage = currentPage?.type === 'actions';
+
+  useEffect(() => {
+    const maxIdx = Math.max(0, pageSections.length - 1);
+    if (activeSectionIndex > maxIdx) {
+      activeSectionIndexRef.current = maxIdx;
+      setActiveSectionIndex(maxIdx);
+    }
+  }, [pageSections.length, activeSectionIndex]);
 
   useEffect(() => {
     if (!isActionsPage || !quizLandmarkKey) return undefined;
@@ -1449,8 +1848,8 @@ export default function LandmarkResultPage({ navigation, route }) {
   }, [isActionsPage, quizLandmarkKey]);
 
   const glassHeaderTitle =
-    isActionsPage && actionsPlaceMeta.headerWithCountry
-      ? actionsPlaceMeta.headerWithCountry
+    isActionsPage && actionsPlaceMeta.categoryLabel
+      ? actionsPlaceMeta.categoryLabel
       : headerTitle;
   // Вхідна анімація для всіх слайдів локації (intro / fact / quiz / compare / actions)
   const slideEnter = useRef(new Animated.Value(1)).current;
@@ -1468,6 +1867,13 @@ export default function LandmarkResultPage({ navigation, route }) {
       return undefined;
     }
     const pageType = currentPage?.type;
+    // Intro photos must sit flush — no enter-offset (it left a grey strip / “card” margins).
+    if (pageType === 'intro') {
+      slideEnter.setValue(1);
+      slideMediaScale.setValue(1);
+      slideEnterFromY.setValue(0);
+      return undefined;
+    }
     const fromY =
       pageType === 'fact' || pageType === 'compare'
         ? 28
@@ -1477,9 +1883,7 @@ export default function LandmarkResultPage({ navigation, route }) {
             ? 22
             : 20;
     const fromScale =
-      pageType === 'intro' || pageType === 'fact' || pageType === 'compare' || pageType === 'actions'
-        ? 0.97
-        : 0.985;
+      pageType === 'fact' || pageType === 'compare' || pageType === 'actions' ? 0.97 : 0.985;
 
     slideEnter.stopAnimation();
     slideMediaScale.stopAnimation();
@@ -1520,21 +1924,56 @@ export default function LandmarkResultPage({ navigation, route }) {
         photoAsset: currentPage.photoAsset,
         photoUri: currentPage.photoUri,
         heroThumb: currentPage.heroThumb,
+        lm: catalogLandmark,
       });
-      if (fromPage) return fromPage;
-      if (catalogLandmark) {
-        const langUk = String(language || 'en').split(/[-_]/)[0].toLowerCase() === 'uk';
-        const storyKey = langUk ? 'introPagesUk' : 'introPagesEn';
-        const storyPage = catalogLandmark?.story?.[storyKey]?.[currentPage.introPart - 2];
-        const storyThumb =
-          typeof storyPage?.heroThumb === 'string' ? storyPage.heroThumb.trim() : '';
-        const storyAsset = resolveHeroThumbRef(storyThumb);
-        if (typeof storyAsset === 'number') return storyAsset;
+      const coverUri =
+        (defaultHeroPhotoSource &&
+          typeof defaultHeroPhotoSource === 'object' &&
+          defaultHeroPhotoSource.uri) ||
+        '';
+      const fromPageUri =
+        fromPage && typeof fromPage === 'object' && typeof fromPage.uri === 'string'
+          ? fromPage.uri
+          : '';
+      // Prefer the uniquely assigned page photo when it differs from the cover
+      if (fromPage && fromPage !== HERO_THUMB_MAP.t1 && fromPageUri && fromPageUri !== coverUri) {
+        return fromPage;
       }
-      if (catalogLandmark) return resolveLandmarkHeroPhotoSourceFromLandmark(catalogLandmark);
+      if (fromPageUri && fromPageUri === coverUri) {
+        // Assigned photo collided with cover — pick another unused gallery image
+        const gallery = collectLandmarkRemotePhotoUris(catalogLandmark);
+        const used = new Set([coverUri, fromPageUri].filter(Boolean));
+        // Also reserve other intro page photos already shown
+        if (Array.isArray(introPages)) {
+          introPages.forEach((p, idx) => {
+            if (idx === (currentPage.introPart || 2) - 2) return;
+            const u =
+              typeof p?.photoUri === 'string' ? resolveOfflineUriSync(p.photoUri.trim()) : '';
+            if (u) used.add(u);
+          });
+        }
+        const alt = pickUniquePhotoUri('', gallery, used);
+        if (alt && alt !== coverUri) return { uri: alt };
+      }
+
+      const gallery = collectLandmarkRemotePhotoUris(catalogLandmark);
+      const unused = gallery.filter((u) => u && u !== coverUri && u !== fromPageUri);
+      const pool = unused.length ? unused : gallery.filter((u) => u !== coverUri);
+      if (pool.length) {
+        const idx = Math.max(0, (currentPage.introPart || 2) - 2) % pool.length;
+        return { uri: pool[idx] };
+      }
+
+      if (catalogLandmark) {
+        const fromLm = resolveLandmarkHeroPhotoSourceFromLandmark(catalogLandmark);
+        if (fromLm && fromLm !== HERO_THUMB_MAP.t1) return fromLm;
+        const thumb = resolveHomeLandmarkThumbSource(catalogLandmark);
+        if (thumb && thumb !== HERO_THUMB_MAP.t1) return thumb;
+      }
+      return null;
     }
-    return defaultHeroPhotoSource;
-  }, [currentPage, defaultHeroPhotoSource, catalogLandmark, language]);
+    return defaultHeroPhotoSource === HERO_THUMB_MAP.t1 ? null : defaultHeroPhotoSource;
+  }, [currentPage, defaultHeroPhotoSource, catalogLandmark, language, introPages]);
   const secondaryHeroPhotoSource = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return null;
     if (typeof currentPage.secondaryPhotoAsset === 'number') return currentPage.secondaryPhotoAsset;
@@ -1635,10 +2074,19 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (currentIntroCompare || !introPrimaryPhotoSource) return null;
     const ratioRaw = Number(currentPage?.heroHeightRatio);
     const maxRaw = Number(currentPage?.heroHeightMax);
-    const ratio =
+    let ratio =
       Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : INTRO_SUB_HERO_HEIGHT_RATIO;
     const maxH = Number.isFinite(maxRaw) && maxRaw > 0 ? maxRaw : 540;
     const minH = currentPage?.introHeroSideBySide ? 200 : 320;
+    // Short copy: grow the photo so less empty white sits above the pager
+    const bodyLen =
+      String(currentPage?.body || '').trim().length +
+      String(currentPage?.bodyAfterHero || '').trim().length;
+    if (bodyLen > 0 && bodyLen < 420 && !(Number.isFinite(ratioRaw) && ratioRaw > 0)) {
+      ratio = Math.max(ratio, 0.64);
+    } else if (bodyLen > 0 && bodyLen < 320) {
+      ratio = Math.max(ratio, Math.min(0.72, ratio + 0.08));
+    }
     return Math.min(maxH, Math.max(minH, Math.round(winH * ratio)));
   }, [currentPage, currentIntroCompare, introPrimaryPhotoSource, winH]);
   const introHeroTopInset = introCompareLayout?.topInset ?? 0;
@@ -1648,16 +2096,69 @@ export default function LandmarkResultPage({ navigation, route }) {
     if (currentIntroCompare) {
       return Math.min(Math.round(winH * 0.58), 600);
     }
+    // First story page: tall edge-to-top hero so the photo fills under the glass bar
+    if (currentPage?.type === 'intro' && Number(currentPage?.introPart || 1) === 1) {
+      return Math.min(680, Math.max(420, Math.round(winH * 0.62)));
+    }
     return smallHeroHeight;
-  }, [introCompareLayout, introSubPageHeroHeight, currentIntroCompare, smallHeroHeight, winH]);
+  }, [
+    introCompareLayout,
+    introSubPageHeroHeight,
+    currentIntroCompare,
+    smallHeroHeight,
+    winH,
+    currentPage?.type,
+    currentPage?.introPart,
+  ]);
   const currentIntroBody = useMemo(() => {
     if (currentPage?.type !== 'intro') return '';
-    if (currentPage.introPart > 1) return String(currentPage.body || '').trim();
-    return fullBodyText;
-  }, [currentPage, fullBodyText]);
+    let raw = normalizeLandmarkStoryProse(
+      stripIntroSectionLead(
+        currentPage.introPart > 1
+          ? String(currentPage.body || '').trim()
+          : String(fullBodyText || '').trim(),
+      ),
+    );
+    const norm = (s) =>
+      String(s || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    // Drop a leading line that only repeats the header title
+    const title = String(headerTitle || '').trim();
+    if (title && !(currentPage.introPart > 1)) {
+      const paras = raw.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+      if (paras.length && norm(paras[0]) === norm(title)) {
+        raw = paras.slice(1).join('\n\n').trim() || raw;
+      } else if (norm(raw).startsWith(norm(title))) {
+        const rest = raw.slice(title.length).replace(/^[\s\n.,;:–—-]+/, '').trim();
+        if (rest) raw = rest;
+      }
+    }
+    if (!(currentPage.introPart > 1)) {
+      const tag = String(panelTagline || '').trim();
+      if (!tag || !raw) return raw;
+      const nt = norm(tag);
+      const nr = norm(raw);
+      if (!nt) return raw;
+      if (nr === nt) return raw;
+      if (nr.startsWith(nt)) {
+        raw = raw.slice(tag.length).replace(/^[\s\n.,;:–—-]+/, '').trim() || raw;
+      }
+      // Drop any paragraph that only repeats the quote/tagline
+      const paras = raw.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+      if (paras.length > 1) {
+        const filtered = paras.filter((p) => norm(p) !== nt);
+        if (filtered.length) raw = filtered.join('\n\n');
+      }
+    }
+    return normalizeLandmarkStoryProse(raw);
+  }, [currentPage, fullBodyText, panelTagline, headerTitle]);
   const currentIntroBodyAfter = useMemo(() => {
     if (currentPage?.type !== 'intro' || !(currentPage.introPart > 1)) return '';
-    return String(currentPage.bodyAfterHero || '').trim();
+    return normalizeLandmarkStoryProse(
+      stripIntroSectionLead(String(currentPage.bodyAfterHero || '').trim()),
+    );
   }, [currentPage]);
   const isIntroSubPage = currentPage?.type === 'intro' && currentPage?.introPart > 1;
   const isIntroFullBleedPhotoPage =
@@ -1684,23 +2185,32 @@ export default function LandmarkResultPage({ navigation, route }) {
     isIntroHeroInsetRoundedPage && !isIntroHeroAfterTextPage;
   const isIntroNoHeroPage =
     currentPage?.type === 'intro' && currentPage.introNoHero === true;
-  const introScrollTopPad =
-    isIntroSubPage && isIntroHeroBleedTopPage && !isIntroNoHeroPage
-      ? 0
-      : isIntroSubPage &&
-          (isIntroCompareRoundedPage ||
-            isIntroIllustrationPage ||
-            isIntroHeroInsetRoundedHeroFirstPage)
-        ? Math.max(
-            insets.top + (isIntroHeroSideBySidePage ? 74 : 66),
-            isIntroHeroSideBySidePage ? 90 : 82,
-          )
-        : isIntroSubPage && isIntroHeroAfterTextPage
-          ? Math.max(insets.top + 72, 88)
-          : isIntroSubPage
-            ? introHeaderClearance
-            : 0;
   const isIntroFirstPage = currentPage?.type === 'intro' && Number(currentPage?.introPart || 1) === 1;
+  // Flush-to-top photo: square top edge, goes under the glass bar (page 1 + bleed-top).
+  // Inset/rounded photos keep a gap under the glass panel instead.
+  const introHeroIsTallBleed =
+    isIntroFirstPage ||
+    isIntroFullBleedPhotoPage ||
+    (isIntroHeroBleedTopPage && !isIntroCompareRoundedPage && !isIntroHeroInsetRoundedPage);
+  const introHeroNeedsHeaderClearance =
+    currentPage?.type === 'intro' &&
+    !isIntroFirstPage &&
+    !isIntroNoHeroPage &&
+    !isIntroHeroAfterTextPage &&
+    !introHeroIsTallBleed &&
+    (isIntroCompareRoundedPage ||
+      isIntroHeroInsetRoundedPage ||
+      isIntroIllustrationPage ||
+      isIntroHeroSideBySidePage ||
+      (!!introPrimaryPhotoSource && !!introHeroHeight));
+  const introScrollTopPad =
+    currentPage?.type !== 'intro'
+      ? 0
+      : isIntroNoHeroPage || isIntroHeroAfterTextPage
+        ? Math.max(insets.top + (isIntroHeroSideBySidePage ? 74 : 72), isIntroHeroSideBySidePage ? 90 : 88)
+        : introHeroNeedsHeaderClearance
+          ? introHeaderClearance
+          : 0;
   useEffect(() => {
     isIntroFirstPageRef.current = isIntroFirstPage;
   }, [isIntroFirstPage]);
@@ -1708,17 +2218,13 @@ export default function LandmarkResultPage({ navigation, route }) {
     currentPageTypeRef.current = currentPage?.type || 'intro';
   }, [currentPage?.type]);
   const introScrollBottomPad = Math.max(insets.bottom + 88, 112);
-  const quizHeaderClearance = Math.max(insets.top + 58, 72);
   /** Clearance so quiz CTA never sits under the pager dock (dock ~54 + bottom offset). */
   const quizScrollBottomPad = Math.max(insets.bottom + 18 + 54 + 28, 130);
-  const quizViewportMinHeight = useMemo(
-    () => Math.max(360, Math.round(winH - quizScrollBottomPad)),
-    [winH, quizScrollBottomPad],
-  );
   const sectionDotCount = pageSections.length;
   const fullReadScrollRef = useRef(null);
   const introPageScrollRef = useRef(null);
   const quizPageScrollRef = useRef(null);
+  const quizControlsRef = useRef(null);
   const fullReadScrollYRef = useRef(0);
   const introScrollYRef = useRef(0);
   const isIntroFirstPageRef = useRef(false);
@@ -2144,6 +2650,8 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const canGoPrevPage = activeSectionIndex > 0;
   const canGoNextPage = activeSectionIndex < Math.max(0, pageSections.length - 1);
+  const canPagerPrev = currentPage?.type === 'quiz' ? true : canGoPrevPage;
+  const canPagerNext = currentPage?.type === 'quiz' ? true : canGoNextPage;
   const showPagerSideArrows = phase === 'full' && sectionDotCount > 1 && !isActionsPage;
   const pagerProgressAnim = useRef(new Animated.Value(0)).current;
   const pagerTrackWidthRef = useRef(0);
@@ -2229,13 +2737,21 @@ export default function LandmarkResultPage({ navigation, route }) {
     () => splitLandmarkQuizTitle(headerTitle || title),
     [headerTitle, title],
   );
-  /** Space reserved above the quiz sheet so the dual title stays readable. */
-  const quizTitleClearance = useMemo(
-    () => Math.round(Math.max(insets.top + 188, winH * 0.36)),
-    [insets.top, winH],
+  const quizBrushW = useMemo(() => Math.round(winW * 0.88), [winW]);
+  const quizBrushH = useMemo(() => Math.round(winH * 0.42), [winH]);
+  /** Brush photo starts under the glass top bar and fills the mid gap. */
+  const quizHeroTop = useMemo(
+    () => Math.round(Math.max(insets.top + 64, 80)),
+    [insets.top],
   );
-  const quizBrushW = useMemo(() => Math.round(winW * 0.82), [winW]);
-  const quizBrushH = useMemo(() => Math.round(winH * 0.40), [winH]);
+  /**
+   * Clear the floating glass header (top: insets.top+8, ~50–72px tall)
+   * plus extra air so the script title sits clearly below the bar.
+   */
+  const quizTitleTopPad = useMemo(
+    () => Math.round(Math.max(insets.top + 8 + 62 + 36, 148)),
+    [insets.top],
+  );
 
   const quizHasNextSection = useMemo(() => {
     const quizIdx = pageSections.findIndex((p) => p.id === 'quiz');
@@ -2253,6 +2769,31 @@ export default function LandmarkResultPage({ navigation, route }) {
       });
     });
   }, []);
+
+  const handlePagerPrev = useCallback(async () => {
+    if (currentPage?.type === 'quiz') {
+      const stayed = await quizControlsRef.current?.handlePagerPrev?.();
+      if (stayed) {
+        scrollQuizIntoView();
+        return;
+      }
+    }
+    goAdjacentWithAudio(-1);
+  }, [currentPage?.type, goAdjacentWithAudio, scrollQuizIntoView]);
+
+  const handlePagerNext = useCallback(async () => {
+    if (currentPage?.type === 'quiz') {
+      const result = await quizControlsRef.current?.handlePagerNext?.();
+      if (result === 'finished') {
+        return;
+      }
+      if (result === 'advanced' || result === 'stayed' || result === 'noop') {
+        if (result === 'advanced' || result === 'stayed') scrollQuizIntoView();
+        return;
+      }
+    }
+    goAdjacentWithAudio(1);
+  }, [currentPage?.type, goAdjacentWithAudio, scrollQuizIntoView]);
 
   /** На повному екрані: попередня секція пейджера або mini / goBack — не одразу на головну. */
   const handleFullPhaseStepBack = useCallback(() => {
@@ -2272,6 +2813,14 @@ export default function LandmarkResultPage({ navigation, route }) {
 
   const handleLandmarkPagerSwipe = useCallback(
     (dx) => {
+      if (currentPageTypeRef.current === 'quiz') {
+        if (dx < 0) {
+          void handlePagerNext();
+        } else {
+          void handlePagerPrev();
+        }
+        return;
+      }
       const current = Number.isFinite(activeSectionIndexRef.current)
         ? activeSectionIndexRef.current
         : activeSectionIndex;
@@ -2282,7 +2831,7 @@ export default function LandmarkResultPage({ navigation, route }) {
       }
       handleFullPhaseStepBackRef.current();
     },
-    [activeSectionIndex, goToAdjacentSection, pageSections.length],
+    [activeSectionIndex, goToAdjacentSection, pageSections.length, handlePagerNext, handlePagerPrev],
   );
 
   const onFullReadLayout = useCallback((e) => {
@@ -2304,6 +2853,46 @@ export default function LandmarkResultPage({ navigation, route }) {
       caption: String(caption || '').trim(),
     });
   }, []);
+
+  const personMentions = useMemo(() => {
+    const raw =
+      catalogLandmark?.story?.personMentions ||
+      route?.params?.personMentions ||
+      catalogLandmark?.story?.people;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((m) => {
+      const n = String(m?.nameUk || m?.nameEn || '').trim();
+      if (!n || !m?.photoUri) return false;
+      if (/\b(вул|просп|площа|street|avenue|square|костел|церкв|kyiv|київ)\b/i.test(n)) return false;
+      return n.split(/\s+/).filter(Boolean).length >= 2;
+    });
+  }, [catalogLandmark?.story?.personMentions, catalogLandmark?.story?.people, route?.params?.personMentions]);
+
+  const onPersonMentionPress = useCallback(
+    async (displayName, mention) => {
+      const name = String(displayName || '').trim();
+      if (!name) return;
+      const fromStory = mention?.photoUri ? mention : null;
+      if (fromStory) {
+        const src = personMentionPhotoSource(fromStory);
+        if (src) {
+          openIntroPhotoLightbox(src, personMentionCaption(fromStory, language));
+          return;
+        }
+      }
+      // Live Wikipedia lookup for stories without preloaded personMentions
+      try {
+        const live = await lookupPersonMentionLive(name, language === 'uk' ? 'uk' : 'en');
+        const src = personMentionPhotoSource(live);
+        if (src) {
+          openIntroPhotoLightbox(src, personMentionCaption(live, language));
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [language, openIntroPhotoLightbox],
+  );
 
   useEffect(() => {
     setIntroPhotoLightbox(null);
@@ -2380,10 +2969,11 @@ export default function LandmarkResultPage({ navigation, route }) {
           if (phase !== 'mini' || paramsMenuOpen) return false;
           const ax = Math.abs(g.dx);
           const ay = Math.abs(g.dy);
+          // Вищі пороги — менше випадкового захоплення тапів і дрібних рухів.
           return (
-            (g.dy < -4 && ay > ax * 0.45) ||
-            (g.dx < -4 && ax > ay * 0.45) ||
-            (g.dx > 4 && ax > ay * 0.45)
+            (g.dy < -12 && ay > ax * 1.15) ||
+            (g.dx < -12 && ax > ay * 1.15) ||
+            (g.dx > 12 && ax > ay * 1.15)
           );
         },
         onMoveShouldSetPanResponder: (_, g) => {
@@ -2391,9 +2981,9 @@ export default function LandmarkResultPage({ navigation, route }) {
           const ax = Math.abs(g.dx);
           const ay = Math.abs(g.dy);
           return (
-            (g.dy < -3 && ay > ax * 0.45) ||
-            (g.dx < -3 && ax > ay * 0.45) ||
-            (g.dx > 3 && ax > ay * 0.45)
+            (g.dy < -10 && ay > ax * 1.1) ||
+            (g.dx < -10 && ax > ay * 1.1) ||
+            (g.dx > 10 && ax > ay * 1.1)
           );
         },
         onPanResponderTerminationRequest: () => miniDragAxisRef.current == null,
@@ -2503,10 +3093,10 @@ export default function LandmarkResultPage({ navigation, route }) {
           const t = currentPageTypeRef.current;
           return t === 'intro' || t === 'quiz';
         },
-        canSwipeDown: () => isIntroFirstPageRef.current && introScrollYRef.current <= 32,
+        // Лише pull-down на самому верху; скрол вниз (палець вгору) не закриває сторінку.
+        // Overscroll dismiss також у onIntroScroll (LANDMARK_SCROLL_PULL_DISMISS_PX).
+        canSwipeDown: () => isIntroFirstPageRef.current && introScrollYRef.current <= 2,
         onSwipeDown: () => handleFullPhaseStepBackRef.current(),
-        canSwipeUp: () => isIntroFirstPageRef.current && introScrollYRef.current <= 32,
-        onSwipeUp: () => handleFullPhaseStepBackRef.current(),
         onSwipeLeft: () => handleLandmarkPagerSwipe(-1),
         onSwipeRight: () => handleLandmarkPagerSwipe(1),
       }),
@@ -2588,11 +3178,12 @@ export default function LandmarkResultPage({ navigation, route }) {
   const paramMenuSheetPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponder: (_, g) => g.dy > 2 && g.dy >= Math.abs(g.dx) * 0.85,
-        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
-        onPanResponderTerminationRequest: (_, g) => !(g.dy > 4 && g.dy > Math.abs(g.dx)),
+        // Не захоплюємо touch на старті — інакше тапи по кнопках у drag-zone ламаються.
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_, g) => g.dy > 8 && g.dy >= Math.abs(g.dx) * 1.15,
+        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2,
+        onPanResponderTerminationRequest: (_, g) => !(g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2),
         onPanResponderMove: (_, g) => {
           paramMenuDragY.setValue(Math.max(0, g.dy));
         },
@@ -3105,19 +3696,88 @@ export default function LandmarkResultPage({ navigation, route }) {
     navigation.goBack();
   }, [navigation, stopFileAudio]);
 
-  const openWiki = useCallback(() => {
-    if (wikipediaUrl) WebBrowser.openBrowserAsync(wikipediaUrl).catch(() => {});
-  }, [wikipediaUrl]);
+  const onActionsSources = useCallback(() => {
+    setSourcesSheetOpen(true);
+  }, []);
 
-  const sheetTagline = panelTagline || (subtitle ? String(subtitle) : '');
+  const onOpenSourceLink = useCallback((url) => {
+    const u = String(url || '').trim();
+    if (!u) return;
+    WebBrowser.openBrowserAsync(u).catch(() => {
+      Linking.openURL(u).catch(() => {});
+    });
+  }, []);
+
+  const sheetTaglineRaw = panelTagline || (subtitle ? String(subtitle) : '');
   const isHomeMiniPanel = startPhaseParam === 'home';
   const explicitMiniExtract =
     typeof route?.params?.miniExtract === 'string' ? route.params.miniExtract.trim() : '';
   const miniSheetTitle = isHomeMiniPanel ? String(title || headerTitle).trim() : headerTitle;
-  const miniSheetTagline = isHomeMiniPanel && panelTagline ? panelTagline : sheetTagline;
   const miniSheetBody = explicitMiniExtract || miniExtract || extract;
+  const normCardText = (s) =>
+    String(s || '')
+      .replace(/\*\*/g, '')
+      .replace(/[_`]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const sameCardText = (a, b) => {
+    const na = normCardText(a);
+    const nb = normCardText(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    if (na.length >= 28 && (nb.startsWith(na) || na.startsWith(nb))) return true;
+    if (nb.length >= 28 && (na.startsWith(nb) || nb.startsWith(na))) return true;
+    if (na.length >= 40 && nb.length >= 40) {
+      const shorter = na.length <= nb.length ? na : nb;
+      const longer = na.length > nb.length ? na : nb;
+      if (longer.includes(shorter.slice(0, Math.min(48, shorter.length)))) return true;
+    }
+    return false;
+  };
+  // Catalog one-liner (miniPreview) must not reappear as a «quote» on page 1
+  const taglineOverlapsIntroBody = (tagline, body) => {
+    const na = normCardText(String(tagline || '').replace(/\*\*/g, ''));
+    const nb = normCardText(String(body || '').replace(/\*\*/g, ''));
+    if (!na || !nb) return false;
+    if (sameCardText(na, nb)) return true;
+    const head = na.slice(0, Math.min(56, na.length));
+    if (head.length >= 28 && nb.includes(head)) return true;
+    // Same landmark blurb facts already in the welcome body
+    const yearHit = /\b(1899|1909)\b/.test(na) && /\b(1899|1909)\b/.test(nb);
+    const archHit =
+      /городецьк|horodecki|horodetskyi/i.test(na) &&
+      /городецьк|horodecki|horodetskyi/i.test(nb);
+    if (yearHit && archHit) return true;
+    return false;
+  };
+  const showIntroPageQuote =
+    !!panelTagline &&
+    !isIntroSubPage &&
+    !sameCardText(panelTagline, currentIntroBody) &&
+    !sameCardText(panelTagline, headerTitle) &&
+    !taglineOverlapsIntroBody(panelTagline, currentIntroBody);
+  // Home: prefer city line as tagline; never repeat the same paragraph under the title
+  const preferredHomeTagline =
+    isHomeMiniPanel && panelTagline && !sameCardText(panelTagline, miniSheetBody)
+      ? panelTagline
+      : isHomeMiniPanel
+        ? ''
+        : sheetTaglineRaw;
+  const miniSheetTagline =
+    preferredHomeTagline && !sameCardText(preferredHomeTagline, miniSheetBody)
+      ? preferredHomeTagline
+      : !isHomeMiniPanel && sheetTaglineRaw && !sameCardText(sheetTaglineRaw, miniSheetBody)
+        ? sheetTaglineRaw
+        : '';
+  const sheetTagline =
+    sheetTaglineRaw && !sameCardText(sheetTaglineRaw, extract || miniExtract || '')
+      ? sheetTaglineRaw
+      : !panelTagline && subtitle
+        ? String(subtitle)
+        : '';
   const miniBodyUnlimited = !!explicitMiniExtract && !isHomeMiniPanel;
-  const miniBodyLineLimit = isLavraHomeMini ? 3 : previewBodyLines;
+  const miniBodyLineLimit = isLavraHomeMini ? 3 : isHomeMiniPanel ? 3 : previewBodyLines;
 
   const paramMenuRipple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
   const paramRowLabelColor = isLight ? '#1E1E1E' : FIGMA_CREAM;
@@ -3261,6 +3921,127 @@ export default function LandmarkResultPage({ navigation, route }) {
     </Modal>
   );
 
+  const landmarkSourcesSheet = (
+    <Modal
+      visible={sourcesSheetOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setSourcesSheetOpen(false)}
+      statusBarTranslucent
+      {...(Platform.OS === 'ios' ? { presentationStyle: 'overFullScreen' } : {})}
+    >
+      <View style={styles.paramMenuModalRoot}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setSourcesSheetOpen(false)}
+          accessibilityRole="button"
+          accessibilityLabel={ls(language, 'actionsSourcesClose')}
+        >
+          <View style={[styles.paramMenuBackdropPress, { opacity: 0.45 }]} pointerEvents="none" />
+        </Pressable>
+        <View
+          style={[
+            styles.paramMenuSheet,
+            {
+              backgroundColor: paramMenuSheetBg,
+              paddingBottom: Math.max(insets.bottom, 16),
+            },
+          ]}
+        >
+          <View style={styles.paramMenuHandleWrap}>
+            <View
+              style={[
+                styles.paramMenuHandle,
+                isLight ? styles.paramMenuHandleLight : styles.paramMenuHandleDark,
+              ]}
+            />
+          </View>
+          <Text style={[styles.paramMenuTitle, brandFontHeadMedium, { color: paramRowLabelColor }]}>
+            {ls(language, 'actionsSourcesTitle')}
+          </Text>
+          <Text
+            style={[
+              styles.sourcesSheetLead,
+              brandFontSans,
+              { color: isLight ? 'rgba(30,30,30,0.62)' : 'rgba(242,242,234,0.62)' },
+            ]}
+          >
+            {ls(language, 'actionsSourcesLead')}
+          </Text>
+          <ScrollView
+            style={styles.sourcesSheetScroll}
+            contentContainerStyle={styles.sourcesSheetScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {actionsSourceLinks.length ? (
+              actionsSourceLinks.map((item) => (
+                <Pressable
+                  key={item.url}
+                  style={styles.paramMenuRow}
+                  onPress={() => onOpenSourceLink(item.url)}
+                  android_ripple={paramMenuRipple}
+                  accessibilityRole="link"
+                >
+                  <Ionicons name="link-outline" size={22} color={paramRowLabelColor} />
+                  <Text
+                    style={[styles.paramMenuRowLabel, brandFontSans, { color: paramRowLabelColor, flex: 1 }]}
+                    numberOfLines={3}
+                  >
+                    {item.label}
+                  </Text>
+                  <Ionicons
+                    name="open-outline"
+                    size={18}
+                    color={isLight ? 'rgba(30,30,30,0.45)' : 'rgba(242,242,234,0.45)'}
+                  />
+                </Pressable>
+              ))
+            ) : (
+              <Text
+                style={[
+                  styles.sourcesSheetLead,
+                  brandFontSans,
+                  { color: isLight ? 'rgba(30,30,30,0.62)' : 'rgba(242,242,234,0.62)' },
+                ]}
+              >
+                {ls(language, 'actionsSourcesEmpty')}
+              </Text>
+            )}
+            {sourcesSectionIndex >= 0 ? (
+              <Pressable
+                style={styles.paramMenuRow}
+                onPress={() => {
+                  setSourcesSheetOpen(false);
+                  goToSectionIndexWithAudio(sourcesSectionIndex);
+                }}
+                android_ripple={paramMenuRipple}
+                accessibilityRole="button"
+              >
+                <Ionicons name="document-text-outline" size={22} color={paramRowLabelColor} />
+                <Text style={[styles.paramMenuRowLabel, brandFontSans, { color: paramRowLabelColor }]}>
+                  {ls(language, 'actionsSourcesOpenSlide')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </ScrollView>
+          <Pressable
+            style={[
+              styles.sourcesSheetCloseBtn,
+              isLight ? styles.actionsBtnSecondaryLight : styles.actionsBtnSecondaryDark,
+            ]}
+            onPress={() => setSourcesSheetOpen(false)}
+            android_ripple={paramMenuRipple}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.actionsBtnLabel, brandFontSansMedium, { color: paramRowLabelColor }]}>
+              {ls(language, 'actionsSourcesClose')}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (phase === 'mini') {
     const miniHeroFrameStyle = { width: winW, height: winH };
     const miniHeroContentPosition =
@@ -3288,6 +4069,7 @@ export default function LandmarkResultPage({ navigation, route }) {
           contentFit={homeHeroLayout.homeHeroContentFit || 'cover'}
           contentPosition={miniHeroContentPosition}
           cachePolicy="memory-disk"
+          recyclingKey={miniHeroImageKey}
           transition={0}
           allowDownscaling
           onError={onMiniHeroError}
@@ -3412,29 +4194,31 @@ export default function LandmarkResultPage({ navigation, route }) {
                 />
               </View>
               <View style={styles.miniSheetBottomContent}>
-                <Text
-                  style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
-                  {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
-                >
-                  {miniSheetTitle}
-                </Text>
-                {miniSheetTagline ? (
+                <View style={styles.miniSheetTextBlock}>
                   <Text
-                    style={[styles.subtitle, brandFontSans, { color: subColor }]}
-                    numberOfLines={isHomeMiniPanel ? undefined : 2}
-                    ellipsizeMode="tail"
+                    style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
+                    {...LANDMARK_TITLE_WRAP_PROPS}
                   >
-                    {miniSheetTagline}
+                    {miniSheetTitle}
                   </Text>
-                ) : null}
-                <Text
-                  style={[styles.miniBody, styles.miniBodyClamp, brandFontSans, { color: bodyColor }]}
-                  {...(miniBodyUnlimited
-                    ? {}
-                    : { numberOfLines: miniBodyLineLimit, ellipsizeMode: 'tail' })}
-                >
-                  {miniSheetBody}
-                </Text>
+                  {miniSheetTagline ? (
+                    <Text
+                      style={[styles.subtitle, brandFontSans, { color: subColor }]}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                    >
+                      {miniSheetTagline}
+                    </Text>
+                  ) : null}
+                  <Text
+                    style={[styles.miniBody, styles.miniBodyClamp, brandFontSans, { color: bodyColor }]}
+                    {...(miniBodyUnlimited
+                      ? {}
+                      : { numberOfLines: miniBodyLineLimit, ellipsizeMode: 'tail' })}
+                  >
+                    {miniSheetBody}
+                  </Text>
+                </View>
                 <AuthStylePrimaryCta
                   onPress={openFull}
                   label={ls(language, 'more')}
@@ -3447,6 +4231,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         </Animated.View>
       </View>
       {landmarkParamsMenu}
+      {landmarkSourcesSheet}
       </RenderProfiler>
     );
   }
@@ -3455,28 +4240,16 @@ export default function LandmarkResultPage({ navigation, route }) {
     <>
       {!isIntroSubPage ? (
         <>
-          <Text
-            style={[styles.title, styles.titleFigma, brandFontHeadMedium, { color: titleColor }]}
-            {...LANDMARK_TITLE_SINGLE_LINE_PROPS}
-          >
-            {headerTitle}
-          </Text>
-          {sheetTagline ? (
-            <View
-              style={[
-                styles.introTaglineBlock,
-                { borderBottomColor: isLight ? 'rgba(2, 18, 235, 0.1)' : 'rgba(255,255,255,0.12)' },
-              ]}
-            >
+          {showIntroPageQuote ? (
+            <View style={[styles.introQuoteBlock]}>
               <Text
                 style={[
-                  styles.subtitle,
-                  styles.fullReadSubtitle,
+                  styles.introQuoteText,
                   brandFontSans,
-                  { color: isLight ? 'rgba(2, 18, 235, 0.72)' : subColor },
+                  { color: isLight ? 'rgba(30,30,30,0.78)' : 'rgba(242,242,234,0.82)' },
                 ]}
               >
-                {sheetTagline}
+                {`«${String(panelTagline).trim()}»`}
               </Text>
             </View>
           ) : null}
@@ -3495,10 +4268,12 @@ export default function LandmarkResultPage({ navigation, route }) {
         emphasisColor={emphasisColor}
         brandFontSans={brandFontSans}
         brandFontHeadMedium={brandFontHeadMedium}
-        leadOnly={isIntroSubPage}
-        uniformParagraphs={isIntroSubPage}
+        leadOnly={false}
+        uniformParagraphs
         compactPreHero={isIntroSubPage && (isIntroHeroAfterTextPage || isIntroHeroSideBySidePage)}
         compactTop={isIntroHeroSideBySidePage}
+        personMentions={personMentions}
+        onPersonPress={onPersonMentionPress}
       />
       {currentIllustration ? (
         <Pressable
@@ -3547,14 +4322,6 @@ export default function LandmarkResultPage({ navigation, route }) {
           ) : null}
         </Pressable>
       ) : null}
-      {!isIntroSubPage && wikipediaUrl ? (
-        <AuthStylePrimaryCta
-          onPress={openWiki}
-          label={ls(language, 'more')}
-          isLight={isLight}
-          androidRipple={isLight ? rippleOnLightSurface : rippleOnDarkSurface}
-        />
-      ) : null}
     </>
   );
 
@@ -3580,7 +4347,11 @@ export default function LandmarkResultPage({ navigation, route }) {
             {
               height: introHeroHeight || Math.min(420, Math.max(260, Math.round(winH * 0.44))),
               marginHorizontal: isIntroHeroInsetRoundedPage ? 20 : 0,
-              marginTop: isIntroHeroInsetRoundedHeroFirstPage ? 22 : 0,
+              marginTop: isIntroHeroInsetRoundedHeroFirstPage
+                ? introHeroNeedsHeaderClearance
+                  ? 8
+                  : 22
+                : 0,
             },
             isLight && styles.fullReadHeroCardLight,
             styles.heroPlaceholder,
@@ -3611,24 +4382,30 @@ export default function LandmarkResultPage({ navigation, route }) {
         ? Number.isFinite(stackGapRaw) && stackGapRaw >= 0
           ? stackGapRaw
           : 10
-        : isIntroHeroBleedTopPage
+        : introHeroIsTallBleed ||
+            isIntroHeroBleedTopPage ||
+            (!isIntroSubPage && variant === 'primary' && !isIntroHeroAfterTextPage && !introHeroNeedsHeaderClearance)
           ? Number.isFinite(stackGapRaw) && stackGapRaw > 0
             ? stackGapRaw
             : 0
           : isIntroCompareRoundedPage ||
               isIntroIllustrationPage ||
               (isIntroHeroInsetRoundedHeroFirstPage && variant === 'primary')
-            ? insetRoundedGap
+            ? introHeroNeedsHeaderClearance
+              ? Number.isFinite(stackGapRaw) && stackGapRaw >= 0
+                ? Math.min(stackGapRaw, 8)
+                : 8
+              : insetRoundedGap
             : isIntroHeroAfterTextPage
               ? Number.isFinite(stackGapRaw) && stackGapRaw >= 0
                 ? stackGapRaw
                 : 8
               : introHeroTopInset;
+    // Only use letterboxed contain when a page explicitly opts in
     const useContainRoundedHero =
       heroFit === 'contain' &&
       variant === 'primary' &&
-      !currentIntroCompare &&
-      (isIntroHeroInsetRoundedPage || isIntroHeroAfterTextPage);
+      !currentIntroCompare;
     const heroAssetAspect = source ? resolveAssetAspect(source) : 1;
     const containHeroLayout = useContainRoundedHero
       ? (() => {
@@ -3652,7 +4429,7 @@ export default function LandmarkResultPage({ navigation, route }) {
           height,
           marginHorizontal: currentIntroCompare
             ? INTRO_COMPARE_HPAD
-            : isIntroHeroInsetRoundedPage
+            : isIntroHeroInsetRoundedPage && !introHeroIsTallBleed
               ? 20
               : 0,
           marginTop: stackGap,
@@ -3670,7 +4447,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         isIntroCompareRoundedPage && styles.fullReadHeroCardCompareRoundedAll,
         variant === 'secondary' && styles.fullReadHeroCardSecondary,
         isIntroHeroAfterTextPage && variant === 'primary' && styles.fullReadHeroCardInsetRounded,
-        isIntroHeroInsetRoundedPage && styles.fullReadHeroCardInsetRounded,
+        isIntroHeroInsetRoundedPage && !introHeroIsTallBleed && styles.fullReadHeroCardInsetRounded,
         useContainRoundedHero &&
           containHeroLayout && {
             width: containHeroLayout.width,
@@ -3678,7 +4455,10 @@ export default function LandmarkResultPage({ navigation, route }) {
             alignSelf: 'center',
             marginHorizontal: 0,
           },
-        isIntroHeroBleedTopPage && variant === 'primary' && styles.fullReadHeroCardBleedTop,
+        (introHeroIsTallBleed || isIntroHeroBleedTopPage || !isIntroSubPage) &&
+          variant === 'primary' &&
+          !isIntroHeroAfterTextPage &&
+          styles.fullReadHeroCardBleedTop,
       ]}
     >
       {variant === 'primary' && currentIntroCompare ? (
@@ -3724,7 +4504,7 @@ export default function LandmarkResultPage({ navigation, route }) {
               source={source}
               style={containHeroLayout}
               contentFit="contain"
-              contentPosition={heroPosition}
+              contentPosition="center"
               cachePolicy="memory-disk"
               transition={0}
               allowDownscaling
@@ -3745,16 +4525,19 @@ export default function LandmarkResultPage({ navigation, route }) {
             styles.fullReadHeroImg,
             (isIntroHeroAfterTextPage || isIntroHeroInsetRoundedPage) &&
               styles.fullReadHeroImgInsetRounded,
-            variant === 'primary' &&
-              isIntroTextShort &&
-              !isIntroHeroAfterTextPage &&
-              !isIntroHeroInsetRoundedPage
-              ? { transform: [{ translateY: 22 + introAutoShift }] }
-              : null,
           ]}
-          contentFit={heroFit}
-          contentPosition={heroPosition}
+          contentFit={heroFit === 'contain' ? 'contain' : 'cover'}
+          contentPosition={
+            heroFit === 'contain'
+              ? 'center'
+              : (isIntroHeroBleedTopPage || !isIntroSubPage) &&
+                  variant === 'primary' &&
+                  !isIntroHeroAfterTextPage
+                ? 'top'
+                : heroPosition || 'center'
+          }
           cachePolicy="memory-disk"
+          recyclingKey={imageSourceStableKey(source, `intro-hero:${activeSectionIndex}:${variant}`)}
           transition={0}
           allowDownscaling
           accessibilityIgnoresInvertColors
@@ -3872,6 +4655,7 @@ export default function LandmarkResultPage({ navigation, route }) {
             contentFit={heroFit}
             contentPosition={cell.position}
             cachePolicy="memory-disk"
+            recyclingKey={imageSourceStableKey(cell.source, `intro-side:${activeSectionIndex}:${cell.caption || ''}`)}
             transition={0}
             allowDownscaling
             accessibilityIgnoresInvertColors
@@ -3933,6 +4717,8 @@ export default function LandmarkResultPage({ navigation, route }) {
       <Animated.View
         style={{
           flex: 1,
+          width: '100%',
+          alignSelf: 'stretch',
           opacity: slideEnter,
           transform: [{ translateY: slideEnterFromY }],
         }}
@@ -3954,6 +4740,7 @@ export default function LandmarkResultPage({ navigation, route }) {
               contentFit="cover"
               contentPosition="center"
               cachePolicy="memory-disk"
+              recyclingKey={imageSourceStableKey(introPrimaryPhotoSource, `intro-full:${activeSectionIndex}`)}
               transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
@@ -3976,14 +4763,17 @@ export default function LandmarkResultPage({ navigation, route }) {
               paddingBottom: introScrollBottomPad,
               paddingTop: introScrollTopPad,
             }}
+            {...introScrollProps}
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
+            automaticallyAdjustsScrollIndicatorInsets={false}
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             scrollEnabled={!compareDragLock}
             bounces={isIntroFirstPage}
             overScrollMode={isIntroFirstPage ? 'always' : 'never'}
             keyboardShouldPersistTaps="handled"
-            removeClippedSubviews={Platform.OS === 'android'}
-            {...introScrollProps}
+            removeClippedSubviews={false}
           >
             {isIntroHeroAfterTextPage ? (
               <>
@@ -4013,6 +4803,8 @@ export default function LandmarkResultPage({ navigation, route }) {
                       brandFontHeadMedium={brandFontHeadMedium}
                       leadOnly
                       uniformParagraphs
+                      personMentions={personMentions}
+                      onPersonPress={onPersonMentionPress}
                     />
                   </View>
                 ) : null}
@@ -4048,7 +4840,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                     isIntroHeroSideBySidePage && styles.introScrollTextBlockSideBySide,
                     !currentIntroCompare &&
                       !isIntroSubPage &&
-                      !isIntroHeroSideBySidePage && { paddingTop: 12 + introAutoShift },
+                      !isIntroHeroSideBySidePage && { paddingTop: 14 },
                   ]}
                 >
                   {introArticleBody}
@@ -4067,7 +4859,7 @@ export default function LandmarkResultPage({ navigation, route }) {
             isLight ? styles.quizPageRootLight : styles.quizPageRootDark,
           ]}
         >
-          {/* Decor layer — photo blob on the right, like the mockup */}
+          {/* Decor — brush fills mid gap; stays behind title + card */}
           <View style={styles.quizDecorLayer} pointerEvents="none">
             <LandmarkQuizBrushHero
               source={defaultHeroPhotoSource}
@@ -4077,53 +4869,59 @@ export default function LandmarkResultPage({ navigation, route }) {
               style={[
                 styles.quizBrushHero,
                 {
-                  top: Math.max(insets.top + 36, 56),
-                  right: -Math.round(winW * 0.1),
+                  top: quizHeroTop,
+                  right: -Math.round(winW * 0.06),
                 },
               ]}
             />
           </View>
 
+          {/* Title pinned under glass bar — never scrolls under Dynamic Island */}
           <View
             pointerEvents="box-none"
             style={[
-              styles.quizTitleBlock,
+              styles.quizTitleBlockPinned,
               {
-                top: Math.max(insets.top + 72, 96),
-                maxWidth: Math.min(winW * 0.46, 188),
+                paddingTop: quizTitleTopPad,
+                maxWidth: Math.min(winW * 0.78, 300),
               },
             ]}
           >
-            {quizDisplayTitle.lead ? (
-              <Text
-                style={[styles.quizTitleLead, brandFontScript, { color: accent }]}
-                numberOfLines={2}
-              >
-                {quizDisplayTitle.lead}
-              </Text>
-            ) : null}
-            {quizDisplayTitle.rest ? (
+            <View
+              style={[
+                styles.quizTitleReadableWrap,
+                isLight ? styles.quizTitleReadableWrapLight : styles.quizTitleReadableWrapDark,
+              ]}
+            >
+              {quizDisplayTitle.lead ? (
+                <FittingText
+                  style={[styles.quizTitleLead, brandFontScript, { color: accent }]}
+                  numberOfLines={2}
+                  minimumFontScale={0.7}
+                >
+                  {quizDisplayTitle.lead}
+                </FittingText>
+              ) : null}
+              {quizDisplayTitle.rest ? (
+                <FittingText
+                  style={[styles.quizTitleRest, brandFontHeadBold, { color: accent }]}
+                  numberOfLines={3}
+                  minimumFontScale={0.75}
+                >
+                  {quizDisplayTitle.rest}
+                </FittingText>
+              ) : null}
               <Text
                 style={[
-                  styles.quizTitleRest,
-                  brandFontHeadBold,
-                  { color: isLight ? '#121212' : FIGMA_CREAM },
+                  styles.quizTitleHint,
+                  brandFontSans,
+                  { color: isLight ? 'rgba(18,18,18,0.78)' : 'rgba(242,242,234,0.86)' },
                 ]}
                 numberOfLines={3}
               >
-                {quizDisplayTitle.rest}
+                {lq(language, 'quizHeroHint')}
               </Text>
-            ) : null}
-            <Text
-              style={[
-                styles.quizTitleHint,
-                brandFontSans,
-                { color: isLight ? 'rgba(26,26,26,0.72)' : 'rgba(242,242,234,0.72)' },
-              ]}
-              numberOfLines={4}
-            >
-              {lq(language, 'quizHeroHint')}
-            </Text>
+            </View>
           </View>
 
           <ScrollView
@@ -4132,8 +4930,8 @@ export default function LandmarkResultPage({ navigation, route }) {
             contentContainerStyle={[
               styles.quizPageScrollContent,
               {
-                paddingTop: quizTitleClearance,
                 paddingBottom: quizScrollBottomPad,
+                minHeight: Math.max(0, winH - quizTitleTopPad - 120),
               },
             ]}
             showsVerticalScrollIndicator={false}
@@ -4141,30 +4939,35 @@ export default function LandmarkResultPage({ navigation, route }) {
             nestedScrollEnabled
             bounces
             overScrollMode="always"
-            removeClippedSubviews={Platform.OS === 'android'}
+            removeClippedSubviews={false}
           >
-            <View
-              style={[
-                styles.quizSheet,
-                isLight ? styles.quizSheetLight : styles.quizSheetDark,
-              ]}
-            >
+            <View style={styles.quizStageSpacer} pointerEvents="none" />
+
+            <View style={styles.quizPageViewportCenter}>
               <View
                 style={[
-                  styles.quizSheetHandle,
-                  { backgroundColor: isLight ? 'rgba(2,18,235,0.22)' : 'rgba(225,255,0,0.35)' },
+                  styles.quizSheet,
+                  isLight ? styles.quizSheetLight : styles.quizSheetDark,
                 ]}
-              />
-              <View style={styles.quizPageInner}>
-                <LandmarkQuizContent
-                  navigation={navigation}
-                  route={quizPagerRoute}
-                  pagerMode
-                  hideHeader
-                  inlineMode
-                  onContinue={quizHasNextSection ? handleQuizContinue : undefined}
-                  onAfterReveal={scrollQuizIntoView}
+              >
+                <View
+                  style={[
+                    styles.quizSheetHandle,
+                    { backgroundColor: isLight ? 'rgba(2,18,235,0.22)' : 'rgba(225,255,0,0.35)' },
+                  ]}
                 />
+                <View style={styles.quizPageInner}>
+                  <LandmarkQuizContent
+                    ref={quizControlsRef}
+                    navigation={navigation}
+                    route={quizPagerRoute}
+                    pagerMode
+                    hideHeader
+                    inlineMode
+                    onContinue={quizHasNextSection ? handleQuizContinue : undefined}
+                    onAfterReveal={scrollQuizIntoView}
+                  />
+                </View>
               </View>
             </View>
           </ScrollView>
@@ -4172,6 +4975,126 @@ export default function LandmarkResultPage({ navigation, route }) {
       ) : null}
 
       {currentPage?.type === 'fact' || currentPage?.type === 'compare' ? (
+        currentPage.type === 'fact' && currentPage.slide?.factLayout === 'sheet' ? (
+          <View
+            style={[
+              styles.fullReadPage,
+              styles.readFactSheetPage,
+              isLight ? styles.readFactSheetPageLight : styles.readFactSheetPageDark,
+            ]}
+          >
+            <View style={styles.readFactSheetHero}>
+              <Animated.View
+                style={[StyleSheet.absoluteFillObject, { transform: [{ scale: slideMediaScale }] }]}
+              >
+                {typeof currentPage.slide?.photoAsset === 'number' ? (
+                  <ExpoImage
+                    source={currentPage.slide.photoAsset}
+                    style={styles.readFactSheetHeroImg}
+                    contentFit="cover"
+                    contentPosition="center"
+                    cachePolicy="memory-disk"
+                    recyclingKey={`fact-sheet-asset:${currentPage.slide.photoAsset}`}
+                    transition={220}
+                    allowDownscaling
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : currentPage.slide?.photoUri ? (
+                  <ExpoImage
+                    source={{ uri: currentPage.slide.photoUri }}
+                    style={styles.readFactSheetHeroImg}
+                    contentFit="cover"
+                    contentPosition="center"
+                    cachePolicy="memory-disk"
+                    recyclingKey={`fact-sheet-uri:${currentPage.slide.photoUri}`}
+                    transition={220}
+                    allowDownscaling
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : defaultHeroPhotoSource ? (
+                  <ExpoImage
+                    source={defaultHeroPhotoSource}
+                    style={styles.readFactSheetHeroImg}
+                    contentFit="cover"
+                    contentPosition="center"
+                    cachePolicy="memory-disk"
+                    recyclingKey={imageSourceStableKey(
+                      defaultHeroPhotoSource,
+                      `fact-sheet-default:${activeSectionIndex}`,
+                    )}
+                    transition={220}
+                    allowDownscaling
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.readFactSheetHeroImg,
+                      styles.heroPlaceholder,
+                      isLight && styles.heroPlaceholderLight,
+                    ]}
+                  />
+                )}
+              </Animated.View>
+            </View>
+            <View
+              style={[
+                styles.readFactSheetPanel,
+                isLight ? styles.readFactSheetPanelLight : styles.readFactSheetPanelDark,
+                { paddingBottom: Math.max(insets.bottom + 96, 120) },
+              ]}
+            >
+              <View
+                style={[
+                  styles.readFactSheetHandle,
+                  { backgroundColor: isLight ? 'rgba(2,18,235,0.22)' : 'rgba(225,255,0,0.35)' },
+                ]}
+              />
+              {currentPage.slide?.title ? (
+                <Text style={[styles.readFactSheetTitle, brandFontSansMedium, { color: accent }]}>
+                  {currentPage.slide.title}
+                </Text>
+              ) : null}
+              {(() => {
+                const factBody =
+                  String(currentPage.slide?.fact || '').trim() ||
+                  (language === 'uk'
+                    ? 'Факт для цієї памʼятки буде додано адміністратором.'
+                    : 'A fact for this landmark will be added by admin.');
+                const factTextEl = (
+                  <TextWithOptionalUrls
+                    style={[
+                      styles.readFactSheetBody,
+                      brandFontSans,
+                      { color: isLight ? '#1A1A1A' : FIGMA_CREAM },
+                    ]}
+                    linkColor={bodyLinkColor}
+                    emphasisColor={emphasisColor}
+                    personMentions={personMentions}
+                    onPersonPress={onPersonMentionPress}
+                  >
+                    {factBody}
+                  </TextWithOptionalUrls>
+                );
+                // Short facts hug content; long ones scroll inside a capped area
+                if (factBody.length > 380) {
+                  return (
+                    <ScrollView
+                      style={[styles.readFactSheetBodyScroll, { maxHeight: Math.round(winH * 0.28) }]}
+                      contentContainerStyle={styles.readFactSheetBodyScrollContent}
+                      showsVerticalScrollIndicator={false}
+                      nestedScrollEnabled
+                      bounces={false}
+                    >
+                      {factTextEl}
+                    </ScrollView>
+                  );
+                }
+                return <View style={styles.readFactSheetBodyWrap}>{factTextEl}</View>;
+              })()}
+            </View>
+          </View>
+        ) : (
         <View
           style={[
             styles.fullReadPage,
@@ -4198,8 +5121,9 @@ export default function LandmarkResultPage({ navigation, route }) {
               source={currentPage.slide.photoAsset}
               style={[styles.readFactImage, styles.readFactImageBleed]}
               contentFit="cover"
-              contentPosition="center"
+              contentPosition="top"
               cachePolicy="memory-disk"
+              recyclingKey={`fact-asset:${currentPage.slide.photoAsset}`}
               transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
@@ -4207,10 +5131,11 @@ export default function LandmarkResultPage({ navigation, route }) {
           ) : currentPage.slide?.photoUri ? (
             <ExpoImage
               source={{ uri: currentPage.slide.photoUri }}
-              style={[styles.readFactImage, styles.readFactImageBleed]}
+              style={[styles.readFactImage, styles.readFactImageBleedTop]}
               contentFit="cover"
-              contentPosition="center"
+              contentPosition="top"
               cachePolicy="memory-disk"
+              recyclingKey={`fact-uri:${currentPage.slide.photoUri}`}
               transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
@@ -4218,10 +5143,11 @@ export default function LandmarkResultPage({ navigation, route }) {
           ) : defaultHeroPhotoSource ? (
             <ExpoImage
               source={defaultHeroPhotoSource}
-              style={[styles.readFactImage, styles.readFactImageBleed]}
+              style={[styles.readFactImage, styles.readFactImageBleedTop]}
               contentFit="cover"
-              contentPosition="center"
+              contentPosition="top"
               cachePolicy="memory-disk"
+              recyclingKey={imageSourceStableKey(defaultHeroPhotoSource, `fact-default:${activeSectionIndex}`)}
               transition={220}
               allowDownscaling
               accessibilityIgnoresInvertColors
@@ -4260,29 +5186,51 @@ export default function LandmarkResultPage({ navigation, route }) {
                     isLight={isLight}
                     accent={accent}
                     titleColor={titleColor}
-                    bodyColor={accent}
+                    bodyColor={isLight ? '#2A2A2A' : FIGMA_CREAM}
                     bodyLinkColor={bodyLinkColor}
                     emphasisColor={emphasisColor}
                     brandFontSans={brandFontSans}
                     brandFontHeadMedium={brandFontHeadMedium}
-                    leadOnly
+                    leadOnly={false}
                     uniformParagraphs
+                    personMentions={personMentions}
+                    onPersonPress={onPersonMentionPress}
                   />
                 </ScrollView>
               </View>
             ) : (
-            <View style={[styles.readFactCard, isLight && styles.readFactCardLight]}>
+            <View
+              style={[
+                styles.readFactCard,
+                isLight && styles.readFactCardLight,
+                { maxHeight: Math.round(winH * 0.36) },
+              ]}
+            >
               {currentPage.slide?.title ? (
-                <Text style={[styles.readFactTitle, brandFontHeadMedium, { color: titleColor }]}>
+                <Text style={[styles.readFactTitle, brandFontSans, { color: titleColor }]}>
                   {currentPage.slide.title}
                 </Text>
               ) : null}
-              <Text style={[styles.readFactBody, brandFontHeadMedium, { color: accent }]}>
-                {String(currentPage.slide?.fact || '').trim() ||
-                  (language === 'uk'
-                    ? 'Факт для цієї памʼятки буде додано адміністратором.'
-                    : 'A fact for this landmark will be added by admin.')}
-              </Text>
+              <ScrollView
+                style={styles.readFactBodyScroll}
+                contentContainerStyle={styles.readFactBodyScrollContent}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+                bounces={false}
+              >
+                <TextWithOptionalUrls
+                  style={[styles.readFactBody, brandFontSans, { color: isLight ? '#1A1A1A' : FIGMA_CREAM }]}
+                  linkColor={bodyLinkColor}
+                  emphasisColor={emphasisColor}
+                  personMentions={personMentions}
+                  onPersonPress={onPersonMentionPress}
+                >
+                  {String(currentPage.slide?.fact || '').trim() ||
+                    (language === 'uk'
+                      ? 'Факт для цієї памʼятки буде додано адміністратором.'
+                      : 'A fact for this landmark will be added by admin.')}
+                </TextWithOptionalUrls>
+              </ScrollView>
               {currentPage.slide?.subtitle ? (
                 <Text style={[styles.readFactSubtitle, brandFontSans, { color: bodyColor }]}>
                   {currentPage.slide.subtitle}
@@ -4292,6 +5240,7 @@ export default function LandmarkResultPage({ navigation, route }) {
             )
           ) : null}
         </View>
+        )
       ) : null}
       {currentPage?.type === 'actions' ? (
         <Animated.ScrollView
@@ -4311,10 +5260,16 @@ export default function LandmarkResultPage({ navigation, route }) {
               { transform: [{ scale: slideMediaScale }] },
             ]}
           >
-            <View style={styles.actionsHeroWrap}>
-              {defaultHeroPhotoSource ? (
+            <View
+              style={styles.actionsHeroWrap}
+              collapsable={false}
+              needsOffscreenAlphaCompositing={Platform.OS === 'android'}
+              renderToHardwareTextureAndroid
+              shouldRasterizeIOS
+            >
+              {actionsHeroPhotoSource ? (
                 <ExpoImage
-                  source={defaultHeroPhotoSource}
+                  source={actionsHeroPhotoSource}
                   style={styles.actionsHeroImg}
                   contentFit="cover"
                   contentPosition="center"
@@ -4344,9 +5299,9 @@ export default function LandmarkResultPage({ navigation, route }) {
               />
             </View>
           </Animated.View>
-          {(actionsPlaceMeta.countryName || actionsPlaceMeta.cityName) ? (
+          {(actionsPlaceMeta.landmarkName || actionsPlaceMeta.addressLine) ? (
             <View style={styles.actionsPlaceBlock}>
-              {actionsPlaceMeta.countryName ? (
+              {actionsPlaceMeta.landmarkName ? (
                 <View style={styles.actionsCountryRow}>
                   <View
                     style={[
@@ -4368,18 +5323,18 @@ export default function LandmarkResultPage({ navigation, route }) {
                   </View>
                   <Text
                     style={[styles.actionsCountryText, brandFontHeadMedium, { color: titleColor }]}
-                    numberOfLines={1}
+                    numberOfLines={2}
                   >
-                    {actionsPlaceMeta.countryName}
+                    {actionsPlaceMeta.landmarkName}
                   </Text>
                 </View>
               ) : null}
-              {actionsPlaceMeta.cityName ? (
+              {actionsPlaceMeta.addressLine ? (
                 <Text
                   style={[styles.actionsCityText, brandFontSansMedium, { color: accent }]}
-                  numberOfLines={1}
+                  numberOfLines={2}
                 >
-                  {actionsPlaceMeta.cityName}
+                  {actionsPlaceMeta.addressLine}
                 </Text>
               ) : null}
             </View>
@@ -4417,6 +5372,17 @@ export default function LandmarkResultPage({ navigation, route }) {
                 onPress: onParamPostStory,
                 cta: true,
               },
+              ...(showActionsSources
+                ? [
+                    {
+                      key: 'sources',
+                      icon: 'library-outline',
+                      label: ls(language, 'actionsSources'),
+                      onPress: onActionsSources,
+                      cta: false,
+                    },
+                  ]
+                : []),
               {
                 key: 'continue',
                 icon: 'arrow-forward',
@@ -4559,12 +5525,12 @@ export default function LandmarkResultPage({ navigation, route }) {
               <View style={styles.pagerDockInner}>
                 <View style={styles.pagerDockLeft}>
                   <Pressable
-                    onPress={() => goAdjacentWithAudio(-1)}
-                    disabled={!canGoPrevPage}
+                    onPress={() => void handlePagerPrev()}
+                    disabled={!canPagerPrev}
                     hitSlop={12}
                     style={({ pressed }) => [
                       styles.pagerDockSide,
-                      !canGoPrevPage && styles.pagerDockSideOff,
+                      !canPagerPrev && styles.pagerDockSideOff,
                       pressed && { opacity: 0.5 },
                     ]}
                     accessibilityRole="button"
@@ -4573,7 +5539,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                     <Ionicons
                       name="chevron-back"
                       size={22}
-                      color={!canGoPrevPage ? pagerOnFillDisabled : pagerOnFill}
+                      color={!canPagerPrev ? pagerOnFillDisabled : pagerOnFill}
                     />
                   </Pressable>
 
@@ -4685,12 +5651,12 @@ export default function LandmarkResultPage({ navigation, route }) {
 
                 <View style={styles.pagerDockRight}>
                   <Pressable
-                    onPress={() => goAdjacentWithAudio(1)}
-                    disabled={!canGoNextPage}
+                    onPress={() => void handlePagerNext()}
+                    disabled={!canPagerNext}
                     hitSlop={12}
                     style={({ pressed }) => [
                       styles.pagerDockSide,
-                      !canGoNextPage && styles.pagerDockSideOff,
+                      !canPagerNext && styles.pagerDockSideOff,
                       pressed && { opacity: 0.5 },
                     ]}
                     accessibilityRole="button"
@@ -4699,7 +5665,7 @@ export default function LandmarkResultPage({ navigation, route }) {
                     <Ionicons
                       name="chevron-forward"
                       size={22}
-                      color={!canGoNextPage ? pagerOnFillDisabled : pagerOnFill}
+                      color={!canPagerNext ? pagerOnFillDisabled : pagerOnFill}
                     />
                   </Pressable>
                 </View>
@@ -4779,6 +5745,7 @@ export default function LandmarkResultPage({ navigation, route }) {
         onClose={() => setIntroPhotoLightbox(null)}
       />
       {landmarkParamsMenu}
+      {landmarkSourcesSheet}
     </RenderProfiler>
   );
 }
@@ -4789,7 +5756,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   screenLight: {
-    backgroundColor: '#E8E8E8',
+    backgroundColor: '#FFFFFF',
   },
   miniHeroImage: {
     ...StyleSheet.absoluteFillObject,
@@ -4810,7 +5777,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
   },
   heroClipLight: {
-    backgroundColor: '#DDE0E8',
+    backgroundColor: '#111',
   },
   hero: {
     width: '100%',
@@ -4821,7 +5788,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A',
   },
   heroPlaceholderLight: {
-    backgroundColor: '#E4E6ED',
+    backgroundColor: '#111',
   },
   miniBottomStack: {
     position: 'absolute',
@@ -4913,7 +5880,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
     paddingHorizontal: 20,
     paddingTop: 2,
-    paddingBottom: 4,
+    paddingBottom: 10,
     justifyContent: 'flex-start',
   },
   miniSheetHandleRow: {
@@ -4941,6 +5908,10 @@ const styles = StyleSheet.create({
   },
   miniSheetBottomContent: {
     marginTop: 'auto',
+  },
+  miniSheetTextBlock: {
+    flexShrink: 1,
+    marginBottom: 4,
   },
   miniBody: {
     fontSize: 15,
@@ -5191,7 +6162,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
   },
   fullReadHeroCardLight: {
-    backgroundColor: '#DDE0E8',
+    backgroundColor: '#111',
   },
   fullReadHeroCardCompare: {
     borderBottomLeftRadius: 0,
@@ -5359,7 +6330,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   introScrollTextBlock: {
-    paddingHorizontal: 20,
+    width: '100%',
+    alignSelf: 'stretch',
+    paddingLeft: 20,
+    paddingRight: 20,
     paddingTop: 12,
   },
   introScrollTextBlockSideBySide: {
@@ -5371,7 +6345,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   introScrollTextBlockHeroFirst: {
-    paddingTop: 28,
+    paddingTop: 20,
     paddingBottom: 0,
   },
   fullReadHeroCardInsetRounded: {
@@ -5405,6 +6379,8 @@ const styles = StyleSheet.create({
   },
   fullReadHeroCardBleedTop: {
     marginTop: 0,
+    marginHorizontal: 0,
+    alignSelf: 'stretch',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
   },
@@ -5479,6 +6455,7 @@ const styles = StyleSheet.create({
   quizPageRoot: {
     paddingHorizontal: 0,
     overflow: 'hidden',
+    flexDirection: 'column',
   },
   quizPageRootLight: {
     backgroundColor: '#F8F8FA',
@@ -5498,24 +6475,56 @@ const styles = StyleSheet.create({
     left: 18,
     zIndex: 2,
   },
+  quizTitleBlockFlow: {
+    position: 'relative',
+    left: 18,
+    zIndex: 4,
+    paddingRight: 12,
+    paddingBottom: 10,
+    marginBottom: 4,
+    flexShrink: 0,
+  },
+  quizTitleBlockPinned: {
+    zIndex: 4,
+    paddingLeft: 18,
+    paddingRight: 16,
+    paddingBottom: 12,
+    marginTop: 6,
+    flexShrink: 0,
+  },
+  quizTitleReadableWrap: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  quizTitleReadableWrapLight: {
+    backgroundColor: 'rgba(248,248,250,0.88)',
+  },
+  quizTitleReadableWrapDark: {
+    backgroundColor: 'rgba(8,8,10,0.72)',
+  },
   quizTitleLead: {
     fontSize: Platform.OS === 'android' ? 34 : 36,
-    lineHeight: Platform.OS === 'android' ? 36 : 38,
+    lineHeight: Platform.OS === 'android' ? 38 : 40,
     letterSpacing: -0.2,
     transform: [{ rotate: '-1.5deg' }],
     marginBottom: 2,
+    overflow: 'visible',
   },
   quizTitleRest: {
     fontSize: Platform.OS === 'android' ? 14 : 15,
-    lineHeight: Platform.OS === 'android' ? 18 : 19,
-    letterSpacing: 0.2,
+    lineHeight: Platform.OS === 'android' ? 18 : 20,
+    letterSpacing: 0.35,
     marginBottom: 6,
-    marginTop: 0,
+    marginTop: 2,
+    textTransform: 'uppercase',
   },
   quizTitleHint: {
-    fontSize: 12,
-    lineHeight: 16,
-    maxWidth: 156,
+    fontSize: 13,
+    lineHeight: 18,
+    maxWidth: 250,
   },
   quizPageBg: {
     paddingHorizontal: Platform.OS === 'android' ? 16 : 14,
@@ -5534,23 +6543,29 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     alignItems: 'stretch',
     paddingHorizontal: Platform.OS === 'android' ? 14 : 12,
+    justifyContent: 'flex-start',
+  },
+  quizStageSpacer: {
+    flexGrow: 1,
+    minHeight: 28,
   },
   quizSheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    paddingTop: 8,
-    paddingBottom: 10,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+    paddingTop: 6,
+    paddingBottom: 12,
     paddingHorizontal: 4,
+    overflow: 'visible',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 14,
+        shadowOffset: { width: 0, height: -6 },
+        shadowOpacity: 0.14,
+        shadowRadius: 18,
       },
-      android: { elevation: 6 },
+      android: { elevation: 8 },
     }),
   },
   quizSheetLight: {
@@ -5568,12 +6583,20 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 999,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   quizPageViewportCenter: {
-    flexGrow: 1,
-    justifyContent: 'flex-end',
     width: '100%',
+    justifyContent: 'flex-end',
+    flexShrink: 0,
+  },
+  quizPageInner: {
+    flexGrow: 0,
+    flexShrink: 0,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 6,
+    paddingTop: 0,
+    paddingBottom: 4,
   },
   quizPageCenterColumn: {
     width: '100%',
@@ -5623,13 +6646,6 @@ const styles = StyleSheet.create({
   quizPageTitleDark: {
     color: '#E1FF00',
   },
-  quizPageInner: {
-    flexGrow: 0,
-    flexShrink: 1,
-    justifyContent: 'flex-start',
-    paddingTop: 0,
-    paddingBottom: 0,
-  },
   readFactsDeck: {
     marginTop: 0,
     rowGap: 0,
@@ -5661,40 +6677,112 @@ const styles = StyleSheet.create({
   readFactImageBleed: {
     transform: [{ scale: 1.06 }, { translateY: -8 }],
   },
+  readFactImageBleedTop: {
+    transform: [{ scale: 1.08 }, { translateY: -18 }],
+  },
   readFactCompare: {
     ...StyleSheet.absoluteFillObject,
   },
   readFactOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
   readFactOverlayCompare: {
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
+  readFactSheetPage: {
+    flex: 1,
+    backgroundColor: '#0A0A0C',
+  },
+  readFactSheetPageLight: {
+    backgroundColor: '#F4F5F8',
+  },
+  readFactSheetPageDark: {
+    backgroundColor: '#08080A',
+  },
+  readFactSheetHero: {
+    flex: 1,
+    width: '100%',
+    minHeight: 220,
+    overflow: 'hidden',
+    backgroundColor: '#111',
+  },
+  readFactSheetHeroImg: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  readFactSheetPanel: {
+    flexGrow: 0,
+    flexShrink: 0,
+    marginTop: -22,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    zIndex: 2,
+  },
+  readFactSheetPanelLight: {
+    backgroundColor: '#FFFFFF',
+  },
+  readFactSheetPanelDark: {
+    backgroundColor: '#121214',
+  },
+  readFactSheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 14,
+  },
+  readFactSheetTitle: {
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  readFactSheetBodyWrap: {
+    flexGrow: 0,
+  },
+  readFactSheetBodyScroll: {
+    flexGrow: 0,
+  },
+  readFactSheetBodyScrollContent: {
+    paddingBottom: 4,
+  },
+  readFactSheetBody: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
   readFactCard: {
     position: 'absolute',
-    left: 24,
-    right: 24,
-    top: '50%',
-    transform: [{ translateY: -74 }],
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(22,22,22,0.72)',
+    left: 20,
+    right: 20,
+    // Keep card in the lower-middle so the landmark photo stays visible above
+    bottom: Platform.OS === 'android' ? 118 : 108,
+    maxHeight: '38%',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(22,22,22,0.78)',
     borderWidth: 1,
-    borderColor: 'rgba(225,255,0,0.28)',
+    borderColor: 'rgba(225,255,0,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   readFactCardLight: {
-    backgroundColor: 'rgba(255,255,255,0.84)',
-    borderColor: 'rgba(2,18,235,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    borderColor: 'rgba(2,18,235,0.16)',
   },
   readFactCardIntro: {
-    top: '46%',
+    bottom: Platform.OS === 'android' ? 118 : 108,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   readFactCardIntroScrollContent: {
     paddingBottom: 2,
+    alignItems: 'center',
   },
   readFactBodyIntro: {
     fontSize: 14,
@@ -5702,21 +6790,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   readFactTitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  readFactBody: {
-    fontSize: 22,
-    lineHeight: 27,
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  readFactSubtitle: {
     fontSize: 12,
     lineHeight: 16,
+    marginBottom: 6,
     textAlign: 'center',
+    opacity: 0.85,
+    letterSpacing: 0.2,
+  },
+  readFactBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  readFactSubtitle: {
+    fontSize: 11,
+    lineHeight: 15,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  readFactBodyScroll: {
+    maxHeight: 160,
+    width: '100%',
+  },
+  readFactBodyScrollContent: {
+    alignItems: 'center',
+    paddingBottom: 2,
   },
   chevronHint: {
     alignSelf: 'center',
@@ -5850,8 +6950,10 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 22,
+    lineHeight: 28,
     marginBottom: 6,
-    paddingRight: 8,
+    paddingHorizontal: 2,
+    flexShrink: 1,
   },
   titleFigma: {
     letterSpacing: 0.2,
@@ -5872,6 +6974,18 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  introQuoteBlock: {
+    marginTop: 4,
+    marginBottom: 14,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+  },
+  introQuoteText: {
+    fontSize: 16,
+    lineHeight: 26,
+    fontStyle: 'italic',
+    letterSpacing: 0.1,
+  },
   introFormattedBody: {
     paddingTop: 2,
   },
@@ -5880,19 +6994,19 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   introLeadParagraph: {
-    fontSize: 17,
-    lineHeight: 27,
-    marginBottom: 20,
+    fontSize: 16,
+    lineHeight: 26,
+    marginBottom: 16,
   },
   introEmphasisParagraph: {
-    fontSize: 18,
-    lineHeight: 29,
+    fontSize: 16,
+    lineHeight: 26,
     letterSpacing: 0.1,
   },
   introParagraph: {
     fontSize: 16,
     lineHeight: 26,
-    marginBottom: 18,
+    marginBottom: 16,
   },
   introParagraphPreHero: {
     marginBottom: 8,
@@ -6222,5 +7336,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
     letterSpacing: -0.1,
+  },
+  sourcesSheetLead: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  sourcesSheetScroll: {
+    maxHeight: 320,
+  },
+  sourcesSheetScrollContent: {
+    paddingBottom: 8,
+  },
+  sourcesSheetCloseBtn: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth * 2,
   },
 });

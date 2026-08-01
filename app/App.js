@@ -45,6 +45,7 @@ import { getAppTheme, getAppThemeSync, navThemeForAppTheme, screenBgForTheme, TH
 import { effectiveThemeForContext } from './onboardingTheme';
 import { fetchAppVersionGate } from './fetchAppVersionGate';
 import { runAppBootstrap } from './appBootstrap';
+import { startRemoteLocationBundleAutoSync } from './adminLocationData';
 import { waitForSplashLogoPainted, notifySplashHidden } from './splashLogoGate';
 import { KRAINA_FONT_MAP } from './krainaFonts';
 import { markEnd } from './performanceMetrics';
@@ -315,6 +316,13 @@ export default function App() {
   const fontsDeferredReady = true;
   /** Якщо задано — показуємо екран примусового оновлення замість навігації */
   const [forceUpdateGate, setForceUpdateGate] = useState(null);
+
+  useEffect(() => {
+    return startRemoteLocationBundleAutoSync({
+      syncImmediately: false,
+      shouldSync: () => navigationRef.getCurrentRoute()?.name !== 'AdminPanel',
+    });
+  }, []);
   /**
    * 1) FirstPage вже змонтована (contentReady = true).
    * 2) Чекаємо, поки FirstPage відрендерить лого (або таймаут 3с).
@@ -330,9 +338,8 @@ export default function App() {
       try {
         const storedTheme = await getAppTheme();
         if (cancelled) return;
-        setAppTheme(storedTheme === 'light' ? 'light' : 'dark');
+        setAppTheme(storedTheme === 'dark' ? 'dark' : 'light');
         if (cancelled) return;
-        // Чекаємо, доки FirstPage намалює лого (він уже змонтований)
         await waitForSplashLogoPainted(450);
         if (cancelled) return;
         SplashScreen.setOptions({ fade: false, duration: 0 });
@@ -829,8 +836,13 @@ export default function App() {
                 component={LandmarkResultPage}
                 options={
                   Platform.OS === 'ios'
-                    ? { gestureEnabled: false, fullScreenGestureEnabled: false }
-                    : undefined
+                    ? {
+                        headerShown: false,
+                        gestureEnabled: false,
+                        fullScreenGestureEnabled: false,
+                        contentStyle: { backgroundColor: '#000' },
+                      }
+                    : { headerShown: false, contentStyle: { backgroundColor: '#000' } }
                 }
               />
               <Stack.Screen name="LandmarkQuiz" component={LandmarkQuizPage} options={{ headerShown: false }} />

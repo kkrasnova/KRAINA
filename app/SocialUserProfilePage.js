@@ -15,7 +15,7 @@ import {
   TextInput,
   FlatList,
 } from 'react-native';
-import { Image as ExpoImage } from 'expo-image';
+import RemotePhoto from './RemotePhoto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -783,13 +783,14 @@ export default function SocialUserProfilePage({ navigation, route }) {
                     style={{ width: CELL, height: CELL, borderRadius: 3, overflow: 'hidden' }}
                   >
                     {it.uri ? (
-                      <ExpoImage
+                      <RemotePhoto
                         source={{ uri: it.uri }}
                         style={styles.cellImg}
                         contentFit="cover"
                         cachePolicy="memory-disk"
                         recyclingKey={String(it.id)}
                         transition={120}
+                        iconSize={20}
                       />
                     ) : (
                       <View style={[styles.cellImg, { backgroundColor: '#333' }]} />
@@ -845,7 +846,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
                       showsHorizontalScrollIndicator={false}
                       maxToRenderPerBatch={3}
                       windowSize={3}
-                      removeClippedSubviews={Platform.OS === 'android'}
+                      removeClippedSubviews={false}
                       initialNumToRender={3}
                       onMomentumScrollEnd={(e) => {
                         const w = e?.nativeEvent?.layoutMeasurement?.width || 1;
@@ -854,7 +855,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
                         setPostMediaIndex(idx);
                       }}
                       renderItem={({ item }) => (
-                        <ExpoImage
+                        <RemotePhoto
                           source={{ uri: resolveFeedMediaUrl(String(item || '')) }}
                           style={styles.modalImage}
                           contentFit="cover"
@@ -869,7 +870,7 @@ export default function SocialUserProfilePage({ navigation, route }) {
                     </View>
                   </View>
                 ) : (
-                  <ExpoImage
+                  <RemotePhoto
                     source={{ uri: pickFirstFeedMediaUrl(postModal) }}
                     style={styles.modalImage}
                     contentFit="cover"

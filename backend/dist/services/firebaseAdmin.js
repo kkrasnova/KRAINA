@@ -115,17 +115,26 @@ let cachedPublisherDb;
 export function getAdminAuth() {
     if (cachedAuth !== undefined)
         return cachedAuth;
-    const account = loadServiceAccount();
-    if (!account) {
+    try {
+        const account = loadServiceAccount();
+        if (!account) {
+            cachedAuth = null;
+            return null;
+        }
+        if (!ensureDefaultApp(account)) {
+            cachedAuth = null;
+            return null;
+        }
+        cachedAuth = admin.auth();
+        return cachedAuth;
+    }
+    catch (e) {
+        logger.warn('[firebaseAdmin] getAdminAuth failed', {
+            error: e instanceof Error ? e.message : String(e),
+        });
         cachedAuth = null;
         return null;
     }
-    if (!ensureDefaultApp(account)) {
-        cachedAuth = null;
-        return null;
-    }
-    cachedAuth = admin.auth();
-    return cachedAuth;
 }
 /**
  * Returns a Firestore client on the **default** database, or `null` when

@@ -20,6 +20,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import RemotePhoto from './RemotePhoto';
 
 import { Video, ResizeMode } from './expoAvCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -268,7 +269,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
   const slideStyle = useMemo(() => [styles.postImage, { width: slideW }], [slideW]);
   if (!media.length) {
     return (
-      <ExpoImage
+      <RemotePhoto
         source={post?.isUri ? { uri: post?.image } : post?.image}
         style={slideStyle}
         contentFit="cover"
@@ -289,7 +290,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
         shouldPlay={false}
       />
     ) : (
-      <ExpoImage source={{ uri: one }} style={slideStyle} contentFit="cover" cachePolicy="memory-disk" transition={0} />
+      <RemotePhoto source={{ uri: one }} style={slideStyle} contentFit="cover" cachePolicy="memory-disk" transition={0} />
     );
   }
   return (
@@ -322,7 +323,7 @@ const MemoPostMediaCarousel = React.memo(function MemoPostMediaCarousel({ post, 
               shouldPlay={false}
             />
           ) : (
-            <ExpoImage source={{ uri: u }} style={slideStyle} contentFit="cover" cachePolicy="memory-disk" transition={0} />
+            <RemotePhoto source={{ uri: u }} style={slideStyle} contentFit="cover" cachePolicy="memory-disk" transition={0} />
           );
         }}
       />
@@ -1659,7 +1660,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
           disableIntervalMomentum
           windowSize={3}
           maxToRenderPerBatch={4}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           initialNumToRender={4}
           renderItem={({ item }) => {
             if (item.type === 'add') {
@@ -1693,7 +1694,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
                   style={({ pressed }) => [styles.storyCard, pressed && { opacity: 0.88 }]}
                   onPress={item.fromDeviceGallery ? openCreate : openLocalStories}
                 >
-                  <ExpoImage source={{ uri: item.uri }} style={styles.storyImage} contentFit="cover" cachePolicy="memory-disk" transition={0} />
+                  <RemotePhoto source={{ uri: item.uri }} style={styles.storyImage} contentFit="cover" cachePolicy="memory-disk" transition={0} />
                   <View
                     style={[
                       styles.storyAvatarWrap,
@@ -1717,7 +1718,7 @@ export default function FeedPage({ navigation, route, isTabActive = true }) {
                 style={({ pressed }) => [styles.storyCard, pressed && { opacity: 0.85 }]}
                 onPress={() => openStoryForUser(row)}
               >
-                <ExpoImage
+                <RemotePhoto
                   source={{ uri: resolveFeedMediaUrl(row.media_url) }}
                   style={styles.storyImage}
                   contentFit="cover"

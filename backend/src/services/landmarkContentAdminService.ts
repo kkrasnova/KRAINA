@@ -4,6 +4,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { HttpError } from '../errors/HttpError.js';
 import { getStorageProvider } from '../storage/index.js';
+import { dedupeCityRegionsInBundle } from './cityRegionCanonical.js';
 
 const SUB = 'landmark-content';
 const BUNDLE_FILE = 'landmark_bundle.json';
@@ -47,16 +48,126 @@ function extFromName(orig: string) {
   return '.jpg';
 }
 
+function mergeIncomingOverDiskCatalog(disk: Record<string, any> | null, incoming: Record<string, any>) {
+  if (!disk || typeof disk !== 'object') return incoming;
+  const next: Record<string, any> = {
+    ...incoming,
+    regions: { ...(incoming.regions && typeof incoming.regions === 'object' ? incoming.regions : {}) },
+    homeCountryOrder: Array.isArray(incoming.homeCountryOrder) ? [...incoming.homeCountryOrder] : [],
+    homeRegionIdsByCountry: {
+      ...(incoming.homeRegionIdsByCountry && typeof incoming.homeRegionIdsByCountry === 'object'
+        ? incoming.homeRegionIdsByCountry
+        : {}),
+    },
+    homeCountryHeroRefs: {
+      ...(disk.homeCountryHeroRefs && typeof disk.homeCountryHeroRefs === 'object'
+        ? disk.homeCountryHeroRefs
+        : {}),
+      ...(incoming.homeCountryHeroRefs && typeof incoming.homeCountryHeroRefs === 'object'
+        ? incoming.homeCountryHeroRefs
+        : {}),
+    },
+    homeCountryHeroUris: {
+      ...(disk.homeCountryHeroUris && typeof disk.homeCountryHeroUris === 'object'
+        ? disk.homeCountryHeroUris
+        : {}),
+      ...(incoming.homeCountryHeroUris && typeof incoming.homeCountryHeroUris === 'object'
+        ? incoming.homeCountryHeroUris
+        : {}),
+    },
+  };
+
+  const seenCountries = new Set(
+    next.homeCountryOrder.map((x: any) => String(x || '').trim().toUpperCase()).filter(Boolean),
+  );
+  for (const raw of Array.isArray(disk.homeCountryOrder) ? disk.homeCountryOrder : []) {
+    const cid = String(raw || '').trim().toUpperCase();
+    if (!cid || seenCountries.has(cid)) continue;
+    seenCountries.add(cid);
+    next.homeCountryOrder.push(cid);
+  }
+
+  const diskMap =
+    disk.homeRegionIdsByCountry && typeof disk.homeRegionIdsByCountry === 'object'
+      ? disk.homeRegionIdsByCountry
+      : {};
+  for (const [cidRaw, arr] of Object.entries(diskMap)) {
+    const cid = String(cidRaw || '').trim().toUpperCase();
+    if (!cid) continue;
+    if (!Array.isArray(next.homeRegionIdsByCountry[cid])) next.homeRegionIdsByCountry[cid] = [];
+    const seen = new Set(next.homeRegionIdsByCountry[cid].map(String));
+    for (const rid of Array.isArray(arr) ? arr : []) {
+      const id = String(rid || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      next.homeRegionIdsByCountry[cid].push(id);
+    }
+  }
+
+  const diskRegions = disk.regions && typeof disk.regions === 'object' ? disk.regions : {};
+  for (const [rid, src] of Object.entries(diskRegions)) {
+    if (next.regions[rid]) continue; // incoming wins for overlapping cities
+    next.regions[rid] = src;
+  }
+
+  return next;
+}
+
 export async function saveLandmarkContentBundle(data: unknown) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new HttpError(400, 'invalid_body');
   }
-  const s = JSON.stringify(data);
+  let disk: Record<string, any> | null = null;
+  try {
+    if (await hasLandmarkContentBundle()) {
+      const existing = await getLandmarkContentBundle();
+      if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+        disk = existing as Record<string, any>;
+      }
+    }
+  } catch {
+    disk = null;
+  }
+  const merged = mergeIncomingOverDiskCatalog(disk, data as Record<string, any>);
+  const deduped = dedupeCityRegionsInBundle(merged);
+  const payload = {
+    ...deduped,
+    _meta: {
+      ...(((deduped as any)._meta && typeof (deduped as any)._meta === 'object' ? (deduped as any)._meta : {}) as object),
+      publishedAt: new Date().toISOString(),
+      version: randomBytes(8).toString('hex'),
+    },
+  };
+  const s = JSON.stringify(payload);
   if (Buffer.byteLength(s, 'utf8') > config.maxLandmarkBundleJsonBytes) {
     throw new HttpError(413, 'bundle_too_large');
   }
   await ensureLandmarkContentDirs();
   await writeFile(bundlePath(), s, 'utf8');
+  return payload;
+}
+
+export async function getLandmarkContentBundleMeta() {
+  try {
+    const st = await stat(bundlePath());
+    if (!st.isFile()) return null;
+    let version = `${st.size}:${Math.trunc(st.mtimeMs)}`;
+    try {
+      const raw = await readFile(bundlePath(), 'utf8');
+      const parsed = JSON.parse(raw) as any;
+      if (parsed?._meta?.version) version = String(parsed._meta.version);
+    } catch {
+      /* use size:mtime fallback */
+    }
+    return {
+      version,
+      size: st.size,
+      mtimeMs: st.mtimeMs,
+      publishedAt: new Date(st.mtimeMs).toISOString(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export type SavedMedia = { fileName: string; url: string };

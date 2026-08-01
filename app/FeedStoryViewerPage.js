@@ -884,7 +884,7 @@ export default function FeedStoryViewerPage({ navigation, route }) {
           }}
           maxToRenderPerBatch={3}
           windowSize={3}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           initialNumToRender={3}
           renderItem={({ item }) => {
             const resolvedUri = resolveFeedMediaUrl(item.media_url);

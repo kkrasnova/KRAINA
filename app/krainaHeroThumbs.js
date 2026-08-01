@@ -234,9 +234,10 @@ export function normalizeHeroImageSource(ref, uri) {
 }
 
 export function heroThumbRefFromImageSource(img) {
-  if (!img) return 't1';
+  if (!img) return null;
   for (const [k, v] of Object.entries(HERO_THUMB_MAP)) {
     if (v === img) return k;
   }
-  return 't1';
+  // Do not collapse unknown city heroes (kyiv-main-hero, drohobych, …) into t1.
+  return null;
 }

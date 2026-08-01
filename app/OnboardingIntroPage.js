@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -13,12 +13,11 @@ import {
   StatusBar,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import AuthHeroHeader from './AuthHeroHeader';
+import AuthHeroHeader, { WAVE_STROKE_PAD } from './AuthHeroHeader';
 import { runAfterInteractions } from './runAfterInteractions';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsive } from './useResponsive';
-import PddHeaderWordmark from './PddHeaderWordmark';
-import { rippleOnDarkSurface } from './androidFeedback';
+import { rippleOnDarkSurface, noAndroidRipple } from './androidFeedback';
 import LemonBannerGlow from './components/ui/LemonBannerGlow';
 import { setOnboardingSlidesSeenFlag } from './onboardingStorage';
 import { PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION } from './flowFlags';
@@ -28,8 +27,10 @@ import {
   androidHeroTextGapPx,
   authHeroBannerBottomY,
 } from './authHeroLayout';
-import OnboardingFinalAtlasHero from './OnboardingFinalAtlasHero';
-import OnboardingGlobe3D from './OnboardingGlobe3D';
+import OnboardingFinalPromoVideo from './OnboardingFinalPromoVideo';
+import { ONBOARDING_SLIDES } from './europeLangPacks';
+import { MAIN_UI_EXTRA } from './europeLangPacks';
+
 
 const ACCENT = '#E1FF00';
 const BODY = '#FAFAF6';
@@ -431,6 +432,38 @@ const SLIDES_HY = [
   },
 ];
 
+const SLIDES_FR = [
+  {
+    title: 'Découvre des monuments intéressants',
+    body:
+      'Dans la ville où tu te trouves, il y a de nombreux monuments historiques qui peuvent t’intéresser par leur histoire.',
+  },
+  {
+    title: 'Scanne un monument',
+    body:
+      'Lis ou écoute une histoire intéressante que tu n’entendras pas en visite guidée.\n\nPointe la caméra vers l’objet et attends le chargement de l’histoire.',
+  },
+  {
+    title: 'Cherche des itinéraires',
+    body:
+      'Nous te proposerons des itinéraires adaptés à tes préférences.\n\nNous tracerons le chemin jusqu’au point voulu, et tu pourras découvrir l’histoire comme dans une quête.',
+  },
+  {
+    title: 'Partage ton histoire',
+    body:
+      'Aide d’autres utilisateurs à découvrir des lieux et des histoires intéressants. Publie des posts et des stories avec un itinéraire.',
+  },
+  {
+    title: 'Discute avec tes amis',
+    body:
+      'Trouve des itinéraires intéressants, partage-les avec tes amis et partez vous promener ensemble.\n\nCréez votre propre excursion entre amis)',
+  },
+  {
+    title: 'KRAЇNA',
+    body: '— L’histoire est là où tu es maintenant',
+  },
+];
+
 const SKIP_LABEL = {
   uk: 'Пропустити',
   en: 'Skip',
@@ -443,6 +476,10 @@ const SKIP_LABEL = {
   ro: 'Sari peste',
   it: 'Salta',
   hy: 'Բաց թողնել',
+  fr: 'Passer',
+  ...Object.fromEntries(
+    Object.entries(MAIN_UI_EXTRA || {}).map(([lang, row]) => [lang, row.skip]),
+  ),
 };
 
 const CONTINUE_LABEL = {
@@ -457,6 +494,10 @@ const CONTINUE_LABEL = {
   ro: 'Continuă',
   it: 'Continua',
   hy: 'Շարունակել',
+  fr: 'Continuer',
+  ...Object.fromEntries(
+    Object.entries(MAIN_UI_EXTRA || {}).map(([lang, row]) => [lang, row.continue]),
+  ),
 };
 
 const SLIDES_BY_LANG = {
@@ -471,6 +512,8 @@ const SLIDES_BY_LANG = {
   ro: SLIDES_RO,
   it: SLIDES_IT,
   hy: SLIDES_HY,
+  fr: SLIDES_FR,
+  ...(ONBOARDING_SLIDES || {}),
 };
 
 function getSlidesForLanguage(langId) {
@@ -731,15 +774,20 @@ export default function OnboardingIntroPage({ navigation, route }) {
     : 0;
   const lang = useAppLanguage(route);
   const [step, setStep] = useState(0);
+  /** Виміряні висоти копії / футера — щоб тримати однаковий зазор «хвиля → текст» на всіх мовах. */
+  const [heroCopyBlockH, setHeroCopyBlockH] = useState(0);
+  const [heroFooterBlockH, setHeroFooterBlockH] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const contentOpacity = useRef(new Animated.Value(1)).current;
   const ctaPressAnim = useRef(new Animated.Value(0)).current;
   /** Крок змінюється лише з кнопки; блокуємо подвійне спрацьовування одного натискання. */
   const advanceLockRef = useRef(false);
+  const goNextOrAuthRef = useRef(() => {});
+  const finishFinalToAuthRef = useRef(() => {});
+  const finalVideoEndedRef = useRef(false);
 
   const slides = useMemo(() => getSlidesForLanguage(lang), [lang]);
   const skipWord = useMemo(() => getSkipLabel(lang), [lang]);
-  const continueWord = useMemo(() => getContinueLabel(lang), [lang]);
   const slide = slides[step] ?? slides[0];
   const heroSlideCopy = slide;
   const heroSlideCopyLang = lang;
@@ -1269,8 +1317,26 @@ export default function OnboardingIntroPage({ navigation, route }) {
   /** Раніше окремий зсув на iPhone; сумарний зсув тепер у androidShareFriends* / per-lang px. */
   const iosEnDeShareFriendsHeroExtraDownPx = 0;
   const friendsCopyOnlyExtraDownPx = Math.round(Math.max(8, screenH * 0.013));
-  /** Останній слайд: колаж по хвилі; логотип і слоган — у футері над кнопкою. */
+  /** Останній слайд: повноекранне відео; після нього — вхід. */
   const isFinalBrandSlide = step === TOTAL_STEPS - 1;
+
+  useEffect(() => {
+    if (!isFinalBrandSlide) {
+      finalVideoEndedRef.current = false;
+      advanceLockRef.current = false;
+      return undefined;
+    }
+    finalVideoEndedRef.current = false;
+    advanceLockRef.current = true;
+    return undefined;
+  }, [isFinalBrandSlide]);
+
+  const onFinalPromoVideoEnded = useCallback(() => {
+    if (finalVideoEndedRef.current) return;
+    finalVideoEndedRef.current = true;
+    finishFinalToAuthRef.current();
+  }, []);
+
   /** Кроки 0…4: фото + смуги Rectangle 37 (окремий рендер на кожному слайді). */
   const isHeroSlide =
     isLandmarksSlide ||
@@ -1312,12 +1378,8 @@ export default function OnboardingIntroPage({ navigation, route }) {
     isHeroSlide && Platform.OS === 'android'
       ? Math.round(Math.max(14, screenH * 0.018))
       : ONBOARD_COPY_GAP_ABOVE_FOOTER_PX;
-  /** Як у `styles.dots` (marginTop / marginBottom) — відступ «низ фото → заголовок» на слайді маршруту. */
-  const ONBOARD_DOTS_ROW_MARGIN_PX = 8;
-  /** PL: інтервал заголовок ↔ текст як у крапок `marginTop` (узгоднено з укр. макетом). */
-  const onboardPlTitleBodyGapStyle =
-    lang === 'pl' ? { gap: ONBOARD_DOTS_ROW_MARGIN_PX } : null;
-  const onboardPlTitleTopAfterHeroPx = 0;
+  /** Без per-lang gap — один ритм заголовок ↔ body на всіх мовах. */
+  const onboardPlTitleBodyGapStyle = null;
   /**
    * Відступ тексту над крапками / кнопкою (кроки 0…4, без ScrollView — текст закріплений унизу).
    */
@@ -1349,7 +1411,8 @@ export default function OnboardingIntroPage({ navigation, route }) {
   /** Зазор «фото / лаймова лінія → заголовок» на Android — лише через paddingTop (див. authHeroLayout). */
   const onboardHeroCopyNudgeDownPx = 0;
   /**
-   * Кроки 0…4 (усі мови): фото й лаймова лінія трохи нижче — однакові px на iOS і Android.
+   * Кроки 0…4 (усі мови): базова позиція фото / лаймової хвилі — однакова для всіх мов.
+   * Довший текст піднімає фото вгору через `onboardHeroDynamicLiftPx` (див. нижче).
    */
   const onboardHeroSlideExtraDownPx = isHeroSlide
     ? isLandmarksSlide
@@ -1357,18 +1420,50 @@ export default function OnboardingIntroPage({ navigation, route }) {
       : isScanSlide
         ? Math.round(Math.max(36, screenH * 0.036))
         : isRouteSlide || isShareSlide || isFriendsSlide
-          ? Math.round(Math.max(28, screenH * 0.032))
+          ? Math.round(Math.max(44, screenH * 0.05))
           : 0
     : 0;
-  const onboardHeroTitleGapAfterWavePx = isHeroSlide
-    ? Math.round(Math.max(18, screenH * 0.02))
+  /**
+   * Єдиний маленький зазор «лаймова хвиля → заголовок» (усі мови / слайди 0…4).
+   * Лише через позицію героя — без додаткового marginTop у тексті (інакше виходить «два відступи»).
+   */
+  const ONBOARD_WAVE_TO_TITLE_GAP_PX = 8;
+  const overlayBottomPadPx = isFinalBrandSlide
+    ? 0
+    : r.bottomPadding + onboardFooterExtraBottomPx;
+  const onboardHeroBaseBannerBottomY = isHeroSlide
+    ? authHeroBannerBottomY({
+        heroHeight: onboardHeroHeight,
+        topInset: onboardHeroTopInset,
+        heroLiftPx: onboardHeroSlideExtraDownPx,
+      }) -
+      // shell нижче за видиму хвилю на WAVE_STROKE_PAD — без цього лишається «другий» чорний відступ
+      Math.max(0, WAVE_STROKE_PAD - 2)
     : 0;
+  /**
+   * Низ хвилі = верх тексту − ONBOARD_WAVE_TO_TITLE_GAP_PX.
+   * Довший текст → фото вгору; коротший → фото вниз — однаково для всіх мов.
+   */
+  const onboardHeroDynamicLiftPx =
+    isHeroSlide && heroCopyBlockH > 0 && heroFooterBlockH > 0
+      ? Math.max(
+          -Math.round(screenH * 0.28),
+          Math.min(
+            Math.round(screenH * 0.18),
+            Math.round(
+              screenH -
+                overlayBottomPadPx -
+                heroFooterBlockH -
+                heroCopyBlockH -
+                onboardAndroidHeroFooterGapPx -
+                ONBOARD_WAVE_TO_TITLE_GAP_PX -
+                onboardHeroBaseBannerBottomY,
+            ),
+          ),
+        )
+      : 0;
   const onboardHeroCombinedLiftPx =
-    onboardHeroSlideExtraDownPx +
-    androidEnRouteHeroExtraLiftPx +
-    androidEnShareHeroExtraLiftPx +
-    androidEnFriendsHeroExtraDownPx;
-  const onboardHeroCombinedTitleGapPx = onboardHeroTitleGapAfterWavePx;
+    onboardHeroSlideExtraDownPx + onboardHeroDynamicLiftPx;
   /** Запас між низом тексту й футером (крапки / CTA). */
   const overflowScrollReliefBottomPx = 8;
 
@@ -1382,11 +1477,8 @@ export default function OnboardingIntroPage({ navigation, route }) {
     : 0;
   /** Android + ro, «поділитися»: без додаткового зсуву — інакше футер (крапки / CTA) може піти за екран. */
   const androidRoShareCopyLiftPx = 0;
-  /** Android + ro, «поділитися»: менший gap заголовок ↔ body (стандартні 12 дають «дірку» на 2 рядки заголовка). */
-  /** Android + ro, «поділитися»: без gap між заголовком і body (узгоджено з margin на Text). */
-  const onboardRoShareTitleBodyGapStyle = isAndroidRoShareSlide
-    ? { gap: 0 }
-    : null;
+  /** Android + ro, «поділитися»: без окремих gap — єдиний ритм для всіх мов. */
+  const onboardRoShareTitleBodyGapStyle = null;
   /**
    * Android + ro, «поділитися»: трохи менший paddingBottom у зоні копії — кнопка «Sari peste» лишається в кадрі.
    */
@@ -1540,29 +1632,6 @@ export default function OnboardingIntroPage({ navigation, route }) {
     lang,
   ]);
 
-  /** Слоган останнього слайду + «живий атлас» замість колажу. */
-  const finalVideoTaglineSizeBase = Math.min(18, Math.round(16 * r.scale));
-  const finalVideoTaglineSize =
-    onboardPixelTuningMobile && lang === 'de' && isFinalBrandSlide
-      ? Math.max(13, Math.round(finalVideoTaglineSizeBase * 0.87))
-      : finalVideoTaglineSizeBase;
-  const finalVideoTaglineLineHeight = Math.round(finalVideoTaglineSize * 1.35);
-  const finalBrandLogoFontSize = Math.min(34, Math.round(30 * r.scale));
-  const finalAtlasHeroHeight = Math.round(screenH * 0.58);
-  const finalAtlasBandTopOffset =
-    8 -
-    Math.min(
-      48,
-      Math.round((r.insets?.top ?? 0) * 0.65) + Math.round(screenH * 0.018),
-    );
-  const finalGlobeSize = Math.round(Math.min(screenW * 0.62, screenH * 0.31));
-  const finalGlobeCenterX = Math.round(screenW / 2);
-  const finalGlobeExtraDownPx = Math.round(
-    Math.max(Platform.OS === 'ios' ? 46 : 30, screenH * 0.048),
-  );
-  const finalGlobeCenterY = Math.round(
-    finalAtlasBandTopOffset + finalAtlasHeroHeight * 0.76 + finalGlobeExtraDownPx,
-  );
   /** Фото пам’яток не заходить на зону тексту + CTA.
    *  topBleed — зона вгору; photoZoomScale — рівномірне збільшення (contain + clip). */
   const landmarksBgLayout = useMemo(() => {
@@ -1866,7 +1935,7 @@ export default function OnboardingIntroPage({ navigation, route }) {
       heroHeight: onboardHeroHeight,
       topInset: onboardHeroTopInset,
       heroLiftPx: onboardHeroCombinedLiftPx,
-    });
+    }) - Math.max(0, WAVE_STROKE_PAD - 2);
   }
   /** Компенсація від’ємного translateY на блоці копії (не змінює layout, але зсуває малюнок угору). */
   const scanCopyVisualUpCompensationPx = 0;
@@ -1942,9 +2011,13 @@ export default function OnboardingIntroPage({ navigation, route }) {
                 PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION
                   ? {
                       name: 'SelectCountry',
-                      params: { language: lang, previewBeforeAuth: true },
+                      params: {
+                        language: lang,
+                        previewBeforeAuth: true,
+                        fromPromoVideo: true,
+                      },
                     }
-                  : { name: 'ThirdPage', params: { language: lang } },
+                  : { name: 'ThirdPage', params: { language: lang, fromPromoVideo: true } },
               ],
             });
             setIsTransitioning(false);
@@ -1964,8 +2037,34 @@ export default function OnboardingIntroPage({ navigation, route }) {
     });
   };
 
-  const goNextOrAuthRef = useRef(goNextOrAuth);
   goNextOrAuthRef.current = goNextOrAuth;
+
+  /** Після падіння логотипу — одразу на екран входу (без повторного fade). */
+  finishFinalToAuthRef.current = () => {
+    setIsTransitioning(true);
+    runAfterInteractions(() => {
+      void (async () => {
+        await setOnboardingSlidesSeenFlag();
+        navigation.reset({
+          index: 0,
+          routes: [
+            PREVIEW_SELECT_COUNTRY_BEFORE_REGISTRATION
+              ? {
+                  name: 'SelectCountry',
+                  params: {
+                    language: lang,
+                    previewBeforeAuth: true,
+                    fromPromoVideo: true,
+                  },
+                }
+              : { name: 'ThirdPage', params: { language: lang, fromPromoVideo: true } },
+          ],
+        });
+        setIsTransitioning(false);
+        advanceLockRef.current = false;
+      })();
+    });
+  };
 
   const goPrev = () => {
     if (isTransitioning || advanceLockRef.current) return;
@@ -1984,18 +2083,27 @@ export default function OnboardingIntroPage({ navigation, route }) {
   goPrevRef.current = goPrev;
 
   /**
-   * Горизонтальний свайп: вліво (dx < 0) — наступний слайд; вправо (dx > 0) — попередній.
+   * Горизонтальний свайп: вліво — далі; вправо — назад.
+   * На фінальному промо-відео свайп вимкнено (лише крестик / кінець ролика).
    */
+  const allowOnboardingSwipeRef = useRef(true);
+  allowOnboardingSwipeRef.current = !isFinalBrandSlide;
+
   const onboardingPanResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
+          allowOnboardingSwipeRef.current &&
+          Math.abs(g.dx) > 12 &&
+          Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
         onMoveShouldSetPanResponderCapture: (_, g) =>
-          Math.abs(g.dx) > 20 && Math.abs(g.dx) > Math.abs(g.dy) * 1.12,
+          allowOnboardingSwipeRef.current &&
+          Math.abs(g.dx) > 20 &&
+          Math.abs(g.dx) > Math.abs(g.dy) * 1.12,
         onPanResponderTerminationRequest: () => true,
         onPanResponderRelease: (_, g) => {
+          if (!allowOnboardingSwipeRef.current) return;
           const threshold = 52;
           const vThreshold = 0.32;
           if (g.dx < -threshold || g.vx < -vThreshold) {
@@ -2007,6 +2115,12 @@ export default function OnboardingIntroPage({ navigation, route }) {
       }),
     [],
   );
+
+  const skipFinalPromoVideo = useCallback(() => {
+    if (finalVideoEndedRef.current) return;
+    finalVideoEndedRef.current = true;
+    finishFinalToAuthRef.current();
+  }, []);
 
   const onCtaPressIn = () => {
     Animated.timing(ctaPressAnim, {
@@ -2043,6 +2157,12 @@ export default function OnboardingIntroPage({ navigation, route }) {
           opacity: contentOpacity,
         },
       ]}
+      onLayout={(e) => {
+        const next = Math.round(e.nativeEvent.layout.height);
+        if (next > 0 && Math.abs(next - heroFooterBlockH) > 1) {
+          setHeroFooterBlockH(next);
+        }
+      }}
     >
       <View style={styles.dots} pointerEvents="none">
         {Array.from({ length: TOTAL_STEPS }, (_, i) => (
@@ -2078,99 +2198,26 @@ export default function OnboardingIntroPage({ navigation, route }) {
     </Animated.View>
   );
 
-  /** Останній слайд: логотип + слоган над кнопкою «Продовжити». */
-  const finalContinueFooterEl = (
-    <Animated.View
-      style={[
-        styles.onboardFooter,
-        styles.onboardFooterFinalContinue,
-        {
-          width: '100%',
-          maxWidth: skipCtaMaxWidth,
-          alignSelf: 'center',
-          opacity: contentOpacity,
-          zIndex: 200,
-          elevation: onboardPixelTuningMobile ? 200 : 0,
-        },
-      ]}
-    >
-      <View style={styles.finalFooterBrandBlock}>
-        <PddHeaderWordmark isLight={false} fontSize={finalBrandLogoFontSize} />
-        <Text
-          style={[
-            styles.finalVideoTaglineText,
-            {
-              fontSize: finalVideoTaglineSize,
-              lineHeight: finalVideoTaglineLineHeight,
-              marginTop: 10,
-            },
-          ]}
-          accessibilityRole="text"
-        >
-          {slide.body}
-        </Text>
-      </View>
-      <Pressable
-        onPress={goNextOrAuth}
-        onPressIn={onCtaPressIn}
-        onPressOut={onCtaPressOut}
-        disabled={isTransitioning}
-        style={[styles.ctaOuter, styles.finalContinueCta]}
-        android_ripple={rippleOnDarkSurface}
-        accessibilityRole="button"
-        accessibilityLabel={continueWord}
-        accessibilityState={{ disabled: isTransitioning }}
-      >
-        <View style={styles.ctaBack} />
-        <Animated.View
-          style={[
-            styles.ctaFront,
-            {
-              transform: [{ translateY: ctaFrontTranslateY }],
-            },
-          ]}
-        >
-          <Text style={styles.skipText}>{continueWord}</Text>
-        </Animated.View>
-      </Pressable>
-    </Animated.View>
-  );
-
   return (
     <View
       style={[
         styles.root,
         (isRouteSlide || isFriendsSlide) && { backgroundColor: ROUTE_SLIDE_BG },
       ]}
-      {...onboardingPanResponder.panHandlers}
+      {...(isFinalBrandSlide ? {} : onboardingPanResponder.panHandlers)}
     >
       {Platform.OS === 'android' ? (
         <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       ) : null}
       {isFinalBrandSlide ? (
         <View
-          pointerEvents="box-none"
+          pointerEvents="none"
           style={[styles.finalSlideBackdrop, { width: screenW, height: screenH }]}
         >
-          <View
-            style={{
-              width: screenW,
-              marginTop: finalAtlasBandTopOffset,
-              zIndex: 1,
-            }}
-          >
-            <OnboardingFinalAtlasHero
-              width={screenW}
-              height={finalAtlasHeroHeight}
-              style={{ zIndex: 1 }}
-            />
-          </View>
-          <OnboardingGlobe3D
-            size={finalGlobeSize}
-            centerX={finalGlobeCenterX}
-            centerY={finalGlobeCenterY}
-            showPerson={false}
-            style={{ zIndex: 3 }}
+          <OnboardingFinalPromoVideo
+            enabled={isFinalBrandSlide}
+            onEnded={onFinalPromoVideoEnded}
+            style={{ width: screenW, height: screenH }}
           />
         </View>
       ) : (
@@ -2232,14 +2279,31 @@ export default function OnboardingIntroPage({ navigation, route }) {
             onboardPixelTuningMobile &&
             styles.overlayHeroAndroidAboveHeroDecor,
           {
-            paddingTop: r.insets.top + 8,
-            paddingBottom: r.bottomPadding + onboardFooterExtraBottomPx,
+            paddingTop: isFinalBrandSlide ? 0 : r.insets.top + 8,
+            paddingBottom: isFinalBrandSlide
+              ? 0
+              : r.bottomPadding + onboardFooterExtraBottomPx,
             paddingHorizontal: r.horizontalPadding,
           },
         ]}
       >
         {isFinalBrandSlide ? (
-          finalContinueFooterEl
+          <Pressable
+            onPress={skipFinalPromoVideo}
+            hitSlop={14}
+            accessibilityRole="button"
+            accessibilityLabel={lang === 'uk' ? 'Пропустити відео' : 'Skip video'}
+            android_ripple={noAndroidRipple}
+            style={[
+              styles.finalPromoSkipHit,
+              {
+                top: Math.max(Math.round(r.insets?.top ?? 0), 12) + 6,
+                right: Math.max(10, Math.round(r.horizontalPadding * 0.35)),
+              },
+            ]}
+          >
+            <Text style={styles.finalPromoSkipX}>✕</Text>
+          </Pressable>
         ) : (
           <>
             <View
@@ -2277,53 +2341,74 @@ export default function OnboardingIntroPage({ navigation, route }) {
               >
                 {isHeroSlide ? (
                   <View
-                    collapsable={onboardPixelTuningMobile ? false : undefined}
+                    key={`hero-copy-${step}-${heroSlideCopyLang}`}
+                    collapsable={false}
+                    onLayout={(e) => {
+                      const next = Math.round(e.nativeEvent.layout.height);
+                      if (next > 0 && Math.abs(next - heroCopyBlockH) > 1) {
+                        setHeroCopyBlockH(next);
+                      }
+                    }}
                     style={[
                       styles.landmarksTextBlock,
                       styles.landmarksTextBlockBelowHero,
-                      onboardPlTitleBodyGapStyle,
-                      onboardRoShareTitleBodyGapStyle,
-                      isAndroidHeroSlide && {
-                        gap: Math.round(Math.max(10, screenH * 0.014)),
-                      },
                       {
-                        transform: [
-                          {
-                            translateY:
-                              onboardCopyBlockTranslateY +
-                              onboardHeroCopyNudgeDownPx +
-                              androidEnScanCopyNudgeDownPx,
-                          },
-                        ],
+                        gap: 6,
                       },
                     ]}
                   >
-                    <Text
-                      accessibilityRole="header"
-                      accessibilityLabel={heroSlideCopy.title}
-                      style={[
-                        styles.titleLandmarksPlain,
-                        styles.onboardRouteShareFriendsTextNoShadow,
-                        {
-                          fontSize: leftAccentTitleSize,
-                          lineHeight: Math.round(leftAccentTitleSize * 1.22),
-                          marginTop:
-                            onboardPlTitleTopAfterHeroPx +
-                            onboardHeroCombinedTitleGapPx,
-                        },
-                        isAndroidItShareSlide && {
-                          includeFontPadding: false,
-                        },
-                        isAndroidRoShareSlide && {
-                          minHeight: Math.round(leftAccentTitleSize * 1.22 * 2),
-                        },
-                      ]}
-                      {...(isAndroidRoShareSlide
-                        ? { textBreakStrategy: 'simple' }
-                        : {})}
+                    <View
+                      style={{
+                        width: '100%',
+                      }}
                     >
-                      {onboardingTitleDisplayed}
-                    </Text>
+                      {/* Повний заголовок задає висоту (тайпврайтер не стрибає layout / фото). */}
+                      <Text
+                        accessibilityElementsHidden
+                        importantForAccessibility="no"
+                        style={[
+                          styles.titleLandmarksPlain,
+                          styles.onboardRouteShareFriendsTextNoShadow,
+                          {
+                            fontSize: leftAccentTitleSize,
+                            lineHeight: Math.round(leftAccentTitleSize * 1.22),
+                            opacity: 0,
+                          },
+                          isAndroidItShareSlide && {
+                            includeFontPadding: false,
+                          },
+                        ]}
+                        {...(isAndroidRoShareSlide
+                          ? { textBreakStrategy: 'simple' }
+                          : {})}
+                      >
+                        {heroSlideCopy.title}
+                      </Text>
+                      <Text
+                        accessibilityRole="header"
+                        accessibilityLabel={heroSlideCopy.title}
+                        style={[
+                          styles.titleLandmarksPlain,
+                          styles.onboardRouteShareFriendsTextNoShadow,
+                          {
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            fontSize: leftAccentTitleSize,
+                            lineHeight: Math.round(leftAccentTitleSize * 1.22),
+                          },
+                          isAndroidItShareSlide && {
+                            includeFontPadding: false,
+                          },
+                        ]}
+                        {...(isAndroidRoShareSlide
+                          ? { textBreakStrategy: 'simple' }
+                          : {})}
+                      >
+                        {onboardingTitleDisplayed}
+                      </Text>
+                    </View>
                     <Text
                       style={[
                         styles.bodyLandmarksPlain,
@@ -2524,6 +2609,12 @@ const styles = StyleSheet.create({
     zIndex: 0,
     overflow: 'visible',
   },
+  finalSlideBottomFade: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    zIndex: 4,
+  },
   finalBrandHeroBand: {
     position: 'relative',
     backgroundColor: 'transparent',
@@ -2568,25 +2659,41 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   finalVideoTaglineText: {
-    color: '#FFFFFF',
+    color: 'rgba(250, 250, 246, 0.92)',
     textAlign: 'center',
-    letterSpacing: 0.35,
-    maxWidth: 320,
+    letterSpacing: 0.2,
+    maxWidth: 300,
+    fontStyle: 'italic',
     ...Platform.select({
-      ios: {
-        fontFamily: 'Georgia',
-        fontStyle: 'italic',
-        fontWeight: '400',
-      },
-          android: {
-        fontFamily: 'serif',
-        fontStyle: 'italic',
-        fontWeight: '400',
-      },
+      ios: {},
+      android: { includeFontPadding: false },
     }),
-    textShadowColor: 'rgba(0,0,0,0.92)',
+    textShadowColor: 'rgba(0,0,0,0.85)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 14,
+    textShadowRadius: 10,
+  },
+  finalBrandGlowWrap: {
+    position: 'absolute',
+    left: -48,
+    right: -48,
+    top: -22,
+    bottom: -10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalBrandGlow: {
+    width: '100%',
+    height: 88,
+    borderRadius: 44,
+  },
+  finalCtaAura: {
+    position: 'absolute',
+    left: -12,
+    right: -12,
+    top: -12,
+    bottom: -12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(225, 255, 0, 0.28)',
   },
   overlay: {
     zIndex: 4,
@@ -2601,9 +2708,49 @@ const styles = StyleSheet.create({
     elevation: 56,
   },
   overlayFinalBrand: {
-    /** Один рядок — футер унизу; без flex-спейсера зверху (на Android він міг перекривати відео). */
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
     minHeight: 0,
+  },
+  finalPromoSkipHit: {
+    position: 'absolute',
+    zIndex: 40,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalPromoSkipX: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 20,
+    fontWeight: '300',
+    lineHeight: 22,
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  finalCenterStage: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    overflow: 'visible',
+  },
+  finalCenterBrandBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: 340,
+    zIndex: 2,
+  },
+  finalBrandTypeStack: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalBrandTypeOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
   },
   /** Раніше — спейсер над футером на останньому слайді; лишаємо стиль, якщо знадобиться знову. */
   finalOverlayTopFill: {
@@ -2657,18 +2804,61 @@ const styles = StyleSheet.create({
       ios: {},
     }),
   },
-  /** Фінальний крок: логотип + слоган над кнопкою. */
+  /** Фінальний крок (застарілі стилі футера — лишаємо для сумісності). */
   onboardFooterFinalContinue: {
-    paddingTop: 8,
-    gap: 18,
+    paddingTop: 0,
+    gap: 0,
+    marginBottom: 0,
+  },
+  finalHeroStack: {
+    alignItems: 'center',
+    gap: 14,
+    width: '100%',
+  },
+  finalGlobeWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   finalFooterBrandBlock: {
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
     paddingHorizontal: 12,
+    position: 'relative',
+  },
+  finalBrandTypeText: {
+    textAlign: 'center',
+    letterSpacing: 1.2,
+    minHeight: 48,
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      ios: {},
+    }),
+  },
+  finalBrandTypeWhite: {
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.75)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 12,
+  },
+  finalBrandTypeBlack: {
+    color: '#121212',
+    textShadowColor: 'transparent',
+    textShadowRadius: 0,
+  },
+  finalBrandTypeCaret: {
+    color: '#FFFFFF',
+    opacity: 0.85,
+  },
+  finalBrandTypeCaretWhite: {
+    color: '#FFFFFF',
+    opacity: 0.9,
+  },
+  finalBrandTypeCaretMuted: {
+    color: 'rgba(250, 250, 246, 0.7)',
   },
   finalContinueCta: {
     marginTop: 2,
+    overflow: 'visible',
   },
   flexSpacer: {
     flex: 1,

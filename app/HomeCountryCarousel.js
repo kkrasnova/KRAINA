@@ -11,17 +11,23 @@ import {
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { mt, mtHomeLocationsCount, mtHomeSettlementsCount } from './mainPageI18n';
-import { rippleOnDarkSurface, rippleOnLightSurface } from './androidFeedback';
+import { rippleOnDarkSurface, rippleOnLightSurface, noAndroidRipple } from './androidFeedback';
 import { accentForTheme } from './themeAccent';
 import { countryFlagSource } from './WavingCountryFlag';
+import { brandFontHeadBold, brandFontSans } from './brandFont';
+import FittingText from './FittingText';
+import { homeImageRecyclingKey, normalizeHomeExpoImageSource } from './homeLandmarkDisplay';
+import HomeScrollSafeMedia, { homeScrollSafeImageStyle } from './HomeScrollSafeMedia';
+
 const CARD_RADIUS = 16;
-const GAP = 12;
-/** Одна висота для всіх карток; фото — на всю площу, contain + градієнт лише знизу. */
-const CARD_H = 200;
+const GAP = 10;
+const CARD_H = 176;
+/** Відступ зліва + peek наступної картки; ширина обмежена як раніше. */
 const CARD_SIDE_PAD = 24;
 const CARD_PEEK = 16;
 const CARD_W_MAX = 332;
 const CARD_W_MIN = 248;
+const TITLE_PAD_H = 24;
 
 export default memo(function HomeCountryCarousel({
   language,
@@ -35,7 +41,6 @@ export default memo(function HomeCountryCarousel({
   const listRef = useRef(null);
   const isLight = appTheme === 'light';
   const accent = accentForTheme(isLight);
-  const textMain = '#FFFFFF';
   const ripple = isLight ? rippleOnLightSurface : rippleOnDarkSurface;
 
   const cardW = useMemo(
@@ -79,69 +84,81 @@ export default memo(function HomeCountryCarousel({
       const nPlaces = Number(item.cityCount) || 0;
       const settlementsLine = mtHomeSettlementsCount(language, nPlaces);
       const locationsLine = mtHomeLocationsCount(language, item.locationCount);
-      const titleLine = item.countryLabel;
       const flagSrc = countryFlagSource(item.id);
+      const heroSource =
+        normalizeHomeExpoImageSource(item.heroThumb) || item.heroThumb || null;
+      const heroKey = homeImageRecyclingKey(item.id, heroSource, 'country-hero');
+      const flagKey = `flag:${item.id}`;
       return (
         <Pressable
           onPress={() => onSelectCountry?.(item.id)}
           hitSlop={4}
-          delayPressIn={0}
-          delayPressOut={0}
-          style={({ pressed }) => [
+          android_ripple={noAndroidRipple}
+          accessibilityRole="button"
+          accessibilityState={{ selected }}
+          accessibilityLabel={item.countryLabel}
+          style={[
             styles.cardOuter,
             {
               width: cardW,
               height: CARD_H,
               marginRight: GAP,
-              opacity: pressed ? 0.72 : 1,
-              borderWidth: selected ? 2 : 0,
-              borderColor: selected ? accent : 'transparent',
+              borderWidth: selected ? 2 : StyleSheet.hairlineWidth,
+              borderColor: selected ? accent : 'rgba(255,255,255,0.12)',
             },
           ]}
         >
-           <View style={styles.cardMedia} pointerEvents="none">
-            {item.heroThumb ? (
+          <HomeScrollSafeMedia>
+            {heroSource ? (
               <ExpoImage
-                source={item.heroThumb}
-                style={styles.heroImage}
+                key={heroKey}
+                source={heroSource}
+                style={homeScrollSafeImageStyle}
                 contentFit="cover"
                 contentPosition="center"
                 cachePolicy="memory-disk"
+                recyclingKey={heroKey}
                 transition={0}
+                allowDownscaling
+                accessibilityIgnoresInvertColors
               />
             ) : (
               <View style={styles.heroPlaceholder} />
             )}
-          </View>
-          <LinearGradient
-            pointerEvents="none"
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.92)']}
-            locations={[0, 0.3, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={styles.cardBottomFade}
-          />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.92)']}
+              locations={[0, 0.3, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.cardBottomFade}
+            />
+          </HomeScrollSafeMedia>
           <View style={styles.overlay} pointerEvents="none">
             <View style={styles.overlayRow}>
               <View style={styles.overlayTextCol}>
-                <Text style={[styles.countryTitle, { color: textMain }]} numberOfLines={2}>
-                  {titleLine}
-                </Text>
+                <FittingText style={[styles.countryTitle, brandFontHeadBold]} numberOfLines={1} minimumFontScale={0.55}>
+                  {item.countryLabel}
+                </FittingText>
                 <View style={styles.countsRow}>
-                  <Text style={styles.countPart}>{settlementsLine}</Text>
+                  <Text style={[styles.countPart, brandFontSans]}>{settlementsLine}</Text>
                   <Text style={styles.countSep}>·</Text>
-                  <Text style={styles.countPart}>{locationsLine}</Text>
+                  <Text style={[styles.countPart, brandFontSans]}>{locationsLine}</Text>
                 </View>
               </View>
               {flagSrc ? (
-                <ExpoImage
-                  source={flagSrc}
-                  style={styles.countryFlagImg}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={0}
-                  accessibilityLabel={item.countryLabel}
-                />
+                <View style={styles.flagChip}>
+                  <ExpoImage
+                    key={flagKey}
+                    source={flagSrc}
+                    style={styles.countryFlagImg}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    recyclingKey={flagKey}
+                    transition={0}
+                    accessibilityLabel={item.countryLabel}
+                  />
+                </View>
               ) : (
                 <Text style={styles.flagEmoji} allowFontScaling={false} accessibilityLabel={item.countryLabel}>
                   {item.flag || '🏳️'}
@@ -152,7 +169,7 @@ export default memo(function HomeCountryCarousel({
         </Pressable>
       );
     },
-    [accent, cardW, isLight, language, onSelectCountry, selectedCountryId, textMain],
+    [accent, cardW, language, onSelectCountry, selectedCountryId],
   );
 
   const getItemLayout = useCallback(
@@ -171,7 +188,13 @@ export default memo(function HomeCountryCarousel({
   return (
     <View style={styles.section}>
       <View style={styles.titleRow}>
-        <Text style={[styles.sectionTitle, { color: isLight ? '#1E1E1E' : '#FFFFFF', marginBottom: 0 }]}>
+        <Text
+          style={[
+            styles.sectionTitle,
+            brandFontHeadBold,
+            { color: isLight ? '#1E1E1E' : '#FFFFFF', marginBottom: 0 },
+          ]}
+        >
           {mt(language, 'homeChooseCountry')}
         </Text>
         {typeof onOpenAllCountries === 'function' ? (
@@ -183,7 +206,9 @@ export default memo(function HomeCountryCarousel({
             accessibilityRole="button"
             accessibilityLabel={mt(language, 'homeAllCountries')}
           >
-            <Text style={[styles.allCountriesLink, { color: accent }]}>{mt(language, 'homeAllCountries')}</Text>
+            <Text style={[styles.allCountriesLink, brandFontSans, { color: accent }]}>
+              {mt(language, 'homeAllCountries')}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -199,15 +224,17 @@ export default memo(function HomeCountryCarousel({
         disableIntervalMomentum
         nestedScrollEnabled
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingRight: 24, paddingVertical: 4 }}
+        contentContainerStyle={{ paddingLeft: CARD_SIDE_PAD, paddingRight: CARD_PEEK, paddingVertical: 4 }}
         onMomentumScrollEnd={onScrollEnd}
         getItemLayout={getItemLayout}
         removeClippedSubviews={false}
-        maxToRenderPerBatch={6}
-        windowSize={3}
-        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        initialNumToRender={3}
         renderItem={renderItem}
-        {...(Platform.OS === 'ios' ? { directionalLockEnabled: true } : { overScrollMode: 'never' })}
+        {...(Platform.OS === 'ios'
+          ? { directionalLockEnabled: true, bounces: false, alwaysBounceHorizontal: false }
+          : { overScrollMode: 'never' })}
         onScrollToIndexFailed={(info) => {
           setTimeout(() => {
             listRef.current?.scrollToIndex({ index: info.index, animated: false });
@@ -221,53 +248,43 @@ export default memo(function HomeCountryCarousel({
 const styles = StyleSheet.create({
   section: {
     marginBottom: 18,
-    marginHorizontal: -24,
-    paddingLeft: 24,
+    /** Full-bleed ряд карток: без від’ємного margin (він кліпав фото під час вертикального скролу). */
+    alignSelf: 'stretch',
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
-    paddingRight: 24,
+    paddingHorizontal: TITLE_PAD_H,
     gap: 8,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '800',
     flex: 1,
     marginRight: 8,
+    letterSpacing: -0.35,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   allCountriesLink: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   cardOuter: {
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
     backgroundColor: '#1A1A1A',
   },
-  /** Фото на всю ширину й висоту картки (contain = усе зображення видно). */
-  cardMedia: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#1A1A1A',
-  },
-  heroImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
   heroPlaceholder: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#333',
   },
-  /** Лише низ картки — затемнення під текст, фото зверху не перекривається повністю. */
   cardBottomFade: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: '52%',
+    height: '55%',
   },
   overlay: {
     position: 'absolute',
@@ -286,10 +303,11 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   countryTitle: {
+    color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: '800',
     letterSpacing: -0.2,
     lineHeight: 22,
+    width: '100%',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   countsRow: {
@@ -300,8 +318,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   countPart: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12.5,
     color: '#FFFFFF',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
@@ -311,15 +328,22 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
   },
   countryFlagImg: {
-    width: 50,
+    width: 36,
     height: 36,
-    borderRadius: 4,
-    borderWidth: StyleSheet.hairlineWidth,
+  },
+  flagChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
   flagEmoji: {
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 22,
+    lineHeight: 36,
+    textAlign: 'center',
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
 });

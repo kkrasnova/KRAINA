@@ -1,11 +1,12 @@
-import { ROUTE_REGIONS, regionTitle, collectAllCountriesWithRegions } from './routeRegionsData';
+import { ROUTE_REGIONS, regionTitle, collectAllCountriesWithRegions, BUILTIN_REGION_HERO_THUMBS } from './routeRegionsData';
 import { countriesForSelectCountryScreen, COUNTRY_DISPLAY_LABELS, appLangBase } from './appLang';
-import { normalizeHeroImageSource } from './krainaHeroThumbs';
+import { normalizeHeroImageSource, HERO_THUMB_MAP } from './krainaHeroThumbs';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
+import { EUROPE_COUNTRY_CARD_HEROES, EUROPE_CITY_HEROES } from './europeHeroAssets';
 
 /** Картка країни на головній: прев’ю t1–t4 або URL (керується з адмін-панелі). */
 export const HOME_COUNTRY_HERO_REFS = {
-  UA: require('./assets/kyiv-main-hero.webp'),
+  UA: require('./assets/ukraine-card-hero.webp'),
   ES: require('./assets/spain-card-hero.webp'),
   FR: require('./assets/france-card-hero.webp'),
   IT: require('./assets/italy-card-hero.webp'),
@@ -16,12 +17,13 @@ export const HOME_COUNTRY_HERO_REFS = {
   LT: require('./assets/lithuania-card-hero.webp'),
   LV: require('./assets/latvia-card-hero.webp'),
   AM: require('./assets/armenia-card-hero.webp'),
+  ...EUROPE_COUNTRY_CARD_HEROES,
 };
 /** Окремий URL фото картки країни (має пріоритет над прев’ю). */
 export const HOME_COUNTRY_HERO_URIS = {};
 /** Вбудовані fallback-фото карток (працюють навіть якщо адмін-перевизначення порожні). */
 const HOME_COUNTRY_HERO_DEFAULTS = {
-  UA: require('./assets/kyiv-main-hero.webp'),
+  UA: require('./assets/ukraine-card-hero.webp'),
   ES: require('./assets/spain-card-hero.webp'),
   FR: require('./assets/france-card-hero.webp'),
   IT: require('./assets/italy-card-hero.webp'),
@@ -32,6 +34,7 @@ const HOME_COUNTRY_HERO_DEFAULTS = {
   LT: require('./assets/lithuania-card-hero.webp'),
   LV: require('./assets/latvia-card-hero.webp'),
   AM: require('./assets/armenia-card-hero.webp'),
+  ...EUROPE_COUNTRY_CARD_HEROES,
 };
 
 /**
@@ -129,16 +132,48 @@ export function getHomeCountriesForCarousel(language, locationsEpoch = 0) {
   return result;
 }
 
-/** Фото міста для списків: hero URL → heroThumb → перша пам’ятка. */
+/** Фото міста для списків: hero URL → dedicated asset → heroThumb → перша пам’ятка. */
 export function resolveRegionHeroSource(region) {
   if (!region) return null;
+  const rid = String(region.id || '').trim();
   const u = typeof region.heroUri === 'string' ? region.heroUri.trim() : '';
   if (u && /^https?:\/\//i.test(u)) return { uri: resolveOfflineUriSync(u) };
-  if (region.heroThumb) return region.heroThumb;
+
+  const dedicated =
+    (rid && BUILTIN_REGION_HERO_THUMBS[rid]) ||
+    (rid && EUROPE_CITY_HEROES[rid]) ||
+    null;
+  const placeholder = HERO_THUMB_MAP.t1;
+
+  // Prefer a real city hero over the generic hikers placeholder (t1).
+  if (typeof region.heroThumb === 'number' && region.heroThumb !== placeholder) {
+    return region.heroThumb;
+  }
+  if (dedicated) return dedicated;
+  if (typeof region.heroThumb === 'number') return region.heroThumb;
+
+  if (typeof region.heroThumb === 'string') {
+    const mapped = normalizeHeroImageSource(region.heroThumb, null);
+    if (mapped && mapped !== placeholder) return mapped;
+  }
+  if (region.heroThumb && typeof region.heroThumb === 'object') {
+    if (typeof region.heroThumb.uri === 'string') {
+      return { uri: resolveOfflineUriSync(region.heroThumb.uri) };
+    }
+    return region.heroThumb;
+  }
   const thumb = region.landmarks?.[0]?.thumb;
-  if (!thumb) return null;
+  if (!thumb) return dedicated || null;
+  if (typeof thumb === 'number') {
+    if (thumb === placeholder && dedicated) return dedicated;
+    return thumb;
+  }
+  if (typeof thumb === 'string') {
+    const mapped = normalizeHeroImageSource(thumb, null);
+    if (mapped) return mapped;
+  }
   if (typeof thumb === 'object' && typeof thumb.uri === 'string') {
     return { uri: resolveOfflineUriSync(thumb.uri) };
   }
-  return thumb;
+  return thumb || dedicated || null;
 }

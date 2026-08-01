@@ -361,6 +361,8 @@ export const ROUTE_REGIONS = {
         minutes: 40,
         free: true,
         thumb: T3,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/5/5f/Ar-Rahma_Mosque%2C_Kyiv%2C_2016.jpg',
         distKm: 3.5,
         descUk:
           'Перша мечеть Києва з мінаретом і реліквією — волосом Пророка Мухаммада; відкрита для всіх відвідувачів.',
@@ -406,6 +408,8 @@ export const ROUTE_REGIONS = {
         minutes: 45,
         free: true,
         thumb: T2,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/4/44/Pokrovsky_mr-1910e.jpg',
         distKm: 3.0,
         descUk:
           'Тихий жіночий монастир кінця XIX століття на Лук’янівці з квітучим садом і архітектурою українського зодчества.',
@@ -421,6 +425,8 @@ export const ROUTE_REGIONS = {
         minutes: 50,
         free: true,
         thumb: T3,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/3/34/Babi_Yar-06-194.jpg',
         distKm: 4.0,
         descUk:
           'Аудіовізуальна інсталяція «Дерево Життя» на місці трагедії Бабиного Яру, частина великого меморіалу Голокосту.',
@@ -436,6 +442,8 @@ export const ROUTE_REGIONS = {
         minutes: 60,
         free: true,
         thumb: T4,
+        thumbUri:
+          'https://upload.wikimedia.org/wikipedia/commons/9/9e/%D0%92%D0%B8%D0%B4%D1%83%D0%B1%D0%B8%D1%86%D1%8C%D0%BA%D0%B8%D0%B9_%D0%BC%D0%BE%D0%BD%D0%B0%D1%81%D1%82%D0%B8%D1%80-3.JPG',
         distKm: 3.8,
         descUk:
           'Давній монастир XI століття на схилах Дніпра з легендою про ідола Перуна та краєвидом на ботанічний сад.',

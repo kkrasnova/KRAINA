@@ -2,11 +2,13 @@ import { Image } from 'react-native';
 import { resolveHeroThumbRef } from './krainaHeroThumbs';
 import { resolveOfflineUriSync } from './offline/localCacheStore';
 import { splitIntroBodyAtHero } from './landmarkTextUtils';
+import { ensureIntroPage3Compare } from './landmarkStorySchema';
 
 /** Uk/En-only intro pages from story object (legacy). */
 export function introPagesFromStoryLegacy(story, langUk) {
+  const ensured = ensureIntroPage3Compare(story);
   const key = langUk ? 'introPagesUk' : 'introPagesEn';
-  const raw = story?.[key];
+  const raw = ensured?.[key];
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const pages = raw
     .map((page) => {
@@ -16,16 +18,27 @@ export function introPagesFromStoryLegacy(story, langUk) {
         typeof page?.compareAfterThumb === 'string' ? page.compareAfterThumb.trim() : '';
       const compareBeforeAsset = resolveHeroThumbRef(compareBeforeThumb);
       const compareAfterAsset = resolveHeroThumbRef(compareAfterThumb);
+      const compareBeforeUri =
+        typeof page?.compareBeforeUri === 'string' && page.compareBeforeUri.trim()
+          ? resolveOfflineUriSync(page.compareBeforeUri.trim())
+          : undefined;
+      const compareAfterUri =
+        typeof page?.compareAfterUri === 'string' && page.compareAfterUri.trim()
+          ? resolveOfflineUriSync(page.compareAfterUri.trim())
+          : undefined;
       const hasCompare =
-        typeof compareBeforeAsset === 'number' && typeof compareAfterAsset === 'number';
+        (typeof compareBeforeAsset === 'number' && typeof compareAfterAsset === 'number') ||
+        !!(compareBeforeUri && compareAfterUri);
       const body = typeof page?.body === 'string' ? page.body.trim() : '';
       if (!body && hasCompare) {
         return {
           compareOnly: true,
-          compareBeforeAsset,
-          compareAfterAsset,
-          compareBeforeThumb,
-          compareAfterThumb,
+          ...(typeof compareBeforeAsset === 'number' ? { compareBeforeAsset } : {}),
+          ...(typeof compareAfterAsset === 'number' ? { compareAfterAsset } : {}),
+          ...(compareBeforeThumb ? { compareBeforeThumb } : {}),
+          ...(compareAfterThumb ? { compareAfterThumb } : {}),
+          ...(compareBeforeUri ? { compareBeforeUri } : {}),
+          ...(compareAfterUri ? { compareAfterUri } : {}),
         };
       }
       if (!body) return null;
@@ -47,14 +60,6 @@ export function introPagesFromStoryLegacy(story, langUk) {
       const illustrationUri =
         typeof page?.illustrationUri === 'string' && page.illustrationUri.trim()
           ? resolveOfflineUriSync(page.illustrationUri.trim())
-          : undefined;
-      const compareBeforeUri =
-        typeof page?.compareBeforeUri === 'string' && page.compareBeforeUri.trim()
-          ? resolveOfflineUriSync(page.compareBeforeUri.trim())
-          : undefined;
-      const compareAfterUri =
-        typeof page?.compareAfterUri === 'string' && page.compareAfterUri.trim()
-          ? resolveOfflineUriSync(page.compareAfterUri.trim())
           : undefined;
       const secondaryPhotoUri =
         typeof page?.secondaryPhotoUri === 'string' && page.secondaryPhotoUri.trim()
@@ -100,10 +105,12 @@ export function introPagesFromStoryLegacy(story, langUk) {
           : {}),
         ...(hasCompare
           ? {
-              compareBeforeAsset,
-              compareAfterAsset,
-              compareBeforeThumb,
-              compareAfterThumb,
+              ...(typeof compareBeforeAsset === 'number' ? { compareBeforeAsset } : {}),
+              ...(typeof compareAfterAsset === 'number' ? { compareAfterAsset } : {}),
+              ...(compareBeforeThumb ? { compareBeforeThumb } : {}),
+              ...(compareAfterThumb ? { compareAfterThumb } : {}),
+              ...(compareBeforeUri ? { compareBeforeUri } : {}),
+              ...(compareAfterUri ? { compareAfterUri } : {}),
               ...(Number.isFinite(compareHeroHeightRatio) && compareHeroHeightRatio > 0
                 ? { compareHeroHeightRatio }
                 : {}),
@@ -115,10 +122,10 @@ export function introPagesFromStoryLegacy(story, langUk) {
                 : {}),
             }
           : {}),
-        ...(heroThumb ? { heroThumb } : {}),
-        ...(secondaryHeroThumb ? { secondaryHeroThumb } : {}),
-        ...(photoAsset ? { photoAsset } : {}),
-        ...(secondaryPhotoAsset ? { secondaryPhotoAsset } : {}),
+        ...(heroThumb && !hasCompare ? { heroThumb } : {}),
+        ...(secondaryHeroThumb && !hasCompare ? { secondaryHeroThumb } : {}),
+        ...(photoAsset && !hasCompare ? { photoAsset } : {}),
+        ...(secondaryPhotoAsset && !hasCompare ? { secondaryPhotoAsset } : {}),
         ...(Number.isFinite(heroHeightRatio) && heroHeightRatio > 0 ? { heroHeightRatio } : {}),
         ...(Number.isFinite(heroHeightMax) && heroHeightMax > 0 ? { heroHeightMax } : {}),
         ...(Number.isFinite(secondaryHeroHeightRatio) && secondaryHeroHeightRatio > 0
@@ -131,10 +138,8 @@ export function introPagesFromStoryLegacy(story, langUk) {
         ...(Number.isFinite(secondaryStackGap) && secondaryStackGap >= 0
           ? { secondaryStackGap }
           : {}),
-        ...(photoUri ? { photoUri } : {}),
-        ...(secondaryPhotoUri ? { secondaryPhotoUri } : {}),
-        ...(compareBeforeUri ? { compareBeforeUri } : {}),
-        ...(compareAfterUri ? { compareAfterUri } : {}),
+        ...(photoUri && !hasCompare ? { photoUri } : {}),
+        ...(secondaryPhotoUri && !hasCompare ? { secondaryPhotoUri } : {}),
         ...(typeof illustrationAsset === 'number' ? { illustrationAsset } : {}),
         ...(illustrationUri ? { illustrationUri } : {}),
         ...(illustrationLink ? { illustrationLink } : {}),

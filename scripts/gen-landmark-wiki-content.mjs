@@ -57,18 +57,18 @@ const SLIDE_LABELS_EN = [
 ];
 
 const LAYOUT_PRESETS = [
-  { heroHeightRatio: 0.4, heroHeightMax: 340, introHeroInsetRounded: true, heroStackGap: 22 },
-  { compareHeroHeightRatio: 0.6, compareHeroHeightMax: 540, compareHeroTopInset: 22, introCompareRounded: true, heroStackGap: 22 },
-  { introHeroBleedTop: true },
-  { introHeroBleedTop: true, heroHeightRatio: 0.68, heroHeightMax: 600, heroPosition: { left: '72%', top: '50%' } },
-  { introHeroBleedTop: true, heroHeightRatio: 0.48, heroHeightMax: 400, heroPosition: { left: '50%', top: '34%' }, secondaryStackGap: 0, secondaryHeroPosition: { left: '50%', top: '40%' }, secondaryHeroHeightRatio: 0.3, secondaryHeroHeightMax: 260 },
-  { introHeroInsetRounded: true, heroHeightRatio: 0.42, heroHeightMax: 360, heroStackGap: 18 },
-  { introHeroInsetRounded: true, heroHeightRatio: 0.42, heroHeightMax: 360, heroStackGap: 18 },
-  { introHeroAfterText: true, heroHeightRatio: 0.5, heroHeightMax: 420, introHeroInsetRounded: true },
-  { introHeroBleedTop: true, heroHeightRatio: 0.44, heroHeightMax: 380, secondaryStackGap: 12, secondaryHeroHeightRatio: 0.28, secondaryHeroHeightMax: 240 },
-  { introFactCard: true, introHeroBleedTop: true, heroHeightRatio: 0.55, heroHeightMax: 480 },
-  { introHeroInsetRounded: true, heroHeightRatio: 0.36, heroHeightMax: 300, heroStackGap: 16 },
-  { introHeroInsetRounded: true, heroHeightRatio: 0.38, heroHeightMax: 320, heroStackGap: 20 },
+  { heroFit: 'cover', heroHeightRatio: 0.4, heroHeightMax: 340, introHeroInsetRounded: true, heroStackGap: 22 },
+  { heroFit: 'cover', compareHeroHeightRatio: 0.6, compareHeroHeightMax: 540, compareHeroTopInset: 22, introCompareRounded: true, heroStackGap: 22 },
+  { heroFit: 'cover', introHeroBleedTop: true },
+  { heroFit: 'cover', introHeroBleedTop: true, heroHeightRatio: 0.68, heroHeightMax: 600, heroPosition: { left: '72%', top: '50%' } },
+  { heroFit: 'cover', introHeroBleedTop: true, heroHeightRatio: 0.48, heroHeightMax: 400, heroPosition: { left: '50%', top: '34%' }, secondaryStackGap: 0, secondaryHeroPosition: { left: '50%', top: '40%' }, secondaryHeroHeightRatio: 0.3, secondaryHeroHeightMax: 260 },
+  { heroFit: 'cover', introHeroInsetRounded: true, heroHeightRatio: 0.42, heroHeightMax: 360, heroStackGap: 18 },
+  { heroFit: 'cover', introHeroInsetRounded: true, heroHeightRatio: 0.42, heroHeightMax: 360, heroStackGap: 18 },
+  { heroFit: 'cover', introHeroAfterText: true, heroHeightRatio: 0.5, heroHeightMax: 420, introHeroInsetRounded: true },
+  { heroFit: 'cover', introHeroBleedTop: true, heroHeightRatio: 0.44, heroHeightMax: 380, secondaryStackGap: 12, secondaryHeroHeightRatio: 0.28, secondaryHeroHeightMax: 240 },
+  { heroFit: 'cover', introFactCard: true, introHeroBleedTop: true, heroHeightRatio: 0.55, heroHeightMax: 480 },
+  { heroFit: 'cover', introHeroInsetRounded: true, heroHeightRatio: 0.36, heroHeightMax: 300, heroStackGap: 16, introHeroBleedTop: true },
+  { heroFit: 'cover', introHeroInsetRounded: true, heroHeightRatio: 0.38, heroHeightMax: 320, heroStackGap: 20 },
 ];
 
 function sleep(ms) {
@@ -125,18 +125,24 @@ function parseRegions(text) {
   return map;
 }
 
-function splitParagraphs(text) {
-  return String(text || '')
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 40);
-}
-
 function chunkText(paragraphs, count) {
   if (!paragraphs.length) return Array(count).fill('');
-  const chunks = Array.from({ length: count }, () => []);
-  paragraphs.forEach((p, i) => chunks[i % count].push(p));
-  return chunks.map((c) => c.join('\n\n'));
+  // Sequential blocks (not round-robin) so related facts stay on the same slide
+  const base = Math.floor(paragraphs.length / count);
+  const rem = paragraphs.length % count;
+  const chunks = [];
+  let idx = 0;
+  for (let i = 0; i < count; i += 1) {
+    const n = Math.max(1, base + (i < rem ? 1 : 0));
+    const slice = paragraphs.slice(idx, idx + n);
+    idx += slice.length;
+    chunks.push(slice.join('\n\n'));
+  }
+  while (idx < paragraphs.length) {
+    chunks[count - 1] = [chunks[count - 1], paragraphs[idx]].filter(Boolean).join('\n\n');
+    idx += 1;
+  }
+  return chunks;
 }
 
 function buildPageBody(title, label, text, langUk) {
@@ -146,7 +152,39 @@ function buildPageBody(title, label, text, langUk) {
       ? `**${title}** — ${label}\n\nЦе місце варто побачити на власні очі.`
       : `**${title}** — ${label}\n\nThis place is worth seeing in person.`;
   }
-  return `**${title}** — ${label}\n\n${t}`;
+  // Prefer plain facts — section labels are stripped in the app anyway
+  return t;
+}
+
+function splitParagraphs(text) {
+  let t = String(text || '');
+  t = t.split(
+    /\n==\s*(Примітки|Джерела|Посилання|Галерея|References|External links|See also|Notes)\s*==/i,
+  )[0];
+  t = t.replace(/\n==+\s*[^=\n]+\s*==+\n/g, '\n\n');
+  const blocks = t
+    .split(/\n{2,}/)
+    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .filter((p) => p.length > 40);
+  // Split very long blocks into ~2–3 sentence units
+  const out = [];
+  for (const block of blocks) {
+    if (block.length <= 420) {
+      out.push(block);
+      continue;
+    }
+    const sents = block.split(/(?<=[.!?…])\s+(?=[A-ZА-ЯІЇЄҐ«"0-9])/).filter(Boolean);
+    let buf = '';
+    for (const s of sents) {
+      const next = buf ? `${buf} ${s}` : s;
+      if (next.length > 420 && buf.length >= 140) {
+        out.push(buf);
+        buf = s;
+      } else buf = next;
+    }
+    if (buf.length > 40) out.push(buf);
+  }
+  return out;
 }
 
 async function wikiSearch(query, lang) {
@@ -292,7 +330,13 @@ async function wikiMediaList(origin, title) {
 async function fetchWikiBundle(lm, region, cache, imagesOnly = false) {
   const ck = lm.key;
   if (cache[ck]?.story && imagesOnly && (cache[ck].imageCount || 0) >= 3) return cache[ck];
-  if (cache[ck]?.story && !imagesOnly) return cache[ck];
+  if (cache[ck]?.story && !imagesOnly) {
+    const prevBodies = cache[ck].story?.introPagesUk || [];
+    const stillPlaceholder = prevBodies.some((p) =>
+      /варто побачити на власні очі|worth seeing in person/i.test(String(p?.body || '')),
+    );
+    if (!stillPlaceholder && !process.argv.includes('--force')) return cache[ck];
+  }
 
   const cityUk = region?.titleUk || '';
   const cityEn = region?.titleEn || '';
@@ -344,10 +388,10 @@ async function fetchWikiBundle(lm, region, cache, imagesOnly = false) {
   );
 
   const introUk = lm.desc.uk
-    ? `Вітаємо біля **${lm.titleUk}**. ${lm.desc.uk}\n\n**Як дізнатися більше:** увімкніть аудіогід 👆 — і ми розповімо історію цього місця.`
+    ? `Вітаємо біля **${lm.titleUk}**. ${lm.desc.uk}`
     : `Вітаємо біля **${lm.titleUk}**. ${(parasUk[0] || extractUk).slice(0, 400)}`;
   const introEn = lm.desc.en
-    ? `Welcome to **${lm.titleEn}**. ${lm.desc.en}\n\n**Learn more:** tap the audio guide 👆 to hear the story of this place.`
+    ? `Welcome to **${lm.titleEn}**. ${lm.desc.en}`
     : `Welcome to **${lm.titleEn}**. ${(parasEn[0] || extractEn).slice(0, 400)}`;
 
   const wrongUk = [];

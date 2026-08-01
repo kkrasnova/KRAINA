@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { COUNTRY_BY_APP_LANG } from './appLang';
+import { selectableAppCountries } from './appLang';
 
 export const LEGACY_COUNTRY_STORAGE_KEY = '@kraina_app_country';
 
@@ -26,7 +26,7 @@ export function countryStorageKeyForUser(user) {
 }
 
 
-const VALID_IDS = new Set(Object.values(COUNTRY_BY_APP_LANG).map((c) => c.id));
+const VALID_IDS = new Set(selectableAppCountries().map((c) => c.id));
 
 export function isValidCountryId(id) {
   return typeof id === 'string' && VALID_IDS.has(id);
@@ -36,7 +36,7 @@ export async function getSavedCountryIdForUser(user) {
   const key = countryStorageKeyForUser(user);
   try {
     const v = await AsyncStorage.getItem(key);
-    if (v === 'US' || v === 'GB') {
+    if (v === 'US') {
       await AsyncStorage.removeItem(key).catch(() => {});
       return null;
     }
@@ -47,7 +47,7 @@ export async function getSavedCountryIdForUser(user) {
   if (hasStableIdentity(user)) return null;
   try {
     const legacy = await AsyncStorage.getItem(LEGACY_COUNTRY_STORAGE_KEY);
-    const migrated = legacy === 'US' || legacy === 'GB' ? null : legacy;
+    const migrated = legacy === 'US' ? null : legacy;
     if (migrated && isValidCountryId(migrated)) {
       await AsyncStorage.setItem(key, migrated).catch(() => {});
       return migrated;

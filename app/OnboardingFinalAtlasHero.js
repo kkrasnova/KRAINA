@@ -585,7 +585,7 @@ function RoutePulse({ fromId, toId, width, height, delayMs, duration = 3200 }) {
   );
 }
 
-export default function OnboardingFinalAtlasHero({ width, height, style }) {
+export default function OnboardingFinalAtlasHero({ width, height, style, starsOnly = false }) {
   const drift = useRef(new Animated.Value(0)).current;
   const driftSlow = useRef(new Animated.Value(0)).current;
   const aurora = useRef(new Animated.Value(0)).current;
@@ -686,13 +686,13 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
     outputRange: [0.5, 0.9, 0.5],
   });
 
-  const starsNear = useMemo(() => makeStars(48, width, height, 731, 0.55), [width, height]);
-  const starsFar = useMemo(() => makeStars(90, width, height, 1203, 0.85), [width, height]);
+  const starsNear = useMemo(() => makeStars(72, width, height, 731, 0.72), [width, height]);
+  const starsFar = useMemo(() => makeStars(120, width, height, 1203, 0.92), [width, height]);
   const twinkleStars = useMemo(
     () => [...starsNear, ...starsFar].filter((s) => s.twinkle),
     [starsFar, starsNear],
   );
-  const particles = useMemo(() => makeParticles(18, width, height), [width, height]);
+  const particles = useMemo(() => makeParticles(28, width, height), [width, height]);
 
   const routePaths = useMemo(
     () =>
@@ -855,19 +855,21 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
       </Animated.View>
 
       <LinearGradient
-        colors={['rgba(225, 255, 0, 0.12)', 'rgba(225, 255, 0, 0.02)', 'rgba(0,0,0,0)']}
-        locations={[0, 0.28, 0.65]}
+        colors={['rgba(225, 255, 0, 0.18)', 'rgba(90, 140, 255, 0.08)', 'rgba(0,0,0,0)']}
+        locations={[0, 0.32, 0.7]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.68)', '#000000']}
-        locations={[0.35, 0.76, 1]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
+      {!starsOnly ? (
+        <LinearGradient
+          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.28)', 'rgba(0,0,0,0.78)']}
+          locations={[0.62, 0.85, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : null}
 
       <ShootingStar width={width} height={height} startXRatio={0.78} startYRatio={0.06} angleDeg={-32} delayBase={800} travelXRatio={0.58} travelYRatio={0.3} />
       <ShootingStar width={width} height={height} startXRatio={0.92} startYRatio={0.14} angleDeg={-38} delayBase={2800} travelXRatio={0.45} travelYRatio={0.22} />
@@ -877,6 +879,7 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
         <FloatingParticle key={key} {...particle} />
       ))}
 
+      {!starsOnly ? (
       <Animated.View
         style={[
           styles.ringLayer,
@@ -923,15 +926,15 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
               <Path
                 d={d}
                 fill="none"
-                stroke="rgba(225, 255, 0, 0.1)"
+                stroke="rgba(225, 255, 0, 0.18)"
                 strokeWidth={5}
                 strokeLinecap="round"
               />
               <Path
                 d={d}
                 fill="none"
-                stroke={LEMON_ROUTE}
-                strokeWidth={1.6}
+                stroke="rgba(225, 255, 0, 0.55)"
+                strokeWidth={1.8}
                 strokeDasharray="5 8"
                 strokeLinecap="round"
               />
@@ -996,6 +999,7 @@ export default function OnboardingFinalAtlasHero({ width, height, style }) {
         ))}
 
       </Animated.View>
+      ) : null}
     </View>
   );
 }

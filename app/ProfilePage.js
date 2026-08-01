@@ -14,7 +14,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Image as ExpoImage } from 'expo-image';
+import RemotePhoto from './RemotePhoto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
@@ -1473,13 +1473,14 @@ export default function ProfilePage({ navigation, route, isTabActive = true }) {
                     ]}
                   >
                     {it.uri ? (
-                      <ExpoImage
+                      <RemotePhoto
                         source={{ uri: it.uri }}
                         style={{ width: cellSize, height: cellSize }}
                         contentFit="cover"
                         cachePolicy="memory-disk"
                         recyclingKey={String(it.id)}
                         transition={120}
+                        iconSize={20}
                       />
                     ) : (
                       <View style={[styles.postTilePlaceholder, { width: cellSize, height: cellSize }]}>

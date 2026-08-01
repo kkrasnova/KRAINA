@@ -28,11 +28,14 @@ import AuthTabSwitcher from './AuthTabSwitcher';
 import ForgotPasswordLockAnimation from './ForgotPasswordLockAnimation';
 import ForgotPasswordOtpInput from './ForgotPasswordOtpInput';
 import { useResponsive } from './useResponsive';
+import { useAuthTabSwipePanHandlers } from './useAuthTabSwipe';
 import { runAfterInteractions } from './runAfterInteractions';
 import { brandFontText } from './brandFont';
 import { authOverlayFromErrorCode } from './authOverlayI18n';
 import { thirdPageUi } from './thirdPageUiStrings';
 import { getTermsContentForLanguage } from './termsContentI18n';
+import TermsOfUseSheetModal from './TermsOfUseSheetModal';
+import FittingText from './FittingText';
 import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_SIGNIN_WEB_CLIENT_ID,
@@ -1421,6 +1424,94 @@ const FORGOT_FLOW_I18N = {
     forgotResendNetworkFailed:
       'Չհաջողվեց կապ հաստատել նամակների ծառայության հետ: Android էմուլյատորում՝ ստուգեք ինտերնետը:',
   },
+  it: {
+    forgotTitle: 'Recupero password',
+    forgotSendCode: 'Invia un codice a 6 cifre via email',
+    forgotSendingEmail: 'Invio…',
+    forgotYourCodeTitle: 'Il tuo codice di recupero',
+    forgotYourCodeHint:
+      'Il codice è mostrato qui sotto — salvato solo su questo dispositivo (nessun server email nell’app). Inseriscilo per continuare.',
+    forgotEnterCodeBelow: 'Inserisci il codice a 6 cifre',
+    forgotCodeExpired: 'Questo codice è scaduto. Tocca «Invia di nuovo».',
+    forgotCodeContinue: 'Continua',
+    forgotCodeSent: 'Codice inviato',
+    forgotEnterCode: 'Inserisci il codice',
+    forgotConfirmCode: 'Conferma',
+    forgotNewPassword: 'Nuova password',
+    forgotConfirmPassword: 'Conferma password',
+    forgotChangePassword: 'Cambia password',
+    forgotSuccess: 'Password modificata',
+    forgotClose: 'Chiudi',
+    forgotWrongCode: 'Codice errato',
+    forgotUserNotFound: 'Utente non trovato',
+    forgotNoProfile: 'Nessun profilo per questa email',
+    forgotCreateProfile: 'Crea un account',
+    forgotCodeSentToEmail: 'Codice inviato alla tua email',
+    forgotSuccessCanLogin: 'Password modificata. Puoi accedere.',
+    forgotEmailNotRegistered:
+      'Questa email non è registrata nell’app. Controlla l’ortografia o crea un nuovo account.',
+    forgotInAppResetHint: 'Nessuna email verrà inviata. Inserisci una nuova password qui sotto.',
+    forgotNewPasswordAfterCode: 'Inserisci e conferma una nuova password, poi accedi con essa.',
+    forgotSendFailed: 'Impossibile inviare l’email di reset. Riprova più tardi.',
+    forgotEmailCodeTitle: 'Codice dall’email',
+    forgotCheckEmailForCode:
+      'Abbiamo inviato un codice a 6 cifre alla tua email. Apri il messaggio e inserisci o incolla il codice qui sotto.',
+    forgotEmailSendFailed: 'Impossibile inviare l’email. Controlla Internet o riprova più tardi.',
+    forgotNoEmailConfigured:
+      'L’invio email non è configurato (aggiungi EXPO_PUBLIC_RESEND_API_KEY). Il codice è mostrato qui sotto.',
+    forgotInvalidResendKey:
+      'Chiave API Resend non valida in app/.env — deve iniziare con re_ (resend.com → API Keys). Poi npm run start:clear.',
+    forgotResendSandbox:
+      'Modalità test Resend: puoi inviare solo all’email del tuo account Resend o dopo la verifica del dominio e EXPO_PUBLIC_RESEND_FROM.',
+    forgotResendDomain:
+      'Resend ha rifiutato il mittente. Verifica il dominio in Resend e imposta EXPO_PUBLIC_RESEND_FROM.',
+    forgotResendNetworkFailed:
+      'Impossibile raggiungere il servizio email. Sull’emulatore Android: controlla Internet in Chrome.',
+  },
+  fr: {
+    forgotTitle: 'Récupération du mot de passe',
+    forgotSendCode: 'Envoyer un code à 6 chiffres par e-mail',
+    forgotSendingEmail: 'Envoi…',
+    forgotYourCodeTitle: 'Votre code de récupération',
+    forgotYourCodeHint:
+      'Le code est affiché ci-dessous — enregistré uniquement sur cet appareil (pas de serveur e-mail dans l’app). Saisissez-le pour continuer.',
+    forgotEnterCodeBelow: 'Entrez le code à 6 chiffres',
+    forgotCodeExpired: 'Ce code a expiré. Appuyez sur « Renvoyer ».',
+    forgotCodeContinue: 'Continuer',
+    forgotCodeSent: 'Code envoyé',
+    forgotEnterCode: 'Entrez le code',
+    forgotConfirmCode: 'Confirmer',
+    forgotNewPassword: 'Nouveau mot de passe',
+    forgotConfirmPassword: 'Confirmer le mot de passe',
+    forgotChangePassword: 'Changer le mot de passe',
+    forgotSuccess: 'Mot de passe modifié',
+    forgotClose: 'Fermer',
+    forgotWrongCode: 'Code incorrect',
+    forgotUserNotFound: 'Utilisateur introuvable',
+    forgotNoProfile: 'Aucun profil pour cet e-mail',
+    forgotCreateProfile: 'Créer un compte',
+    forgotCodeSentToEmail: 'Code envoyé à votre e-mail',
+    forgotSuccessCanLogin: 'Mot de passe modifié. Vous pouvez vous connecter.',
+    forgotEmailNotRegistered:
+      'Cet e-mail n’est pas enregistré dans l’app. Vérifiez l’orthographe ou créez un compte.',
+    forgotInAppResetHint: 'Aucun e-mail ne sera envoyé. Entrez un nouveau mot de passe ci-dessous.',
+    forgotNewPasswordAfterCode: 'Entrez et confirmez un nouveau mot de passe, puis connectez-vous.',
+    forgotSendFailed: 'Impossible d’envoyer l’e-mail de réinitialisation. Réessayez plus tard.',
+    forgotEmailCodeTitle: 'Code de l’e-mail',
+    forgotCheckEmailForCode:
+      'Nous avons envoyé un code à 6 chiffres à votre e-mail. Ouvrez le message et saisissez ou collez le code ci-dessous.',
+    forgotEmailSendFailed: 'Impossible d’envoyer l’e-mail. Vérifiez Internet ou réessayez plus tard.',
+    forgotNoEmailConfigured:
+      'L’envoi d’e-mail n’est pas configuré (ajoutez EXPO_PUBLIC_RESEND_API_KEY). Le code est affiché ci-dessous.',
+    forgotInvalidResendKey:
+      'Clé API Resend invalide dans app/.env — elle doit commencer par re_ (resend.com → API Keys). Puis npm run start:clear.',
+    forgotResendSandbox:
+      'Mode test Resend : envoi uniquement vers l’e-mail de votre compte Resend ou après vérification du domaine et EXPO_PUBLIC_RESEND_FROM.',
+    forgotResendDomain:
+      'Resend a rejeté l’expéditeur. Vérifiez le domaine dans Resend et définissez EXPO_PUBLIC_RESEND_FROM.',
+    forgotResendNetworkFailed:
+      'Impossible de joindre le service e-mail. Sur l’émulateur Android : vérifiez Internet dans Chrome.',
+  },
 };
 
 /** Рядки модалки та чекбокса «Умови» для мов без повного LOGIN_TEXTS. */
@@ -1488,6 +1579,22 @@ const TERMS_LOGIN_I18N = {
     termsAccept: 'Ընդունել պայմանները',
     termsBack: 'Հետ',
     errorTermsRequired: 'Հաստատեք, որ համաձայն եք օգտագործման պայմանների հետ',
+  },
+  it: {
+    termsAgreement: 'Accetto i Termini di utilizzo',
+    termsOpen: 'Apri i termini',
+    termsTitle: 'Termini di utilizzo',
+    termsAccept: 'Accetta i termini',
+    termsBack: 'Indietro',
+    errorTermsRequired: 'Conferma di accettare i Termini di utilizzo',
+  },
+  fr: {
+    termsAgreement: 'J’accepte les Conditions d’utilisation',
+    termsOpen: 'Ouvrir les conditions',
+    termsTitle: 'Conditions d’utilisation',
+    termsAccept: 'Accepter les conditions',
+    termsBack: 'Retour',
+    errorTermsRequired: 'Confirmez que vous acceptez les Conditions d’utilisation',
   },
 };
 
@@ -1584,17 +1691,32 @@ const LOGIN_TEXTS = {
   en: DEFAULT_LOGIN,
   pl: {
     title: 'Logowanie do systemu',
+    registerTitle: 'Rejestracja',
     loginTab: 'Zaloguj',
     registerTab: 'Zarejestruj się',
+    namePlaceholder: 'Imię',
     emailPlaceholder: 'E-mail',
     passwordPlaceholder: 'Hasło',
+    confirmPasswordPlaceholder: 'Potwierdź hasło',
     rememberMe: 'Zapamiętaj mnie',
     forgotPassword: 'Zapomniałeś hasła?',
     loginButton: 'Zaloguj',
+    registerButton: 'Zarejestruj się',
     orLoginWith: 'Lub zaloguj się przez',
     orRegisterWith: 'Lub zarejestruj się przez',
     hidePassword: 'Ukryj hasło',
     showPassword: 'Pokaż hasło',
+    errorInvalidEmail: 'Podaj prawidłowy adres e-mail',
+    errorEmptyEmail: 'Podaj adres e-mail',
+    errorEmptyName: 'Podaj imię',
+    errorEmptyPassword: 'Podaj hasło',
+    errorPasswordTooShort: 'Hasło musi mieć co najmniej 6 znaków',
+    errorConfirmPassword: 'Potwierdź hasło',
+    errorPasswordMismatch: 'Hasła nie są takie same',
+    errorWrongEmailOrPassword: 'Nieprawidłowy e-mail lub hasło',
+    errorEmptyFields: 'Podaj e-mail i hasło',
+    registerSuccess: 'Konto zostało utworzone',
+    errorEmailExists: 'Ten e-mail jest już zarejestrowany',
     loginWithGoogle: 'Zaloguj przez Google',
     loginWithFacebook: 'Zaloguj przez Facebook',
     loginWithApple: 'Zaloguj przez Apple',
@@ -1605,17 +1727,32 @@ const LOGIN_TEXTS = {
   },
   de: {
     title: 'Systemanmeldung',
+    registerTitle: 'Registrierung',
     loginTab: 'Anmelden',
     registerTab: 'Registrieren',
+    namePlaceholder: 'Name',
     emailPlaceholder: 'E-Mail',
     passwordPlaceholder: 'Passwort',
+    confirmPasswordPlaceholder: 'Passwort bestätigen',
     rememberMe: 'Angemeldet bleiben',
     forgotPassword: 'Passwort vergessen?',
     loginButton: 'Anmelden',
+    registerButton: 'Registrieren',
     orLoginWith: 'Oder anmelden mit',
     orRegisterWith: 'Oder registrieren mit',
     hidePassword: 'Passwort verbergen',
     showPassword: 'Passwort anzeigen',
+    errorInvalidEmail: 'Bitte gültige E-Mail-Adresse eingeben',
+    errorEmptyEmail: 'E-Mail-Adresse eingeben',
+    errorEmptyName: 'Namen eingeben',
+    errorEmptyPassword: 'Passwort eingeben',
+    errorPasswordTooShort: 'Passwort muss mindestens 6 Zeichen haben',
+    errorConfirmPassword: 'Passwort bestätigen',
+    errorPasswordMismatch: 'Passwörter stimmen nicht überein',
+    errorWrongEmailOrPassword: 'Falsche E-Mail oder falsches Passwort',
+    errorEmptyFields: 'E-Mail und Passwort eingeben',
+    registerSuccess: 'Registrierung erfolgreich',
+    errorEmailExists: 'Diese E-Mail ist bereits registriert',
     loginWithGoogle: 'Mit Google anmelden',
     loginWithFacebook: 'Mit Facebook anmelden',
     loginWithApple: 'Mit Apple anmelden',
@@ -1626,17 +1763,32 @@ const LOGIN_TEXTS = {
   },
   es: {
     title: 'Inicio de sesión',
+    registerTitle: 'Registro',
     loginTab: 'Iniciar sesión',
     registerTab: 'Registrarse',
+    namePlaceholder: 'Nombre',
     emailPlaceholder: 'Correo',
     passwordPlaceholder: 'Contraseña',
+    confirmPasswordPlaceholder: 'Confirmar contraseña',
     rememberMe: 'Recordarme',
     forgotPassword: '¿Olvidaste tu contraseña?',
     loginButton: 'Entrar',
+    registerButton: 'Registrarse',
     orLoginWith: 'O inicia sesión con',
     orRegisterWith: 'O regístrate con',
     hidePassword: 'Ocultar contraseña',
     showPassword: 'Mostrar contraseña',
+    errorInvalidEmail: 'Introduce un correo válido',
+    errorEmptyEmail: 'Introduce tu correo',
+    errorEmptyName: 'Introduce tu nombre',
+    errorEmptyPassword: 'Introduce tu contraseña',
+    errorPasswordTooShort: 'La contraseña debe tener al menos 6 caracteres',
+    errorConfirmPassword: 'Confirma tu contraseña',
+    errorPasswordMismatch: 'Las contraseñas no coinciden',
+    errorWrongEmailOrPassword: 'Correo o contraseña incorrectos',
+    errorEmptyFields: 'Introduce correo y contraseña',
+    registerSuccess: 'Te has registrado correctamente',
+    errorEmailExists: 'Este correo ya está registrado',
     loginWithGoogle: 'Entrar con Google',
     loginWithFacebook: 'Entrar con Facebook',
     loginWithApple: 'Entrar con Apple',
@@ -1647,17 +1799,32 @@ const LOGIN_TEXTS = {
   },
   nl: {
     title: 'Inloggen op het systeem',
+    registerTitle: 'Registratie',
     loginTab: 'Inloggen',
     registerTab: 'Registreren',
+    namePlaceholder: 'Naam',
     emailPlaceholder: 'E-mail',
     passwordPlaceholder: 'Wachtwoord',
+    confirmPasswordPlaceholder: 'Bevestig wachtwoord',
     rememberMe: 'Onthoud mij',
     forgotPassword: 'Wachtwoord vergeten?',
     loginButton: 'Inloggen',
+    registerButton: 'Registreren',
     orLoginWith: 'Of log in met',
     orRegisterWith: 'Of registreer met',
     hidePassword: 'Wachtwoord verbergen',
     showPassword: 'Wachtwoord tonen',
+    errorInvalidEmail: 'Voer een geldig e-mailadres in',
+    errorEmptyEmail: 'Voer je e-mailadres in',
+    errorEmptyName: 'Voer je naam in',
+    errorEmptyPassword: 'Voer je wachtwoord in',
+    errorPasswordTooShort: 'Wachtwoord moet minstens 6 tekens hebben',
+    errorConfirmPassword: 'Bevestig je wachtwoord',
+    errorPasswordMismatch: 'Wachtwoorden komen niet overeen',
+    errorWrongEmailOrPassword: 'Onjuiste e-mail of wachtwoord',
+    errorEmptyFields: 'Voer e-mail en wachtwoord in',
+    registerSuccess: 'Je bent geregistreerd',
+    errorEmailExists: 'Dit e-mailadres is al geregistreerd',
     loginWithGoogle: 'Inloggen met Google',
     loginWithFacebook: 'Inloggen met Facebook',
     loginWithApple: 'Inloggen met Apple',
@@ -1666,9 +1833,114 @@ const LOGIN_TEXTS = {
     registerWithFacebook: 'Registreren met Facebook',
     registerWithApple: 'Registreren met Apple',
   },
-  lt: { title: 'Prisijungimas prie sistemos', loginTab: 'Prisijungti', registerTab: 'Registruotis', emailPlaceholder: 'El. paštas', passwordPlaceholder: 'Slaptažodis', rememberMe: 'Prisiminti mane', forgotPassword: 'Pamiršote slaptažodį?', loginButton: 'Prisijungti', orLoginWith: 'Arba prisijunkite su', hidePassword: 'Slėpti slaptažodį', showPassword: 'Rodyti slaptažodį', loginWithGoogle: 'Prisijungti su Google', loginWithFacebook: 'Prisijungti su Facebook', loginWithApple: 'Prisijungti su Apple', loginWithPhone: 'Prisijungti su telefonu' },
-  lv: { title: 'Pieslēgties sistēmai', loginTab: 'Pieslēgties', registerTab: 'Reģistrēties', emailPlaceholder: 'E-pasts', passwordPlaceholder: 'Parole', rememberMe: 'Atcerēties mani', forgotPassword: 'Aizmirsi paroli?', loginButton: 'Pieslēgties', orLoginWith: 'Vai pieslēdzieties ar', hidePassword: 'Slēpt paroli', showPassword: 'Rādīt paroli', loginWithGoogle: 'Pieslēgties ar Google', loginWithFacebook: 'Pieslēgties ar Facebook', loginWithApple: 'Pieslēgties ar Apple', loginWithPhone: 'Pieslēgties ar tālruni' },
-  ro: { title: 'Autentificare în sistem', loginTab: 'Autentificare', registerTab: 'Înregistrare', emailPlaceholder: 'E-mail', passwordPlaceholder: 'Parolă', rememberMe: 'Ține-mă minte', forgotPassword: 'Ai uitat parola?', loginButton: 'Autentificare', orLoginWith: 'Sau conectează-te cu', hidePassword: 'Ascunde parola', showPassword: 'Arată parola', loginWithGoogle: 'Conectare cu Google', loginWithFacebook: 'Conectare cu Facebook', loginWithApple: 'Conectare cu Apple', loginWithPhone: 'Conectare cu telefonul' },
+  lt: {
+    title: 'Prisijungimas prie sistemos',
+    registerTitle: 'Registracija',
+    loginTab: 'Prisijungti',
+    registerTab: 'Registruotis',
+    namePlaceholder: 'Vardas',
+    emailPlaceholder: 'El. paštas',
+    passwordPlaceholder: 'Slaptažodis',
+    confirmPasswordPlaceholder: 'Patvirtinkite slaptažodį',
+    rememberMe: 'Prisiminti mane',
+    forgotPassword: 'Pamiršote slaptažodį?',
+    loginButton: 'Prisijungti',
+    registerButton: 'Registruotis',
+    orLoginWith: 'Arba prisijunkite su',
+    orRegisterWith: 'Arba registruokitės su',
+    hidePassword: 'Slėpti slaptažodį',
+    showPassword: 'Rodyti slaptažodį',
+    errorInvalidEmail: 'Įveskite galiojantį el. pašto adresą',
+    errorEmptyEmail: 'Įveskite el. pašto adresą',
+    errorEmptyName: 'Įveskite vardą',
+    errorEmptyPassword: 'Įveskite slaptažodį',
+    errorPasswordTooShort: 'Slaptažodis turi turėti bent 6 simbolius',
+    errorConfirmPassword: 'Patvirtinkite slaptažodį',
+    errorPasswordMismatch: 'Slaptažodžiai nesutampa',
+    errorWrongEmailOrPassword: 'Neteisingas el. paštas arba slaptažodis',
+    errorEmptyFields: 'Įveskite el. paštą ir slaptažodį',
+    registerSuccess: 'Sėkmingai užsiregistravote',
+    errorEmailExists: 'Šis el. paštas jau užregistruotas',
+    loginWithGoogle: 'Prisijungti su Google',
+    loginWithFacebook: 'Prisijungti su Facebook',
+    loginWithApple: 'Prisijungti su Apple',
+    loginWithPhone: 'Prisijungti su telefonu',
+    registerWithGoogle: 'Registruotis su Google',
+    registerWithFacebook: 'Registruotis su Facebook',
+    registerWithApple: 'Registruotis su Apple',
+  },
+  lv: {
+    title: 'Pieslēgties sistēmai',
+    registerTitle: 'Reģistrācija',
+    loginTab: 'Pieslēgties',
+    registerTab: 'Reģistrēties',
+    namePlaceholder: 'Vārds',
+    emailPlaceholder: 'E-pasts',
+    passwordPlaceholder: 'Parole',
+    confirmPasswordPlaceholder: 'Apstipriniet paroli',
+    rememberMe: 'Atcerēties mani',
+    forgotPassword: 'Aizmirsi paroli?',
+    loginButton: 'Pieslēgties',
+    registerButton: 'Reģistrēties',
+    orLoginWith: 'Vai pieslēdzieties ar',
+    orRegisterWith: 'Vai reģistrējieties ar',
+    hidePassword: 'Slēpt paroli',
+    showPassword: 'Rādīt paroli',
+    errorInvalidEmail: 'Ievadiet derīgu e-pasta adresi',
+    errorEmptyEmail: 'Ievadiet e-pasta adresi',
+    errorEmptyName: 'Ievadiet vārdu',
+    errorEmptyPassword: 'Ievadiet paroli',
+    errorPasswordTooShort: 'Parolei jābūt vismaz 6 rakstzīmēm',
+    errorConfirmPassword: 'Apstipriniet paroli',
+    errorPasswordMismatch: 'Paroles nesakrīt',
+    errorWrongEmailOrPassword: 'Nepareizs e-pasts vai parole',
+    errorEmptyFields: 'Ievadiet e-pastu un paroli',
+    registerSuccess: 'Jūs esat reģistrēts',
+    errorEmailExists: 'Šis e-pasts jau ir reģistrēts',
+    loginWithGoogle: 'Pieslēgties ar Google',
+    loginWithFacebook: 'Pieslēgties ar Facebook',
+    loginWithApple: 'Pieslēgties ar Apple',
+    loginWithPhone: 'Pieslēgties ar tālruni',
+    registerWithGoogle: 'Reģistrēties ar Google',
+    registerWithFacebook: 'Reģistrēties ar Facebook',
+    registerWithApple: 'Reģistrēties ar Apple',
+  },
+  ro: {
+    title: 'Autentificare în sistem',
+    registerTitle: 'Înregistrare',
+    loginTab: 'Autentificare',
+    registerTab: 'Înregistrare',
+    namePlaceholder: 'Nume',
+    emailPlaceholder: 'E-mail',
+    passwordPlaceholder: 'Parolă',
+    confirmPasswordPlaceholder: 'Confirmă parola',
+    rememberMe: 'Ține-mă minte',
+    forgotPassword: 'Ai uitat parola?',
+    loginButton: 'Autentificare',
+    registerButton: 'Înregistrare',
+    orLoginWith: 'Sau conectează-te cu',
+    orRegisterWith: 'Sau înregistrează-te cu',
+    hidePassword: 'Ascunde parola',
+    showPassword: 'Arată parola',
+    errorInvalidEmail: 'Introdu o adresă de e-mail validă',
+    errorEmptyEmail: 'Introdu adresa de e-mail',
+    errorEmptyName: 'Introdu numele',
+    errorEmptyPassword: 'Introdu parola',
+    errorPasswordTooShort: 'Parola trebuie să aibă cel puțin 6 caractere',
+    errorConfirmPassword: 'Confirmă parola',
+    errorPasswordMismatch: 'Parolele nu coincid',
+    errorWrongEmailOrPassword: 'E-mail sau parolă greșită',
+    errorEmptyFields: 'Introdu e-mailul și parola',
+    registerSuccess: 'Te-ai înregistrat cu succes',
+    errorEmailExists: 'Acest e-mail este deja înregistrat',
+    loginWithGoogle: 'Conectare cu Google',
+    loginWithFacebook: 'Conectare cu Facebook',
+    loginWithApple: 'Conectare cu Apple',
+    loginWithPhone: 'Conectare cu telefonul',
+    registerWithGoogle: 'Înregistrare cu Google',
+    registerWithFacebook: 'Înregistrare cu Facebook',
+    registerWithApple: 'Înregistrare cu Apple',
+  },
   hy: {
     title: 'Մուտք համակարգ',
     registerTitle: 'Գրանցում',
@@ -1681,10 +1953,22 @@ const LOGIN_TEXTS = {
     rememberMe: 'Հիշել ինձ',
     forgotPassword: 'Մոռացե՞լ եք գաղտնաբառը',
     loginButton: 'Մուտք',
+    registerButton: 'Գրանցվել',
     orLoginWith: 'Կամ մուտք գործել',
     orRegisterWith: 'Կամ գրանցվել',
     hidePassword: 'Թաքցնել գաղտնաբառը',
     showPassword: 'Ցուցադրել գաղտնաբառը',
+    errorInvalidEmail: 'Մուտքագրեք վավեր էլ. փոստի հասցե',
+    errorEmptyEmail: 'Մուտքագրեք էլ. փոստը',
+    errorEmptyName: 'Մուտքագրեք անունը',
+    errorEmptyPassword: 'Մուտքագրեք գաղտնաբառը',
+    errorPasswordTooShort: 'Գաղտնաբառը պետք է ունենա առնվազն 6 նիշ',
+    errorConfirmPassword: 'Հաստատեք գաղտնաբառը',
+    errorPasswordMismatch: 'Գաղտնաբառները չեն համընկնում',
+    errorWrongEmailOrPassword: 'Սխալ էլ. փոստ կամ գաղտնաբառ',
+    errorEmptyFields: 'Մուտքագրեք էլ. փոստը և գաղտնաբառը',
+    registerSuccess: 'Դուք հաջողությամբ գրանցվել եք',
+    errorEmailExists: 'Այս էլ. փոստն արդեն գրանցված է',
     loginWithGoogle: 'Մուտք Google-ով',
     loginWithFacebook: 'Մուտք Facebook-ով',
     loginWithApple: 'Մուտք Apple-ով',
@@ -1692,6 +1976,78 @@ const LOGIN_TEXTS = {
     registerWithGoogle: 'Գրանցվել Google-ով',
     registerWithFacebook: 'Գրանցվել Facebook-ով',
     registerWithApple: 'Գրանցվել Apple-ով',
+  },
+  it: {
+    title: 'Accesso al sistema',
+    registerTitle: 'Registrazione',
+    loginTab: 'Accedi',
+    registerTab: 'Registrati',
+    namePlaceholder: 'Nome',
+    emailPlaceholder: 'Email',
+    passwordPlaceholder: 'Password',
+    confirmPasswordPlaceholder: 'Conferma password',
+    rememberMe: 'Ricordami',
+    forgotPassword: 'Password dimenticata?',
+    loginButton: 'Accedi',
+    registerButton: 'Registrati',
+    orLoginWith: 'Oppure accedi con',
+    orRegisterWith: 'Oppure registrati con',
+    hidePassword: 'Nascondi password',
+    showPassword: 'Mostra password',
+    errorInvalidEmail: 'Inserisci un indirizzo email valido',
+    errorEmptyEmail: 'Inserisci la tua email',
+    errorEmptyName: 'Inserisci il tuo nome',
+    errorEmptyPassword: 'Inserisci la password',
+    errorPasswordTooShort: 'La password deve contenere almeno 6 caratteri',
+    errorConfirmPassword: 'Conferma la password',
+    errorPasswordMismatch: 'Le password non coincidono',
+    errorWrongEmailOrPassword: 'Email o password errati',
+    errorEmptyFields: 'Inserisci email e password',
+    registerSuccess: 'Registrazione completata',
+    errorEmailExists: 'Questa email è già registrata',
+    loginWithGoogle: 'Accedi con Google',
+    loginWithFacebook: 'Accedi con Facebook',
+    loginWithApple: 'Accedi con Apple',
+    loginWithPhone: 'Accedi con telefono',
+    registerWithGoogle: 'Registrati con Google',
+    registerWithFacebook: 'Registrati con Facebook',
+    registerWithApple: 'Registrati con Apple',
+  },
+  fr: {
+    title: 'Connexion au système',
+    registerTitle: 'Inscription',
+    loginTab: 'Connexion',
+    registerTab: 'S’inscrire',
+    namePlaceholder: 'Nom',
+    emailPlaceholder: 'E-mail',
+    passwordPlaceholder: 'Mot de passe',
+    confirmPasswordPlaceholder: 'Confirmer le mot de passe',
+    rememberMe: 'Se souvenir de moi',
+    forgotPassword: 'Mot de passe oublié ?',
+    loginButton: 'Connexion',
+    registerButton: 'S’inscrire',
+    orLoginWith: 'Ou connectez-vous avec',
+    orRegisterWith: 'Ou inscrivez-vous avec',
+    hidePassword: 'Masquer le mot de passe',
+    showPassword: 'Afficher le mot de passe',
+    errorInvalidEmail: 'Entrez une adresse e-mail valide',
+    errorEmptyEmail: 'Entrez votre e-mail',
+    errorEmptyName: 'Entrez votre nom',
+    errorEmptyPassword: 'Entrez votre mot de passe',
+    errorPasswordTooShort: 'Le mot de passe doit contenir au moins 6 caractères',
+    errorConfirmPassword: 'Confirmez le mot de passe',
+    errorPasswordMismatch: 'Les mots de passe ne correspondent pas',
+    errorWrongEmailOrPassword: 'E-mail ou mot de passe incorrect',
+    errorEmptyFields: 'Entrez e-mail et mot de passe',
+    registerSuccess: 'Inscription réussie',
+    errorEmailExists: 'Cet e-mail est déjà enregistré',
+    loginWithGoogle: 'Connexion avec Google',
+    loginWithFacebook: 'Connexion avec Facebook',
+    loginWithApple: 'Connexion avec Apple',
+    loginWithPhone: 'Connexion avec téléphone',
+    registerWithGoogle: 'S’inscrire avec Google',
+    registerWithFacebook: 'S’inscrire avec Facebook',
+    registerWithApple: 'S’inscrire avec Apple',
   },
 };
 
@@ -1855,6 +2211,38 @@ function ThirdPageContent({
     outputRange: [-8, 0],
   });
   const [authSlideSubmitting, setAuthSlideSubmitting] = useState(false);
+
+  /** Після промо-відео онбордингу — екран входу «випливає» знизу. */
+  const fromPromoVideo = route?.params?.fromPromoVideo === true;
+  const promoEnterAnim = useRef(new Animated.Value(fromPromoVideo ? 0 : 1)).current;
+  useEffect(() => {
+    if (!fromPromoVideo) {
+      promoEnterAnim.setValue(1);
+      return undefined;
+    }
+    promoEnterAnim.setValue(0);
+    Animated.timing(promoEnterAnim, {
+      toValue: 1,
+      duration: 880,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    return undefined;
+  }, [fromPromoVideo, promoEnterAnim]);
+  const promoEnterY = promoEnterAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [72, 0],
+  });
+  const promoEnterScale = promoEnterAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.96, 1],
+  });
+  const promoEnterStyle = fromPromoVideo
+    ? {
+        opacity: promoEnterAnim,
+        transform: [{ translateY: promoEnterY }, { scale: promoEnterScale }],
+      }
+    : null;
 
   const registerWithPassword = useAuthStore((s) => s.registerWithPassword);
   const loginWithPasswordBackend = useAuthStore((s) => s.loginWithPassword);
@@ -2048,6 +2436,31 @@ function ThirdPageContent({
     [navigation, language],
   );
 
+  // Якщо сесія вже є (cold start / повернулись на ThirdPage) — не показуємо вхід/реєстрацію знову.
+  const skippedAuthRedirectRef = useRef(false);
+  useEffect(() => {
+    if (skippedAuthRedirectRef.current) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const hydrate = useAuthStore.getState().hydrate;
+        if (typeof hydrate === 'function') await hydrate();
+        if (cancelled) return;
+        const authUser = useAuthStore.getState().user;
+        const session = await getSession();
+        const user = session?.user || authUser;
+        if (!user?.id && !user?.email) return;
+        skippedAuthRedirectRef.current = true;
+        await navigateAfterAuth(user, false);
+      } catch {
+        /* залишаємо форму входу */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigateAfterAuth]);
+
   const closeAdminPinModal = useCallback(() => {
     setAdminPinModalOpen(false);
     setAdminPinInput('');
@@ -2175,6 +2588,8 @@ function ThirdPageContent({
     setFocusedAuthField(null);
     setActiveTab(tab);
   };
+
+  const authTabSwipePanHandlers = useAuthTabSwipePanHandlers(activeTab, switchAuthTab);
 
   const onAuthSubmitCtaPressIn = useCallback(() => {
     Animated.timing(authSubmitCtaPressAnim, {
@@ -2674,9 +3089,9 @@ function ThirdPageContent({
         onStartShouldSetPanResponder: (evt) => evt.nativeEvent.pageX <= 40,
         onStartShouldSetPanResponderCapture: (evt) => evt.nativeEvent.pageX <= 40,
         onMoveShouldSetPanResponder: (_, g) =>
-          g.dx > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
+          g.dx > 18 && Math.abs(g.dx) > Math.abs(g.dy) * 1.6,
         onMoveShouldSetPanResponderCapture: (_, g) =>
-          g.dx > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
+          g.dx > 22 && Math.abs(g.dx) > Math.abs(g.dy) * 1.75,
         onPanResponderTerminationRequest: () => true,
         onPanResponderRelease: (_, g) => {
           if (g.dx > 44 || (g.dx > 28 && g.vx > 0.28)) {
@@ -3068,7 +3483,11 @@ function ThirdPageContent({
     AUTH_FORM_SHIFT_DOWN_PX;
 
   const formScrollPaddingTop = Math.max(140, formScrollPaddingTopBase - 32);
-  const termsModalHeight = Math.min(r.height * 0.78, 680);
+
+  const closeTermsModal = useCallback(() => {
+    setShowTermsModal(false);
+  }, []);
+
   const forgotStepItems = [
     { id: 'input', label: thirdPageUi(language, 'forgotLabelEmail') },
     { id: 'code', label: thirdPageUi(language, 'forgotLabelCode') },
@@ -3164,6 +3583,10 @@ function ThirdPageContent({
       {Platform.OS === 'android' ? (
         <RNStatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       ) : null}
+      <Animated.View
+        style={[styles.promoEnterWrap, promoEnterStyle]}
+        {...authTabSwipePanHandlers}
+      >
       <AuthHeroHeader
         source={backgroundImageSource}
         height={authHeroRenderHeight}
@@ -3217,15 +3640,18 @@ function ThirdPageContent({
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            scrollEnabled={false}
-            bounces={false}
+            scrollEnabled
+            bounces
             alwaysBounceVertical={false}
             overScrollMode="never"
-            nestedScrollEnabled={false}
+            nestedScrollEnabled
             automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            keyboardDismissMode="on-drag"
           >
-            <View style={[styles.content, { width: contentWidth, maxWidth: DESIGN_CONTENT_WIDTH, marginTop: formOffsetTop }]}>
-              <Text
+            <View
+              style={[styles.content, { width: contentWidth, maxWidth: DESIGN_CONTENT_WIDTH, marginTop: formOffsetTop }]}
+            >
+              <FittingText
                 style={[
                   styles.title,
                   styles.loginFormTitleCompact,
@@ -3235,11 +3661,10 @@ function ThirdPageContent({
                   { marginTop: activeTitleMarginTop },
                 ]}
                 numberOfLines={2}
-                adjustsFontSizeToFit={Platform.OS === 'ios'}
-                minimumFontScale={Platform.OS === 'ios' ? 0.82 : 1}
+                minimumFontScale={0.72}
               >
                 {activeTab === 'register' ? texts.registerTitle : texts.title}
-              </Text>
+              </FittingText>
 
               <AuthTabSwitcher
                 activeTab={activeTab}
@@ -3470,7 +3895,9 @@ function ThirdPageContent({
                       <View style={[styles.checkboxSquare, rememberMe && styles.checkboxSquareChecked]} />
                       {rememberMe ? <Text style={styles.checkboxCheckIcon}>✓</Text> : null}
                     </View>
-                    <Text style={styles.checkboxLabel}>{texts.rememberMe}</Text>
+                    <FittingText style={styles.checkboxLabel} minimumFontScale={0.68}>
+                      {texts.rememberMe}
+                    </FittingText>
                   </Pressable>
                   <Pressable
                     style={styles.forgotWrap}
@@ -3479,7 +3906,9 @@ function ThirdPageContent({
                     accessibilityRole="link"
                     onPress={openForgotModal}
                   >
-                    <Text style={styles.forgotText}>{texts.forgotPassword}</Text>
+                    <FittingText style={styles.forgotText} minimumFontScale={0.72}>
+                      {texts.forgotPassword}
+                    </FittingText>
                   </Pressable>
                 </View>
               ) : (
@@ -3501,18 +3930,22 @@ function ThirdPageContent({
                       {termsAccepted ? <Text style={styles.checkboxCheckIcon}>✓</Text> : null}
                     </View>
                     <View style={styles.termsLabelWrap}>
-                      <Text style={styles.checkboxLabel}>
+                      <FittingText
+                        style={[styles.checkboxLabel, styles.termsAgreeText]}
+                        minimumFontScale={0.68}
+                      >
                         {thirdPageUi(language, 'agreePrefix')}
-                      </Text>
+                      </FittingText>
                       <Pressable
                         onPress={() => setShowTermsModal(true)}
                         android_ripple={rippleOnDarkSurface}
                         accessibilityRole="link"
                         hitSlop={4}
+                        style={styles.termsLinkPressable}
                       >
-                        <Text style={styles.termsInlineLink}>
+                        <FittingText style={styles.termsInlineLink} minimumFontScale={0.68}>
                           {thirdPageUi(language, 'termsLink')}
-                        </Text>
+                        </FittingText>
                       </Pressable>
                     </View>
                   </Pressable>
@@ -3661,6 +4094,7 @@ function ThirdPageContent({
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
+      </Animated.View>
 
       <Modal visible={showForgotModal} animationType="slide" statusBarTranslucent>
         <KeyboardAvoidingView
@@ -3696,9 +4130,9 @@ function ThirdPageContent({
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
-                bounces={false}
-                scrollEnabled={false}
-                nestedScrollEnabled={false}
+                bounces
+                scrollEnabled
+                nestedScrollEnabled
                 automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
                 contentContainerStyle={[
                   styles.forgotModalScrollContent,
@@ -3721,7 +4155,9 @@ function ThirdPageContent({
                   <Text style={styles.forgotStepCounter}>
                     {forgotStepIndex + 1}/{forgotStepItems.length} · {forgotStepItems[forgotStepIndex]?.label}
                   </Text>
-                  <Text style={styles.forgotModalTitle}>{texts.forgotTitle}</Text>
+                  <FittingText style={styles.forgotModalTitle} numberOfLines={2} minimumFontScale={0.72}>
+                    {texts.forgotTitle}
+                  </FittingText>
                   {forgotSubtitle ? <Text style={styles.forgotModalSubtitle}>{forgotSubtitle}</Text> : null}
 
                   <View style={styles.forgotModalBody}>
@@ -3990,46 +4426,13 @@ function ThirdPageContent({
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={showTermsModal} transparent animationType="fade">
-        <View style={styles.termsModalOverlay}>
-          <View style={[styles.termsModalBox, { height: termsModalHeight }]}>
-            <Pressable
-              onPress={() => setShowTermsModal(false)}
-              hitSlop={12}
-              android_ripple={rippleOnDarkSurface}
-              style={styles.termsModalBackBtn}
-              accessibilityRole="button"
-              accessibilityLabel={thirdPageUi(language, 'back')}
-            >
-              <Ionicons name="chevron-back" size={24} color={ACCENT} />
-            </Pressable>
-
-            <View style={styles.termsHandle} />
-            <View style={styles.termsHeader}>
-              <Text style={styles.termsTitle}>{texts.termsTitle}</Text>
-              <Text style={styles.termsSubtitle}>KRAÏNA x ITty Company</Text>
-            </View>
-            <View style={styles.termsDivider} />
-
-            <ScrollView
-              style={styles.termsScroll}
-              contentContainerStyle={styles.termsScrollContent}
-              scrollEnabled
-              showsVerticalScrollIndicator
-              indicatorStyle="white"
-              bounces
-              alwaysBounceVertical
-              nestedScrollEnabled
-              overScrollMode="always"
-              persistentScrollbar
-              keyboardShouldPersistTaps="handled"
-              contentInsetAdjustmentBehavior="automatic"
-            >
-              <Text style={styles.termsBodyText}>{termsContent}</Text>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <TermsOfUseSheetModal
+        visible={showTermsModal}
+        onClose={closeTermsModal}
+        title={texts.termsTitle}
+        content={termsContent}
+        backAccessibilityLabel={thirdPageUi(language, 'back')}
+      />
 
       <Modal
         visible={authBlockingOverlay.visible && !adminPinModalOpen}
@@ -4061,7 +4464,9 @@ function ThirdPageContent({
               accessibilityLabel={thirdPageUi(language, 'close')}
             />
             <View style={styles.forgotModalBox}>
-              <Text style={styles.forgotModalTitle}>{thirdPageUi(language, 'adminPinTitle')}</Text>
+              <FittingText style={styles.forgotModalTitle} numberOfLines={2} minimumFontScale={0.72}>
+                {thirdPageUi(language, 'adminPinTitle')}
+              </FittingText>
               <Text style={styles.forgotModalSubtitle}>{thirdPageUi(language, 'adminPinSubtitle')}</Text>
               <View style={[styles.authFieldRow, { marginTop: 16, width: '100%' }]}>
                 <TextInput
@@ -4116,6 +4521,10 @@ const styles = StyleSheet.create({
     width: '100%',
     overflow: 'visible',
     backgroundColor: BG_DARK,
+  },
+  promoEnterWrap: {
+    flex: 1,
+    width: '100%',
   },
   authHeroBackdrop: {
     position: 'absolute',
@@ -4449,6 +4858,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
     minHeight: 32,
     paddingVertical: 4,
     paddingRight: 10,
@@ -4464,6 +4874,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderRadius: 5,
     overflow: 'hidden',
+    flexShrink: 0,
   },
   checkboxBoxChecked: {
     shadowColor: 'transparent',
@@ -4508,14 +4919,28 @@ const styles = StyleSheet.create({
     color: TEXT_LIGHT,
     backgroundColor: 'transparent',
     opacity: 1,
+    flex: 1,
+    minWidth: 0,
     flexShrink: 1,
     ...(Platform.OS === 'android' ? { fontFamily: 'sans-serif', includeFontPadding: false } : {}),
   },
   termsLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  termsAgreeText: {
+    flex: 0,
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  termsLinkPressable: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '58%',
   },
   termsInlineLink: {
     ...BRAND_TEXT_FONT,
@@ -4540,6 +4965,8 @@ const styles = StyleSheet.create({
   },
   forgotWrap: {
     flexShrink: 1,
+    maxWidth: '46%',
+    minWidth: 0,
     alignSelf: 'center',
     paddingVertical: 4,
     paddingHorizontal: 2,
@@ -4834,10 +5261,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 14,
     left: 14,
-    zIndex: 2,
-    minWidth: 40,
-    height: 36,
-    borderRadius: 18,
+    zIndex: 20,
+    elevation: 20,
+    minWidth: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
@@ -4867,6 +5295,12 @@ const styles = StyleSheet.create({
     shadowRadius: 28,
     shadowOffset: { width: 0, height: 0 },
     elevation: 16,
+  },
+  termsDragZone: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   termsHandle: {
     alignSelf: 'center',
@@ -5062,6 +5496,8 @@ const styles = StyleSheet.create({
     color: ACCENT,
     textAlign: 'center',
     marginBottom: 8,
+    width: '100%',
+    paddingHorizontal: 28,
   },
   forgotModalSubtitle: {
     fontSize: 14,

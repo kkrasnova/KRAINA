@@ -45,8 +45,12 @@ import {
 } from '../middleware/rateLimits.js';
 
 async function withFirebaseCustomToken(out: AuthTokens): Promise<AuthTokens & { firebase_custom_token?: string }> {
-  const token = await createFirebaseCustomToken(out.user.id);
-  return token ? { ...out, firebase_custom_token: token } : out;
+  try {
+    const token = await createFirebaseCustomToken(out.user.id);
+    return token ? { ...out, firebase_custom_token: token } : out;
+  } catch (e) {
+    return out;
+  }
 }
 
 const router = Router();

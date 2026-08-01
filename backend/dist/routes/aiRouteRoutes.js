@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { optionalAuth } from '../middleware/authMiddleware.js';
-import { aiRouteSuggestRateLimiter, landmarkTtsRateLimiter, visionLandmarkRateLimiter, } from '../middleware/rateLimits.js';
-import { aiSuggestRouteBodySchema, landmarkTtsBodySchema, visionLandmarkBodySchema, } from '../schemas/aiRoute.schemas.js';
+import { aiRouteSuggestRateLimiter, landmarkTtsRateLimiter, visionLandmarkRateLimiter, walkNarrateRateLimiter, } from '../middleware/rateLimits.js';
+import { aiSuggestRouteBodySchema, landmarkTtsBodySchema, visionLandmarkBodySchema, walkNarrateBodySchema, } from '../schemas/aiRoute.schemas.js';
 import { suggestAiRoute } from '../services/aiRouteSuggestService.js';
 import { synthesizeLandmarkSpeech } from '../services/landmarkTtsService.js';
 import { detectVisionLandmarkTitle } from '../services/visionLandmarkService.js';
+import { narrateWalkGuide } from '../services/walkNarrateService.js';
 import { HttpError } from '../errors/HttpError.js';
 import { config } from '../config.js';
 const router = Router();
@@ -47,6 +48,22 @@ router.post('/landmark-tts', optionalAuth, landmarkTtsRateLimiter, async (req, r
     try {
         const body = landmarkTtsBodySchema.parse(req.body);
         const out = await synthesizeLandmarkSpeech(body.text, body.language);
+        res.status(200).json(out);
+    }
+    catch (e) {
+        next(e);
+    }
+});
+router.post('/walk-narrate', optionalAuth, walkNarrateRateLimiter, async (req, res, next) => {
+    try {
+        const body = walkNarrateBodySchema.parse(req.body);
+        const out = await narrateWalkGuide({
+            title: body.title,
+            extract: body.extract,
+            street: body.street,
+            city: body.city,
+            language: body.language,
+        });
         res.status(200).json(out);
     }
     catch (e) {

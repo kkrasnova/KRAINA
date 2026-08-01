@@ -5,17 +5,8 @@ import path from 'path';
 
 
 const APP_LANG_IDS = [
-  'en',
-  'uk',
-  'de',
-  'pl',
-  'nl',
-  'es',
-  'lt',
-  'lv',
-  'ro',
-  'it',
-  'hy',
+  'en','uk','de','pl','nl','es','lt','lv','ro','it','hy','fr',
+  'pt','cs','sk','hu','sv','no','da','fi','is','et','el','bg','hr','sl','sr','bs','mk','sq','mt','ga','ca','tr',
 ];
 
 const appDir = path.join(process.cwd(), 'app');

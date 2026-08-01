@@ -8,7 +8,7 @@ const SPLASH_TITLE_POSTER = require('./assets/kraina-title-splash-frame0.png');
 const GLOBE_IMAGE = require('./assets/globe.webp');
 const PERSON_IMAGE = require('./assets/person-12.webp');
 
-/** Мінімум на FirstPage — короткий брендинг, але встигаємо показати анімацію лого. */
+/** Мінімум на FirstPage — повний брендинг (лого + відео), потім одразу головна якщо вже в акаунті. */
 const SPLASH_MIN_PLAYBACK_MS = 2000;
 const FIRST_LAUNCH_SPLASH_MIN_MS = 2500;
 const RETURNING_USER_SPLASH_MIN_MS = 1800;
@@ -20,10 +20,15 @@ function resolveSplashDelayMs(nextRoute, nextParams) {
   const isFirstLaunchOnboarding =
     nextRoute === 'SecondPage' || nextParams?.firstLaunchOnboarding === true;
   if (isFirstLaunchOnboarding) return FIRST_LAUNCH_SPLASH_MIN_MS;
-  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth' || nextRoute === 'ThirdPage') {
+  // Залогінений / returning — повний сплеш, далі Home (без екрану входу).
+  if (
+    nextRoute === 'HomeTabPager' ||
+    nextRoute === 'ChoosePlan' ||
+    nextRoute === 'BackendAuth' ||
+    nextRoute === 'ThirdPage'
+  ) {
     return RETURNING_USER_SPLASH_MIN_MS;
   }
-  if (nextRoute === 'ChoosePlan') return RETURNING_USER_SPLASH_MIN_MS;
   return FIRST_LAUNCH_SPLASH_MIN_MS;
 }
 
@@ -31,7 +36,12 @@ function resolveMinPlaybackMs(nextRoute, nextParams) {
   const isFirstLaunchOnboarding =
     nextRoute === 'SecondPage' || nextParams?.firstLaunchOnboarding === true;
   if (isFirstLaunchOnboarding) return SPLASH_MIN_PLAYBACK_MS;
-  if (nextRoute === 'HomeTabPager' || nextRoute === 'BackendAuth' || nextRoute === 'ThirdPage') {
+  if (
+    nextRoute === 'HomeTabPager' ||
+    nextRoute === 'ChoosePlan' ||
+    nextRoute === 'BackendAuth' ||
+    nextRoute === 'ThirdPage'
+  ) {
     return RETURNING_USER_MIN_PLAYBACK_MS;
   }
   return SPLASH_MIN_PLAYBACK_MS;
@@ -126,7 +136,16 @@ export default function FirstPage({ navigation, route }) {
         }).start(() => setSplashHidden(true));
       });
     });
-    return unsub;
+    // Страховка: ніколи не лишаємо повний чорний оверлей назавжди (завислий JS / пропущений callback).
+    const failsafe = setTimeout(() => {
+      notifySplashLogoPainted();
+      overlayOpacity.setValue(0);
+      setSplashHidden(true);
+    }, 1200);
+    return () => {
+      unsub();
+      clearTimeout(failsafe);
+    };
   }, [overlayOpacity]);
 
   const imageOnLoad = useCallback(

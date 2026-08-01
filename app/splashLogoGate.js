@@ -5,6 +5,14 @@ const waiters = [];
 let splashHidden = false;
 const hiddenListeners = new Set();
 
+/** Fast Refresh / повторний mount App — щоб не лишати «залиплий» чорний оверлей. */
+export function resetSplashLogoGate() {
+  resolved = false;
+  splashHidden = false;
+  waiters.splice(0);
+  hiddenListeners.clear();
+}
+
 export function notifySplashLogoPainted() {
   if (resolved) return;
   resolved = true;

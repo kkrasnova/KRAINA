@@ -445,7 +445,7 @@ export default function FeedPostMediaPickerPage({ navigation, route }) {
           contentContainerStyle={[styles.gridContent, { paddingBottom: insets.bottom + 12 }]}
           renderItem={renderThumb}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={false}
           maxToRenderPerBatch={12}
           windowSize={5}
           initialNumToRender={12}

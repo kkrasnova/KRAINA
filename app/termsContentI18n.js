@@ -4,382 +4,1288 @@
 import { appLangBase } from './appLang';
 
 const TERMS_UK = `1. Загальні положення
-Ці Умови користування регулюють використання мобільного додатку KRAÏNA, який розробляється та підтримується компанією ITty Company. Реєструючись у додатку, ви підтверджуєте, що ознайомилися з цими умовами, розумієте їх та погоджуєтеся їх виконувати.
+1.1. Ці Умови користування (далі — «Умови») регулюють доступ до мобільного додатку KRAÏNA та всіх пов’язаних сервісів, функцій, контенту й інтерфейсів, які розробляються та підтримуються компанією ITty Company (далі — «Компанія», «ми», «нас»).
+1.2. Реєструючись у додатку, створюючи обліковий запис, входячи через email або соціальні провайдери, або іншим чином використовуючи KRAÏNA, ви підтверджуєте, що ознайомилися з цими Умовами, розумієте їх і повністю погоджуєтеся їх дотримуватися.
+1.3. Якщо ви не згодні з будь-яким положенням Умов, ви зобов’язані негайно припинити використання додатку та не створювати обліковий запис.
+1.4. Користувачем може бути фізична особа, яка досягла віку, дозволеного законодавством вашої країни для самостійного прийняття таких умов. Якщо ви дієте від імені організації, ви підтверджуєте наявність повноважень укладати ці Умови від її імені.
+1.5. Окремі функції можуть регулюватися додатковими правилами, політикою конфіденційності, правилами спільноти або умовами магазинів додатків (App Store / Google Play). У разі суперечності спеціальні умови застосовуються до відповідної функції, а ці Умови — до решти сервісу.
+1.6. Ми можемо відмовити в реєстрації, обмежити або припинити доступ без попередження, якщо є підстави вважати, що використання порушує закон, ці Умови або створює ризик для інших користувачів чи платформи.
 
 2. Про продукт KRAÏNA
-KRAÏNA — це мобільний додаток у сфері туризму, освіти та соціальних технологій зі слоганом «Історія там, де ти зараз» та підслоганом «Виходь. Досліджуй. Живи.». Додаток поєднує історичний контент, маршрути, AR/AI-механіки, соціальні функції, гейміфікацію, а також онлайн та офлайн сценарії використання.
+2.1. KRAÏNA — мобільний додаток у сфері туризму, освіти та соціальних технологій зі слоганом «Історія там, де ти зараз» та підслоганом «Виходь. Досліджуй. Живи.».
+2.2. Додаток може поєднувати історичний і культурний контент, маршрути та точки інтересу, AR/AI-механіки, сканування локацій і пам’яток, гейміфікацію, соціальні функції, повідомлення, стрічку активності, а також онлайн- та офлайн-сценарії.
+2.3. Функціональність може відрізнятися залежно від країни, мови, пристрою, версії додатку, типу акаунта та етапу розвитку продукту. Окремі можливості можуть бути в бета-режимі, обмеженими за регіоном або тимчасово недоступними.
+2.4. Описи функцій у маркетингових матеріалах не є гарантією їх постійної наявності в незмінному вигляді. Ми залишаємо за собою право змінювати, розширювати або згортати функції в межах законодавства.
 
 3. Обліковий запис користувача
-Для реєстрації ви зобов'язані надати достовірні дані: ім'я, адресу електронної пошти та пароль. Ви несете відповідальність за безпеку свого облікового запису, доступ до нього та всі дії, що виконуються з вашого профілю. Ви погоджуєтеся не передавати свій акаунт третім особам та негайно повідомити про підозру на несанкціонований доступ.
+3.1. Для реєстрації ви зобов’язані надати достовірні, повні та актуальні дані: зокрема ім’я (або відображуване ім’я), адресу електронної пошти та пароль, а також інші дані, якщо цього вимагає відповідна форма.
+3.2. Ви несете повну відповідальність за конфіденційність облікових даних, безпеку пристрою, усіх сесій входу та всіх дій, вчинених через ваш акаунт — незалежно від того, чи здійснювали ви їх особисто.
+3.3. Заборонено: створювати акаунт від імені іншої особи без дозволу; використовувати чужі дані; мати кілька акаунтів з метою обходу блокувань, лімітів або правил; передавати, продавати чи орендувати акаунт третім особам.
+3.4. Ви зобов’язані негайно повідомити нас про будь-яку підозру на несанкціонований доступ, втрату пароля, злам пристрою або інші інциденти безпеки.
+3.5. Ми можемо вимагати підтвердження email, додаткову перевірку особи або скидання пароля для захисту акаунта та платформи.
+3.6. Компанія не зобов’язана відновлювати доступ у випадках, коли ви втратили контроль над email, пристроєм або даними відновлення, якщо це не передбачено технічними можливостями сервісу.
 
 4. Основні функції сервісу
-Після реєстрації користувачу можуть бути доступні: авторизація через email та соціальні провайдери, профіль користувача, історичний контент про локації, маршрути, елементи AR-сканування, збереження активності, взаємодія зі спільнотою, соціальні функції, повідомлення, стрічка активності, а також у майбутньому підписки, віртуальні тури, адміністративні сервіси та B2B-інструменти.
+4.1. Після реєстрації користувачу можуть бути доступні, зокрема: авторизація через email та соціальні провайдери; профіль користувача; історичний і довідковий контент про локації; маршрути та рекомендації; елементи AR-сканування; збереження активності та прогресу; взаємодія зі спільнотою; повідомлення; стрічка активності; сповіщення.
+4.2. У майбутньому можуть з’явитися підписки, платні функції, віртуальні тури, адміністративні сервіси, партнерські інтеграції та B2B-інструменти. Доступ до них може потребувати окремої згоди, оплати або виконання додаткових умов.
+4.3. Деякі функції потребують дозволів пристрою (камера, геолокація, сповіщення, сховище тощо). Відмова у дозволах може обмежити або унеможливити роботу відповідних можливостей.
+4.4. Ми не гарантуємо, що всі функції будуть доступні одночасно всім користувачам у всіх регіонах і на всіх пристроях.
 
 5. Правила використання
-Ви погоджуєтеся використовувати KRAÏNA законно, добросовісно та без шкоди для інших користувачів, партнерів і самої платформи. Забороняється: вводити неправдиві дані, зламувати сервіс, обходити технічні обмеження, копіювати або незаконно поширювати контент додатку, публікувати образливі, незаконні чи шкідливі матеріали, а також використовувати сервіс для шахрайства або спаму.
+5.1. Ви погоджуєтеся використовувати KRAÏNA виключно законно, добросовісно, з повагою до інших користувачів, партнерів, об’єктів культурної спадщини та самої платформи.
+5.2. Забороняється, зокрема:
+а) надавати неправдиві, оманливі або чужі дані;
+б) зламувати, сканувати на вразливості, DDoS-атакувати, втручатися в роботу серверів, API, баз даних чи клієнтського коду;
+в) обходити технічні обмеження, ліміти, модерацію, гео- або вікові обмеження, системи антифроду;
+г) копіювати, парсити, вивантажувати масово або незаконно поширювати контент, маршрути, тексти, зображення, моделі AR, код чи бази даних додатку без письмового дозволу Компанії;
+д) публікувати образливий, дискримінаційний, порнографічний, насильницький, екстремістський, шахрайський або інший незаконний контент;
+е) розсилати спам, фішинг, шкідливе ПЗ, небажану рекламу чи нав’язливі повідомлення;
+є) видавати себе за іншу особу, Компанію, модератора або партнера;
+ж) використовувати сервіс для комерційної діяльності, яка не узгоджена з Компанією (якщо інше не дозволено функцією);
+з) порушувати права інтелектуальної власності, приватності або особисті немайнові права третіх осіб;
+и) створювати загрозу безпеці людей у фізичному просторі під час використання маршрутів, AR чи навігації (наприклад, ігнорувати правила дорожнього руху, обмеження доступу до об’єктів, вказівки охорони тощо).
+5.3. Під час відвідування локацій ви самостійно відповідаєте за дотримання місцевих законів, правил безпеки, режиму роботи об’єктів, прав власності та вимог органів влади.
+5.4. Порушення цих правил може призвести до попередження, обмеження функцій, тимчасового або постійного блокування акаунта, видалення контенту та/або повідомлення компетентних органів.
 
 6. Контент, інтелектуальна власність та ліцензія
-Усі права на бренд KRAÏNA, дизайн, логіку роботи сервісу, тексти, елементи інтерфейсу, маршрути, історичні матеріали, графіку та інші елементи платформи належать ITty Company або використовуються на законних підставах. Користувач зберігає права на власний контент, який він завантажує в сервіс, але надає KRAÏNA обмежене право використовувати цей контент для відображення, зберігання, модерації та функціонування сервісу.
+6.1. Усі права на бренд KRAÏNA, логотипи, дизайн, інтерфейс, програмний код, логіку роботи, тексти, маршрути, історичні матеріали, графіку, аудіо, відео, AR-активи, бази даних та інші елементи платформи належать ITty Company або використовуються на законних підставах (ліцензії, партнерські угоди тощо).
+6.2. Вам надається обмежена, невиключна, відкликана, непередавана ліцензія на особисте некомерційне використання додатку відповідно до цих Умов. Будь-яке інше використання потребує попередньої письмової згоди Компанії.
+6.3. Заборонено видаляти або змінювати повідомлення про авторські права, торговельні марки чи інші позначки права власності.
+6.4. Користувач зберігає права на власний контент (тексти, фото, коментарі, маршрути тощо), який він законно завантажує або створює в сервісі.
+6.5. Завантажуючи контент, ви надаєте Компанії всесвітню, невиключну, безоплатну, субліцензовану ліцензію на використання, відтворення, зберігання, модерацію, адаптацію (технічну), публічний показ і поширення такого контенту в межах роботи, просування та покращення сервісу.
+6.6. Ви гарантуєте, що маєте всі необхідні права на завантажений контент і що він не порушує закон чи права третіх осіб. У разі претензій третіх осіб ви зобов’язуєтеся сприяти їх врегулюванню та відшкодувати Компанії обґрунтовані збитки, якщо порушення сталося з вашої вини.
+6.7. Ми маємо право без попередження видаляти, приховувати або обмежувати будь-який контент, який порушує Умови, закон або політики платформи.
 
 7. Дані користувача та конфіденційність
-Для роботи додатку ми можемо обробляти дані облікового запису, профілю, історію входів, маршрути, історію сканувань, повідомлення, сповіщення, технічні дані пристрою та інші дані, необхідні для роботи функцій додатку. Ми застосовуємо розумні організаційні та технічні заходи для захисту даних, але користувач також зобов'язаний самостійно дбати про конфіденційність свого пароля та доступу до пристрою.
+7.1. Для роботи додатку ми можемо обробляти дані облікового запису та профілю, історію входів, маршрути й активність, історію сканувань, повідомлення, сповіщення, налаштування, технічні дані пристрою (модель, ОС, ідентифікатори додатку, логи помилок), а також дані геолокації та камери — у обсязі, необхідному для відповідних функцій і з дотриманням політики конфіденційності.
+7.2. Обробка персональних даних здійснюється відповідно до застосовного законодавства та нашої Політики конфіденційності, яка є невід’ємною частиною відносин із користувачем.
+7.3. Ми застосовуємо розумні організаційні та технічні заходи захисту даних, однак жодна система не гарантує абсолютної безпеки. Ви також зобов’язані захищати пароль, пристрій, резервні коди та не передавати доступ іншим особам.
+7.4. Окремі функції можуть залучати сторонні сервіси (аналітика, карти, push-сповіщення, соціальний вхід, хмарне зберігання). Їх використання може регулюватися умовами таких провайдерів.
+7.5. Ви можете звернутися щодо доступу, виправлення, видалення або обмеження обробки даних у порядку, передбаченому політикою конфіденційності та законом.
 
 8. Локації, маршрути, AR та контент
-Частина функцій KRAÏNA може залежати від доступу до камери, геолокації, інтернету, технічних можливостей пристрою, сторонніх сервісів та актуальності контенту. Ми прагнемо забезпечувати якісний досвід, однак не гарантуємо, що всі локації, AR-сцени, маршрути або рекомендації завжди будуть доступні безперервно чи без помилок.
+8.1. Частина функцій KRAÏNA залежить від доступу до камери, геолокації, інтернету, датчиків пристрою, точності GPS, сторонніх карт і сервісів, а також актуальності контенту.
+8.2. Інформація про локації, історію, маршрути, рекомендації та AR-сцени надається з освітньою та інформаційною метою. Вона може містити неточності, бути неповною або застарілою.
+8.3. Ми не гарантуємо безперервну доступність усіх локацій, AR-сцен, маршрутів чи рекомендацій, їх відповідність реальному стану об’єкта, безпеку маршруту чи можливість фізичного доступу.
+8.4. Користувач самостійно оцінює ризики під час пересування, використання AR у громадських місцях і взаємодії з фізичним середовищем. Дотримуйтесь правил безпеки, уваги до оточення та місцевих обмежень.
+8.5. Компанія не несе відповідальності за рішення, прийняті виключно на підставі контенту додатку (вибір маршруту, відвідування місця тощо), якщо інше прямо не передбачено законом.
 
 9. Тарифи, підписки та майбутні покупки
-У KRAÏNA може використовуватися модель Free / Pro, а також майбутні in-app покупки та партнерські розміщення. Якщо платні функції будуть активовані, фактична ціна, строки, умови продовження та правила оплати завжди відображатимуться користувачу окремо перед підтвердженням покупки у відповідному магазині застосунків або інтерфейсі сервісу.
+9.1. Базовий функціонал KRAÏNA може надаватися безоплатно. Окремі можливості можуть входити до моделі Free / Pro, підписок, разових in-app покупок або партнерських пропозицій.
+9.2. Перед підтвердженням платної покупки вам завжди буде показано ціну, валюту (якщо застосовно), строк, умови автоподовження, правила скасування та інші істотні умови в інтерфейсі додатку та/або магазині застосунків.
+9.3. Оплата, повернення коштів, управління підписками та податки регулюються правилами відповідного магазину (Apple / Google) та/або платіжного провайдера, якщо інше не зазначено окремо.
+9.4. Ми можемо змінювати ціни та склад платних пакетів на майбутні періоди з повідомленням у порядку, передбаченому законом і політиками магазинів. Зміни, як правило, не впливають на вже оплачений і активний період, якщо інше не вимагається законом.
+9.5. Зловживання акціями, промокодами, пробними періодами або обхід платіжних обмежень заборонені й можуть призвести до скасування переваг і блокування акаунта.
 
 10. Соціальна взаємодія
-Якщо сервіс містить стрічку, пости, дружбу, маршрути, повідомлення чи інші соціальні функції, ви погоджуєтеся поважати інших користувачів. ITty Company має право обмежити, приховати або видалити контент, який порушує правила сервісу, а також тимчасово або назавжди обмежити доступ до акаунту у випадку зловживань.
+10.1. Якщо сервіс містить стрічку, пости, коментарі, дружбу, спільні маршрути, повідомлення чи інші соціальні функції, ви зобов’язані поважати інших користувачів і не порушувати їхні права.
+10.2. Заборонено цькування, погрози, хейт-спіч, домагання, розголошення чужих персональних даних без згоди, публікацію приватних листувань без дозволу, а також будь-яку поведінку, що створює небезпечне або токсичне середовище.
+10.3. ITty Company має право модерувати, обмежувати видимість, приховувати або видаляти контент і взаємодії, що порушують правила, а також тимчасово чи назавжди обмежувати доступ до акаунта.
+10.4. Ми не зобов’язані попередньо переглядати весь користувацький контент, але залишаємо за собою право реагувати на скарги та власні виявлення порушень.
+10.5. Повідомлення про порушення можна надсилати через доступні в додатку канали підтримки або зворотного зв’язку.
 
 11. Обмеження відповідальності
-KRAÏNA надається за принципом «як є» у межах чинного законодавства та поточної стадії розвитку продукту. ITty Company не несе відповідальності за непрямі збитки, втрату даних, перерви в роботі сервісу, неможливість доступу через зовнішні платформи, проблеми зі зв'язком, а також за дії третіх осіб або контент, створений користувачами.
+11.1. У межах, дозволених чинним законодавством, KRAÏNA та весь пов’язаний контент надаються за принципом «як є» та «як доступно», без будь-яких явних чи неявних гарантій безперебійності, безпомилковості, придатності для конкретної мети або повної відповідності очікуванням.
+11.2. ITty Company не несе відповідальності за: непрямі, випадкові, спеціальні або штрафні збитки; втрату прибутку, даних, репутації чи можливостей; перерви в роботі; збої зв’язку; дії третіх осіб; користувацький контент; помилки в історичних чи картографічних матеріалах; наслідки використання AR/геолокації у фізичному світі — наскільки це дозволено законом.
+11.3. Ніщо в цих Умовах не обмежує відповідальність, яку не можна виключити або обмежити за імперативними нормами права (зокрема у випадках умислу, грубої необережності чи шкоди життю та здоров’ю, якщо так передбачає закон).
+11.4. Якщо відповідальність Компанії все ж встановлена, її сукупний розмір обмежується, наскільки це дозволено законом, сумою, фактично сплаченою вами за платні функції протягом останніх 12 місяців, або мінімальною сумою, передбаченою законом, якщо ви не здійснювали оплат.
 
 12. Зміни сервісу та умов
-Ми можемо оновлювати функціональність додатку, змінювати інтерфейс, додавати або прибирати окремі можливості, а також оновлювати ці Умови користування. Продовження використання сервісу після оновлення означає вашу згоду з актуальною редакцією умов.
+12.1. Ми можемо оновлювати функціональність додатку, змінювати інтерфейс, додавати, змінювати або прибирати окремі можливості, проводити технічні роботи та виправляти помилки.
+12.2. Ми можемо оновлювати ці Умови. Актуальна версія публікується в додатку та/або іншим розумним способом. Дата оновлення може зазначатися окремо.
+12.3. Якщо зміни істотно впливають на ваші права, ми намагатимемося повідомити вас заздалегідь (через додаток, сповіщення або email), якщо це вимагається законом або є практично можливим.
+12.4. Продовження використання сервісу після набрання чинності оновленими Умовами означає вашу згоду з новою редакцією, якщо інше не вимагає окремого підтвердження за законом.
+12.5. Якщо ви не згодні зі змінами, ви повинні припинити використання сервісу та, за потреби, видалити акаунт у передбаченому порядку.
 
 13. Припинення доступу
-Користувач має право припинити використання сервісу у будь-який момент. ITty Company також може призупинити або припинити доступ до акаунту у випадку порушення цих умов, вимог безпеки, законодавства або у разі загрози роботі платформи.
+13.1. Ви можете припинити використання сервісу в будь-який момент, видаливши додаток і/або обліковий запис (якщо така функція доступна) чи звернувшись до підтримки.
+13.2. ITty Company може призупинити, обмежити або припинити доступ до акаунта чи окремих функцій у разі: порушення цих Умов; вимог безпеки; підозри на шахрайство; вимог закону чи уповноважених органів; загрози роботі платформи; тривалої неактивності (якщо це передбачено політиками сервісу).
+13.3. Після припинення доступу можуть бути видалені або знеособлені дані та контент у межах технічних процесів і вимог закону. Окремі дані можуть зберігатися протягом строків, необхідних для виконання юридичних обов’язків, вирішення спорів і запобігання зловживанням.
+13.4. Положення, які за своєю природою мають зберігати чинність (інтелектуальна власність, обмеження відповідальності, застосовне право тощо), залишаються чинними після припинення доступу.
 
-14. Підтвердження згоди
-Натискаючи на чекбокс згоди під час реєстрації, ви підтверджуєте, що добровільно та свідомо погоджуєтеся з цими Умовами користування KRAÏNA та приймаєте правила використання сервісу, які встановлені компанією ITty Company.`;
+14. Застосовне право, спори та підтвердження згоди
+14.1. Ці Умови регулюються законодавством, застосовним до діяльності ITty Company, якщо імперативні норми країни вашого проживання не передбачають іншого обов’язкового захисту прав споживача.
+14.2. Спори бажано вирішувати шляхом переговорів і звернення до підтримки. Якщо спір не врегульовано, він може бути переданий до компетентного суду згідно із законом.
+14.3. Якщо будь-яке положення Умов визнано недійсним або невиконуваним, решта положень залишаються чинними.
+14.4. Невикористання Компанією якогось права за цими Умовами не означає відмови від такого права в майбутньому.
+14.5. Натискаючи на чекбокс згоди під час реєстрації (або інший елемент прийняття), ви підтверджуєте, що добровільно та свідомо приймаєте ці Умови користування KRAÏNA і правила сервісу, встановлені ITty Company.`;
 
 const TERMS_EN = `1. General provisions
-These Terms of Use govern the use of the KRAÏNA mobile application, developed and maintained by ITty Company. By registering in the app, you confirm that you have read these terms, understand them and agree to comply with them.
+1.1. These Terms of Use (“Terms”) govern access to the KRAÏNA mobile application and all related services, features, content and interfaces developed and maintained by ITty Company (“Company”, “we”, “us”).
+1.2. By registering, creating an account, signing in via email or social providers, or otherwise using KRAÏNA, you confirm that you have read these Terms, understand them and fully agree to comply with them.
+1.3. If you do not agree with any provision, you must stop using the app immediately and must not create an account.
+1.4. Users must be natural persons of the age required by the laws of their country to accept such terms on their own. If you act on behalf of an organisation, you confirm you are authorised to bind that organisation.
+1.5. Specific features may be subject to additional rules, the Privacy Policy, community guidelines or app-store terms (App Store / Google Play). In case of conflict, the special terms apply to the relevant feature and these Terms apply to the rest of the service.
+1.6. We may refuse registration or limit or terminate access without prior notice if use appears to violate law, these Terms, or to create risk for other users or the platform.
 
 2. About KRAÏNA
-KRAÏNA is a mobile app in tourism, education and social technology with the tagline “History is where you are now” and the line “Get out. Explore. Live.” It combines historical content, routes, AR/AI mechanics, social features, gamification, and online and offline usage scenarios.
+2.1. KRAÏNA is a mobile app in tourism, education and social technology with the tagline “History is where you are now” and the line “Get out. Explore. Live.”
+2.2. The app may combine historical and cultural content, routes and points of interest, AR/AI mechanics, location and landmark scanning, gamification, social features, messaging, an activity feed, and online and offline scenarios.
+2.3. Features may vary by country, language, device, app version, account type and product stage. Some capabilities may be beta, region-limited or temporarily unavailable.
+2.4. Marketing descriptions are not a guarantee that features will remain available unchanged. We may change, expand or discontinue features within applicable law.
 
 3. User account
-For registration you must provide accurate information: name, email address and password. You are responsible for the security of your account, access to it and all actions taken from your profile. You agree not to share your account with third parties and to report suspected unauthorized access without delay.
+3.1. For registration you must provide accurate, complete and current information, including name (or display name), email address and password, and any other data required by the form.
+3.2. You are fully responsible for the confidentiality of your credentials, device security, all sign-in sessions and all actions taken through your account, whether or not you personally performed them.
+3.3. You must not: create an account in another person’s name without permission; use someone else’s data; maintain multiple accounts to evade bans, limits or rules; transfer, sell or rent your account.
+3.4. You must promptly notify us of any suspected unauthorised access, password loss, device compromise or other security incident.
+3.5. We may require email verification, additional identity checks or password resets to protect accounts and the platform.
+3.6. We are not obliged to restore access if you lose control of your email, device or recovery data, except as supported by available technical means.
 
 4. Main service features
-After registration, users may have access to: sign-in via email and social providers, user profile, historical content about locations, routes, AR scanning features, activity history, community interaction, social features, messages, activity feed, and in the future subscriptions, virtual tours, administrative services and B2B tools.
+4.1. After registration, users may have access to: email and social sign-in; user profile; historical and reference content about locations; routes and recommendations; AR scanning; activity and progress history; community interaction; messages; activity feed; notifications.
+4.2. Future offerings may include subscriptions, paid features, virtual tours, administrative services, partner integrations and B2B tools, which may require separate consent, payment or additional terms.
+4.3. Some features need device permissions (camera, location, notifications, storage, etc.). Denying permissions may limit or disable those features.
+4.4. We do not guarantee that all features will be available to all users in all regions on all devices at the same time.
 
 5. Rules of use
-You agree to use KRAÏNA lawfully, in good faith and without harm to other users, partners or the platform. You must not: provide false data, attack or break the service, bypass technical limits, copy or unlawfully distribute app content, publish offensive, illegal or harmful material, or use the service for fraud or spam.
+5.1. You agree to use KRAÏNA lawfully, in good faith, and with respect for other users, partners, cultural heritage sites and the platform.
+5.2. Prohibited conduct includes, without limitation:
+a) providing false, misleading or another person’s data;
+b) hacking, vulnerability scanning, DDoS attacks, or interfering with servers, APIs, databases or client code;
+c) bypassing technical limits, moderation, geo or age restrictions, or anti-fraud systems;
+d) copying, scraping, bulk exporting or unlawfully distributing app content, routes, texts, images, AR assets, code or databases without written permission;
+e) publishing offensive, discriminatory, pornographic, violent, extremist, fraudulent or otherwise illegal content;
+f) spam, phishing, malware, unsolicited ads or harassing messages;
+g) impersonating another person, the Company, a moderator or a partner;
+h) using the service for unauthorised commercial activity (unless a feature expressly allows it);
+i) infringing intellectual property, privacy or personality rights of others;
+j) creating physical-safety risks while using routes, AR or navigation (e.g. ignoring traffic rules, access restrictions or security instructions).
+5.3. When visiting locations you alone are responsible for complying with local laws, safety rules, site opening hours, property rights and authority requirements.
+5.4. Breaches may result in a warning, feature limits, temporary or permanent account suspension, content removal and/or reports to competent authorities.
 
 6. Content, intellectual property and licence
-All rights to the KRAÏNA brand, design, service logic, texts, UI elements, routes, historical materials, graphics and other platform elements belong to ITty Company or are used on a lawful basis. Users retain rights to their own uploaded content but grant KRAÏNA a limited right to use that content for display, storage, moderation and operation of the service.
+6.1. All rights in the KRAÏNA brand, logos, design, interface, software, service logic, texts, routes, historical materials, graphics, audio, video, AR assets, databases and other platform elements belong to ITty Company or are used on a lawful basis.
+6.2. You receive a limited, non-exclusive, revocable, non-transferable licence for personal non-commercial use of the app under these Terms. Any other use requires prior written consent.
+6.3. You must not remove or alter copyright, trademark or other proprietary notices.
+6.4. You retain rights in your own lawfully uploaded or created content (texts, photos, comments, routes, etc.).
+6.5. By uploading content you grant the Company a worldwide, non-exclusive, royalty-free, sublicensable licence to use, reproduce, store, moderate, technically adapt, publicly display and distribute that content for operating, promoting and improving the service.
+6.6. You warrant that you hold all necessary rights in uploaded content and that it does not violate law or third-party rights. You agree to help resolve third-party claims and to indemnify the Company for reasonable losses caused by your breach.
+6.7. We may remove, hide or restrict any content that violates these Terms, law or platform policies, without prior notice.
 
 7. User data and privacy
-To run the app we may process account data, profile data, sign-in history, routes, scan history, messages, notifications, device technical data and other data needed for app features. We apply reasonable organisational and technical safeguards, but you must also protect your password and device access.
+7.1. To operate the app we may process account and profile data, sign-in history, routes and activity, scan history, messages, notifications, settings, device technical data (model, OS, app identifiers, error logs), and location and camera data as needed for the relevant features and in line with the Privacy Policy.
+7.2. Personal data is processed under applicable law and our Privacy Policy, which forms part of the relationship with users.
+7.3. We apply reasonable organisational and technical safeguards, but no system is perfectly secure. You must also protect your password, device, recovery codes and access.
+7.4. Some features may involve third-party services (analytics, maps, push notifications, social login, cloud storage), which may have their own terms.
+7.5. You may request access, correction, deletion or restriction of processing as provided in the Privacy Policy and by law.
 
 8. Locations, routes, AR and content
-Some features may depend on camera, geolocation, internet, device capabilities, third-party services and content freshness. We aim for a quality experience but do not guarantee that all locations, AR scenes, routes or recommendations are always continuously available or error-free.
+8.1. Some features depend on camera, geolocation, internet, device sensors, GPS accuracy, third-party maps and services, and content freshness.
+8.2. Information about places, history, routes, recommendations and AR scenes is provided for educational and informational purposes and may be inaccurate, incomplete or outdated.
+8.3. We do not guarantee continuous availability of all locations, AR scenes, routes or recommendations, their match to the real site condition, route safety or physical accessibility.
+8.4. You alone assess risks when travelling, using AR in public spaces and interacting with the physical environment. Follow safety rules, stay aware of surroundings and respect local restrictions.
+8.5. The Company is not liable for decisions based solely on app content (route choice, visiting a place, etc.), except where mandatory law provides otherwise.
 
 9. Pricing, subscriptions and future purchases
-KRAÏNA may use a Free / Pro model, future in‑app purchases and partner placements. If paid features are enabled, actual price, duration, renewal and payment rules will always be shown separately before you confirm purchase in the relevant app store or service UI.
+9.1. Core functionality may be free. Some capabilities may use Free / Pro models, subscriptions, one-off in-app purchases or partner offers.
+9.2. Before confirming a paid purchase you will always see price, currency (if applicable), duration, auto-renewal, cancellation rules and other material terms in the app and/or store UI.
+9.3. Payment, refunds, subscription management and taxes are governed by the relevant store (Apple / Google) and/or payment provider unless stated otherwise.
+9.4. We may change prices and paid packages for future periods with notice as required by law and store policies. Changes usually do not affect an already paid active period unless law requires otherwise.
+9.5. Abuse of promotions, promo codes, trials or payment limits is forbidden and may lead to cancellation of benefits and account suspension.
 
 10. Social interaction
-If the service includes a feed, posts, friends, routes, messages or other social features, you agree to respect other users. ITty Company may restrict, hide or remove content that breaks the rules and may temporarily or permanently limit account access in case of abuse.
+10.1. If the service includes a feed, posts, comments, friends, shared routes, messages or other social features, you must respect other users and their rights.
+10.2. Bullying, threats, hate speech, harassment, disclosing others’ personal data without consent, publishing private correspondence without permission, and any behaviour that creates an unsafe or toxic environment are prohibited.
+10.3. ITty Company may moderate, limit visibility of, hide or remove content and interactions that break the rules, and may temporarily or permanently restrict account access.
+10.4. We are not obliged to pre-screen all user content but may act on reports and our own findings.
+10.5. Report violations via in-app support or feedback channels.
 
 11. Limitation of liability
-KRAÏNA is provided “as is” within applicable law and the current stage of the product. ITty Company is not liable for indirect damages, data loss, service interruptions, inability to access via external platforms, connectivity issues, or acts of third parties or user-generated content.
+11.1. To the fullest extent permitted by law, KRAÏNA and related content are provided “as is” and “as available”, without warranties of uninterrupted operation, error-free performance, fitness for a particular purpose or full alignment with expectations.
+11.2. ITty Company is not liable for indirect, incidental, special or punitive damages; loss of profits, data, reputation or opportunities; service interruptions; connectivity failures; third-party acts; user-generated content; errors in historical or map materials; or consequences of using AR/geolocation in the physical world — to the extent permitted by law.
+11.3. Nothing in these Terms limits liability that cannot be excluded under mandatory law (including intent, gross negligence, or harm to life/health where the law so requires).
+11.4. If liability is established, the Company’s aggregate liability is limited, to the extent permitted by law, to amounts you actually paid for paid features in the last 12 months, or the minimum amount required by law if you made no payments.
 
 12. Changes to the service and terms
-We may update app functionality, change the interface, add or remove features, and update these Terms of Use. Continued use after updates means you accept the current version of the terms.
+12.1. We may update functionality, change the interface, add, modify or remove features, perform maintenance and fix bugs.
+12.2. We may update these Terms. The current version is published in the app and/or by other reasonable means. An update date may be shown separately.
+12.3. For material changes affecting your rights we will try to give advance notice (in-app, notification or email) where required by law or reasonably practicable.
+12.4. Continued use after updated Terms take effect means acceptance of the new version, unless law requires separate confirmation.
+12.5. If you disagree with changes, you must stop using the service and, if needed, delete your account as provided.
 
 13. Termination of access
-You may stop using the service at any time. ITty Company may suspend or terminate account access if these terms, security requirements, law are violated, or the platform is at risk.
+13.1. You may stop using the service at any time by deleting the app and/or account (if available) or contacting support.
+13.2. ITty Company may suspend, limit or terminate access to an account or features in case of: breach of these Terms; security requirements; suspected fraud; legal or authority requests; risk to the platform; prolonged inactivity (if provided by service policies).
+13.3. After termination, data and content may be deleted or anonymised within technical processes and legal requirements. Some data may be retained as needed for legal duties, dispute resolution and abuse prevention.
+13.4. Provisions that by nature should survive (IP, liability limits, governing law, etc.) remain in force after termination.
 
-14. Confirmation of consent
-By checking the consent box during registration, you confirm that you voluntarily and knowingly accept these KRAÏNA Terms of Use and the rules of the service established by ITty Company.`;
+14. Governing law, disputes and confirmation of consent
+14.1. These Terms are governed by the law applicable to ITty Company’s activities, unless mandatory consumer-protection rules of your country of residence provide otherwise.
+14.2. Disputes should preferably be resolved through negotiation and support. If unresolved, they may be brought before a competent court as provided by law.
+14.3. If any provision is held invalid or unenforceable, the remaining provisions stay in effect.
+14.4. Failure by the Company to enforce a right is not a waiver of that right for the future.
+14.5. By checking the consent box during registration (or another acceptance control), you confirm that you voluntarily and knowingly accept these KRAÏNA Terms of Use and the service rules established by ITty Company.`;
 
 const TERMS_PL = `1. Postanowienia ogólne
-Niniejszy Regulamin określa zasady korzystania z aplikacji mobilnej KRAÏNA, rozwijanej i utrzymywanej przez ITty Company. Rejestrując się, potwierdzasz zapoznanie się z regulaminem, jego zrozumienie i akceptację.
+1.1. Niniejszy Regulamin („Regulamin”) określa zasady dostępu do aplikacji mobilnej KRAÏNA oraz wszystkich powiązanych usług, funkcji, treści i interfejsów rozwijanych i utrzymywanych przez ITty Company („Spółka”, „my”).
+1.2. Rejestrując się, tworząc konto, logując się e-mailem lub przez social media albo w inny sposób korzystając z KRAÏNA, potwierdzasz, że zapoznałeś się z Regulaminem, rozumiesz go i w pełni go akceptujesz.
+1.3. Jeśli nie zgadzasz się z jakimkolwiek postanowieniem, musisz natychmiast zaprzestać korzystania z aplikacji i nie tworzyć konta.
+1.4. Użytkownikiem może być osoba fizyczna w wieku uprawniającym do samodzielnego przyjęcia takich warunków według prawa kraju zamieszkania. Działając w imieniu organizacji, potwierdzasz posiadanie odpowiednich uprawnień.
+1.5. Poszczególne funkcje mogą podlegać dodatkowym zasadom, Polityce prywatności, regulaminowi społeczności lub warunkom sklepów (App Store / Google Play).
+1.6. Możemy odmówić rejestracji albo ograniczyć lub zakończyć dostęp bez wcześniejszego powiadomienia, jeśli korzystanie narusza prawo, Regulamin lub stwarza ryzyko dla innych użytkowników albo platformy.
 
 2. O produkcie KRAÏNA
-KRAÏNA to aplikacja mobilna w turystyce, edukacji i technologiach społecznych z hasłem „Historia jest tam, gdzie jesteś” oraz „Wychodź. Odkrywaj. Żyj.”. Łączy treści historyczne, trasy, mechaniki AR/AI, funkcje społeczne, grywalizację oraz tryby online i offline.
+2.1. KRAÏNA to aplikacja mobilna w turystyce, edukacji i technologiach społecznych z hasłem „Historia jest tam, gdzie jesteś” oraz „Wychodź. Odkrywaj. Żyj.”.
+2.2. Aplikacja może łączyć treści historyczne i kulturowe, trasy i punkty zainteresowania, mechaniki AR/AI, skanowanie lokalizacji i zabytków, grywalizację, funkcje społecznościowe, wiadomości, feed aktywności oraz tryby online i offline.
+2.3. Funkcje mogą różnić się w zależności od kraju, języka, urządzenia, wersji aplikacji, typu konta i etapu rozwoju produktu. Część możliwości może być w wersji beta, ograniczona regionalnie lub czasowo niedostępna.
+2.4. Opisy marketingowe nie gwarantują stałej dostępności funkcji w niezmienionej formie. Możemy zmieniać, rozszerzać lub wyłączać funkcje w granicach prawa.
 
 3. Konto użytkownika
-Przy rejestracji podajesz prawdziwe dane: imię, e-mail i hasło. Odpowiadasz za bezpieczeństwo konta, dostęp i wszystkie działania z profilu. Nie udostępniasz konta osobom trzecim i niezwłocznie zgłaszasz podejrzenie nieautoryzowanego dostępu.
+3.1. Przy rejestracji podajesz prawdziwe, kompletne i aktualne dane: imię (lub nazwę wyświetlaną), e-mail i hasło oraz inne dane wymagane w formularzu.
+3.2. Odpowiadasz w pełni za poufność danych logowania, bezpieczeństwo urządzenia, wszystkie sesje i wszystkie działania wykonane z konta — niezależnie od tego, czy wykonałeś je osobiście.
+3.3. Zabronione jest: tworzenie konta w imieniu innej osoby bez zgody; używanie cudzych danych; posiadanie wielu kont w celu omijania blokad, limitów lub zasad; przekazywanie, sprzedaż lub wynajem konta.
+3.4. Musisz niezwłocznie zgłosić podejrzenie nieautoryzowanego dostępu, utratę hasła, kompromitację urządzenia lub inny incydent bezpieczeństwa.
+3.5. Możemy wymagać weryfikacji e-mail, dodatkowej kontroli tożsamości lub resetu hasła w celu ochrony konta i platformy.
+3.6. Nie mamy obowiązku przywracania dostępu, gdy utracisz kontrolę nad e-mailem, urządzeniem lub danymi odzyskiwania, poza dostępnymi środkami technicznymi.
 
 4. Główne funkcje
-Po rejestracji mogą być dostępne: logowanie e-mailem i przez social media, profil, treści o miejscach, trasy, skanowanie AR, historia aktywności, społeczność, wiadomości, feed oraz w przyszłości subskrypcje, wirtualne wycieczki, usługi administracyjne i narzędzia B2B.
+4.1. Po rejestracji mogą być dostępne m.in.: logowanie e-mailem i przez social media; profil; treści historyczne i informacyjne o miejscach; trasy i rekomendacje; skanowanie AR; historia aktywności i postępów; społeczność; wiadomości; feed; powiadomienia.
+4.2. W przyszłości mogą pojawić się subskrypcje, funkcje płatne, wirtualne wycieczki, usługi administracyjne, integracje partnerskie i narzędzia B2B — mogą wymagać osobnej zgody, płatności lub dodatkowych warunków.
+4.3. Niektóre funkcje wymagają uprawnień urządzenia (aparat, lokalizacja, powiadomienia, pamięć itd.). Odmowa uprawnień może ograniczyć lub uniemożliwić działanie funkcji.
+4.4. Nie gwarantujemy, że wszystkie funkcje będą jednocześnie dostępne dla wszystkich użytkowników we wszystkich regionach i na wszystkich urządzeniach.
 
 5. Zasady użytkowania
-Korzystasz z KRAÏNA zgodnie z prawem, uczciwie i bez szkody dla innych użytkowników, partnerów i platformy. Zakazane jest: podawanie fałszywych danych, atakowanie serwisu, omijanie limitów, nielegalne kopiowanie treści, publikowanie treści obraźliwych lub nielegalnych, oszustwa i spam.
+5.1. Korzystasz z KRAÏNA zgodnie z prawem, uczciwie i z szacunkiem dla innych użytkowników, partnerów, dziedzictwa kulturowego oraz platformy.
+5.2. Zabronione jest m.in.:
+a) podawanie fałszywych, wprowadzających w błąd lub cudzych danych;
+b) atakowanie, skanowanie podatności, DDoS, ingerencja w serwery, API, bazy danych lub kod klienta;
+c) omijanie limitów technicznych, moderacji, ograniczeń geo/wiekowych lub systemów antyfraudowych;
+d) kopiowanie, scrapowanie, masowe eksportowanie lub nielegalne rozpowszechnianie treści, tras, tekstów, grafik, zasobów AR, kodu lub baz danych bez pisemnej zgody;
+e) publikowanie treści obraźliwych, dyskryminujących, pornograficznych, brutalnych, ekstremistycznych, oszukańczych lub w inny sposób nielegalnych;
+f) spam, phishing, złośliwe oprogramowanie, niechciane reklamy lub nękające wiadomości;
+g) podszywanie się pod inną osobę, Spółkę, moderatora lub partnera;
+h) nieautoryzowana działalność komercyjna (chyba że funkcja na to pozwala);
+i) naruszanie praw własności intelektualnej, prywatności lub dóbr osobistych;
+j) stwarzanie zagrożenia bezpieczeństwa fizycznego podczas korzystania z tras, AR lub nawigacji.
+5.3. Odwiedzając lokalizacje, samodzielnie odpowiadasz za przestrzeganie lokalnego prawa, zasad bezpieczeństwa, godzin otwarcia, praw własności i wymogów władz.
+5.4. Naruszenia mogą skutkować ostrzeżeniem, ograniczeniem funkcji, czasowym lub trwałym zawieszeniem konta, usunięciem treści i/lub zgłoszeniem do organów.
 
 6. Treści i własność intelektualna
-Prawa do marki KRAÏNA, projektu, logiki serwisu, tekstów, UI, tras, materiałów historycznych i grafiki należą do ITty Company lub są używane legalnie. Zachowujesz prawa do własnych treści, ale udzielasz KRAÏNA ograniczonego prawa do ich wyświetlania, przechowywania, moderacji i działania usługi.
+6.1. Prawa do marki KRAÏNA, logo, projektu, interfejsu, oprogramowania, logiki, tekstów, tras, materiałów historycznych, grafiki, audio, wideo, zasobów AR, baz danych i innych elementów należą do ITty Company lub są używane legalnie.
+6.2. Otrzymujesz ograniczoną, niewyłączną, odwołalną, niezbywalną licencję na osobiste, niekomercyjne korzystanie z aplikacji zgodnie z Regulaminem. Inne użycie wymaga uprzedniej pisemnej zgody.
+6.3. Nie wolno usuwać ani zmieniać oznaczeń praw autorskich, znaków towarowych ani innych informacji o własności.
+6.4. Zachowujesz prawa do własnych, legalnie przesłanych lub utworzonych treści.
+6.5. Przesyłając treści, udzielasz Spółce światowej, niewyłącznej, nieodpłatnej, sublicencjonowalnej licencji na ich używanie, zwielokrotnianie, przechowywanie, moderację, techniczną adaptację, publiczne udostępnianie i rozpowszechnianie w zakresie działania, promocji i ulepszania usługi.
+6.6. Gwarantujesz, że masz wszystkie niezbędne prawa do treści i że nie naruszają one prawa ani praw osób trzecich. Zobowiązujesz się współdziałać przy rozpatrywaniu roszczeń i naprawić uzasadnione szkody Spółki wynikające z Twojego naruszenia.
+6.7. Możemy usuwać, ukrywać lub ograniczać treści naruszające Regulamin, prawo lub polityki platformy — bez wcześniejszego powiadomienia.
 
 7. Dane i prywatność
-Możemy przetwarzać dane konta, profilu, historii logowań, tras, skanów, wiadomości, powiadomień i dane techniczne urządzenia. Stosujemy rozsądne zabezpieczenia; Ty chronisz hasło i dostęp do urządzenia.
+7.1. Możemy przetwarzać dane konta i profilu, historię logowań, trasy i aktywność, historię skanów, wiadomości, powiadomienia, ustawienia, dane techniczne urządzenia oraz dane lokalizacji i kamery w zakresie potrzebnym do działania funkcji i zgodnie z Polityką prywatności.
+7.2. Dane osobowe przetwarzamy zgodnie z obowiązującym prawem i Polityką prywatności.
+7.3. Stosujemy rozsądne środki organizacyjne i techniczne; żadna ochrona nie jest absolutna. Ty także chronisz hasło, urządzenie i kody odzyskiwania.
+7.4. Niektóre funkcje mogą korzystać z usług zewnętrznych (analityka, mapy, push, logowanie społecznościowe, chmura).
+7.5. Możesz żądać dostępu, sprostowania, usunięcia lub ograniczenia przetwarzania zgodnie z Polityką prywatności i prawem.
 
 8. Lokalizacje, trasy, AR
-Funkcje mogą wymagać kamery, geolokalizacji, internetu, możliwości urządzenia i usług stron trzecich. Nie gwarantujemy nieprzerwanej dostępności wszystkich lokalizacji i treści.
+8.1. Funkcje mogą wymagać aparatu, geolokalizacji, internetu, sensorów, dokładności GPS, map i usług zewnętrznych oraz aktualności treści.
+8.2. Informacje o miejscach, historii, trasach, rekomendacjach i scenach AR mają charakter edukacyjny i informacyjny; mogą być nieprecyzyjne, niepełne lub nieaktualne.
+8.3. Nie gwarantujemy ciągłej dostępności wszystkich lokalizacji, scen AR, tras ani rekomendacji, ich zgodności z rzeczywistością, bezpieczeństwa trasy ani możliwości fizycznego dostępu.
+8.4. Samodzielnie oceniasz ryzyka podczas poruszania się i używania AR w przestrzeni publicznej. Przestrzegaj zasad bezpieczeństwa i lokalnych ograniczeń.
+8.5. Spółka nie odpowiada za decyzje podjęte wyłącznie na podstawie treści aplikacji, o ile prawo nie stanowi inaczej.
 
 9. Ceny i płatności
-Możliwy jest model Free / Pro, przyszłe zakupy w aplikacji i treści partnerskie. Przed zakupem zawsze pokażemy cenę, okres i zasady płatności w sklepie lub interfejsie.
+9.1. Podstawowe funkcje mogą być bezpłatne. Część możliwości może działać w modelu Free/Pro, subskrypcji, jednorazowych zakupów in-app lub ofert partnerskich.
+9.2. Przed potwierdzeniem płatnego zakupu zawsze pokażemy cenę, walutę (jeśli dotyczy), okres, warunki odnawiania, anulowania i inne istotne warunki w aplikacji i/lub sklepie.
+9.3. Płatności, zwroty, zarządzanie subskrypcjami i podatki regulują zasady sklepu (Apple/Google) i/lub dostawcy płatności, o ile nie wskazano inaczej.
+9.4. Możemy zmieniać ceny i pakiety na przyszłe okresy z powiadomieniem wymaganym prawem i politykami sklepów.
+9.5. Nadużywanie promocji, kodów, okresów próbnych lub omijanie limitów płatności jest zabronione i może skutkować anulowaniem korzyści oraz zawieszeniem konta.
 
 10. Funkcje społecznościowe
-Przy feedzie, postach, znajomych, wiadomościach itp. szanujesz innych. ITty Company może usuwać treści naruszające zasady i ograniczać dostęp do konta.
+10.1. Przy feedzie, postach, komentarzach, znajomych, wspólnych trasach, wiadomościach itd. szanujesz innych użytkowników i ich prawa.
+10.2. Zabronione jest nękanie, groźby, mowa nienawiści, ujawnianie cudzych danych osobowych bez zgody, publikowanie prywatnej korespondencji bez zezwolenia oraz tworzenie toksycznego środowiska.
+10.3. ITty Company może moderować, ograniczać widoczność, ukrywać lub usuwać treści oraz tymczasowo lub trwale ograniczać dostęp do konta.
+10.4. Nie mamy obowiązku wstępnego przeglądania wszystkich treści, ale możemy reagować na zgłoszenia i własne ustalenia.
+10.5. Naruszenia zgłaszaj przez kanały wsparcia lub feedbacku w aplikacji.
 
 11. Ograniczenie odpowiedzialności
-KRAÏNA jest udostępniana „tak jak jest”. ITty Company nie odpowiada za szkody pośrednie, utratę danych, przerwy, problemy sieciowe ani działania osób trzecich.
+11.1. W najszerszym zakresie dozwolonym prawem KRAÏNA i powiązane treści są udostępniane „tak jak są” i „jak dostępne”, bez gwarancji nieprzerwanej pracy, braku błędów, przydatności do konkretnego celu lub pełnej zgodności z oczekiwaniami.
+11.2. ITty Company nie odpowiada za szkody pośrednie, przypadkowe, szczególne lub karne; utratę zysków, danych, reputacji lub możliwości; przerwy; awarie łączności; działania osób trzecich; treści użytkowników; błędy w materiałach historycznych lub mapowych; skutki używania AR/geolokalizacji w świecie fizycznym — w zakresie dozwolonym prawem.
+11.3. Nic w Regulaminie nie ogranicza odpowiedzialności, której nie można wyłączyć na mocy bezwzględnie obowiązujących przepisów.
+11.4. Jeśli odpowiedzialność zostanie ustalona, jej łączna wysokość jest ograniczona — w zakresie dozwolonym prawem — do kwot faktycznie zapłaconych za funkcje płatne w ostatnich 12 miesiącach lub do minimum wymaganego prawem, jeśli nie było płatności.
 
 12. Zmiany
-Możemy aktualizować aplikację i niniejszy regulamin. Dalsze korzystanie oznacza akceptację aktualnej wersji.
+12.1. Możemy aktualizować funkcje, zmieniać interfejs, dodawać, modyfikować lub usuwać możliwości, prowadzić prace techniczne i naprawiać błędy.
+12.2. Możemy aktualizować Regulamin. Aktualna wersja jest publikowana w aplikacji i/lub w inny rozsądny sposób.
+12.3. Przy istotnych zmianach wpływających na Twoje prawa postaramy się poinformować z wyprzedzeniem, jeśli wymaga tego prawo lub jest to praktycznie możliwe.
+12.4. Dalsze korzystanie po wejściu w życie zaktualizowanego Regulaminu oznacza akceptację nowej wersji, o ile prawo nie wymaga osobnego potwierdzenia.
+12.5. Jeśli nie zgadzasz się ze zmianami, musisz zaprzestać korzystania z usługi i w razie potrzeby usunąć konto.
 
 13. Zakończenie dostępu
-Możesz przestać korzystać w każdej chwili. ITty Company może zawiesić lub zamknąć konto przy naruszeniu regulaminu, bezpieczeństwa lub prawa.
+13.1. Możesz zaprzestać korzystania w każdej chwili, usuwając aplikację i/lub konto (jeśli dostępne) albo kontaktując się z supportem.
+13.2. ITty Company może zawiesić, ograniczyć lub zakończyć dostęp w razie naruszenia Regulaminu, wymogów bezpieczeństwa, podejrzenia oszustwa, żądań prawnych, zagrożenia dla platformy lub długotrwałej nieaktywności (jeśli przewidują to polityki).
+13.3. Po zakończeniu dostępu dane i treści mogą zostać usunięte lub zanonimizowane zgodnie z procesami technicznymi i prawem. Część danych może być przechowywana w celu obowiązków prawnych, sporów i przeciwdziałania nadużyciom.
+13.4. Postanowienia, które z natury powinny przetrwać (IP, ograniczenie odpowiedzialności, prawo właściwe itd.), pozostają w mocy.
 
-14. Zgoda
-Zaznaczając zgodę przy rejestracji, potwierdzasz dobrowolną akceptację Regulaminu KRAÏNA i zasad ustalonych przez ITty Company.`;
+14. Prawo właściwe, spory i zgoda
+14.1. Regulamin podlega prawu właściwemu dla działalności ITty Company, o ile bezwzględne przepisy ochrony konsumenta kraju zamieszkania nie stanowią inaczej.
+14.2. Spory należy w miarę możliwości rozwiązywać polubownie i przez support. Nierozwiązane spory mogą trafić do właściwego sądu zgodnie z prawem.
+14.3. Nieważność jednego postanowienia nie wpływa na pozostałe.
+14.4. Niewykonanie prawa przez Spółkę nie oznacza zrzeczenia się tego prawa na przyszłość.
+14.5. Zaznaczając zgodę przy rejestracji (lub inny element akceptacji), potwierdzasz dobrowolną i świadomą akceptację Regulaminu KRAÏNA oraz zasad ustalonych przez ITty Company.`;
 
 const TERMS_DE = `1. Allgemeines
-Diese Nutzungsbedingungen regeln die Nutzung der mobilen App KRAÏNA, entwickelt und betrieben von ITty Company. Mit der Registrierung bestätigen Sie, dass Sie die Bedingungen gelesen, verstanden und akzeptiert haben.
+1.1. Diese Nutzungsbedingungen („Bedingungen“) regeln den Zugang zur mobilen App KRAÏNA sowie aller zugehörigen Dienste, Funktionen, Inhalte und Oberflächen, die von ITty Company („Unternehmen“, „wir“) entwickelt und betrieben werden.
+1.2. Mit der Registrierung, Kontoerstellung, Anmeldung per E-Mail oder Social-Provider oder sonstiger Nutzung von KRAÏNA bestätigen Sie, dass Sie diese Bedingungen gelesen, verstanden und vollständig akzeptiert haben.
+1.3. Wenn Sie mit einer Bestimmung nicht einverstanden sind, müssen Sie die Nutzung sofort einstellen und dürfen kein Konto erstellen.
+1.4. Nutzer müssen natürliche Personen im gesetzlich erforderlichen Alter ihres Wohnsitzlandes sein. Handeln Sie für eine Organisation, bestätigen Sie Ihre Vertretungsbefugnis.
+1.5. Einzelne Funktionen können zusätzlichen Regeln, der Datenschutzrichtlinie, Community-Richtlinien oder Store-Bedingungen (App Store / Google Play) unterliegen.
+1.6. Wir können die Registrierung ablehnen oder den Zugang ohne Vorankündigung einschränken oder beenden, wenn die Nutzung gegen Recht, diese Bedingungen verstößt oder Risiken für Nutzer oder die Plattform schafft.
 
 2. Über KRAÏNA
-KRAÏNA ist eine mobile App in Tourismus, Bildung und Sozialtechnologie mit dem Motto „Geschichte ist dort, wo du bist“ und „Raus. Entdecken. Leben.“ Sie verbindet historische Inhalte, Routen, AR/AI, soziale Funktionen, Gamification sowie Online- und Offline-Nutzung.
+2.1. KRAÏNA ist eine mobile App in Tourismus, Bildung und Sozialtechnologie mit dem Motto „Geschichte ist dort, wo du bist“ und „Raus. Entdecken. Leben.“
+2.2. Die App kann historische und kulturelle Inhalte, Routen und Points of Interest, AR/AI-Mechaniken, Standort- und Denkmal-Scanning, Gamification, soziale Funktionen, Nachrichten, Aktivitätsfeed sowie Online- und Offline-Szenarien verbinden.
+2.3. Funktionen können je nach Land, Sprache, Gerät, App-Version, Kontotyp und Produktstand variieren. Manche Features können Beta, regional begrenzt oder vorübergehend nicht verfügbar sein.
+2.4. Marketingbeschreibungen garantieren keine dauerhafte unveränderte Verfügbarkeit. Wir dürfen Funktionen im Rahmen des Rechts ändern, erweitern oder einstellen.
 
 3. Benutzerkonto
-Bei der Registrierung geben Sie wahre Angaben zu Name, E-Mail und Passwort. Sie sind für Sicherheit, Zugriff und alle Handlungen über Ihr Profil verantwortlich. Sie geben Ihr Konto nicht an Dritte weiter und melden unbefugten Zugriff unverzüglich.
+3.1. Bei der Registrierung geben Sie wahre, vollständige und aktuelle Angaben an: Name (oder Anzeigename), E-Mail und Passwort sowie weitere erforderliche Daten.
+3.2. Sie sind vollständig verantwortlich für die Vertraulichkeit Ihrer Zugangsdaten, Gerätesicherheit, alle Sitzungen und alle Handlungen über Ihr Konto — unabhängig davon, ob Sie sie persönlich vorgenommen haben.
+3.3. Verboten sind: Konto im Namen Dritter ohne Erlaubnis; Nutzung fremder Daten; Mehrfachkonten zur Umgehung von Sperren, Limits oder Regeln; Übertragung, Verkauf oder Vermietung des Kontos.
+3.4. Sie müssen vermuteten unbefugten Zugriff, Passwortverlust, Gerätekompromittierung oder andere Sicherheitsvorfälle unverzüglich melden.
+3.5. Wir können E-Mail-Verifizierung, zusätzliche Identitätsprüfungen oder Passwort-Resets verlangen.
+3.6. Wir sind nicht verpflichtet, den Zugang wiederherzustellen, wenn Sie die Kontrolle über E-Mail, Gerät oder Wiederherstellungsdaten verlieren, außer soweit technisch vorgesehen.
 
 4. Hauptfunktionen
-Nach der Registrierung können u. a. verfügbar sein: Anmeldung per E-Mail und Social-Provider, Profil, historische Inhalte, Routen, AR-Scanning, Aktivitätsverlauf, Community, soziale Funktionen, Nachrichten, Feed sowie künftig Abos, virtuelle Touren, Admin-Services und B2B-Tools.
+4.1. Nach der Registrierung können u. a. verfügbar sein: Anmeldung per E-Mail und Social-Provider; Profil; historische und informative Inhalte; Routen und Empfehlungen; AR-Scanning; Aktivitäts- und Fortschrittsverlauf; Community; Nachrichten; Feed; Benachrichtigungen.
+4.2. Künftig können Abos, kostenpflichtige Funktionen, virtuelle Touren, Admin-Services, Partnerintegrationen und B2B-Tools hinzukommen und ggf. gesonderte Zustimmung, Zahlung oder Zusatzbedingungen erfordern.
+4.3. Manche Funktionen brauchen Geräteberechtigungen (Kamera, Standort, Benachrichtigungen, Speicher usw.). Die Ablehnung kann Funktionen einschränken oder deaktivieren.
+4.4. Wir garantieren nicht, dass alle Funktionen gleichzeitig allen Nutzern in allen Regionen und auf allen Geräten verfügbar sind.
 
 5. Nutzungsregeln
-Sie nutzen KRAÏNA rechtmäßig, fair und ohne Schaden für andere Nutzer, Partner oder die Plattform. Untersagt sind u. a. falsche Daten, Angriffe auf den Dienst, Umgehung technischer Grenzen, unerlaubte Verbreitung von Inhalten, rechtswidrige oder beleidigende Inhalte, Betrug und Spam.
+5.1. Sie nutzen KRAÏNA rechtmäßig, fair und mit Respekt gegenüber anderen Nutzern, Partnern, Kulturerbe und der Plattform.
+5.2. Untersagt sind insbesondere:
+a) falsche, irreführende oder fremde Daten;
+b) Hacking, Vulnerability-Scanning, DDoS, Eingriffe in Server, APIs, Datenbanken oder Client-Code;
+c) Umgehung technischer Limits, Moderation, Geo-/Altersgrenzen oder Anti-Fraud-Systeme;
+d) Kopieren, Scraping, Massenexport oder unrechtmäßige Verbreitung von Inhalten, Routen, Texten, Bildern, AR-Assets, Code oder Datenbanken ohne schriftliche Erlaubnis;
+e) beleidigende, diskriminierende, pornografische, gewalttätige, extremistische, betrügerische oder sonst rechtswidrige Inhalte;
+f) Spam, Phishing, Schadsoftware, unerwünschte Werbung oder belästigende Nachrichten;
+g) Identitätsmissbrauch gegenüber Personen, dem Unternehmen, Moderatoren oder Partnern;
+h) unautorisierte kommerzielle Nutzung (soweit nicht ausdrücklich erlaubt);
+i) Verletzung von Immaterialgüter-, Privatheits- oder Persönlichkeitsrechten;
+j) physische Sicherheitsrisiken bei Routen, AR oder Navigation.
+5.3. Beim Besuch von Orten sind Sie allein für die Einhaltung lokaler Gesetze, Sicherheitsregeln, Öffnungszeiten, Eigentumsrechte und behördlicher Vorgaben verantwortlich.
+5.4. Verstöße können zu Warnung, Funktionsbeschränkung, vorübergehender oder dauerhafter Sperre, Inhaltslöschung und/oder Meldung an Behörden führen.
 
 6. Inhalte und geistiges Eigentum
-Rechte an Marke, Design, Logik, Texten, UI, Routen, historischen Materialien und Grafik liegen bei ITty Company oder werden rechtmäßig genutzt. Sie behalten Rechte an eigenen Inhalten, gewähren KRAÏNA jedoch ein eingeschränktes Recht zu Anzeige, Speicherung, Moderation und Betrieb.
+6.1. Rechte an Marke, Logos, Design, Oberfläche, Software, Logik, Texten, Routen, historischen Materialien, Grafik, Audio, Video, AR-Assets, Datenbanken und sonstigen Elementen liegen bei ITty Company oder werden rechtmäßig genutzt.
+6.2. Sie erhalten eine beschränkte, nicht ausschließliche, widerrufliche, nicht übertragbare Lizenz zur persönlichen, nicht kommerziellen Nutzung gemäß diesen Bedingungen. Andere Nutzung bedarf vorheriger schriftlicher Zustimmung.
+6.3. Urheberrechts-, Marken- oder Eigentumshinweise dürfen nicht entfernt oder verändert werden.
+6.4. Sie behalten Rechte an eigenen, rechtmäßig hochgeladenen oder erstellten Inhalten.
+6.5. Mit dem Upload räumen Sie dem Unternehmen eine weltweite, nicht ausschließliche, unentgeltliche, unterlizenzierbare Lizenz zur Nutzung, Vervielfältigung, Speicherung, Moderation, technischen Anpassung, öffentlichen Wiedergabe und Verbreitung zum Betrieb, zur Bewerbung und Verbesserung des Dienstes ein.
+6.6. Sie gewährleisten, alle erforderlichen Rechte zu besitzen und dass Inhalte Recht und Rechte Dritter nicht verletzen. Sie verpflichten sich, bei Ansprüchen mitzuwirken und dem Unternehmen begründete Schäden aus Ihrem Verstoß zu ersetzen.
+6.7. Wir dürfen Inhalte, die gegen Bedingungen, Recht oder Richtlinien verstoßen, ohne Vorankündigung entfernen, verbergen oder einschränken.
 
 7. Daten und Datenschutz
-Wir können Kontodaten, Profil, Anmeldeverlauf, Routen, Scan-Verlauf, Nachrichten, Benachrichtigungen und technische Gerätedaten verarbeiten. Wir setzen angemessene Schutzmaßnahmen um; Sie schützen Passwort und Gerätezugriff.
+7.1. Wir können Konto- und Profildaten, Anmeldeverlauf, Routen und Aktivität, Scan-Verlauf, Nachrichten, Benachrichtigungen, Einstellungen, technische Gerätedaten sowie Standort- und Kameradaten verarbeiten, soweit für Funktionen nötig und gemäß Datenschutzrichtlinie.
+7.2. Personenbezogene Daten werden nach geltendem Recht und unserer Datenschutzrichtlinie verarbeitet.
+7.3. Wir setzen angemessene organisatorische und technische Maßnahmen um; absolute Sicherheit gibt es nicht. Sie schützen ebenfalls Passwort, Gerät und Wiederherstellungscodes.
+7.4. Einzelne Funktionen können Drittanbieter nutzen (Analytik, Karten, Push, Social-Login, Cloud).
+7.5. Sie können Auskunft, Berichtigung, Löschung oder Einschränkung der Verarbeitung gemäß Datenschutzrichtlinie und Recht verlangen.
 
 8. Standorte, Routen, AR
-Funktionen können Kamera, Standort, Internet, Gerätfähigkeiten und Drittanbieter voraussetzen. Wir streben hohe Qualität an, garantieren aber keine unterbrechungsfreie Verfügbarkeit.
+8.1. Funktionen können Kamera, Standort, Internet, Sensoren, GPS-Genauigkeit, Drittkarten/-dienste und aktuelle Inhalte voraussetzen.
+8.2. Angaben zu Orten, Geschichte, Routen, Empfehlungen und AR-Szenen dienen Bildung und Information und können ungenau, unvollständig oder veraltet sein.
+8.3. Wir garantieren keine unterbrechungsfreie Verfügbarkeit aller Standorte, AR-Szenen, Routen oder Empfehlungen, deren Übereinstimmung mit der Realität, Routensicherheit oder physische Zugänglichkeit.
+8.4. Sie bewerten Risiken beim Unterwegssein und bei AR im öffentlichen Raum selbst. Beachten Sie Sicherheitsregeln und lokale Beschränkungen.
+8.5. Das Unternehmen haftet nicht für Entscheidungen allein auf Basis von App-Inhalten, soweit gesetzlich nicht anders vorgeschrieben.
 
 9. Preise und Käufe
-Ein Free-/Pro-Modell, künftige In-App-Käufe und Partnerinhalte sind möglich. Vor dem Kauf werden Preis, Laufzeit und Zahlungsbedingungen klar angezeigt.
+9.1. Kernfunktionen können kostenlos sein. Manche Angebote nutzen Free/Pro, Abos, einmalige In-App-Käufe oder Partnerangebote.
+9.2. Vor Bestätigung eines bezahlten Kaufs werden Preis, Währung (falls zutreffend), Laufzeit, Verlängerung, Kündigung und weitere wesentliche Bedingungen in App und/oder Store angezeigt.
+9.3. Zahlung, Erstattung, Abo-Verwaltung und Steuern richten sich nach Store- (Apple/Google) und/oder Zahlungsanbieterregeln, soweit nicht anders angegeben.
+9.4. Preise und Pakete für künftige Perioden können mit gesetzlich und storeseitig erforderlicher Mitteilung geändert werden.
+9.5. Missbrauch von Aktionen, Codes, Testphasen oder Zahlungslimits ist verboten und kann zum Entzug von Vorteilen und zur Kontosperre führen.
 
 10. Soziale Funktionen
-Bei Feed, Beiträgen, Freunden, Nachrichten usw. respektieren Sie andere. ITty Company darf Inhalte entfernen oder Konten einschränken bei Verstößen.
+10.1. Bei Feed, Beiträgen, Kommentaren, Freunden, gemeinsamen Routen, Nachrichten usw. respektieren Sie andere Nutzer und deren Rechte.
+10.2. Mobbing, Drohungen, Hassrede, Belästigung, Offenlegung fremder personenbezogener Daten ohne Einwilligung, Veröffentlichung privater Korrespondenz ohne Erlaubnis und toxisches Verhalten sind verboten.
+10.3. ITty Company darf Inhalte moderieren, Sichtbarkeit einschränken, verbergen oder entfernen und den Kontozugang vorübergehend oder dauerhaft beschränken.
+10.4. Wir müssen nicht alle Inhalte vorab prüfen, können aber auf Meldungen und eigene Feststellungen reagieren.
+10.5. Verstöße melden Sie über Support- oder Feedback-Kanäle in der App.
 
 11. Haftungsbeschränkung
-KRAÏNA wird „wie besehen“ bereitgestellt. ITty Company haftet nicht für indirekte Schäden, Datenverlust, Ausfälle, Verbindungsprobleme oder Handlungen Dritter.
+11.1. Soweit gesetzlich zulässig, werden KRAÏNA und zugehörige Inhalte „wie besehen“ und „wie verfügbar“ bereitgestellt, ohne Gewähr für unterbrechungsfreien Betrieb, Fehlerfreiheit, Eignung für einen bestimmten Zweck oder vollständige Erwartungserfüllung.
+11.2. ITty Company haftet nicht für indirekte, zufällige, besondere oder Strafschäden; entgangenen Gewinn; Daten-, Reputations- oder Chancenverlust; Ausfälle; Verbindungsprobleme; Handlungen Dritter; nutzergenerierte Inhalte; Fehler in historischen oder Kartendaten; Folgen von AR/Geolocation in der physischen Welt — soweit gesetzlich zulässig.
+11.3. Nichts in diesen Bedingungen beschränkt Haftung, die nach zwingendem Recht nicht ausgeschlossen werden darf.
+11.4. Wird Haftung festgestellt, ist die Gesamthaftung — soweit zulässig — auf die in den letzten 12 Monaten tatsächlich gezahlten Beträge für kostenpflichtige Funktionen oder auf das gesetzliche Minimum ohne Zahlungen begrenzt.
 
 12. Änderungen
-Wir können App und diese Bedingungen aktualisieren. Die weitere Nutzung gilt als Zustimmung zur aktuellen Fassung.
+12.1. Wir können Funktionen aktualisieren, die Oberfläche ändern, Features hinzufügen, ändern oder entfernen, Wartung durchführen und Fehler beheben.
+12.2. Wir können diese Bedingungen aktualisieren. Die aktuelle Fassung wird in der App und/oder auf andere angemessene Weise veröffentlicht.
+12.3. Bei wesentlichen Änderungen Ihrer Rechte bemühen wir uns um Vorabinformation, soweit gesetzlich erforderlich oder zumutbar.
+12.4. Fortgesetzte Nutzung nach Inkrafttreten gilt als Zustimmung zur neuen Fassung, sofern das Gesetz keine gesonderte Bestätigung verlangt.
+12.5. Bei Ablehnung der Änderungen müssen Sie die Nutzung einstellen und ggf. das Konto löschen.
 
 13. Beendigung
-Sie können die Nutzung jederzeit beenden. ITty Company kann Konten bei Verstößen, Sicherheits- oder Rechtsverletzungen sperren oder kündigen.
+13.1. Sie können die Nutzung jederzeit beenden, indem Sie App und/oder Konto (falls verfügbar) löschen oder den Support kontaktieren.
+13.2. ITty Company kann den Zugang bei Verstößen, Sicherheitsanforderungen, Betrugsverdacht, behördlichen/rechtlichen Anforderungen, Plattformrisiko oder längerer Inaktivität (falls vorgesehen) aussetzen, beschränken oder beenden.
+13.3. Nach Beendigung können Daten und Inhalte gelöscht oder anonymisiert werden. Manche Daten können für Rechtspflichten, Streitigkeiten und Missbrauchsprävention aufbewahrt werden.
+13.4. Bestimmungen, die naturgemäß fortgelten sollen (IP, Haftungsgrenzen, anwendbares Recht usw.), bleiben wirksam.
 
-14. Zustimmung
-Mit dem Ankreuzen der Checkbox bei der Registrierung bestätigen Sie die freiwillige Annahme der KRAÏNA-Nutzungsbedingungen von ITty Company.`;
+14. Anwendbares Recht, Streitigkeiten und Zustimmung
+14.1. Es gilt das auf die Tätigkeit von ITty Company anwendbare Recht, soweit zwingende Verbraucherschutzvorschriften Ihres Wohnsitzlandes nichts anderes verlangen.
+14.2. Streitigkeiten sollen möglichst einvernehmlich und über den Support geklärt werden; andernfalls vor dem zuständigen Gericht nach Maßgabe des Rechts.
+14.3. Unwirksamkeit einer Bestimmung lässt die übrigen unberührt.
+14.4. Nichtausübung eines Rechts bedeutet keinen Verzicht für die Zukunft.
+14.5. Mit Ankreuzen der Checkbox bei der Registrierung (oder einem anderen Annahmeelement) bestätigen Sie die freiwillige und bewusste Annahme der KRAÏNA-Nutzungsbedingungen von ITty Company.`;
 
 const TERMS_NL = `1. Algemeen
-Deze gebruiksvoorwaarden regelen het gebruik van de mobiele app KRAÏNA, ontwikkeld en onderhouden door ITty Company. Door te registreren bevestigt u dat u deze voorwaarden heeft gelezen, begrijpt en ermee instemt.
+1.1. Deze gebruiksvoorwaarden („Voorwaarden”) regelen de toegang tot de mobiele app KRAÏNA en alle bijbehorende diensten, functies, content en interfaces die worden ontwikkeld en onderhouden door ITty Company („Bedrijf”, „wij”, „ons”).
+1.2. Door te registreren, een account aan te maken, in te loggen via e-mail of social providers, of KRAÏNA op enige andere wijze te gebruiken, bevestigt u dat u deze Voorwaarden heeft gelezen, begrijpt en er volledig mee instemt.
+1.3. Indien u niet akkoord gaat met enig onderdeel van de Voorwaarden, dient u het gebruik van de app onmiddellijk te staken en mag u geen account aanmaken.
+1.4. Gebruiker kan een natuurlijke persoon zijn die de leeftijd heeft bereikt die volgens het recht van uw land vereist is om zulke voorwaarden zelfstandig te aanvaarden. Handelt u namens een organisatie, dan bevestigt u dat u bevoegd bent om die organisatie te binden.
+1.5. Afzonderlijke functies kunnen onderworpen zijn aan aanvullende regels, het privacybeleid, communityrichtlijnen of voorwaarden van appstores (App Store / Google Play). Bij strijdigheid gelden de bijzondere voorwaarden voor de betreffende functie en deze Voorwaarden voor het overige.
+1.6. Wij kunnen registratie weigeren of toegang beperken of beëindigen zonder voorafgaande kennisgeving indien het gebruik in strijd lijkt met de wet, deze Voorwaarden, of risico’s creëert voor andere gebruikers of het platform.
 
 2. Over KRAÏNA
-KRAÏNA is een mobiele app in toerisme, onderwijs en sociale technologie met de slogan “Geschiedenis is waar jij bent” en “Ga eropuit. Ontdek. Leef.” De app combineert historische content, routes, AR/AI, sociale functies, gamification en online/offline gebruik.
+2.1. KRAÏNA is een mobiele app op het gebied van toerisme, onderwijs en sociale technologie met de slogan “Geschiedenis is waar jij bent” en “Ga eropuit. Ontdek. Leef.”
+2.2. De app kan historische en culturele content, routes en bezienswaardigheden, AR/AI-mechanieken, scannen van locaties en monumenten, gamification, sociale functies, berichten, een activiteitenfeed en online- en offline-scenario’s combineren.
+2.3. Functionaliteit kan verschillen per land, taal, apparaat, appversie, accounttype en ontwikkelingsfase. Sommige mogelijkheden kunnen in bèta zijn, regionaal beperkt of tijdelijk niet beschikbaar.
+2.4. Marketingbeschrijvingen vormen geen garantie dat functies ongewijzigd beschikbaar blijven. Wij mogen functies binnen de wettelijke grenzen wijzigen, uitbreiden of beëindigen.
 
 3. Gebruikersaccount
-Bij registratie verstrekt u juiste gegevens: naam, e-mail en wachtwoord. U bent verantwoordelijk voor beveiliging, toegang en alle handelingen via uw profiel. U deelt uw account niet met derden en meldt vermoedens van ongeautoriseerde toegang.
+3.1. Bij registratie verstrekt u juiste, volledige en actuele gegevens: met name naam (of weergavenaam), e-mailadres en wachtwoord, plus eventuele andere gevraagde gegevens.
+3.2. U bent volledig verantwoordelijk voor de vertrouwelijkheid van uw inloggegevens, de beveiliging van uw apparaat, alle sessies en alle handelingen via uw account — ongeacht of u die persoonlijk heeft verricht.
+3.3. Het is verboden: een account op naam van een ander zonder toestemming aan te maken; andermans gegevens te gebruiken; meerdere accounts te houden om blokkades, limieten of regels te omzeilen; uw account over te dragen, te verkopen of te verhuren.
+3.4. U moet ons onmiddellijk melden bij vermoeden van ongeautoriseerde toegang, verlies van het wachtwoord, compromittering van het apparaat of andere beveiligingsincidenten.
+3.5. Wij kunnen e-mailverificatie, aanvullende identiteitscontrole of een wachtwoordreset verlangen ter bescherming van account en platform.
+3.6. Wij zijn niet verplicht toegang te herstellen wanneer u de controle over e-mail, apparaat of herstelgegevens verliest, behalve voor zover technisch ondersteund.
 
 4. Belangrijkste functies
-Na registratie kunnen o.a. beschikbaar zijn: inloggen via e-mail en social providers, profiel, historische content, routes, AR-scannen, activiteit, community, berichten, feed en in de toekomst abonnementen, virtuele rondleidingen en B2B-tools.
+4.1. Na registratie kunnen onder meer beschikbaar zijn: inloggen via e-mail en social providers; gebruikersprofiel; historische en informatieve content over locaties; routes en aanbevelingen; AR-scannen; activiteits- en voortgangsgeschiedenis; community-interactie; berichten; activiteitenfeed; meldingen.
+4.2. In de toekomst kunnen abonnementen, betaalde functies, virtuele rondleidingen, administratieve diensten, partnerintegraties en B2B-tools volgen. Toegang kan aparte toestemming, betaling of aanvullende voorwaarden vereisen.
+4.3. Sommige functies vereisen apparaatmachtigingen (camera, locatie, meldingen, opslag, enz.). Weigeren van machtigingen kan die functies beperken of uitschakelen.
+4.4. Wij garanderen niet dat alle functies tegelijk voor alle gebruikers in alle regio’s en op alle apparaten beschikbaar zijn.
 
 5. Gebruiksregels
-U gebruikt KRAÏNA rechtmatig, eerlijk en zonder schade voor anderen, partners of het platform. Verboden: valse gegevens, aanvallen op de dienst, omzeilen van limieten, onrechtmatige verspreiding van content, beledigende of illegale inhoud, fraude en spam.
+5.1. U gebruikt KRAÏNA uitsluitend rechtmatig, te goeder trouw en met respect voor andere gebruikers, partners, cultureel erfgoed en het platform.
+5.2. Verboden is onder meer:
+a) valse, misleidende of andermans gegevens verstrekken;
+b) hacken, kwetsbaarheidsscans, DDoS-aanvallen of verstoren van servers, API’s, databases of clientcode;
+c) technische limieten, moderatie, geo- of leeftijdsbeperkingen of antifraudesystemen omzeilen;
+d) content, routes, teksten, afbeeldingen, AR-assets, code of databases kopiëren, scrapen, massaal exporteren of onrechtmatig verspreiden zonder schriftelijke toestemming;
+e) beledigende, discriminerende, pornografische, gewelddadige, extremistische, frauduleuze of anderszins illegale content publiceren;
+f) spam, phishing, malware, ongewenste reclame of hinderlijke berichten;
+g) zich voordoen als een andere persoon, het Bedrijf, een moderator of partner;
+h) ongeautoriseerde commerciële activiteiten (tenzij een functie dit uitdrukkelijk toestaat);
+i) inbreuk op intellectuele-eigendomsrechten, privacy of persoonlijkheidsrechten van derden;
+j) fysieke veiligheidsrisico’s creëren bij gebruik van routes, AR of navigatie (bijv. verkeersregels, toegangsbeperkingen of instructies van beveiliging negeren).
+5.3. Bij bezoek aan locaties bent u zelf verantwoordelijk voor naleving van lokale wetten, veiligheidsregels, openingstijden, eigendomsrechten en eisen van autoriteiten.
+5.4. Overtredingen kunnen leiden tot een waarschuwing, beperking van functies, tijdelijke of permanente schorsing van het account, verwijdering van content en/of melding aan bevoegde autoriteiten.
 
 6. Content en intellectueel eigendom
-Rechten op merk, ontwerp, logica, teksten, UI, routes en materiaal berusten bij ITty Company of worden rechtmatig gebruikt. U behoudt rechten op eigen content maar verleent KRAÏNA een beperkt recht voor weergave, opslag, moderatie en werking.
+6.1. Alle rechten op het merk KRAÏNA, logo’s, ontwerp, interface, software, servicelogica, teksten, routes, historisch materiaal, graphics, audio, video, AR-assets, databases en overige platformelementen berusten bij ITty Company of worden rechtmatig gebruikt.
+6.2. U krijgt een beperkte, niet-exclusieve, herroepbare, niet-overdraagbare licentie voor persoonlijk, niet-commercieel gebruik van de app overeenkomstig deze Voorwaarden. Elk ander gebruik vereist voorafgaande schriftelijke toestemming.
+6.3. Het is verboden auteursrecht-, merken- of andere eigendomsvermeldingen te verwijderen of te wijzigen.
+6.4. U behoudt rechten op eigen content die u rechtmatig uploadt of in de dienst creëert (teksten, foto’s, reacties, routes, enz.).
+6.5. Door content te uploaden verleent u het Bedrijf een wereldwijde, niet-exclusieve, royaltyvrije, sublicentieerbare licentie om die content te gebruiken, te reproduceren, op te slaan, te modereren, technisch aan te passen, openbaar weer te geven en te verspreiden voor exploitatie, promotie en verbetering van de dienst.
+6.6. U garandeert dat u alle benodigde rechten op geüploade content heeft en dat deze geen wet of rechten van derden schendt. U verplicht zich mee te werken aan claims van derden en het Bedrijf te vrijwaren voor redelijke schade door uw schending.
+6.7. Wij mogen content die deze Voorwaarden, de wet of platformbeleid schendt zonder voorafgaande kennisgeving verwijderen, verbergen of beperken.
 
 7. Gegevens en privacy
-Wij kunnen account-, profiel-, login-, route-, scan-, bericht- en apparaatgegevens verwerken. Wij passen redelijke beveiliging toe; u beschermt wachtwoord en toegang tot het apparaat.
+7.1. Voor de werking van de app kunnen wij account- en profielgegevens, inloggeschiedenis, routes en activiteit, scangeschiedenis, berichten, meldingen, instellingen, technische apparaatgegevens (model, OS, app-ID’s, foutlogs) en locatie- en cameragegevens verwerken — voor zover nodig voor de betreffende functies en conform het privacybeleid.
+7.2. Verwerking van persoonsgegevens gebeurt overeenkomstig toepasselijk recht en ons privacybeleid, dat deel uitmaakt van de relatie met de gebruiker.
+7.3. Wij treffen redelijke organisatorische en technische beveiligingsmaatregelen, maar geen systeem is absoluut veilig. U moet ook uw wachtwoord, apparaat, herstelcodes en toegang beschermen.
+7.4. Sommige functies kunnen derden betrekken (analytics, kaarten, pushmeldingen, social login, cloudopslag), die eigen voorwaarden kunnen hebben.
+7.5. U kunt verzoeken om inzage, correctie, verwijdering of beperking van verwerking indienen zoals voorzien in het privacybeleid en de wet.
 
-8. Locaties, routes, AR
-Functies kunnen camera, locatie, internet, apparaatmogelijkheden en derden vereisen. Wij streven naar kwaliteit maar garanderen geen ononderbroken beschikbaarheid.
+8. Locaties, routes, AR en content
+8.1. Een deel van de functies hangt af van camera, geolocatie, internet, sensors, GPS-nauwkeurigheid, kaarten en diensten van derden, en actualiteit van content.
+8.2. Informatie over plaatsen, geschiedenis, routes, aanbevelingen en AR-scènes wordt verstrekt voor educatieve en informatieve doeleinden en kan onjuist, onvolledig of verouderd zijn.
+8.3. Wij garanderen geen ononderbroken beschikbaarheid van alle locaties, AR-scènes, routes of aanbevelingen, noch overeenstemming met de werkelijke staat van een object, routeveiligheid of fysieke toegankelijkheid.
+8.4. U beoordeelt zelf de risico’s bij verplaatsing, gebruik van AR in de openbare ruimte en interactie met de fysieke omgeving. Volg veiligheidsregels, let op uw omgeving en respecteer lokale beperkingen.
+8.5. Het Bedrijf is niet aansprakelijk voor beslissingen die uitsluitend op app-content zijn gebaseerd (routekeuze, bezoek aan een plek, enz.), behalve voor zover dwingend recht anders bepaalt.
 
-9. Prijzen en aankopen
-Er kan een Free/Pro-model, toekomstige in-app aankopen en partnercontent zijn. Voor aankoop tonen wij prijs, duur en betalingsvoorwaarden.
+9. Prijzen, abonnementen en toekomstige aankopen
+9.1. Basisfunctionaliteit kan gratis zijn. Sommige mogelijkheden kunnen onder Free/Pro, abonnementen, eenmalige in-app aankopen of partneraanbiedingen vallen.
+9.2. Voor bevestiging van een betaalde aankoop ziet u altijd prijs, valuta (indien van toepassing), duur, voorwaarden voor automatische verlenging, opzegging en andere wezenlijke voorwaarden in de app en/of store.
+9.3. Betaling, restitutie, beheer van abonnementen en belastingen worden geregeld door de regels van de betreffende store (Apple / Google) en/of betalingsprovider, tenzij anders vermeld.
+9.4. Wij mogen prijzen en betaalde pakketten voor toekomstige perioden wijzigen met kennisgeving zoals vereist door wet en storebeleid. Wijzigingen raken doorgaans niet een reeds betaalde actieve periode, tenzij de wet anders vereist.
+9.5. Misbruik van acties, promocodes, proefperiodes of betalingslimieten is verboden en kan leiden tot intrekking van voordelen en schorsing van het account.
 
 10. Sociale functies
-Bij feed, posts, vrienden, berichten e.d. respecteert u anderen. ITty Company mag content verwijderen of accounts beperken bij misbruik.
+10.1. Indien de dienst een feed, posts, reacties, vrienden, gedeelde routes, berichten of andere sociale functies bevat, respecteert u andere gebruikers en hun rechten.
+10.2. Verboden zijn pesten, bedreigingen, haatzaaien, intimidatie, openbaarmaking van andermans persoonsgegevens zonder toestemming, publicatie van privécorrespondentie zonder toestemming, en elk gedrag dat een onveilige of toxische omgeving creëert.
+10.3. ITty Company mag content en interacties die de regels schenden modereren, zichtbaarheid beperken, verbergen of verwijderen, en de accounttoegang tijdelijk of permanent beperken.
+10.4. Wij zijn niet verplicht alle gebruikerscontent vooraf te controleren, maar mogen reageren op meldingen en eigen bevindingen.
+10.5. Meld overtredingen via de ondersteunings- of feedbackkanalen in de app.
 
-11. Aansprakelijkheid
-KRAÏNA wordt “as is” geleverd. ITty Company is niet aansprakelijk voor indirecte schade, dataverlies, storingen of handelingen van derden.
+11. Beperking van aansprakelijkheid
+11.1. Voor zover toegestaan door toepasselijk recht worden KRAÏNA en gerelateerde content geleverd “as is” en “as available”, zonder garanties van ononderbroken werking, foutloosheid, geschiktheid voor een bepaald doel of volledige overeenstemming met verwachtingen.
+11.2. ITty Company is niet aansprakelijk voor indirecte, incidentele, bijzondere of punitieve schade; verlies van winst, data, reputatie of kansen; storingen; verbindingsproblemen; handelingen van derden; door gebruikers gegenereerde content; fouten in historisch of kaartmateriaal; of gevolgen van AR/geolocatie in de fysieke wereld — voor zover de wet dit toelaat.
+11.3. Niets in deze Voorwaarden beperkt aansprakelijkheid die volgens dwingend recht niet mag worden uitgesloten (waaronder opzet, grove nalatigheid of schade aan leven/gezondheid waar de wet dat eist).
+11.4. Indien aansprakelijkheid toch wordt vastgesteld, is de totale aansprakelijkheid van het Bedrijf — voor zover toegestaan — beperkt tot de bedragen die u de afgelopen 12 maanden daadwerkelijk voor betaalde functies heeft betaald, of tot het wettelijke minimum indien u niets heeft betaald.
 
-12. Wijzigingen
-Wij kunnen de app en deze voorwaarden bijwerken. Voortgezet gebruik betekent acceptatie van de actuele versie.
+12. Wijzigingen van dienst en voorwaarden
+12.1. Wij mogen functionaliteit bijwerken, de interface wijzigen, functies toevoegen, wijzigen of verwijderen, onderhoud uitvoeren en fouten herstellen.
+12.2. Wij mogen deze Voorwaarden bijwerken. De actuele versie wordt in de app en/of op andere redelijke wijze gepubliceerd. Een updatedatum kan apart worden vermeld.
+12.3. Bij wezenlijke wijzigingen die uw rechten raken, streven wij ernaar u vooraf te informeren (via de app, melding of e-mail), indien wettelijk vereist of redelijkerwijs mogelijk.
+12.4. Voortgezet gebruik na inwerkingtreding van de bijgewerkte Voorwaarden betekent aanvaarding van de nieuwe versie, tenzij de wet aparte bevestiging vereist.
+12.5. Indien u niet akkoord gaat met wijzigingen, moet u het gebruik staken en zo nodig uw account verwijderen volgens de voorgeschreven procedure.
 
-13. Beëindiging
-U kunt stoppen wanneer u wilt. ITty Company kan toegang schorsen of beëindigen bij overtreding, veiligheid of wet.
+13. Beëindiging van toegang
+13.1. U mag het gebruik op elk moment staken door de app en/of het account (indien beschikbaar) te verwijderen of contact op te nemen met support.
+13.2. ITty Company mag toegang tot een account of functies opschorten, beperken of beëindigen bij: schending van deze Voorwaarden; beveiligingseisen; vermoeden van fraude; wettelijke of overheidsverzoeken; risico voor het platform; langdurige inactiviteit (indien voorzien in het beleid).
+13.3. Na beëindiging kunnen gegevens en content worden verwijderd of geanonimiseerd binnen technische processen en wettelijke eisen. Sommige gegevens kunnen worden bewaard voor wettelijke verplichtingen, geschillenbeslechting en preventie van misbruik.
+13.4. Bepalingen die naar hun aard moeten voortbestaan (intellectueel eigendom, aansprakelijkheidsbeperkingen, toepasselijk recht, enz.) blijven van kracht na beëindiging.
 
-14. Toestemming
-Door het vakje aan te vinken bevestigt u vrijwillige acceptatie van de KRAÏNA-voorwaarden van ITty Company.`;
+14. Toepasselijk recht, geschillen en bevestiging van toestemming
+14.1. Deze Voorwaarden worden beheerst door het recht dat van toepassing is op de activiteiten van ITty Company, tenzij dwingende consumentenbeschermingsregels van uw woonland anders bepalen.
+14.2. Geschillen worden bij voorkeur opgelost via onderhandelingen en support. Blijft een geschil onopgelost, dan kan het worden voorgelegd aan de bevoegde rechter overeenkomstig de wet.
+14.3. Indien enige bepaling ongeldig of niet-afdwingbaar wordt geacht, blijven de overige bepalingen van kracht.
+14.4. Het niet uitoefenen door het Bedrijf van een recht onder deze Voorwaarden betekent geen afstand van dat recht voor de toekomst.
+14.5. Door het vakje voor toestemming bij registratie aan te vinken (of een ander acceptatie-element), bevestigt u dat u deze gebruiksvoorwaarden van KRAÏNA en de door ITty Company vastgestelde serviceregels vrijwillig en bewust aanvaardt.`;
 
 const TERMS_ES = `1. Disposiciones generales
-Estos Términos de uso regulan el uso de la aplicación móvil KRAÏNA, desarrollada y mantenida por ITty Company. Al registrarte, confirmas que has leído, entiendes y aceptas estas condiciones.
+1.1. Estos Términos de uso (“Términos”) regulan el acceso a la aplicación móvil KRAÏNA y a todos los servicios, funciones, contenidos e interfaces relacionados desarrollados y mantenidos por ITty Company (“Compañía”, “nosotros”).
+1.2. Al registrarte, crear una cuenta, iniciar sesión por correo o proveedores sociales, o usar KRAÏNA de cualquier otro modo, confirmas que has leído, entiendes y aceptas plenamente estos Términos.
+1.3. Si no estás de acuerdo con alguna disposición, debes dejar de usar la app de inmediato y no crear una cuenta.
+1.4. El usuario debe ser una persona física con la edad exigida por la ley de su país para aceptar estos términos por sí misma. Si actúas en nombre de una organización, confirmas que tienes autoridad para vincularla.
+1.5. Funciones concretas pueden regirse por normas adicionales, la Política de privacidad, directrices de comunidad o condiciones de las tiendas (App Store / Google Play).
+1.6. Podemos rechazar el registro o limitar o terminar el acceso sin aviso previo si el uso parece vulnerar la ley, estos Términos o crear riesgos para otros usuarios o la plataforma.
 
 2. Sobre KRAÏNA
-KRAÏNA es una app móvil en turismo, educación y tecnología social con el lema «La historia está donde tú estás» y «Sal. Explora. Vive.» Combina contenido histórico, rutas, mecánicas AR/IA, funciones sociales, gamificación y uso online y offline.
+2.1. KRAÏNA es una app móvil de turismo, educación y tecnología social con el lema «La historia está donde tú estás» y «Sal. Explora. Vive.»
+2.2. La app puede combinar contenido histórico y cultural, rutas y puntos de interés, mecánicas AR/IA, escaneo de ubicaciones y monumentos, gamificación, funciones sociales, mensajes, feed de actividad y escenarios online y offline.
+2.3. Las funciones pueden variar según país, idioma, dispositivo, versión, tipo de cuenta y etapa del producto. Algunas capacidades pueden estar en beta, limitadas por región o temporalmente indisponibles.
+2.4. Las descripciones de marketing no garantizan disponibilidad permanente e inalterada. Podemos cambiar, ampliar o retirar funciones dentro de la ley aplicable.
 
 3. Cuenta de usuario
-Debes facilitar datos veraces: nombre, correo y contraseña. Eres responsable de la seguridad de la cuenta, el acceso y todas las acciones desde tu perfil. No compartes la cuenta con terceros e informas de accesos no autorizados.
+3.1. Debes facilitar datos veraces, completos y actualizados: nombre (o nombre visible), correo y contraseña, y cualquier otro dato requerido.
+3.2. Eres plenamente responsable de la confidencialidad de tus credenciales, la seguridad del dispositivo, todas las sesiones y todas las acciones realizadas desde tu cuenta, las hayas ejecutado o no personalmente.
+3.3. Está prohibido: crear una cuenta a nombre de otra persona sin permiso; usar datos ajenos; mantener varias cuentas para eludir bloqueos, límites o reglas; transferir, vender o alquilar la cuenta.
+3.4. Debes notificarnos de inmediato cualquier sospecha de acceso no autorizado, pérdida de contraseña, compromiso del dispositivo u otro incidente de seguridad.
+3.5. Podemos exigir verificación de correo, comprobaciones de identidad adicionales o restablecimiento de contraseña.
+3.6. No estamos obligados a restaurar el acceso si pierdes el control del correo, dispositivo o datos de recuperación, salvo lo técnicamente disponible.
 
 4. Funciones principales
-Tras el registro pueden estar disponibles: inicio de sesión por correo y redes, perfil, contenido histórico, rutas, escaneo AR, historial de actividad, comunidad, mensajes, feed y en el futuro suscripciones, tours virtuales y herramientas B2B.
+4.1. Tras el registro pueden estar disponibles: inicio de sesión por correo y redes; perfil; contenido histórico e informativo; rutas y recomendaciones; escaneo AR; historial de actividad y progreso; comunidad; mensajes; feed; notificaciones.
+4.2. En el futuro pueden existir suscripciones, funciones de pago, tours virtuales, servicios administrativos, integraciones de socios y herramientas B2B, que pueden requerir consentimiento, pago o condiciones adicionales.
+4.3. Algunas funciones necesitan permisos del dispositivo (cámara, ubicación, notificaciones, almacenamiento, etc.). Denegarlos puede limitar o desactivar esas funciones.
+4.4. No garantizamos que todas las funciones estén disponibles a la vez para todos los usuarios en todas las regiones y dispositivos.
 
 5. Normas de uso
-Usas KRAÏNA de forma lícita, de buena fe y sin perjudicar a otros, socios o la plataforma. Está prohibido: datos falsos, atacar el servicio, eludir límites, copiar o distribuir contenido ilegalmente, publicar material ofensivo o ilícito, fraude o spam.
+5.1. Usas KRAÏNA de forma lícita, de buena fe y con respeto a otros usuarios, socios, patrimonio cultural y la plataforma.
+5.2. Está prohibido, entre otras conductas:
+a) aportar datos falsos, engañosos o de terceros;
+b) atacar, escanear vulnerabilidades, DDoS o interferir con servidores, API, bases de datos o código cliente;
+c) eludir límites técnicos, moderación, restricciones geo/edad o sistemas antifraude;
+d) copiar, scrapear, exportar masivamente o distribuir ilegalmente contenido, rutas, textos, imágenes, activos AR, código o bases de datos sin permiso escrito;
+e) publicar contenido ofensivo, discriminatorio, pornográfico, violento, extremista, fraudulento o ilegal;
+f) spam, phishing, malware, publicidad no solicitada o mensajes acosadores;
+g) suplantar a otra persona, a la Compañía, a un moderador o a un socio;
+h) actividad comercial no autorizada (salvo que una función lo permita);
+i) vulnerar propiedad intelectual, privacidad o derechos de la personalidad;
+j) crear riesgos de seguridad física al usar rutas, AR o navegación.
+5.3. Al visitar ubicaciones eres el único responsable de cumplir leyes locales, normas de seguridad, horarios, derechos de propiedad y requisitos de las autoridades.
+5.4. Las infracciones pueden conllevar advertencia, limitación de funciones, suspensión temporal o permanente, eliminación de contenido y/o denuncia a las autoridades.
 
 6. Contenido y propiedad intelectual
-Los derechos sobre marca, diseño, lógica, textos, interfaz, rutas y materiales pertenecen a ITty Company o se usan lícitamente. Conservas derechos sobre tu contenido pero concedes a KRAÏNA un derecho limitado para mostrarlo, almacenarlo, moderarlo y operar el servicio.
+6.1. Los derechos sobre la marca KRAÏNA, logos, diseño, interfaz, software, lógica, textos, rutas, materiales históricos, gráficos, audio, vídeo, activos AR, bases de datos y demás elementos pertenecen a ITty Company o se usan lícitamente.
+6.2. Recibes una licencia limitada, no exclusiva, revocable y no transferible para uso personal no comercial conforme a estos Términos. Cualquier otro uso requiere consentimiento escrito previo.
+6.3. No puedes eliminar ni alterar avisos de derechos de autor, marcas u otras menciones de propiedad.
+6.4. Conservas los derechos sobre tu propio contenido cargado o creado lícitamente.
+6.5. Al subir contenido otorgas a la Compañía una licencia mundial, no exclusiva, gratuita y sublicenciable para usarlo, reproducirlo, almacenarlo, moderarlo, adaptarlo técnicamente, mostrarlo públicamente y distribuirlo para operar, promocionar y mejorar el servicio.
+6.6. Garantizas que tienes todos los derechos necesarios y que el contenido no vulnera la ley ni derechos de terceros. Te comprometes a colaborar frente a reclamaciones y a indemnizar a la Compañía por daños razonables causados por tu incumplimiento.
+6.7. Podemos eliminar, ocultar o restringir cualquier contenido que vulnere estos Términos, la ley o las políticas de la plataforma, sin aviso previo.
 
 7. Datos y privacidad
-Podemos tratar datos de cuenta, perfil, inicios de sesión, rutas, escaneos, mensajes, notificaciones y datos técnicos del dispositivo. Aplicamos medidas razonables; tú proteges tu contraseña y el acceso al dispositivo.
+7.1. Podemos tratar datos de cuenta y perfil, historial de inicios de sesión, rutas y actividad, historial de escaneos, mensajes, notificaciones, ajustes, datos técnicos del dispositivo y datos de ubicación y cámara en la medida necesaria para las funciones y conforme a la Política de privacidad.
+7.2. Los datos personales se tratan conforme a la ley aplicable y a nuestra Política de privacidad.
+7.3. Aplicamos medidas organizativas y técnicas razonables; ninguna seguridad es absoluta. También debes proteger contraseña, dispositivo y códigos de recuperación.
+7.4. Algunas funciones pueden involucrar terceros (analítica, mapas, push, login social, nube).
+7.5. Puedes solicitar acceso, rectificación, eliminación o limitación del tratamiento según la Política de privacidad y la ley.
 
 8. Ubicaciones, rutas, AR
-Algunas funciones dependen de cámara, geolocalización, internet, capacidades del dispositivo y servicios de terceros. No garantizamos disponibilidad continua ni libre de errores.
+8.1. Algunas funciones dependen de cámara, geolocalización, internet, sensores, precisión GPS, mapas y servicios de terceros, y de la actualidad del contenido.
+8.2. La información sobre lugares, historia, rutas, recomendaciones y escenas AR se ofrece con fines educativos e informativos y puede ser inexacta, incompleta o desactualizada.
+8.3. No garantizamos disponibilidad continua de todas las ubicaciones, escenas AR, rutas o recomendaciones, ni su correspondencia con la realidad, la seguridad de la ruta o la accesibilidad física.
+8.4. Evalúas por tu cuenta los riesgos al desplazarte y usar AR en espacios públicos. Cumple normas de seguridad y restricciones locales.
+8.5. La Compañía no responde por decisiones basadas únicamente en el contenido de la app, salvo que la ley imperativa disponga otra cosa.
 
 9. Precios y compras
-Puede haber modelo Free/Pro, compras in-app futuras y contenido de socios. Antes de comprar mostraremos precio, duración y condiciones de pago.
+9.1. La funcionalidad básica puede ser gratuita. Algunas capacidades pueden usar Free/Pro, suscripciones, compras in-app únicas u ofertas de socios.
+9.2. Antes de confirmar una compra de pago siempre verás precio, moneda (si aplica), duración, renovación automática, cancelación y demás condiciones materiales en la app y/o la tienda.
+9.3. El pago, reembolsos, gestión de suscripciones e impuestos se rigen por las reglas de la tienda (Apple/Google) y/o del proveedor de pago, salvo indicación contraria.
+9.4. Podemos cambiar precios y paquetes para periodos futuros con el aviso exigido por la ley y las políticas de las tiendas.
+9.5. El abuso de promociones, códigos, periodos de prueba o límites de pago está prohibido y puede conllevar la cancelación de beneficios y la suspensión de la cuenta.
 
 10. Interacción social
-Si hay feed, publicaciones, amigos, mensajes, etc., respetas a otros usuarios. ITty Company puede eliminar contenido o restringir cuentas ante abusos.
+10.1. Si hay feed, publicaciones, comentarios, amigos, rutas compartidas, mensajes u otras funciones sociales, respetas a los demás usuarios y sus derechos.
+10.2. Está prohibido el acoso, amenazas, discurso de odio, revelar datos personales ajenos sin consentimiento, publicar correspondencia privada sin permiso y cualquier conducta que genere un entorno tóxico o inseguro.
+10.3. ITty Company puede moderar, limitar la visibilidad, ocultar o eliminar contenido e interacciones, y restringir temporal o permanentemente el acceso a la cuenta.
+10.4. No estamos obligados a revisar previamente todo el contenido, pero podemos actuar ante denuncias y hallazgos propios.
+10.5. Reporta infracciones por los canales de soporte o feedback de la app.
 
 11. Limitación de responsabilidad
-KRAÏNA se ofrece «tal cual». ITty Company no responde por daños indirectos, pérdida de datos, interrupciones o actos de terceros.
+11.1. En la máxima medida permitida por la ley, KRAÏNA y el contenido relacionado se ofrecen «tal cual» y «según disponibilidad», sin garantías de funcionamiento ininterrumpido, ausencia de errores, idoneidad para un fin concreto o plena adecuación a las expectativas.
+11.2. ITty Company no responde por daños indirectos, incidentales, especiales o punitivos; pérdida de beneficios, datos, reputación u oportunidades; interrupciones; fallos de conexión; actos de terceros; contenido de usuarios; errores en materiales históricos o cartográficos; ni consecuencias del uso de AR/geolocalización en el mundo físico — en la medida permitida por la ley.
+11.3. Nada en estos Términos limita la responsabilidad que no pueda excluirse conforme a normas imperativas.
+11.4. Si se establece responsabilidad, el importe agregado se limita —en la medida permitida— a las cantidades efectivamente pagadas por funciones de pago en los últimos 12 meses, o al mínimo legal si no hubo pagos.
 
 12. Cambios
-Podemos actualizar la app y estos términos. El uso continuado implica aceptación de la versión vigente.
+12.1. Podemos actualizar funciones, cambiar la interfaz, añadir, modificar o eliminar capacidades, realizar mantenimiento y corregir errores.
+12.2. Podemos actualizar estos Términos. La versión vigente se publica en la app y/o por otros medios razonables.
+12.3. Ante cambios materiales que afecten tus derechos, intentaremos avisarte con antelación cuando lo exija la ley o sea razonablemente posible.
+12.4. El uso continuado tras la entrada en vigor implica aceptación de la nueva versión, salvo que la ley exija confirmación separada.
+12.5. Si no estás de acuerdo, debes dejar de usar el servicio y, si procede, eliminar la cuenta.
 
 13. Terminación del acceso
-Puedes dejar de usar el servicio en cualquier momento. ITty Company puede suspender o cerrar la cuenta por incumplimiento, seguridad o ley.
+13.1. Puedes dejar de usar el servicio en cualquier momento eliminando la app y/o la cuenta (si está disponible) o contactando con soporte.
+13.2. ITty Company puede suspender, limitar o terminar el acceso por incumplimiento, requisitos de seguridad, sospecha de fraude, requerimientos legales, riesgo para la plataforma o inactividad prolongada (si lo prevén las políticas).
+13.3. Tras la terminación, los datos y el contenido pueden eliminarse o anonimizarse. Algunos datos pueden conservarse para obligaciones legales, disputas y prevención de abusos.
+13.4. Las cláusulas que por su naturaleza deban sobrevivir (PI, límites de responsabilidad, ley aplicable, etc.) siguen vigentes.
 
-14. Confirmación de consentimiento
-Al marcar la casilla en el registro confirmas que aceptas voluntariamente los Términos de uso de KRAÏNA establecidos por ITty Company.`;
+14. Ley aplicable, disputas y consentimiento
+14.1. Estos Términos se rigen por la ley aplicable a la actividad de ITty Company, salvo normas imperativas de protección del consumidor de tu país de residencia.
+14.2. Las disputas deben resolverse preferentemente por negociación y soporte; si no, ante el tribunal competente según la ley.
+14.3. La invalidez de una disposición no afecta al resto.
+14.4. La falta de ejercicio de un derecho por la Compañía no implica renuncia futura.
+14.5. Al marcar la casilla de consentimiento en el registro (u otro control de aceptación), confirmas que aceptas voluntaria y conscientemente los Términos de uso de KRAÏNA establecidos por ITty Company.`;
 
 const TERMS_LT = `1. Bendrosios nuostatos
-Šios Naudojimo sąlygos reguliuoja mobilioji programėlė KRAÏNA, kurią kuria ir prižiūri ITty Company. Registruodamiesi patvirtinate, kad perskaitėte, supratote ir sutinkate su sąlygomis.
+1.1. Šios Naudojimo sąlygos („Sąlygos“) reglamentuoja prieigą prie mobiliosios programėlės KRAÏNA ir visų susijusių paslaugų, funkcijų, turinio bei sąsajų, kurias kuria ir prižiūri ITty Company („Bendrovė“, „mes“).
+1.2. Registruodamiesi, kurdami paskyrą, prisijungdami el. paštu ar socialiniais tiekėjais ar kitaip naudodami KRAÏNA, patvirtinate, kad perskaitėte, supratote ir visiškai sutinkate su šiomis Sąlygomis.
+1.3. Jei nesutinkate su bet kuria nuostata, privalote nedelsdami nustoti naudotis programėle ir nekurti paskyros.
+1.4. Naudotojas turi būti fizinis asmuo, sulaukęs amžiaus, kurio reikalauja jo šalies įstatymai savarankiškai priimti tokias sąlygas. Veikdami organizacijos vardu, patvirtinate turintys įgaliojimus.
+1.5. Atskiros funkcijos gali būti reguliuojamos papildomomis taisyklėmis, Privatumo politika, bendruomenės gairėmis ar parduotuvių sąlygomis (App Store / Google Play).
+1.6. Galime atsisakyti registracijos arba apriboti ar nutraukti prieigą be išankstinio įspėjimo, jei naudojimas pažeidžia teisę, šias Sąlygas ar kelia riziką kitiems naudotojams ar platformai.
 
 2. Apie KRAÏNA
-KRAÏNA — mobilioji programėlė turizmui, švietimui ir socialinėms technologijoms su šūkiu „Istorija ten, kur esi dabar“ ir „Išeik. Tyrinėk. Gyvenk.“ Ji apjungia istorinį turinį, maršrutus, AR/AI mechanikas, socialines funkcijas, žaidybinimą ir naudojimą internetu bei neprisijungus.
+2.1. KRAÏNA — mobilioji programėlė turizmui, švietimui ir socialinėms technologijoms su šūkiu „Istorija ten, kur esi dabar“ ir „Išeik. Tyrinėk. Gyvenk.“
+2.2. Programėlė gali apjungti istorinį ir kultūrinį turinį, maršrutus ir lankytinas vietas, AR/AI mechanikas, vietų ir paminklų nuskaitymą, žaidybinimą, socialines funkcijas, žinutes, veiklos srautą bei naudojimą internetu ir neprisijungus.
+2.3. Funkcijos gali skirtis pagal šalį, kalbą, įrenginį, versiją, paskyros tipą ir produkto etapą. Kai kurios galimybės gali būti beta, regioniniu mastu ribotos arba laikinai neprieinamos.
+2.4. Rinkodaros aprašymai negarantuoja nuolatinio nepakitusių funkcijų prieinamumo. Galime keisti, plėsti ar nutraukti funkcijas teisės ribose.
 
 3. Vartotojo paskyra
-Registruodamiesi pateikiate tikrus duomenis: vardą, el. paštą ir slaptažodį. Atsakote už paskyros saugumą, prieigą ir visus veiksmus iš profilio. Neperduodate paskyros tretiesiems ir pranešate apie įtariamą neteisėtą prieigą.
+3.1. Registruodamiesi pateikiate tikrus, išsamius ir aktualius duomenis: vardą (arba rodomą vardą), el. paštą ir slaptažodį bei kitus formoje prašomus duomenis.
+3.2. Esate visiškai atsakingi už prisijungimo duomenų konfidencialumą, įrenginio saugumą, visas sesijas ir visus veiksmus per jūsų paskyrą — nepaisant to, ar juos atlikote asmeniškai.
+3.3. Draudžiama: kurti paskyrą kito asmens vardu be leidimo; naudoti svetimus duomenis; turėti kelias paskyras siekiant apeiti blokavimus, limitus ar taisykles; perduoti, parduoti ar nuomoti paskyrą.
+3.4. Privalote nedelsdami pranešti apie įtariamą neteisėtą prieigą, slaptažodžio praradimą, įrenginio kompromitavimą ar kitą saugumo incidentą.
+3.5. Galime reikalauti el. pašto patvirtinimo, papildomo tapatybės tikrinimo ar slaptažodžio atkūrimo.
+3.6. Nesame įpareigoti atkurti prieigos, jei prarandate kontrolę virš el. pašto, įrenginio ar atkūrimo duomenų, išskyrus techniškai numatytas priemones.
 
 4. Pagrindinės funkcijos
-Po registracijos gali būti: prisijungimas el. paštu ir socialiniais tiekėjais, profilis, istorinis turinys, maršrutai, AR nuskaitymas, veiklos istorija, bendruomenė, žinutės, srautas ir ateityje prenumeratos, virtualios ekskursijos, administravimas ir B2B įrankiai.
+4.1. Po registracijos gali būti: prisijungimas el. paštu ir socialiniais tiekėjais; profilis; istorinis ir informacinis turinys; maršrutai ir rekomendacijos; AR nuskaitymas; veiklos ir pažangos istorija; bendruomenė; žinutės; srautas; pranešimai.
+4.2. Ateityje gali atsirasti prenumeratos, mokamos funkcijos, virtualios ekskursijos, administravimo paslaugos, partnerių integracijos ir B2B įrankiai — gali reikėti atskiro sutikimo, mokėjimo ar papildomų sąlygų.
+4.3. Kai kurios funkcijos reikalauja įrenginio leidimų (kamera, geolokacija, pranešimai, saugykla ir kt.). Atsisakymas gali apriboti ar išjungti funkcijas.
+4.4. Negarantuojame, kad visos funkcijos bus vienu metu prieinamos visiems naudotojams visuose regionuose ir įrenginiuose.
 
 5. Naudojimo taisyklės
-Naudojate KRAÏNA teisėtai, sąžiningai ir nekenkiant kitiems, partneriams ar platformai. Draudžiama: neteisingi duomenys, paslaugos atakos, apėjimas, neteisėtas turinio platinimas, įžeidžiantis ar neteisėtas turinys, sukčiavimas ir šlamštas.
+5.1. Naudojate KRAÏNA teisėtai, sąžiningai ir gerbdami kitus naudotojus, partnerius, kultūros paveldą ir platformą.
+5.2. Draudžiama, be kita ko:
+a) teikti neteisingus, klaidinančius ar svetimus duomenis;
+b) įsilaužti, skenuoti pažeidžiamumus, vykdyti DDoS ar kištis į serverius, API, duomenų bazes ar kliento kodą;
+c) apeiti techninius limitus, moderaciją, geo/amžiaus apribojimus ar antifraudo sistemas;
+d) kopijuoti, scrapinti, masiškai eksportuoti ar neteisėtai platinti turinį, maršrutus, tekstus, vaizdus, AR turtą, kodą ar duomenų bazes be raštiško leidimo;
+e) skelbti įžeidžiantį, diskriminacinį, pornografinį, smurtinį, ekstremistinį, apgaulingą ar kitą neteisėtą turinį;
+f) šlamštas, fišingas, kenkėjiška programinė įranga, nepageidaujama reklama ar persekiojantys pranešimai;
+g) apsimesti kitu asmeniu, Bendrove, moderatoriumi ar partneriu;
+h) neautorizuota komercinė veikla (nebent funkcija tai leidžia);
+i) pažeisti intelektinės nuosavybės, privatumo ar asmenines teises;
+j) kelti fizinio saugumo riziką naudojant maršrutus, AR ar navigaciją.
+5.3. Lankydami vietas patys atsakote už vietinių įstatymų, saugumo taisyklių, darbo valandų, nuosavybės teisių ir institucijų reikalavimų laikymąsi.
+5.4. Pažeidimai gali lemti įspėjimą, funkcijų apribojimą, laikiną ar nuolatinį paskyros sustabdymą, turinio pašalinimą ir/ar pranešimą institucijoms.
 
 6. Turinys ir intelektinė nuosavybė
-Prekės ženklo, dizaino, logikos, tekstų, sąsajos, maršrutų ir medžiagų teisės priklauso ITty Company arba naudojamos teisėtai. Išsaugote teises į savo turinį, bet suteikiate KRAÏNA ribotą teisę jį rodyti, saugoti, moderuoti ir vykdyti paslaugą.
+6.1. Teisės į prekės ženklą KRAÏNA, logotipus, dizainą, sąsają, programinę įrangą, logiką, tekstus, maršrutus, istorinę medžiagą, grafiką, garsą, vaizdą, AR turtą, duomenų bazes ir kitus elementus priklauso ITty Company arba naudojamos teisėtai.
+6.2. Gaunate ribotą, neišskirtinę, atšaukiamą, neperleidžiamą licenciją asmeniniam nekomerciniam naudojimui pagal šias Sąlygas. Bet koks kitas naudojimas reikalauja išankstinio raštiško sutikimo.
+6.3. Draudžiama šalinti ar keisti autorių teisių, prekių ženklų ar kitus nuosavybės pranešimus.
+6.4. Išsaugote teises į savo teisėtai įkeltą ar sukurtą turinį.
+6.5. Įkeldami turinį suteikiate Bendrovei pasaulinę, neišskirtinę, neatlygintinę, sublicencijuojamą licenciją jį naudoti, atkurti, saugoti, moderuoti, techniškai pritaikyti, viešai rodyti ir platinti paslaugos veikimui, reklamai ir tobulinimui.
+6.6. Garantujate turintys visas reikalingas teises ir kad turinys nepažeidžia teisės ar trečiųjų teisių. Įsipareigojate bendradarbiauti dėl pretenzijų ir atlyginti Bendrovei pagrįstus nuostolius dėl jūsų pažeidimo.
+6.7. Galime be išankstinio įspėjimo pašalinti, slėpti ar riboti turinį, pažeidžiantį Sąlygas, teisę ar politiką.
 
 7. Duomenys ir privatumas
-Galime apdoroti paskyros, profilio, prisijungimų, maršrutų, nuskaitymų, pranešimų ir techninius įrenginio duomenis. Taikome pagrįstas apsaugos priemones; jūs saugote slaptažodį ir prieigą prie įrenginio.
+7.1. Galime apdoroti paskyros ir profilio duomenis, prisijungimų istoriją, maršrutus ir veiklą, nuskaitymų istoriją, žinutes, pranešimus, nustatymus, techninius įrenginio duomenis bei vietos ir kameros duomenis — tiek, kiek reikia funkcijoms ir pagal Privatumo politiką.
+7.2. Asmens duomenys tvarkomi pagal taikomą teisę ir Privatumo politiką.
+7.3. Taikome pagrįstas organizacines ir technines priemones; absoliutaus saugumo nėra. Jūs taip pat saugote slaptažodį, įrenginį ir atkūrimo kodus.
+7.4. Kai kurios funkcijos gali naudoti trečiųjų šalių paslaugas (analitika, žemėlapiai, push, socialinis prisijungimas, debesis).
+7.5. Galite prašyti prieigos, taisymo, ištrynimo ar tvarkymo apribojimo pagal Privatumo politiką ir įstatymą.
 
 8. Vietos, maršrutai, AR
-Funkcijos gali reikalauti kameros, geolokacijos, interneto, įrenginio galimybių ir trečiųjų šalių paslaugų. Negalime garantuoti nepertraukiamo prieinamumo.
+8.1. Funkcijos gali reikalauti kameros, geolokacijos, interneto, jutiklių, GPS tikslumo, trečiųjų žemėlapių/paslaugų ir turinio aktualumo.
+8.2. Informacija apie vietas, istoriją, maršrutus, rekomendacijas ir AR scenas teikiama švietimo ir informacijos tikslais; gali būti netiksli, neišsami ar pasenusi.
+8.3. Negarantuojame nepertraukiamo visų vietų, AR scenų, maršrutų ar rekomendacijų prieinamumo, atitikimo realybei, maršruto saugumo ar fizinio prieinamumo.
+8.4. Patys vertinate rizikas judėdami ir naudodami AR viešose erdvėse. Laikykitės saugumo taisyklių ir vietinių apribojimų.
+8.5. Bendrovė neatsako už sprendimus, priimtus vien remiantis programėlės turiniu, nebent imperatyvi teisė nurodo kitaip.
 
 9. Kainos ir pirkimai
-Galimas Free / Pro modelis, būsimi programėlės pirkimai ir partnerių turinys. Prieš pirkimą bus aiškiai rodoma kaina, trukmė ir mokėjimo sąlygos.
+9.1. Pagrindinės funkcijos gali būti nemokamos. Kai kurios galimybės gali naudoti Free/Pro, prenumeratas, vienkartinius programėlės pirkimus ar partnerių pasiūlymus.
+9.2. Prieš patvirtinant mokamą pirkimą visada bus rodoma kaina, valiuta (jei taikoma), trukmė, automatinio pratęsimo, atšaukimo ir kitos esminės sąlygos programėlėje ir/ar parduotuvėje.
+9.3. Mokėjimus, grąžinimus, prenumeratų valdymą ir mokesčius reguliuoja parduotuvės (Apple/Google) ir/ar mokėjimo teikėjo taisyklės, jei nenurodyta kitaip.
+9.4. Galime keisti kainas ir paketus būsimiems laikotarpiams su pranešimu, kurio reikalauja įstatymas ir parduotuvių politikos.
+9.5. Akcijų, kodų, bandomųjų laikotarpių ar mokėjimo limitų piktnaudžiavimas draudžiamas ir gali lemti naudų atšaukimą bei paskyros sustabdymą.
 
 10. Socialinė sąveika
-Jei yra srautas, įrašai, draugai, žinutės ir pan., gerbiame kitus naudotojus. ITty Company gali šalinti turinį ar riboti paskyras piktnaudžiavimo atveju.
+10.1. Jei yra srautas, įrašai, komentarai, draugai, bendri maršrutai, žinutės ir pan., gerbiate kitus naudotojus ir jų teises.
+10.2. Draudžiamas patyčios, grasinimai, neapykantos kalba, persekiojimas, svetimų asmens duomenų atskleidimas be sutikimo, privačios korespondencijos skelbimas be leidimo ir toksinė elgsena.
+10.3. ITty Company gali moderuoti, riboti matomumą, slėpti ar šalinti turinį bei laikinai ar nuolat riboti prieigą prie paskyros.
+10.4. Nesame įpareigoti iš anksto peržiūrėti visą turinį, bet galime reaguoti į pranešimus ir savo nustatymus.
+10.5. Pažeidimus praneškite per programėlės palaikymo ar grįžtamojo ryšio kanalus.
 
 11. Atsakomybės apribojimas
-KRAÏNA teikiama „kaip yra“. ITty Company neatsako už netiesioginę žalą, duomenų praradimą, trikdžius ar trečiųjų šalių veiksmus.
+11.1. Kiek leidžia teisė, KRAÏNA ir susijęs turinys teikiami „kaip yra“ ir „kaip prieinama“, be garantijų dėl nepertraukiamo veikimo, klaidų nebuvimo, tinkamumo konkrečiam tikslui ar visiško atitikimo lūkesčiams.
+11.2. ITty Company neatsako už netiesioginę, atsitiktinę, specialią ar baudžiamąją žalą; pelno, duomenų, reputacijos ar galimybių praradimą; pertraukas; ryšio gedimus; trečiųjų veiksmus; naudotojų turinį; istorinės ar žemėlapių medžiagos klaidas; AR/geolokacijos pasekmes fiziniame pasaulyje — kiek leidžia teisė.
+11.3. Nieko šiose Sąlygose neapriboja atsakomybės, kurios negalima išjungti pagal imperatyvias normas.
+11.4. Jei atsakomybė nustatoma, bendra suma ribojama — kiek leidžia teisė — sumomis, faktiškai sumokėtomis už mokamas funkcijas per pastaruosius 12 mėnesių, arba įstatymo minimumu, jei mokėjimų nebuvo.
 
 12. Pakeitimai
-Galime atnaujinti programėlę ir šias sąlygas. Tęsdami naudojimą sutinkate su aktualia redakcija.
+12.1. Galime atnaujinti funkcijas, keisti sąsają, pridėti, keisti ar šalinti galimybes, atlikti priežiūrą ir taisyti klaidas.
+12.2. Galime atnaujinti šias Sąlygas. Aktuali redakcija skelbiama programėlėje ir/ar kitomis pagrįstomis priemonėmis.
+12.3. Esminiams pakeitimams, veikiantiems jūsų teises, stengsimės pranešti iš anksto, jei to reikalauja įstatymas ar tai pagrįstai įmanoma.
+12.4. Tęsiamas naudojimas po atnaujinimo įsigaliojimo reiškia naujos redakcijos priėmimą, nebent įstatymas reikalauja atskiro patvirtinimo.
+12.5. Jei nesutinkate su pakeitimais, privalote nustoti naudotis ir prireikus ištrinti paskyrą.
 
 13. Prieigos nutraukimas
-Galite nustoti naudotis bet kada. ITty Company gali sustabdyti ar nutraukti prieigą pažeidus sąlygas, saugumą ar įstatymus.
+13.1. Galite bet kada nustoti naudotis ištrindami programėlę ir/ar paskyrą (jei prieinama) arba susisiekę su palaikymu.
+13.2. ITty Company gali sustabdyti, apriboti ar nutraukti prieigą dėl Sąlygų pažeidimo, saugumo reikalavimų, įtariamo sukčiavimo, teisinių reikalavimų, grėsmės platformai ar ilgos neveiklos (jei numatyta).
+13.3. Po nutraukimo duomenys ir turinys gali būti ištrinti ar anonimizuoti. Kai kurie duomenys gali būti saugomi teisinėms pareigoms, ginčams ir piktnaudžiavimo prevencijai.
+13.4. Nuostatos, kurios pagal prigimtį turi išlikti (IN, atsakomybės ribos, taikoma teisė ir kt.), lieka galioti.
 
-14. Sutikimo patvirtinimas
-Pažymėdami sutikimo langelį registracijos metu patvirtinate, kad savanoriškai priimate KRAÏNA naudojimo sąlygas, kurias nustato ITty Company.`;
+14. Taikoma teisė, ginčai ir sutikimas
+14.1. Šias Sąlygas reglamentuoja teisė, taikoma ITty Company veiklai, nebent imperatyvios vartotojų apsaugos normos jūsų gyvenamosios šalies nurodo kitaip.
+14.2. Ginčus pageidautina spręsti derybomis ir per palaikymą; neišspręsti — kompetentingame teisme pagal įstatymą.
+14.3. Vienos nuostatos negaliojimas neveikia likusiųjų.
+14.4. Bendrovės teisės neįgyvendinimas nereiškia atsisakymo ateityje.
+14.5. Pažymėdami sutikimo langelį registracijos metu (ar kitą priėmimo elementą), patvirtinate, kad savanoriškai ir sąmoningai priimate KRAÏNA naudojimo sąlygas, kurias nustato ITty Company.`;
 
 const TERMS_LV = `1. Vispārīgie noteikumi
-Šie Lietošanas noteikumi regulē mobilās lietotnes KRAÏNA izmantošanu, ko izstrādā un uztur ITty Company. Reģistrējoties jūs apstiprināt, ka esat izlasījis, sapratis un piekrītat noteikumiem.
+1.1. Šie Lietošanas noteikumi („Noteikumi”) regulē piekļuvi mobilajai lietotnei KRAÏNA un visiem saistītajiem pakalpojumiem, funkcijām, saturam un saskarnēm, ko izstrādā un uztur ITty Company („Uzņēmums”, „mēs”).
+1.2. Reģistrējoties, izveidojot kontu, pierakstoties ar e-pastu vai sociālajiem pakalpojumiem vai citādi lietojot KRAÏNA, jūs apstiprināt, ka esat izlasījis, sapratis un pilnībā piekrītat šiem Noteikumiem.
+1.3. Ja nepiekrītat kādai nostādnei, jums nekavējoties jāpārtrauc lietotnes lietošana un nav atļauts izveidot kontu.
+1.4. Lietotājam jābūt fiziskai personai, kas sasniegusi vecumu, ko prasa jūsu valsts tiesības, lai patstāvīgi pieņemtu šādus noteikumus. Rīkojoties organizācijas vārdā, jūs apstiprināt savas pilnvaras.
+1.5. Atsevišķas funkcijas var reglamentēt papildu noteikumi, Privātuma politika, kopienas vadlīnijas vai veikalu nosacījumi (App Store / Google Play).
+1.6. Mēs varam atteikt reģistrāciju vai ierobežot vai izbeigt piekļuvi bez iepriekšēja brīdinājuma, ja lietošana šķietami pārkāpj tiesības, šos Noteikumus vai rada risku citiem lietotājiem vai platformai.
 
 2. Par KRAÏNA
-KRAÏNA ir mobilā lietotne tūrismam, izglītībai un sociālajām tehnoloģijām ar saukli «Vēsture ir tur, kur tu esi» un «Izej. Izpēti. Dzīvo.» Tā apvieno vēsturisko saturu, maršrutus, AR/AI mehānikas, sociālās funkcijas, gamifikāciju un tiešsaistes/bezsaistes lietošanu.
+2.1. KRAÏNA ir mobilā lietotne tūrismam, izglītībai un sociālajām tehnoloģijām ar saukli «Vēsture ir tur, kur tu esi» un «Izej. Izpēti. Dzīvo.»
+2.2. Lietotne var apvienot vēsturisku un kultūras saturu, maršrutus un apskates vietas, AR/AI mehānikas, vietu un pieminekļu skenēšanu, gamifikāciju, sociālās funkcijas, ziņojumus, aktivitāšu plūsmu un tiešsaistes/bezsaistes scenārijus.
+2.3. Funkcijas var atšķirties pēc valsts, valodas, ierīces, versijas, konta veida un produkta posma. Dažas iespējas var būt beta, reģionāli ierobežotas vai īslaicīgi nepieejamas.
+2.4. Mārketinga apraksti negarantē nemainīgu pieejamību. Mēs varam mainīt, paplašināt vai pārtraukt funkcijas tiesību robežās.
 
 3. Lietotāja konts
-Reģistrējoties sniedzat patiesus datus: vārdu, e-pastu un paroli. Jūs atbildat par konta drošību, piekļuvi un visām darbībām no profila. Nedalāt kontu ar trešajām personām un ziņojat par aizdomīgu nesankcionētu piekļuvi.
+3.1. Reģistrējoties sniedzat patiesus, pilnīgus un aktuālus datus: vārdu (vai redzamo vārdu), e-pastu un paroli, kā arī citus pieprasītos datus.
+3.2. Jūs esat pilnībā atbildīgs par pieteikšanās datu konfidencialitāti, ierīces drošību, visām sesijām un visām darbībām no jūsu konta — neatkarīgi no tā, vai tās veicāt personīgi.
+3.3. Aizliegts: izveidot kontu citas personas vārdā bez atļaujas; izmantot svešus datus; uzturēt vairākus kontus, lai apejot bloķējumus, limitus vai noteikumus; nodot, pārdot vai izīrēt kontu.
+3.4. Jums nekavējoties jāziņo par aizdomīgu nesankcionētu piekļuvi, paroles zaudēšanu, ierīces kompromitēšanu vai citu drošības incidentu.
+3.5. Mēs varam pieprasīt e-pasta verifikāciju, papildu identitātes pārbaudi vai paroles atiestatīšanu.
+3.6. Mēs neesam pienākumā atjaunot piekļuvi, ja zaudējat kontroli pār e-pastu, ierīci vai atjaunošanas datiem, izņemot tehniski paredzētos līdzekļus.
 
 4. Galvenās funkcijas
-Pēc reģistrācijas var būt pieejama: pieteikšanās ar e-pastu un sociālajiem pakalpojumiem, profils, vēsturiskais saturs, maršruti, AR skenēšana, aktivitāšu vēsture, kopiena, ziņojumi, plūsma un nākotnē abonementi, virtuālās ekskursijas un B2B rīki.
+4.1. Pēc reģistrācijas var būt pieejama: pieteikšanās ar e-pastu un sociālajiem pakalpojumiem; profils; vēsturiskais un informatīvais saturs; maršruti un ieteikumi; AR skenēšana; aktivitāšu un progresa vēsture; kopiena; ziņojumi; plūsma; paziņojumi.
+4.2. Nākotnē var parādīties abonementi, maksas funkcijas, virtuālās ekskursijas, administratīvie pakalpojumi, partneru integrācijas un B2B rīki — var būt nepieciešama atsevišķa piekrišana, maksājums vai papildu noteikumi.
+4.3. Dažām funkcijām vajadzīgas ierīces atļaujas (kamera, atrašanās vieta, paziņojumi, krātuve u. c.). Atteikums var ierobežot vai atslēgt funkcijas.
+4.4. Mēs negarantējam, ka visas funkcijas vienlaikus būs pieejamas visiem lietotājiem visos reģionos un ierīcēs.
 
 5. Lietošanas noteikumi
-Jūs izmantojat KRAÏNA likumīgi, godprātīgi un bez kaitējuma citiem lietotājiem, partneriem vai platformai. Aizliegts: nepatiesi dati, uzbrukumi pakalpojumam, apiešana, nelikumīga satura izplatīšana, aizvainojošs vai nelikumīgs saturs, krāpšana un surogātpasts.
+5.1. Jūs izmantojat KRAÏNA likumīgi, godprātīgi un ar cieņu pret citiem lietotājiem, partneriem, kultūras mantojumu un platformu.
+5.2. Aizliegts, tostarp:
+a) sniegt nepatiesus, maldinošus vai svešus datus;
+b) uzlauzt, skenēt ievainojamības, DDoS vai traucēt serverus, API, datubāzes vai klienta kodu;
+c) apiet tehniskos limitus, moderāciju, ģeo/vecuma ierobežojumus vai antifrauda sistēmas;
+d) kopēt, scrapot, masveidā eksportēt vai nelikumīgi izplatīt saturu, maršrutus, tekstus, attēlus, AR resursus, kodu vai datubāzes bez rakstiskas atļaujas;
+e) publicēt aizvainojošu, diskriminējošu, pornogrāfisku, vardarbīgu, ekstrēmistisku, krāpniecisku vai citu nelikumīgu saturu;
+f) surogātpasts, fišings, ļaunprātīga programmatūra, nevēlama reklāma vai uzmācīgi ziņojumi;
+g) uzdoties par citu personu, Uzņēmumu, moderatoru vai partneri;
+h) neatļauta komerciāla darbība (ja funkcija to nepārprotami neatļauj);
+i) pārkāpt intelektuālā īpašuma, privātuma vai personiskās tiesības;
+j) radīt fiziskās drošības riskus, lietojot maršrutus, AR vai navigāciju.
+5.3. Apmeklējot vietas, jūs pats atbildat par vietējo likumu, drošības noteikumu, darba laiku, īpašuma tiesību un iestāžu prasību ievērošanu.
+5.4. Pārkāpumi var novest pie brīdinājuma, funkciju ierobežošanas, pagaidu vai pastāvīgas konta apturēšanas, satura dzēšanas un/vai ziņošanas iestādēm.
 
 6. Saturs un intelektuālais īpašums
-Tiesības uz zīmolu, dizainu, loģiku, tekstiem, saskarni, maršrutiem un materiāliem pieder ITty Company vai tiek izmantotas likumīgi. Jūs saglabājat tiesības uz savu saturu, bet piešķirat KRAÏNA ierobežotas tiesības to rādīt, glabāt, moderēt un darbināt pakalpojumu.
+6.1. Tiesības uz zīmolu KRAÏNA, logotipiem, dizainu, saskarni, programmatūru, loģiku, tekstiem, maršrutiem, vēsturiskajiem materiāliem, grafiku, audio, video, AR resursiem, datubāzēm un citiem elementiem pieder ITty Company vai tiek izmantotas likumīgi.
+6.2. Jūs saņemat ierobežotu, neekskluzīvu, atsaucamu, nenododamu licenci personīgai nekomerciālai lietošanai saskaņā ar šiem Noteikumiem. Jebkura cita lietošana prasa iepriekšēju rakstisku piekrišanu.
+6.3. Aizliegts noņemt vai mainīt autortiesību, preču zīmju vai citus īpašuma paziņojumus.
+6.4. Jūs saglabājat tiesības uz savu likumīgi augšupielādēto vai izveidoto saturu.
+6.5. Augšupielādējot saturu, jūs piešķirat Uzņēmumam pasaules mēroga, neekskluzīvu, bezatlīdzības, sublicencējamu licenci to izmantot, reproducēt, glabāt, moderēt, tehniski pielāgot, publiski rādīt un izplatīt pakalpojuma darbībai, reklāmai un uzlabošanai.
+6.6. Jūs garantējat, ka jums ir visas nepieciešamās tiesības un ka saturs nepārkāpj tiesības vai trešo personu tiesības. Jūs apņematies sadarboties pret prasībām un atlīdzināt Uzņēmumam pamatotus zaudējumus no jūsu pārkāpuma.
+6.7. Mēs varam bez iepriekšēja brīdinājuma dzēst, paslēpt vai ierobežot saturu, kas pārkāpj Noteikumus, tiesības vai politiku.
 
 7. Dati un konfidencialitāte
-Mēs varam apstrādāt konta, profila, pieteikšanās, maršrutu, skenējumu, ziņu un ierīces tehniskos datus. Mēs piemērojam saprātīgus drošības pasākumus; jūs aizsargāt paroli un piekļuvi ierīcei.
+7.1. Mēs varam apstrādāt konta un profila datus, pieteikšanās vēsturi, maršrutus un aktivitāti, skenējumu vēsturi, ziņas, paziņojumus, iestatījumus, ierīces tehniskos datus, kā arī atrašanās vietas un kameras datus — cik nepieciešams funkcijām un saskaņā ar Privātuma politiku.
+7.2. Personas dati tiek apstrādāti saskaņā ar piemērojamiem tiesību aktiem un Privātuma politiku.
+7.3. Mēs piemērojam saprātīgus organizatoriskos un tehniskos pasākumus; absolūta drošība nepastāv. Jūs arī aizsargājat paroli, ierīci un atjaunošanas kodus.
+7.4. Dažas funkcijas var iesaistīt trešo pušu pakalpojumus (analītika, kartes, push, sociālā pieteikšanās, mākonis).
+7.5. Jūs varat pieprasīt piekļuvi, labošanu, dzēšanu vai apstrādes ierobežošanu saskaņā ar Privātuma politiku un likumu.
 
 8. Atrašanās vietas, maršruti, AR
-Funkcijas var prasīt kameru, ģeolokāciju, internetu, ierīces iespējas un trešo pušu pakalpojumus. Mēs nevar garantēt nepārtrauktu pieejamību.
+8.1. Funkcijas var prasīt kameru, ģeolokāciju, internetu, sensorus, GPS precizitāti, trešo pušu kartes/pakalpojumus un satura aktualitāti.
+8.2. Informācija par vietām, vēsturi, maršrutiem, ieteikumiem un AR ainām ir izglītojoša un informatīva; tā var būt neprecīza, nepilnīga vai novecojusi.
+8.3. Mēs negarantējam nepārtrauktu visu vietu, AR ainu, maršrutu vai ieteikumu pieejamību, atbilstību realitātei, maršruta drošību vai fizisku pieejamību.
+8.4. Jūs paši novērtējat riskus, pārvietojoties un lietojot AR publiskā telpā. Ievērojiet drošības noteikumus un vietējos ierobežojumus.
+8.5. Uzņēmums neatbild par lēmumiem, kas balstīti tikai uz lietotnes saturu, ja vien imperatīvie tiesību akti nenosaka citādi.
 
 9. Cenas un pirkumi
-Var būt Free / Pro modelis, nākotnes pirkumi lietotnē un partneru saturs. Pirms pirkuma tiks skaidri parādīta cena, ilgums un maksājuma noteikumi.
+9.1. Pamata funkcionalitāte var būt bezmaksas. Dažas iespējas var izmantot Free/Pro, abonementus, vienreizējus pirkumus lietotnē vai partneru piedāvājumus.
+9.2. Pirms maksas pirkuma apstiprināšanas vienmēr tiks rādīta cena, valūta (ja piemērojams), ilgums, automātiskās atjaunošanas, atcelšanas un citi būtiski nosacījumi lietotnē un/vai veikalā.
+9.3. Maksājumus, atmaksas, abonementu pārvaldību un nodokļus regulē veikala (Apple/Google) un/vai maksājumu sniedzēja noteikumi, ja nav norādīts citādi.
+9.4. Mēs varam mainīt cenas un paketes nākamajiem periodiem ar paziņojumu, ko prasa likums un veikalu politikas.
+9.5. Akciju, kodu, izmēģinājuma periodu vai maksājumu limitu ļaunprātīga izmantošana ir aizliegta un var novest pie priekšrocību atcelšanas un konta apturēšanas.
 
 10. Sociālā mijiedarbība
-Ja ir plūsma, ieraksti, draugi, ziņas u.c., jūs cienāt citus. ITty Company var dzēst saturu vai ierobežot kontus ļaunprātīgas izmantošanas gadījumā.
+10.1. Ja ir plūsma, ieraksti, komentāri, draugi, kopīgi maršruti, ziņas u. c., jūs cienāt citus lietotājus un viņu tiesības.
+10.2. Aizliegta iebiedēšana, draudi, naida runa, uzmākšanās, citu personas datu izpaušana bez piekrišanas, privātas sarakstes publicēšana bez atļaujas un toksiska uzvedība.
+10.3. ITty Company var moderēt, ierobežot redzamību, paslēpt vai dzēst saturu un mijiedarbību, kā arī īslaicīgi vai pastāvīgi ierobežot piekļuvi kontam.
+10.4. Mums nav pienākuma iepriekš pārbaudīt visu saturu, bet mēs varam reaģēt uz ziņojumiem un pašu konstatējumiem.
+10.5. Pārkāpumus ziņojiet, izmantojot lietotnes atbalsta vai atsauksmju kanālus.
 
 11. Atbildības ierobežojums
-KRAÏNA tiek nodrošināta «kā ir». ITty Company neatbild par netiešiem zaudējumiem, datu zudumu, pārtraukumiem vai trešo pušu darbībām.
+11.1. Cik tiesības atļauj, KRAÏNA un saistītais saturs tiek nodrošināts «kā ir» un «kā pieejams», bez garantijām par nepārtrauktu darbību, bez kļūdām, piemērotību konkrētam mērķim vai pilnīgu atbilstību gaidām.
+11.2. ITty Company neatbild par netiešiem, nejaušiem, īpašiem vai soda zaudējumiem; peļņas, datu, reputācijas vai iespēju zudumu; pārtraukumiem; savienojuma kļūmēm; trešo pušu darbībām; lietotāju saturu; kļūdām vēsturiskajos vai karšu materiālos; AR/ģeolokācijas sekām fiziskajā pasaulē — cik tiesības atļauj.
+11.3. Nekas šajos Noteikumos neierobežo atbildību, ko nevar izslēgt saskaņā ar imperatīvām normām.
+11.4. Ja atbildība tiek konstatēta, kopējā summa tiek ierobežota — cik atļauts — ar faktiski samaksātajām summām par maksas funkcijām pēdējos 12 mēnešos vai ar likumisko minimumu, ja maksājumu nav bijis.
 
 12. Izmaiņas
-Mēs varam atjaunināt lietotni un šos noteikumus. Turpinot lietotni, jūs piekrītat aktuālajai versijai.
+12.1. Mēs varam atjaunināt funkcijas, mainīt saskarni, pievienot, mainīt vai noņemt iespējas, veikt uzturēšanu un labot kļūdas.
+12.2. Mēs varam atjaunināt šos Noteikumus. Aktuālā versija tiek publicēta lietotnē un/vai citādi saprātīgi.
+12.3. Būtiskām izmaiņām, kas ietekmē jūsu tiesības, mēs cenšamies brīdināt iepriekš, ja to prasa likums vai tas ir saprātīgi iespējams.
+12.4. Turpināta lietošana pēc atjaunināto Noteikumu spēkā stāšanās nozīmē jaunās versijas pieņemšanu, ja vien likums neprasa atsevišķu apstiprinājumu.
+12.5. Ja nepiekrītat izmaiņām, jums jāpārtrauc lietošana un vajadzības gadījumā jādzēš konts.
 
 13. Piekļuves izbeigšana
-Jūs varat pārtraukt lietošanu jebkurā laikā. ITty Company var apturēt vai izbeigt piekļuvi pārkāpumu, drošības vai likuma pārkāpumu gadījumā.
+13.1. Jūs varat jebkurā laikā pārtraukt lietošanu, dzēšot lietotni un/vai kontu (ja pieejams) vai sazinoties ar atbalstu.
+13.2. ITty Company var apturēt, ierobežot vai izbeigt piekļuvi Noteikumu pārkāpuma, drošības prasību, krāpšanas aizdomu, tiesisku pieprasījumu, platformas riska vai ilgstošas neaktivitātes (ja paredzēts) gadījumā.
+13.3. Pēc izbeigšanas dati un saturs var tikt dzēsti vai anonimizēti. Daži dati var tikt saglabāti juridiskiem pienākumiem, strīdiem un ļaunprātīgas izmantošanas novēršanai.
+13.4. Noteikumi, kas pēc būtības jāpatur (IP, atbildības ierobežojumi, piemērojamie tiesību akti u. c.), paliek spēkā.
 
-14. Piekrīšanas apstiprinājums
-Atzīmējot piekrišanas lauku reģistrācijas laikā, jūs apstiprināt brīvprātīgu KRAÏNA Lietošanas noteikumu pieņemšanu, ko nosaka ITty Company.`;
+14. Piemērojamie tiesību akti, strīdi un piekrišana
+14.1. Šos Noteikumus reglamentē tiesību akti, kas piemērojami ITty Company darbībai, ja vien imperatīvie patērētāju aizsardzības noteikumi jūsu dzīvesvietas valstī nenosaka citādi.
+14.2. Strīdus vēlams risināt sarunās un caur atbalstu; neatrisinātus — kompetentā tiesā saskaņā ar likumu.
+14.3. Kādas nostādnes spēkā neesamība neietekmē pārējās.
+14.4. Uzņēmuma tiesību neīstenošana nenozīmē atteikšanos no tās nākotnē.
+14.5. Atzīmējot piekrišanas lauku reģistrācijas laikā (vai citu pieņemšanas elementu), jūs apstiprināt brīvprātīgu un apzinātu KRAÏNA Lietošanas noteikumu pieņemšanu, ko nosaka ITty Company.`;
 
 const TERMS_RO = `1. Dispoziții generale
-Acești Termeni de utilizare reglementează folosirea aplicației mobile KRAÏNA, dezvoltată și întreținută de ITty Company. Prin înregistrare confirmați că ați citit, înțeles și acceptați acești termeni.
+1.1. Acești Termeni de utilizare („Termeni”) reglementează accesul la aplicația mobilă KRAÏNA și la toate serviciile, funcțiile, conținuturile și interfețele aferente, dezvoltate și întreținute de ITty Company („Companie”, „noi”).
+1.2. Prin înregistrare, crearea unui cont, autentificare prin e-mail sau furnizori sociali sau prin orice altă utilizare a KRAÏNA, confirmați că ați citit, înțeles și acceptat pe deplin acești Termeni.
+1.3. Dacă nu sunteți de acord cu vreo dispoziție, trebuie să încetați imediat utilizarea aplicației și să nu creați un cont.
+1.4. Utilizatorul trebuie să fie o persoană fizică care a atins vârsta cerută de legea țării sale pentru a accepta astfel de termeni pe cont propriu. Dacă acționați în numele unei organizații, confirmați că aveți autoritatea de a o angaja.
+1.5. Funcțiile individuale pot fi reglementate de reguli suplimentare, Politica de confidențialitate, ghidurile comunității sau condițiile magazinelor (App Store / Google Play).
+1.6. Putem refuza înregistrarea sau limita ori înceta accesul fără notificare prealabilă dacă utilizarea pare să încalce legea, acești Termeni sau să creeze riscuri pentru alți utilizatori ori platformă.
 
 2. Despre KRAÏNA
-KRAÏNA este o aplicație mobilă în turism, educație și tehnologii sociale cu sloganul „Istoria e acolo unde ești tu” și „Ieși. Explorează. Trăiește.” Combină conținut istoric, rute, mecanici AR/IA, funcții sociale, gamificare și utilizare online/offline.
+2.1. KRAÏNA este o aplicație mobilă de turism, educație și tehnologii sociale cu sloganul „Istoria e acolo unde ești tu” și „Ieși. Explorează. Trăiește.”
+2.2. Aplicația poate combina conținut istoric și cultural, rute și puncte de interes, mecanici AR/IA, scanarea locațiilor și monumentelor, gamificare, funcții sociale, mesaje, feed de activitate și scenarii online/offline.
+2.3. Funcțiile pot varia după țară, limbă, dispozitiv, versiune, tip de cont și etapa produsului. Unele capacități pot fi în beta, limitate regional sau temporar indisponibile.
+2.4. Descrierile de marketing nu garantează disponibilitatea permanentă neschimbată. Putem modifica, extinde sau întrerupe funcții în limitele legii.
 
 3. Contul utilizatorului
-La înregistrare furnizați date corecte: nume, e-mail și parolă. Sunteți responsabil pentru securitatea contului, acces și toate acțiunile din profil. Nu partajați contul cu terți și raportați accesul neautorizat suspectat.
+3.1. La înregistrare furnizați date corecte, complete și actuale: nume (sau nume afișat), e-mail și parolă, precum și alte date solicitate.
+3.2. Sunteți pe deplin responsabil pentru confidențialitatea datelor de autentificare, securitatea dispozitivului, toate sesiunile și toate acțiunile din cont — indiferent dacă le-ați efectuat personal.
+3.3. Este interzis: crearea unui cont pe numele altei persoane fără permisiune; folosirea datelor altcuiva; menținerea mai multor conturi pentru a ocoli blocări, limite sau reguli; transferul, vânzarea sau închirierea contului.
+3.4. Trebuie să ne anunțați imediat orice suspiciune de acces neautorizat, pierdere a parolei, compromitere a dispozitivului sau alt incident de securitate.
+3.5. Putem solicita verificarea e-mailului, verificări suplimentare de identitate sau resetarea parolei.
+3.6. Nu suntem obligați să restabilim accesul dacă pierdeți controlul asupra e-mailului, dispozitivului sau datelor de recuperare, în afara mijloacelor tehnice disponibile.
 
 4. Funcții principale
-După înregistrare pot fi disponibile: autentificare prin e-mail și furnizori sociali, profil, conținut istoric, rute, scanare AR, istoric activitate, comunitate, mesaje, flux și în viitor abonamente, tururi virtuale și instrumente B2B.
+4.1. După înregistrare pot fi disponibile: autentificare prin e-mail și furnizori sociali; profil; conținut istoric și informativ; rute și recomandări; scanare AR; istoric de activitate și progres; comunitate; mesaje; feed; notificări.
+4.2. În viitor pot apărea abonamente, funcții plătite, tururi virtuale, servicii administrative, integrări partenere și instrumente B2B — pot necesita consimțământ separat, plată sau condiții suplimentare.
+4.3. Unele funcții necesită permisiuni ale dispozitivului (cameră, locație, notificări, stocare etc.). Refuzul poate limita sau dezactiva acele funcții.
+4.4. Nu garantăm că toate funcțiile vor fi disponibile simultan pentru toți utilizatorii în toate regiunile și pe toate dispozitivele.
 
 5. Reguli de utilizare
-Folosiți KRAÏNA legal, cu bună-credință și fără a prejudicia alți utilizatori, parteneri sau platforma. Interzis: date false, atacarea serviciului, ocolirea limitelor, distribuirea ilegală a conținutului, materiale ofensatoare sau ilegale, fraudă și spam.
+5.1. Folosiți KRAÏNA legal, cu bună-credință și cu respect față de alți utilizatori, parteneri, patrimoniul cultural și platformă.
+5.2. Este interzis, printre altele:
+a) furnizarea de date false, înșelătoare sau ale altora;
+b) hacking, scanarea vulnerabilităților, DDoS sau interferența cu servere, API, baze de date sau cod client;
+c) ocolirea limitelor tehnice, moderării, restricțiilor geo/vârstă sau sistemelor antifraudă;
+d) copierea, scraping-ul, exportul în masă sau distribuirea ilegală a conținutului, rutelor, textelor, imaginilor, activelor AR, codului sau bazelor de date fără permisiune scrisă;
+e) publicarea de conținut ofensator, discriminatoriu, pornografic, violent, extremist, fraudulos sau ilegal;
+f) spam, phishing, malware, publicitate nedorită sau mesaje hărțuitoare;
+g) impersonarea altei persoane, a Companiei, a unui moderator sau partener;
+h) activitate comercială neautorizată (dacă o funcție nu o permite expres);
+i) încălcarea drepturilor de proprietate intelectuală, confidențialitate sau personalitate;
+j) crearea de riscuri de siguranță fizică la folosirea rutelor, AR sau navigației.
+5.3. Când vizitați locații sunteți singurul responsabil pentru respectarea legilor locale, regulilor de siguranță, programului, drepturilor de proprietate și cerințelor autorităților.
+5.4. Încălcările pot duce la avertisment, limitarea funcțiilor, suspendarea temporară sau permanentă a contului, eliminarea conținutului și/sau sesizarea autorităților.
 
 6. Conținut și proprietate intelectuală
-Drepturile asupra mărcii, designului, logicii, textelor, interfeței, rutelor și materialelor aparțin ITty Company sau sunt folosite legal. Păstrați drepturile asupra conținutului propriu, dar acordați KRAÏNA un drept limitat de afișare, stocare, moderare și operare a serviciului.
+6.1. Drepturile asupra mărcii KRAÏNA, logo-urilor, designului, interfeței, software-ului, logicii, textelor, rutelor, materialelor istorice, graficii, audio, video, activelor AR, bazelor de date și altor elemente aparțin ITty Company sau sunt folosite legal.
+6.2. Primiți o licență limitată, neexclusivă, revocabilă, netransferabilă pentru uz personal necomercial conform acestor Termeni. Orice altă utilizare necesită consimțământ scris prealabil.
+6.3. Este interzis să eliminați sau să modificați mențiunile de copyright, mărci sau alte notificări de proprietate.
+6.4. Păstrați drepturile asupra conținutului propriu încărcat sau creat legal.
+6.5. Prin încărcarea conținutului acordați Companiei o licență mondială, neexclusivă, fără redevențe, sublicențiabilă de a-l folosi, reproduce, stoca, modera, adapta tehnic, afișa public și distribui pentru operarea, promovarea și îmbunătățirea serviciului.
+6.6. Garanțați că dețineți toate drepturile necesare și că pe conținut nu încalcă legea sau drepturile terților. Vă angajați să colaborați la reclamații și să despăgubiți Compania pentru pierderi rezonabile cauzate de încălcarea dvs.
+6.7. Putem elimina, ascunde sau restricționa orice conținut care încalcă Termenii, legea sau politicile platformei, fără notificare prealabilă.
 
 7. Date și confidențialitate
-Putem prelucra date de cont, profil, autentificări, rute, scanări, mesaje, notificări și date tehnice ale dispozitivului. Aplicăm măsuri rezonabile de securitate; dumneavoastră protejați parola și accesul la dispozitiv.
+7.1. Putem prelucra date de cont și profil, istoric de autentificări, rute și activitate, istoric de scanări, mesaje, notificări, setări, date tehnice ale dispozitivului, precum și date de locație și cameră — în măsura necesară funcțiilor și conform Politicii de confidențialitate.
+7.2. Datele personale sunt prelucrate conform legii aplicabile și Politicii de confidențialitate.
+7.3. Aplicăm măsuri organizaționale și tehnice rezonabile; nicio securitate nu este absolută. Trebuie să protejați și parola, dispozitivul și codurile de recuperare.
+7.4. Unele funcții pot implica terți (analiză, hărți, push, login social, cloud).
+7.5. Puteți solicita acces, corectare, ștergere sau restricționarea prelucrării conform Politicii de confidențialitate și legii.
 
 8. Locații, rute, AR
-Unele funcții depind de cameră, geolocație, internet, capabilități ale dispozitivului și servicii terțe. Nu garantăm disponibilitate continuă sau fără erori.
+8.1. Unele funcții depind de cameră, geolocație, internet, senzori, precizia GPS, hărți și servicii terțe și de actualitatea conținutului.
+8.2. Informațiile despre locuri, istorie, rute, recomandări și scene AR sunt oferite în scop educativ și informativ și pot fi inexacte, incomplete sau depășite.
+8.3. Nu garantăm disponibilitatea continuă a tuturor locațiilor, scenelor AR, rutelor sau recomandărilor, corespondența cu realitatea, siguranța rutei sau accesibilitatea fizică.
+8.4. Evaluați singuri riscurile la deplasare și folosirea AR în spații publice. Respectați regulile de siguranță și restricțiile locale.
+8.5. Compania nu răspunde pentru decizii bazate exclusiv pe conținutul aplicației, cu excepția cazului în care legea imperativă prevede altfel.
 
 9. Prețuri și achiziții
-Poate exista model Free/Pro, achiziții în aplicație și conținut partener. Înainte de achiziție vor fi afișate clar prețul, durata și condițiile de plată.
+9.1. Funcționalitatea de bază poate fi gratuită. Unele capabilități pot folosi Free/Pro, abonamente, achiziții in-app unice sau oferte partenere.
+9.2. Înainte de confirmarea unei achiziții plătite veți vedea întotdeauna prețul, valuta (dacă e cazul), durata, reînnoirea automată, anulare și alte condiții esențiale în aplicație și/sau magazin.
+9.3. Plata, rambursările, gestionarea abonamentelor și taxele sunt reglementate de regulile magazinului (Apple/Google) și/sau ale furnizorului de plăți, dacă nu se indică altfel.
+9.4. Putem modifica prețurile și pachetele pentru perioade viitoare cu notificarea cerută de lege și politicile magazinelor.
+9.5. Abuzul de promoții, coduri, perioade de încercare sau limite de plată este interzis și poate duce la anularea avantajelor și suspendarea contului.
 
 10. Interacțiune socială
-Dacă există flux, postări, prieteni, mesaje etc., respectați ceilalți utilizatori. ITty Company poate elimina conținut sau restricționa conturi în caz de abuz.
+10.1. Dacă există feed, postări, comentarii, prieteni, rute partajate, mesaje etc., respectați ceilalți utilizatori și drepturile lor.
+10.2. Sunt interzise bullying-ul, amenințările, discursul de ură, hărțuirea, divulgarea datelor personale ale altora fără consimțământ, publicarea corespondenței private fără permisiune și orice comportament toxic sau nesigur.
+10.3. ITty Company poate modera, limita vizibilitatea, ascunde sau elimina conținut și interacțiuni și poate restricționa temporar sau permanent accesul la cont.
+10.4. Nu suntem obligați să verificăm în prealabil tot conținutul, dar putem reacționa la sesizări și constatări proprii.
+10.5. Raportați încălcările prin canalele de suport sau feedback din aplicație.
 
 11. Limitarea răspunderii
-KRAÏNA este oferită „ca atare”. ITty Company nu răspunde pentru daune indirecte, pierdere de date, întreruperi sau acțiuni ale terților.
+11.1. În măsura permisă de lege, KRAÏNA și conținutul aferent sunt oferite „ca atare” și „după disponibilitate”, fără garanții de funcționare neîntreruptă, lipsă de erori, adecvare pentru un scop anume sau conformitate deplină cu așteptările.
+11.2. ITty Company nu răspunde pentru daune indirecte, incidentale, speciale sau punitive; pierdere de profit, date, reputație sau oportunități; întreruperi; defecțiuni de conexiune; acte ale terților; conținut generat de utilizatori; erori în materiale istorice sau cartografice; consecințe ale AR/geolocației în lumea fizică — în măsura permisă de lege.
+11.3. Nimic din acești Termeni nu limitează răspunderea care nu poate fi exclusă conform normelor imperative.
+11.4. Dacă se stabilește răspunderea, valoarea agregată este limitată — în măsura permisă — la sumele efectiv plătite pentru funcții plătite în ultimele 12 luni sau la minimul legal dacă nu au existat plăți.
 
 12. Modificări
-Putem actualiza aplicația și acești termeni. Continuarea utilizării înseamnă acceptarea versiunii curente.
+12.1. Putem actualiza funcțiile, schimba interfața, adăuga, modifica sau elimina capabilități, efectua mentenanță și remedia erori.
+12.2. Putem actualiza acești Termeni. Versiunea actuală este publicată în aplicație și/sau prin alte mijloace rezonabile.
+12.3. Pentru modificări materiale care vă afectează drepturile, vom încerca să vă anunțăm în avans când legea o cere sau este rezonabil posibil.
+12.4. Continuarea utilizării după intrarea în vigoare înseamnă acceptarea noii versiuni, dacă legea nu cere confirmare separată.
+12.5. Dacă nu sunteți de acord, trebuie să încetați utilizarea și, dacă e cazul, să ștergeți contul.
 
 13. Încetarea accesului
-Puteți înceta utilizarea oricând. ITty Company poate suspenda sau închide contul în caz de încălcare, securitate sau lege.
+13.1. Puteți înceta utilizarea oricând ștergând aplicația și/sau contul (dacă e disponibil) sau contactând suportul.
+13.2. ITty Company poate suspenda, limita sau înceta accesul în caz de încălcare a Termenilor, cerințe de securitate, suspiciune de fraudă, solicitări legale, risc pentru platformă sau inactivitate prelungită (dacă e prevăzut).
+13.3. După încetare, datele și conținutul pot fi șterse sau anonimizate. Unele date pot fi păstrate pentru obligații legale, litigii și prevenirea abuzurilor.
+13.4. Dispozițiile care prin natura lor trebuie să supraviețuiască (PI, limite de răspundere, lege aplicabilă etc.) rămân în vigoare.
 
-14. Confirmarea consimțământului
-Bifând caseta la înregistrare confirmați acceptarea voluntară a Termenilor de utilizare KRAÏNA stabilite de ITty Company.`;
+14. Legea aplicabilă, litigii și consimțământ
+14.1. Acești Termeni sunt guvernați de legea aplicabilă activității ITty Company, cu excepția normelor imperative de protecție a consumatorului din țara dvs. de reședință.
+14.2. Litigiile trebuie rezolvate preferabil prin negociere și suport; nerezolvate — în fața instanței competente conform legii.
+14.3. Invaliditatea unei dispoziții nu afectează restul.
+14.4. Neexercitarea unui drept de către Companie nu înseamnă renunțare pe viitor.
+14.5. Bifând caseta de consimțământ la înregistrare (sau alt element de acceptare), confirmați că acceptați voluntar și în cunoștință de cauză Termenii de utilizare KRAÏNA stabiliți de ITty Company.`;
+
+const TERMS_IT = `1. Disposizioni generali
+1.1. I presenti Termini di utilizzo (“Termini”) regolano l’accesso all’applicazione mobile KRAÏNA e a tutti i servizi, funzioni, contenuti e interfacce correlati sviluppati e gestiti da ITty Company (“Società”, “noi”).
+1.2. Registrandoti, creando un account, accedendo via email o provider social, o comunque usando KRAÏNA, confermi di aver letto questi Termini, di comprenderli e di accettare di rispettarli integralmente.
+1.3. Se non sei d’accordo con qualsiasi disposizione, devi interrompere immediatamente l’uso dell’app e non creare un account.
+1.4. Gli utenti devono essere persone fisiche dell’età richiesta dalla legge del proprio Paese per accettare tali termini autonomamente. Se agisci per conto di un’organizzazione, confermi di essere autorizzato a vincolarla.
+1.5. Funzioni specifiche possono essere soggette a regole aggiuntive, all’Informativa sulla privacy, alle linee guida della community o ai termini degli store (App Store / Google Play). In caso di conflitto, i termini speciali prevalgono per la funzione interessata e questi Termini per il resto del servizio.
+1.6. Possiamo rifiutare la registrazione o limitare o terminare l’accesso senza preavviso se l’uso sembra violare la legge, questi Termini o creare rischi per altri utenti o per la piattaforma.
+
+2. Informazioni su KRAÏNA
+2.1. KRAÏNA è un’app mobile di turismo, educazione e tecnologia sociale con lo slogan “History is where you are now” e la linea “Get out. Explore. Live.”
+2.2. L’app può combinare contenuti storici e culturali, percorsi e punti di interesse, meccaniche AR/AI, scansione di luoghi e monumenti, gamification, funzioni social, messaggistica, feed di attività e scenari online e offline.
+2.3. Le funzioni possono variare per Paese, lingua, dispositivo, versione dell’app, tipo di account e fase del prodotto. Alcune capacità possono essere in beta, limitate a regioni o temporaneamente non disponibili.
+2.4. Le descrizioni di marketing non garantiscono che le funzioni restino invariate. Possiamo modificare, ampliare o interrompere funzioni nel rispetto della legge applicabile.
+
+3. Account utente
+3.1. Per la registrazione devi fornire informazioni accurate, complete e aggiornate, incluso nome (o nome visualizzato), indirizzo email e password, e qualsiasi altro dato richiesto dal modulo.
+3.2. Sei pienamente responsabile della riservatezza delle credenziali, della sicurezza del dispositivo, di tutte le sessioni di accesso e di tutte le azioni compiute tramite il tuo account, anche se non le hai eseguite personalmente.
+3.3. Non devi: creare un account a nome di un’altra persona senza permesso; usare dati altrui; mantenere più account per eludere ban, limiti o regole; trasferire, vendere o affittare il tuo account.
+3.4. Devi notificarci tempestivamente qualsiasi sospetto accesso non autorizzato, perdita della password, compromissione del dispositivo o altro incidente di sicurezza.
+3.5. Possiamo richiedere verifica email, controlli di identità aggiuntivi o reset della password per proteggere gli account e la piattaforma.
+3.6. Non siamo obbligati a ripristinare l’accesso se perdi il controllo di email, dispositivo o dati di recupero, salvo quanto supportato dai mezzi tecnici disponibili.
+
+4. Funzioni principali del servizio
+4.1. Dopo la registrazione, gli utenti possono avere accesso a: accesso email e social; profilo utente; contenuti storici e di riferimento su luoghi; percorsi e raccomandazioni; scansione AR; cronologia attività e progressi; interazione community; messaggi; feed attività; notifiche.
+4.2. Offerte future possono includere abbonamenti, funzioni a pagamento, tour virtuali, servizi amministrativi, integrazioni partner e strumenti B2B, che possono richiedere consenso separato, pagamento o termini aggiuntivi.
+4.3. Alcune funzioni richiedono autorizzazioni del dispositivo (fotocamera, posizione, notifiche, archiviazione, ecc.). Il diniego delle autorizzazioni può limitare o disabilitare tali funzioni.
+4.4. Non garantiamo che tutte le funzioni siano disponibili per tutti gli utenti in tutte le regioni su tutti i dispositivi contemporaneamente.
+
+5. Regole di utilizzo
+5.1. Accetti di usare KRAÏNA in modo lecito, in buona fede e nel rispetto di altri utenti, partner, siti del patrimonio culturale e della piattaforma.
+5.2. Condotte vietate includono, a titolo esemplificativo:
+a) fornire dati falsi, fuorvianti o di terzi;
+b) hacking, scansione di vulnerabilità, attacchi DDoS o interferenze con server, API, database o codice client;
+c) eludere limiti tecnici, moderazione, restrizioni geo o di età, o sistemi antifrode;
+d) copiare, fare scraping, esportare in massa o distribuire illegalmente contenuti, percorsi, testi, immagini, asset AR, codice o database senza permesso scritto;
+e) pubblicare contenuti offensivi, discriminatori, pornografici, violenti, estremisti, fraudolenti o altrimenti illegali;
+f) spam, phishing, malware, annunci non richiesti o messaggi molesti;
+g) impersonare un’altra persona, la Società, un moderatore o un partner;
+h) usare il servizio per attività commerciali non autorizzate (salvo dove una funzione lo consenta espressamente);
+i) violare proprietà intellettuale, privacy o diritti della personalità altrui;
+j) creare rischi per la sicurezza fisica usando percorsi, AR o navigazione (es. ignorare regole del traffico, restrizioni di accesso o istruzioni di sicurezza).
+5.3. Quando visiti luoghi, sei l’unico responsabile del rispetto delle leggi locali, delle regole di sicurezza, degli orari di apertura, dei diritti di proprietà e dei requisiti delle autorità.
+5.4. Le violazioni possono comportare un avviso, limiti alle funzioni, sospensione temporanea o permanente dell’account, rimozione di contenuti e/o segnalazioni alle autorità competenti.
+
+6. Contenuti, proprietà intellettuale e licenza
+6.1. Tutti i diritti sul marchio KRAÏNA, loghi, design, interfaccia, software, logica del servizio, testi, percorsi, materiali storici, grafica, audio, video, asset AR, database e altri elementi della piattaforma appartengono a ITty Company o sono usati su base legale.
+6.2. Ricevi una licenza limitata, non esclusiva, revocabile e non trasferibile per uso personale non commerciale dell’app secondo questi Termini. Qualsiasi altro uso richiede previo consenso scritto.
+6.3. Non devi rimuovere o alterare avvisi di copyright, marchio o altri diritti proprietari.
+6.4. Conservi i diritti sui contenuti che carichi o crei legittimamente (testi, foto, commenti, percorsi, ecc.).
+6.5. Caricando contenuti concedi alla Società una licenza mondiale, non esclusiva, gratuita e sublicenziabile per usare, riprodurre, archiviare, moderare, adattare tecnicamente, mostrare pubblicamente e distribuire tali contenuti per gestire, promuovere e migliorare il servizio.
+6.6. Garantisci di detenere tutti i diritti necessari sui contenuti caricati e che non violano la legge o diritti di terzi. Accetti di aiutare a risolvere reclami di terzi e di indennizzare la Società per perdite ragionevoli causate dalla tua violazione.
+6.7. Possiamo rimuovere, nascondere o limitare qualsiasi contenuto che violi questi Termini, la legge o le politiche della piattaforma, senza preavviso.
+
+7. Dati utente e privacy
+7.1. Per gestire l’app possiamo trattare dati di account e profilo, cronologia di accesso, percorsi e attività, cronologia scansioni, messaggi, notifiche, impostazioni, dati tecnici del dispositivo (modello, SO, identificatori app, log di errore) e dati di posizione e fotocamera come necessario per le funzioni pertinenti e in linea con l’Informativa sulla privacy.
+7.2. I dati personali sono trattati secondo la legge applicabile e la nostra Informativa sulla privacy, che fa parte del rapporto con gli utenti.
+7.3. Applichiamo misure organizzative e tecniche ragionevoli, ma nessun sistema è perfettamente sicuro. Devi anche proteggere password, dispositivo, codici di recupero e accessi.
+7.4. Alcune funzioni possono coinvolgere servizi di terzi (analytics, mappe, push, login social, cloud), che possono avere termini propri.
+7.5. Puoi richiedere accesso, rettifica, cancellazione o limitazione del trattamento come previsto dall’Informativa sulla privacy e dalla legge.
+
+8. Luoghi, percorsi, AR e contenuti
+8.1. Alcune funzioni dipendono da fotocamera, geolocalizzazione, internet, sensori del dispositivo, precisione GPS, mappe e servizi di terzi e aggiornamento dei contenuti.
+8.2. Informazioni su luoghi, storia, percorsi, raccomandazioni e scene AR sono fornite a fini educativi e informativi e possono essere inaccurate, incomplete o obsolete.
+8.3. Non garantiamo la disponibilità continua di tutti i luoghi, scene AR, percorsi o raccomandazioni, la corrispondenza allo stato reale del sito, la sicurezza del percorso o l’accessibilità fisica.
+8.4. Valuti da solo i rischi quando viaggi, usi l’AR in spazi pubblici e interagisci con l’ambiente fisico. Segui le regole di sicurezza, resta consapevole dell’ambiente e rispetta le restrizioni locali.
+8.5. La Società non è responsabile delle decisioni basate unicamente sui contenuti dell’app (scelta del percorso, visita di un luogo, ecc.), salvo quanto previsto dalla legge imperativa.
+
+9. Prezzi, abbonamenti e acquisti futuri
+9.1. Le funzionalità principali possono essere gratuite. Alcune capacità possono usare modelli Free / Pro, abbonamenti, acquisti in-app una tantum o offerte partner.
+9.2. Prima di confermare un acquisto a pagamento vedrai sempre prezzo, valuta (se applicabile), durata, rinnovo automatico, regole di cancellazione e altri termini rilevanti nell’app e/o nello store.
+9.3. Pagamenti, rimborsi, gestione abbonamenti e tasse sono regolati dallo store pertinente (Apple / Google) e/o dal provider di pagamento, salvo diversa indicazione.
+9.4. Possiamo modificare prezzi e pacchetti a pagamento per periodi futuri con preavviso come richiesto dalla legge e dalle policy degli store. Le modifiche di solito non riguardano un periodo attivo già pagato, salvo obbligo di legge.
+9.5. L’abuso di promozioni, codici promo, prove o limiti di pagamento è vietato e può comportare la cancellazione dei vantaggi e la sospensione dell’account.
+
+10. Interazione sociale
+10.1. Se il servizio include feed, post, commenti, amici, percorsi condivisi, messaggi o altre funzioni social, devi rispettare gli altri utenti e i loro diritti.
+10.2. Sono vietati bullismo, minacce, discorso d’odio, molestie, divulgazione di dati personali altrui senza consenso, pubblicazione di corrispondenza privata senza permesso e qualsiasi comportamento che crei un ambiente non sicuro o tossico.
+10.3. ITty Company può moderare, limitare la visibilità, nascondere o rimuovere contenuti e interazioni che violano le regole, e può limitare temporaneamente o permanentemente l’accesso all’account.
+10.4. Non siamo obbligati a pre-controllare tutti i contenuti degli utenti, ma possiamo agire su segnalazioni e sulle nostre verifiche.
+10.5. Segnala le violazioni tramite i canali di supporto o feedback in-app.
+
+11. Limitazione di responsabilità
+11.1. Nella misura massima consentita dalla legge, KRAÏNA e i contenuti correlati sono forniti “così come sono” e “come disponibili”, senza garanzie di funzionamento ininterrotto, assenza di errori, idoneità a uno scopo particolare o pieno allineamento alle aspettative.
+11.2. ITty Company non è responsabile di danni indiretti, incidentali, speciali o punitivi; perdita di profitti, dati, reputazione o opportunità; interruzioni del servizio; guasti di connessione; atti di terzi; contenuti generati dagli utenti; errori in materiali storici o cartografici; o conseguenze dell’uso di AR/geolocalizzazione nel mondo fisico — nella misura consentita dalla legge.
+11.3. Nulla in questi Termini limita responsabilità che non possono essere escluse dalla legge imperativa (incluso dolo, colpa grave o danno a vita/salute ove richiesto).
+11.4. Se viene accertata una responsabilità, la responsabilità complessiva della Società è limitata, nella misura consentita dalla legge, agli importi effettivamente pagati per funzioni a pagamento negli ultimi 12 mesi, o all’importo minimo richiesto dalla legge se non hai effettuato pagamenti.
+
+12. Modifiche al servizio e ai termini
+12.1. Possiamo aggiornare le funzionalità, modificare l’interfaccia, aggiungere, cambiare o rimuovere funzioni, eseguire manutenzione e correggere bug.
+12.2. Possiamo aggiornare questi Termini. La versione corrente è pubblicata nell’app e/o con altri mezzi ragionevoli. Una data di aggiornamento può essere mostrata separatamente.
+12.3. Per modifiche sostanziali che incidono sui tuoi diritti cercheremo di dare preavviso (in-app, notifica o email) ove richiesto dalla legge o ragionevolmente praticabile.
+12.4. L’uso continuato dopo l’entrata in vigore dei Termini aggiornati significa accettazione della nuova versione, salvo che la legge richieda una conferma separata.
+12.5. Se non sei d’accordo con le modifiche, devi interrompere l’uso del servizio e, se necessario, eliminare l’account come previsto.
+
+13. Cessazione dell’accesso
+13.1. Puoi smettere di usare il servizio in qualsiasi momento eliminando l’app e/o l’account (se disponibile) o contattando il supporto.
+13.2. ITty Company può sospendere, limitare o terminare l’accesso a un account o a funzioni in caso di: violazione di questi Termini; esigenze di sicurezza; sospetta frode; richieste legali o di autorità; rischio per la piattaforma; inattività prolungata (se previsto dalle policy del servizio).
+13.3. Dopo la cessazione, dati e contenuti possono essere eliminati o anonimizzati secondo processi tecnici e obblighi di legge. Alcuni dati possono essere conservati per doveri legali, risoluzione di controversie e prevenzione di abusi.
+13.4. Le disposizioni che per natura devono sopravvivere (IP, limiti di responsabilità, legge applicabile, ecc.) restano in vigore dopo la cessazione.
+
+14. Legge applicabile, controversie e conferma del consenso
+14.1. Questi Termini sono regolati dalla legge applicabile alle attività di ITty Company, salvo diverse norme imperative di tutela del consumatore del Paese di residenza.
+14.2. Le controversie dovrebbero preferibilmente essere risolte tramite negoziazione e supporto. Se irrisolte, possono essere portate davanti a un tribunale competente come previsto dalla legge.
+14.3. Se una disposizione è ritenuta invalida o inapplicabile, le restanti restano in vigore.
+14.4. Il mancato esercizio di un diritto da parte della Società non costituisce rinuncia per il futuro.
+14.5. Selezionando la casella di consenso in fase di registrazione (o altro controllo di accettazione), confermi di accettare volontariamente e consapevolmente i presenti Termini di utilizzo KRAÏNA e le regole del servizio stabilite da ITty Company.`;
+
+const TERMS_FR = `1. Dispositions générales
+1.1. Les présentes Conditions d’utilisation (« Conditions ») régissent l’accès à l’application mobile KRAÏNA et à tous les services, fonctionnalités, contenus et interfaces associés développés et maintenus par ITty Company (« Société », « nous »).
+1.2. En vous inscrivant, en créant un compte, en vous connectant par e-mail ou via des fournisseurs sociaux, ou en utilisant autrement KRAÏNA, vous confirmez avoir lu ces Conditions, les comprendre et accepter pleinement de les respecter.
+1.3. Si vous n’acceptez pas une disposition, vous devez cesser immédiatement d’utiliser l’application et ne pas créer de compte.
+1.4. Les utilisateurs doivent être des personnes physiques ayant l’âge requis par la loi de leur pays pour accepter de telles conditions de façon autonome. Si vous agissez pour une organisation, vous confirmez être habilité à l’engager.
+1.5. Certaines fonctionnalités peuvent être soumises à des règles supplémentaires, à la Politique de confidentialité, aux règles de la communauté ou aux conditions des stores (App Store / Google Play). En cas de conflit, les conditions spéciales s’appliquent à la fonctionnalité concernée et les présentes Conditions au reste du service.
+1.6. Nous pouvons refuser l’inscription ou limiter ou résilier l’accès sans préavis si l’usage semble violer la loi, ces Conditions, ou créer un risque pour d’autres utilisateurs ou la plateforme.
+
+2. À propos de KRAÏNA
+2.1. KRAÏNA est une application mobile de tourisme, d’éducation et de technologie sociale avec le slogan « History is where you are now » et la ligne « Get out. Explore. Live. »
+2.2. L’application peut combiner contenus historiques et culturels, itinéraires et points d’intérêt, mécaniques AR/IA, scan de lieux et monuments, gamification, fonctions sociales, messagerie, fil d’activité et scénarios en ligne et hors ligne.
+2.3. Les fonctionnalités peuvent varier selon le pays, la langue, l’appareil, la version de l’app, le type de compte et l’étape produit. Certaines capacités peuvent être en bêta, limitées à des régions ou temporairement indisponibles.
+2.4. Les descriptions marketing ne garantissent pas que les fonctionnalités resteront inchangées. Nous pouvons modifier, étendre ou interrompre des fonctionnalités dans le respect de la loi applicable.
+
+3. Compte utilisateur
+3.1. Pour l’inscription, vous devez fournir des informations exactes, complètes et à jour, notamment le nom (ou nom d’affichage), l’adresse e-mail et le mot de passe, ainsi que toute autre donnée requise par le formulaire.
+3.2. Vous êtes entièrement responsable de la confidentialité de vos identifiants, de la sécurité de l’appareil, de toutes les sessions de connexion et de toutes les actions effectuées via votre compte, que vous les ayez réalisées personnellement ou non.
+3.3. Vous ne devez pas : créer un compte au nom d’une autre personne sans autorisation ; utiliser les données d’autrui ; maintenir plusieurs comptes pour contourner bans, limites ou règles ; transférer, vendre ou louer votre compte.
+3.4. Vous devez nous informer rapidement de tout accès non autorisé suspecté, perte de mot de passe, compromission d’appareil ou autre incident de sécurité.
+3.5. Nous pouvons exiger une vérification e-mail, des contrôles d’identité supplémentaires ou une réinitialisation du mot de passe pour protéger les comptes et la plateforme.
+3.6. Nous ne sommes pas tenus de restaurer l’accès si vous perdez le contrôle de votre e-mail, appareil ou données de récupération, sauf dans la mesure des moyens techniques disponibles.
+
+4. Fonctionnalités principales
+4.1. Après inscription, les utilisateurs peuvent avoir accès à : connexion e-mail et sociale ; profil utilisateur ; contenus historiques et de référence sur les lieux ; itinéraires et recommandations ; scan AR ; historique d’activité et de progression ; interaction communautaire ; messages ; fil d’activité ; notifications.
+4.2. Les offres futures peuvent inclure abonnements, fonctionnalités payantes, visites virtuelles, services administratifs, intégrations partenaires et outils B2B, pouvant nécessiter un consentement séparé, un paiement ou des conditions supplémentaires.
+4.3. Certaines fonctionnalités nécessitent des permissions de l’appareil (caméra, localisation, notifications, stockage, etc.). Le refus des permissions peut limiter ou désactiver ces fonctionnalités.
+4.4. Nous ne garantissons pas que toutes les fonctionnalités seront disponibles pour tous les utilisateurs dans toutes les régions sur tous les appareils en même temps.
+
+5. Règles d’utilisation
+5.1. Vous acceptez d’utiliser KRAÏNA de façon licite, de bonne foi et dans le respect des autres utilisateurs, partenaires, sites du patrimoine culturel et de la plateforme.
+5.2. Les comportements interdits incluent, sans limitation :
+a) fournir des données fausses, trompeuses ou appartenant à autrui ;
+b) piratage, scan de vulnérabilités, attaques DDoS ou interférence avec serveurs, API, bases de données ou code client ;
+c) contourner les limites techniques, la modération, les restrictions géo ou d’âge, ou les systèmes anti-fraude ;
+d) copier, scraper, exporter en masse ou distribuer illégalement contenus, itinéraires, textes, images, assets AR, code ou bases de données sans autorisation écrite ;
+e) publier des contenus offensants, discriminatoires, pornographiques, violents, extrémistes, frauduleux ou autrement illégaux ;
+f) spam, phishing, logiciels malveillants, publicités non sollicitées ou messages harcelants ;
+g) usurper l’identité d’une autre personne, de la Société, d’un modérateur ou d’un partenaire ;
+h) utiliser le service pour une activité commerciale non autorisée (sauf si une fonctionnalité l’autorise expressément) ;
+i) porter atteinte à la propriété intellectuelle, à la vie privée ou aux droits de la personnalité d’autrui ;
+j) créer des risques pour la sécurité physique en utilisant itinéraires, AR ou navigation (ex. ignorer les règles de circulation, restrictions d’accès ou consignes de sécurité).
+5.3. Lors de visites de lieux, vous êtes seul responsable du respect des lois locales, règles de sécurité, horaires d’ouverture, droits de propriété et exigences des autorités.
+5.4. Les manquements peuvent entraîner un avertissement, des limites de fonctionnalités, une suspension temporaire ou permanente du compte, la suppression de contenus et/ou des signalements aux autorités compétentes.
+
+6. Contenu, propriété intellectuelle et licence
+6.1. Tous les droits sur la marque KRAÏNA, logos, design, interface, logiciel, logique du service, textes, itinéraires, matériaux historiques, graphismes, audio, vidéo, assets AR, bases de données et autres éléments de la plateforme appartiennent à ITty Company ou sont utilisés sur une base légale.
+6.2. Vous recevez une licence limitée, non exclusive, révocable et non transférable pour un usage personnel non commercial de l’app selon ces Conditions. Tout autre usage nécessite un consentement écrit préalable.
+6.3. Vous ne devez pas supprimer ni altérer les mentions de droit d’auteur, de marque ou autres avis de propriété.
+6.4. Vous conservez les droits sur vos propres contenus légalement téléversés ou créés (textes, photos, commentaires, itinéraires, etc.).
+6.5. En téléversant du contenu, vous accordez à la Société une licence mondiale, non exclusive, gratuite et sous-licenciable pour utiliser, reproduire, stocker, modérer, adapter techniquement, afficher publiquement et distribuer ce contenu afin d’exploiter, promouvoir et améliorer le service.
+6.6. Vous garantissez détenir tous les droits nécessaires sur le contenu téléversé et qu’il ne viole ni la loi ni les droits de tiers. Vous acceptez d’aider à résoudre les réclamations de tiers et d’indemniser la Société pour les pertes raisonnables causées par votre manquement.
+6.7. Nous pouvons supprimer, masquer ou restreindre tout contenu qui viole ces Conditions, la loi ou les politiques de la plateforme, sans préavis.
+
+7. Données utilisateur et confidentialité
+7.1. Pour faire fonctionner l’app, nous pouvons traiter des données de compte et de profil, l’historique de connexion, itinéraires et activité, historique de scans, messages, notifications, paramètres, données techniques de l’appareil (modèle, OS, identifiants d’app, journaux d’erreurs) et données de localisation et de caméra selon les besoins des fonctionnalités concernées et conformément à la Politique de confidentialité.
+7.2. Les données personnelles sont traitées selon le droit applicable et notre Politique de confidentialité, qui fait partie de la relation avec les utilisateurs.
+7.3. Nous appliquons des mesures organisationnelles et techniques raisonnables, mais aucun système n’est parfaitement sécurisé. Vous devez aussi protéger votre mot de passe, appareil, codes de récupération et accès.
+7.4. Certaines fonctionnalités peuvent impliquer des services tiers (analytique, cartes, notifications push, connexion sociale, stockage cloud), qui peuvent avoir leurs propres conditions.
+7.5. Vous pouvez demander l’accès, la correction, la suppression ou la limitation du traitement comme prévu dans la Politique de confidentialité et par la loi.
+
+8. Lieux, itinéraires, AR et contenu
+8.1. Certaines fonctionnalités dépendent de la caméra, de la géolocalisation, d’Internet, des capteurs de l’appareil, de la précision GPS, des cartes et services tiers, et de l’actualité du contenu.
+8.2. Les informations sur les lieux, l’histoire, les itinéraires, les recommandations et les scènes AR sont fournies à des fins éducatives et informatives et peuvent être inexactes, incomplètes ou obsolètes.
+8.3. Nous ne garantissons pas la disponibilité continue de tous les lieux, scènes AR, itinéraires ou recommandations, leur correspondance à l’état réel du site, la sécurité de l’itinéraire ou l’accessibilité physique.
+8.4. Vous évaluez seul les risques lorsque vous voyagez, utilisez l’AR dans l’espace public et interagissez avec l’environnement physique. Respectez les règles de sécurité, restez attentif à votre environnement et respectez les restrictions locales.
+8.5. La Société n’est pas responsable des décisions fondées uniquement sur le contenu de l’app (choix d’itinéraire, visite d’un lieu, etc.), sauf disposition contraire du droit impératif.
+
+9. Tarifs, abonnements et achats futurs
+9.1. Les fonctionnalités de base peuvent être gratuites. Certaines capacités peuvent utiliser des modèles Free / Pro, des abonnements, des achats in-app ponctuels ou des offres partenaires.
+9.2. Avant de confirmer un achat payant, vous verrez toujours le prix, la devise (le cas échéant), la durée, le renouvellement automatique, les règles d’annulation et d’autres conditions importantes dans l’app et/ou l’interface du store.
+9.3. Paiement, remboursements, gestion des abonnements et taxes sont régis par le store concerné (Apple / Google) et/ou le prestataire de paiement, sauf indication contraire.
+9.4. Nous pouvons modifier les prix et forfaits payants pour les périodes futures avec préavis comme l’exigent la loi et les politiques des stores. Les changements n’affectent généralement pas une période active déjà payée, sauf obligation légale.
+9.5. L’abus de promotions, codes promo, essais ou limites de paiement est interdit et peut entraîner l’annulation des avantages et la suspension du compte.
+
+10. Interaction sociale
+10.1. Si le service inclut un fil, des publications, commentaires, amis, itinéraires partagés, messages ou d’autres fonctions sociales, vous devez respecter les autres utilisateurs et leurs droits.
+10.2. Le harcèlement, les menaces, le discours haineux, le harcèlement, la divulgation de données personnelles d’autrui sans consentement, la publication de correspondance privée sans autorisation et tout comportement créant un environnement non sûr ou toxique sont interdits.
+10.3. ITty Company peut modérer, limiter la visibilité, masquer ou supprimer des contenus et interactions qui enfreignent les règles, et restreindre temporairement ou définitivement l’accès au compte.
+10.4. Nous ne sommes pas tenus de pré-contrôler tout le contenu utilisateur, mais pouvons agir sur signalements et constatations propres.
+10.5. Signalez les violations via le support ou les canaux de feedback in-app.
+
+11. Limitation de responsabilité
+11.1. Dans toute la mesure permise par la loi, KRAÏNA et les contenus associés sont fournis « en l’état » et « selon disponibilité », sans garanties de fonctionnement ininterrompu, d’absence d’erreurs, d’adéquation à un usage particulier ou d’alignement total avec les attentes.
+11.2. ITty Company n’est pas responsable des dommages indirects, accessoires, spéciaux ou punitifs ; perte de profits, données, réputation ou opportunités ; interruptions de service ; pannes de connexion ; actes de tiers ; contenus générés par les utilisateurs ; erreurs dans des matériaux historiques ou cartographiques ; ou conséquences de l’usage de l’AR/géolocalisation dans le monde physique — dans la mesure permise par la loi.
+11.3. Rien dans ces Conditions ne limite une responsabilité qui ne peut être exclue par le droit impératif (y compris dol, faute lourde ou atteinte à la vie/santé lorsque la loi l’exige).
+11.4. Si une responsabilité est établie, la responsabilité globale de la Société est limitée, dans la mesure permise par la loi, aux montants effectivement payés pour des fonctionnalités payantes au cours des 12 derniers mois, ou au montant minimum exigé par la loi si vous n’avez effectué aucun paiement.
+
+12. Modifications du service et des conditions
+12.1. Nous pouvons mettre à jour les fonctionnalités, modifier l’interface, ajouter, modifier ou supprimer des fonctions, effectuer de la maintenance et corriger des bugs.
+12.2. Nous pouvons mettre à jour ces Conditions. La version actuelle est publiée dans l’app et/ou par d’autres moyens raisonnables. Une date de mise à jour peut être indiquée séparément.
+12.3. Pour les changements matériels affectant vos droits, nous tenterons de donner un préavis (in-app, notification ou e-mail) lorsque la loi l’exige ou que cela est raisonnablement possible.
+12.4. L’usage continu après l’entrée en vigueur des Conditions mises à jour signifie acceptation de la nouvelle version, sauf si la loi exige une confirmation séparée.
+12.5. Si vous n’acceptez pas les changements, vous devez cesser d’utiliser le service et, si nécessaire, supprimer votre compte comme prévu.
+
+13. Résiliation de l’accès
+13.1. Vous pouvez cesser d’utiliser le service à tout moment en supprimant l’app et/ou le compte (si disponible) ou en contactant le support.
+13.2. ITty Company peut suspendre, limiter ou résilier l’accès à un compte ou à des fonctionnalités en cas de : violation de ces Conditions ; exigences de sécurité ; fraude suspectée ; demandes légales ou d’autorités ; risque pour la plateforme ; inactivité prolongée (si prévu par les politiques du service).
+13.3. Après résiliation, données et contenus peuvent être supprimés ou anonymisés selon les processus techniques et obligations légales. Certaines données peuvent être conservées pour des devoirs légaux, le règlement des litiges et la prévention des abus.
+13.4. Les dispositions qui, par nature, doivent survivre (PI, limites de responsabilité, droit applicable, etc.) restent en vigueur après résiliation.
+
+14. Droit applicable, litiges et confirmation du consentement
+14.1. Ces Conditions sont régies par le droit applicable aux activités d’ITty Company, sauf dispositions impératives de protection des consommateurs du pays de résidence.
+14.2. Les litiges devraient de préférence être résolus par négociation et support. S’ils restent non résolus, ils peuvent être portés devant un tribunal compétent comme prévu par la loi.
+14.3. Si une disposition est jugée invalide ou inapplicable, les autres restent en vigueur.
+14.4. Le non-exercice d’un droit par la Société ne constitue pas une renonciation pour l’avenir.
+14.5. En cochant la case de consentement lors de l’inscription (ou un autre contrôle d’acceptation), vous confirmez accepter volontairement et en connaissance de cause les présentes Conditions d’utilisation KRAÏNA et les règles du service établies par ITty Company.`;
+
+const TERMS_HY = `1. Ընդհանուր դրույթներ
+1.1. Սույն Օգտագործման պայմանները («Պայմաններ») կարգավորում են KRAÏNA բջջային հավելվածի և ITty Company-ի («Ընկերություն», «մենք») կողմից մշակված ու պահպանվող բոլոր առնչվող ծառայությունների, գործառույթների, բովանդակության և միջերեսների մուտքը։
+1.2. Գրանցվելով, հաշիվ ստեղծելով, էլ. փոստով կամ սոցիալական մատակարարներով մուտք գործելով կամ այլ կերպ օգտագործելով KRAÏNA-ն՝ դուք հաստատում եք, որ կարդացել եք այս Պայմանները, հասկանում եք դրանք և լիովին համաձայն եք դրանք պահպանել։
+1.3. Եթե համաձայն չեք որևէ դրույթի հետ, պետք է անմիջապես դադարեցնեք հավելվածի օգտագործումը և չստեղծեք հաշիվ։
+1.4. Օգտատերերը պետք է լինեն ֆիզիկական անձինք այն տարիքով, որը պահանջում է իրենց երկրի օրենքը՝ նման պայմաններ ինքնուրույն ընդունելու համար։ Եթե գործում եք կազմակերպության անունից, հաստատում եք, որ լիազորված եք պարտավորեցնել այդ կազմակերպությունը։
+1.5. Որոշ գործառույթներ կարող են ենթարկվել լրացուցիչ կանոնների, Գաղտնիության քաղաքականության, համայնքի ուղեցույցների կամ խանութների պայմանների (App Store / Google Play)։ Հակասության դեպքում հատուկ պայմանները կիրառվում են համապատասխան գործառույթի նկատմամբ, իսկ այս Պայմանները՝ ծառայության մնացած մասի համար։
+1.6. Մենք կարող ենք մերժել գրանցումը կամ սահմանափակել/դադարեցնել մուտքը առանց նախնական ծանուցման, եթե օգտագործումը թվում է օրենքը, այս Պայմանները խախտող կամ ռիսկ ստեղծող այլ օգտատերերի կամ հարթակի համար։
+
+2. KRAÏNA-ի մասին
+2.1. KRAÏNA-ն զբոսաշրջության, կրթության և սոցիալական տեխնոլոգիայի բջջային հավելված է՝ «History is where you are now» և «Get out. Explore. Live.» կարգախոսներով։
+2.2. Հավելվածը կարող է համատեղել պատմական և մշակութային բովանդակություն, երթուղիներ և հետաքրքրության կետեր, AR/AI մեխանիկա, վայրերի և հուշարձանների սկանավորում, խաղայնացում, սոցիալական գործառույթներ, հաղորդագրություններ, գործունեության հոսք և առցանց/անցանց սցենարներ։
+2.3. Գործառույթները կարող են տարբերվել ըստ երկրի, լեզվի, սարքի, հավելվածի տարբերակի, հաշվի տեսակի և արտադրանքի փուլի։ Որոշ հնարավորություններ կարող են լինել բետա, տարածաշրջանային սահմանափակումներով կամ ժամանակավորապես անհասանելի։
+2.4. Մարքեթինգային նկարագրությունները չեն երաշխավորում, որ գործառույթները կմնան անփոփոխ։ Մենք կարող ենք փոխել, ընդլայնել կամ դադարեցնել գործառույթները կիրառելի օրենքի շրջանակում։
+
+3. Օգտատիրոջ հաշիվ
+3.1. Գրանցման համար պետք է տրամադրեք ճշգրիտ, ամբողջական և արդիական տեղեկություններ՝ ներառյալ անունը (կամ ցուցադրման անունը), էլ. փոստի հասցեն և գաղտնաբառը, ինչպես նաև ձևի պահանջած այլ տվյալներ։
+3.2. Դուք լիովին պատասխանատու եք ձեր տվյալների գաղտնիության, սարքի անվտանգության, բոլոր մուտքի նստաշրջանների և ձեր հաշվով կատարված բոլոր գործողությունների համար՝ անկախ նրանից՝ անձամբ եք դրանք կատարել, թե ոչ։
+3.3. Չեք կարող՝ առանց թույլտվության այլ անձի անունով հաշիվ ստեղծել, օգտագործել ուրիշի տվյալներ, պահել մի քանի հաշիվ արգելափակումներից/սահմանափակումներից խուսափելու համար, փոխանցել, վաճառել կամ վարձակալել ձեր հաշիվը։
+3.4. Պետք է անհապաղ տեղեկացնեք մեզ չարտոնված մուտքի կասկածի, գաղտնաբառի կորստի, սարքի վտանգման կամ այլ անվտանգության միջադեպի մասին։
+3.5. Մենք կարող ենք պահանջել էլ. փոստի հաստատում, լրացուցիչ ինքնության ստուգումներ կամ գաղտնաբառի վերակայում՝ հաշիվներն ու հարթակը պաշտպանելու համար։
+3.6. Մենք պարտավոր չենք վերականգնել մուտքը, եթե կորցնում եք էլ. փոստի, սարքի կամ վերականգնման տվյալների վերահսկողությունը՝ բացառությամբ առկա տեխնիկական միջոցների սահմաններում։
+
+4. Ծառայության հիմնական գործառույթներ
+4.1. Գրանցումից հետո օգտատերերը կարող են մուտք ունենալ՝ էլ. փոստով և սոցիալական մուտք, օգտատիրոջ պրոֆիլ, վայրերի մասին պատմական և տեղեկատու բովանդակություն, երթուղիներ և առաջարկություններ, AR սկանավորում, գործունեության և առաջընթացի պատմություն, համայնքային փոխազդեցություն, հաղորդագրություններ, գործունեության հոսք, ծանուցումներ։
+4.2. Ապագա առաջարկները կարող են ներառել բաժանորդագրություններ, վճարովի գործառույթներ, վիրտուալ շրջայցեր, վարչական ծառայություններ, գործընկերային ինտեգրումներ և B2B գործիքներ, որոնք կարող են պահանջել առանձին համաձայնություն, վճարում կամ լրացուցիչ պայմաններ։
+4.3. Որոշ գործառույթներ պահանջում են սարքի թույլտվություններ (տեսախցիկ, տեղադրություն, ծանուցումներ, պահեստ և այլն)։ Թույլտվությունների մերժումը կարող է սահմանափակել կամ անջատել այդ գործառույթները։
+4.4. Մենք չենք երաշխավորում, որ բոլոր գործառույթները միաժամանակ հասանելի կլինեն բոլոր օգտատերերին բոլոր տարածաշրջաններում և բոլոր սարքերում։
+
+5. Օգտագործման կանոններ
+5.1. Դուք համաձայն եք օգտագործել KRAÏNA-ն օրինական, բարեխղճորեն և հարգանքով այլ օգտատերերի, գործընկերների, մշակութային ժառանգության վայրերի և հարթակի նկատմամբ։
+5.2. Արգելված վարքագիծը ներառում է, առանց սահմանափակման՝
+ա) կեղծ, մոլորեցնող կամ այլ անձի տվյալներ տրամադրելը,
+բ) հաքերություն, խոցելիությունների սկանավորում, DDoS հարձակումներ կամ սերվերների, API-ների, տվյալների բազաների կամ կլիենտային կոդի խանգարում,
+գ) տեխնիկական սահմանափակումների, մոդերացիայի, աշխարհագրական կամ տարիքային սահմանափակումների կամ հակախարդախ համակարգերի շրջանցում,
+դ) բովանդակության, երթուղիների, տեքստերի, պատկերների, AR ակտիվների, կոդի կամ տվյալների բազաների պատճենում, scrap-ում, զանգվածային արտահանում կամ անօրինական տարածում՝ առանց գրավոր թույլտվության,
+ե) վիրավորական, խտրական, պոռնոգրաֆիկ, բռնի, ծայրահեղական, խարդախ կամ այլ անօրինական բովանդակության հրապարակում,
+զ) սպամ, ֆիշինգ, վնասակար ծրագրեր, չպահանջված գովազդ կամ անհանգստացնող հաղորդագրություններ,
+է) այլ անձի, Ընկերության, մոդերատորի կամ գործընկերոջ անձնավորում,
+ը) ծառայության օգտագործում չարտոնված առևտրային գործունեության համար (բացառությամբ այն դեպքերի, երբ գործառույթը դա ուղղակիորեն թույլ է տալիս),
+թ) այլոց մտավոր սեփականության, գաղտնիության կամ անձնական իրավունքների խախտում,
+ժ) ֆիզիկական անվտանգության ռիսկերի ստեղծում երթուղիների, AR-ի կամ նավիգացիայի օգտագործման ժամանակ (օր.՝ անտեսել երթևեկության կանոնները, մուտքի սահմանափակումները կամ անվտանգության ցուցումները)։
+5.3. Վայրեր այցելելիս միայն դուք եք պատասխանատու տեղական օրենքների, անվտանգության կանոնների, բացման ժամերի, սեփականության իրավունքների և իշխանությունների պահանջների պահպանման համար։
+5.4. Խախտումները կարող են հանգեցնել նախազգուշացման, գործառույթների սահմանափակման, հաշվի ժամանակավոր կամ մշտական կասեցման, բովանդակության հեռացման և/կամ իրավասու մարմիններին հաղորդման։
+
+6. Բովանդակություն, մտավոր սեփականություն և լիցենզիա
+6.1. KRAÏNA բրենդի, լոգոների, դիզայնի, միջերեսի, ծրագրային ապահովման, ծառայության տրամաբանության, տեքստերի, երթուղիների, պատմական նյութերի, գրաֆիկայի, աուդիոի, վիդեոյի, AR ակտիվների, տվյալների բազաների և հարթակի այլ տարրերի բոլոր իրավունքները պատկանում են ITty Company-ին կամ օգտագործվում են օրինական հիմքով։
+6.2. Դուք ստանում եք սահմանափակ, ոչ բացառիկ, չեղարկելի, չփոխանցելի լիցենզիա՝ հավելվածի անձնական ոչ առևտրային օգտագործման համար՝ սույն Պայմանների համաձայն։ Ցանկացած այլ օգտագործում պահանջում է նախնական գրավոր համաձայնություն։
+6.3. Չեք կարող հեռացնել կամ փոխել հեղինակային իրավունքի, ապրանքանիշի կամ այլ սեփականության ծանուցումները։
+6.4. Դուք պահպանում եք իրավունքները ձեր օրինականորեն վերբեռնած կամ ստեղծած բովանդակության նկատմամբ (տեքստեր, լուսանկարներ, մեկնաբանություններ, երթուղիներ և այլն)։
+6.5. Բովանդակություն վերբեռնելով՝ Ընկերությանը տրամադրում եք համաշխարհային, ոչ բացառիկ, անհատույց, ենթալիցենզավորվող լիցենզիա՝ այդ բովանդակությունը օգտագործելու, վերարտադրելու, պահելու, մոդերացնելու, տեխնիկապես հարմարեցնելու, հրապարակայնորեն ցուցադրելու և տարածելու համար՝ ծառայությունը գործարկելու, գովազդելու և բարելավելու նպատակով։
+6.6. Դուք երաշխավորում եք, որ ունեք վերբեռնած բովանդակության բոլոր անհրաժեշտ իրավունքները և որ այն չի խախտում օրենքը կամ երրորդ կողմերի իրավունքները։ Համաձայն եք օգնել լուծել երրորդ կողմերի պահանջները և փոխհատուցել Ընկերությանը ձեր խախտումից առաջացած ողջամիտ վնասները։
+6.7. Մենք կարող ենք հեռացնել, թաքցնել կամ սահմանափակել ցանկացած բովանդակություն, որը խախտում է այս Պայմանները, օրենքը կամ հարթակի քաղաքականությունը՝ առանց նախնական ծանուցման։
+
+7. Օգտատիրոջ տվյալներ և գաղտնիություն
+7.1. Հավելվածը գործարկելու համար մենք կարող ենք մշակել հաշվի և պրոֆիլի տվյալներ, մուտքի պատմություն, երթուղիներ և գործունեություն, սկանավորման պատմություն, հաղորդագրություններ, ծանուցումներ, կարգավորումներ, սարքի տեխնիկական տվյալներ (մոդել, ՕՀ, հավելվածի նույնացուցիչներ, սխալների մատյաններ) և տեղադրության ու տեսախցիկի տվյալներ՝ համապատասխան գործառույթների համար և Գաղտնիության քաղաքականության համաձայն։
+7.2. Անձնական տվյալները մշակվում են կիրառելի օրենքի և մեր Գաղտնիության քաղաքականության համաձայն, որը օգտատերերի հետ հարաբերությունների մաս է կազմում։
+7.3. Մենք կիրառում ենք ողջամիտ կազմակերպչական և տեխնիկական պաշտպանություններ, սակայն ոչ մի համակարգ կատարյալ ապահով չէ։ Դուք նույնպես պետք է պաշտպանեք գաղտնաբառը, սարքը, վերականգնման կոդերը և մուտքը։
+7.4. Որոշ գործառույթներ կարող են ներառել երրորդ կողմերի ծառայություններ (վերլուծություն, քարտեզներ, push ծանուցումներ, սոցիալական մուտք, ամպային պահեստ), որոնք կարող են ունենալ իրենց պայմանները։
+7.5. Կարող եք պահանջել մուտք, ուղղում, ջնջում կամ մշակման սահմանափակում՝ Գաղտնիության քաղաքականությամբ և օրենքով նախատեսված կարգով։
+
+8. Վայրեր, երթուղիներ, AR և բովանդակություն
+8.1. Որոշ գործառույթներ կախված են տեսախցիկից, աշխարհագրական տեղորոշումից, ինտերնետից, սարքի սենսորներից, GPS ճշգրտությունից, երրորդ կողմերի քարտեզներից և ծառայություններից, ինչպես նաև բովանդակության թարմությունից։
+8.2. Վայրերի, պատմության, երթուղիների, առաջարկությունների և AR տեսարանների մասին տեղեկատվությունը տրամադրվում է կրթական և տեղեկատվական նպատակներով և կարող է լինել ոչ ճշգրիտ, թերի կամ հնացած։
+8.3. Մենք չենք երաշխավորում բոլոր վայրերի, AR տեսարանների, երթուղիների կամ առաջարկությունների շարունակական հասանելիությունը, դրանց համապատասխանությունը վայրի իրական վիճակին, երթուղու անվտանգությունը կամ ֆիզիկական մատչելիությունը։
+8.4. Միայն դուք եք գնահատում ռիսկերը ճամփորդելիս, հանրային տարածքներում AR օգտագործելիս և ֆիզիկական միջավայրի հետ շփվելիս։ Հետևեք անվտանգության կանոններին, ուշադիր եղեք շրջապատի նկատմամբ և հարգեք տեղական սահմանափակումները։
+8.5. Ընկերությունը պատասխանատու չէ միայն հավելվածի բովանդակության վրա հիմնված որոշումների համար (երթուղու ընտրություն, վայր այցելություն և այլն), բացառությամբ այն դեպքերի, երբ պարտադիր օրենքն այլ բան է նախատեսում։
+
+9. Գներ, բաժանորդագրություններ և ապագա գնումներ
+9.1. Հիմնական գործառույթները կարող են լինել անվճար։ Որոշ հնարավորություններ կարող են օգտագործել Free / Pro մոդելներ, բաժանորդագրություններ, միանգամյա ներծրագրային գնումներ կամ գործընկերային առաջարկներ։
+9.2. Վճարովի գնում հաստատելուց առաջ միշտ կտեսնեք գինը, արժույթը (եթե կիրառելի է), տևողությունը, ավտոմատ երկարաձգումը, չեղարկման կանոնները և այլ էական պայմաններ հավելվածում և/կամ խանութի միջերեսում։
+9.3. Վճարումը, վերադարձները, բաժանորդագրության կառավարումը և հարկերը կարգավորվում են համապատասխան խանութի (Apple / Google) և/կամ վճարային մատակարարի կողմից՝ եթե այլ բան նշված չէ։
+9.4. Մենք կարող ենք փոխել գներն ու վճարովի փաթեթները ապագա ժամանակահատվածների համար՝ օրենքով և խանութների քաղաքականությամբ պահանջված ծանուցմամբ։ Փոփոխությունները սովորաբար չեն ազդում արդեն վճարված ակտիվ ժամանակահատվածի վրա՝ բացառությամբ օրենքի պահանջի։
+9.5. Ակցիաների, պրոմո կոդերի, փորձաշրջանների կամ վճարային սահմանափակումների չարաշահումն արգելված է և կարող է հանգեցնել արտոնությունների չեղարկման և հաշվի կասեցման։
+
+10. Սոցիալական փոխազդեցություն
+10.1. Եթե ծառայությունը ներառում է հոսք, գրառումներ, մեկնաբանություններ, ընկերներ, համատեղ երթուղիներ, հաղորդագրություններ կամ այլ սոցիալական գործառույթներ, պետք է հարգեք այլ օգտատերերին և նրանց իրավունքները։
+10.2. Արգելվում են բուլինգը, սպառնալիքները, ատելության խոսքը, հետապնդումը, այլոց անձնական տվյալների առանց համաձայնության բացահայտումը, մասնավոր նամակագրության առանց թույլտվության հրապարակումը և ցանկացած վարքագիծ, որը ստեղծում է անապահով կամ թունավոր միջավայր։
+10.3. ITty Company-ն կարող է մոդերացնել, սահմանափակել տեսանելիությունը, թաքցնել կամ հեռացնել կանոնները խախտող բովանդակությունն ու փոխազդեցությունները և ժամանակավորապես կամ մշտապես սահմանափակել հաշվի մուտքը։
+10.4. Մենք պարտավոր չենք նախապես ստուգել բոլոր օգտատիրական բովանդակությունը, բայց կարող ենք գործել հաղորդումների և մեր սեփական հայտնաբերումների հիման վրա։
+10.5. Խախտումները հաղորդեք ներծրագրային աջակցության կամ հետադարձ կապի ալիքներով։
+
+11. Պատասխանատվության սահմանափակում
+11.1. Օրենքով թույլատրված առավելագույն չափով KRAÏNA-ն և առնչվող բովանդակությունը տրամադրվում են «ինչպես կա» և «ինչպես հասանելի է»՝ առանց անխափան աշխատանքի, սխալների բացակայության, որոշակի նպատակի համար պիտանելիության կամ ակնկալիքներին լիովին համապատասխանության երաշխիքների։
+11.2. ITty Company-ն պատասխանատու չէ անուղղակի, պատահական, հատուկ կամ պատժիչ վնասների, շահույթի, տվյալների, համբավի կամ հնարավորությունների կորստի, ծառայության ընդհատումների, կապի խափանումների, երրորդ կողմերի գործողությունների, օգտատերերի ստեղծած բովանդակության, պատմական կամ քարտեզագրական նյութերի սխալների կամ ֆիզիկական աշխարհում AR/աշխարհագրական տեղորոշման օգտագործման հետևանքների համար՝ օրենքով թույլատրված չափով։
+11.3. Այս Պայմանների ոչ մի դրույթ չի սահմանափակում այն պատասխանատվությունը, որը չի կարող բացառվել պարտադիր օրենքով (ներառյալ դիտավորությունը, կոպիտ անփութությունը կամ կյանքին/առողջությանը վնասը, երբ օրենքը պահանջում է)։
+11.4. Եթե պատասխանատվություն է հաստատվում, Ընկերության ընդհանուր պատասխանատվությունը սահմանափակվում է՝ օրենքով թույլատրված չափով, վերջին 12 ամսում վճարովի գործառույթների համար փաստացի վճարած գումարներով կամ օրենքով պահանջվող նվազագույն գումարով, եթե վճարումներ չեք կատարել։
+
+12. Ծառայության և պայմանների փոփոխություններ
+12.1. Մենք կարող ենք թարմացնել գործառույթները, փոխել միջերեսը, ավելացնել, փոփոխել կամ հեռացնել հնարավորություններ, կատարել սպասարկում և շտկել սխալներ։
+12.2. Մենք կարող ենք թարմացնել այս Պայմանները։ Ընթացիկ տարբերակը հրապարակվում է հավելվածում և/կամ այլ ողջամիտ միջոցներով։ Թարմացման ամսաթիվը կարող է ցուցադրվել առանձին։
+12.3. Ձեր իրավունքներին ազդող էական փոփոխությունների համար կփորձենք նախապես ծանուցել (հավելվածում, ծանուցումով կամ էլ. փոստով), երբ օրենքը պահանջում է կամ դա ողջամտորեն հնարավոր է։
+12.4. Թարմացված Պայմանների ուժի մեջ մտնելուց հետո շարունակական օգտագործումը նշանակում է նոր տարբերակի ընդունում՝ բացառությամբ այն դեպքերի, երբ օրենքը պահանջում է առանձին հաստատում։
+12.5. Եթե համաձայն չեք փոփոխությունների հետ, պետք է դադարեցնեք ծառայության օգտագործումը և անհրաժեշտության դեպքում ջնջեք ձեր հաշիվը՝ նախատեսված կարգով։
+
+13. Մուտքի դադարեցում
+13.1. Կարող եք ցանկացած պահի դադարեցնել ծառայության օգտագործումը՝ ջնջելով հավելվածը և/կամ հաշիվը (եթե հասանելի է) կամ դիմելով աջակցությանը։
+13.2. ITty Company-ն կարող է կասեցնել, սահմանափակել կամ դադարեցնել հաշվի կամ գործառույթների մուտքը՝ այս Պայմանների խախտման, անվտանգության պահանջների, խարդախության կասկածի, իրավական կամ իշխանությունների պահանջների, հարթակի ռիսկի, երկարատև անգործության դեպքում (եթե նախատեսված է ծառայության քաղաքականությամբ)։
+13.3. Դադարեցումից հետո տվյալներն ու բովանդակությունը կարող են ջնջվել կամ անանունացվել տեխնիկական գործընթացների և իրավական պահանջների շրջանակում։ Որոշ տվյալներ կարող են պահվել իրավական պարտականությունների, վեճերի լուծման և չարաշահումների կանխարգելման համար։
+13.4. Այն դրույթները, որոնք ըստ էության պետք է շարունակեն գործել (մտավոր սեփականություն, պատասխանատվության սահմանափակումներ, կիրառելի օրենք և այլն), մնում են ուժի մեջ դադարեցումից հետո։
+
+14. Կիրառելի օրենք, վեճեր և համաձայնության հաստատում
+14.1. Այս Պայմանները կարգավորվում են ITty Company-ի գործունեության նկատմամբ կիրառելի օրենքով՝ բացառությամբ ձեր բնակության երկրի սպառողների պաշտպանության պարտադիր կանոնների։
+14.2. Վեճերը նախընտրելի է լուծել բանակցությունների և աջակցության միջոցով։ Եթե չլուծվեն, կարող են ներկայացվել իրավասու դատարան՝ օրենքով նախատեսված կարգով։
+14.3. Եթե որևէ դրույթ անվավեր կամ անկիրառելի է ճանաչվում, մնացած դրույթները մնում են ուժի մեջ։
+14.4. Ընկերության կողմից իրավունքի չիրականացումը չի նշանակում այդ իրավունքից ապագայում հրաժարում։
+14.5. Գրանցման ժամանակ համաձայնության վանդակը նշելով (կամ այլ ընդունման տարրով)՝ դուք հաստատում եք, որ կամավոր և գիտակցաբար ընդունում եք KRAÏNA-ի այս Օգտագործման պայմանները և ITty Company-ի սահմանած ծառայության կանոնները։`;
 
 const TERMS_BODIES = {
   uk: TERMS_UK,
@@ -391,6 +1297,9 @@ const TERMS_BODIES = {
   lt: TERMS_LT,
   lv: TERMS_LV,
   ro: TERMS_RO,
+  it: TERMS_IT,
+  fr: TERMS_FR,
+  hy: TERMS_HY,
 };
 
 export function getTermsContentForLanguage(langId) {

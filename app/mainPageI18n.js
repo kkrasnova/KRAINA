@@ -810,17 +810,43 @@ const S = {
     hy: 'Բոլոր երթուղիները և որոնում',
   },
   homeChooseCountry: {
-    uk: 'Оберіть місто чи регіон',
-    en: 'Choose a city or region',
-    pl: 'Wybierz miasto lub region',
-    nl: 'Kies een stad of regio',
-    es: 'Elige una ciudad o región',
-    lt: 'Pasirink miestą ar regioną',
-    lv: 'Izvēlies pilsētu vai reģionu',
-    de: 'Stadt oder Region wählen',
-    ro: 'Alege un oraș sau o regiune',
-    it: 'Scegli una città o regione',
-    hy: 'Ընտրեք քաղաք կամ շրջան',
+    uk: 'Обери країну',
+    en: 'Choose a country',
+    pl: 'Wybierz kraj',
+    nl: 'Kies een land',
+    es: 'Elige un país',
+    lt: 'Pasirink šalį',
+    lv: 'Izvēlies valsti',
+    de: 'Land wählen',
+    ro: 'Alege o țară',
+    it: 'Scegli un paese',
+    hy: 'Ընտրեք երկիր',
+  },
+  homeCountrySelected: {
+    uk: 'Обрано',
+    en: 'Selected',
+    pl: 'Wybrane',
+    nl: 'Geselecteerd',
+    es: 'Seleccionado',
+    lt: 'Pasirinkta',
+    lv: 'Izvēlēts',
+    de: 'Ausgewählt',
+    ro: 'Selectat',
+    it: 'Selezionato',
+    hy: 'Ընտրված',
+  },
+  homeAllCities: {
+    uk: 'Усі',
+    en: 'All',
+    pl: 'Wszystkie',
+    nl: 'Alle',
+    es: 'Todas',
+    lt: 'Visi',
+    lv: 'Visas',
+    de: 'Alle',
+    ro: 'Toate',
+    it: 'Tutte',
+    hy: 'Բոլորը',
   },
   homeAllCountries: {
     uk: 'Всі країни',
@@ -1094,9 +1120,31 @@ export function mtHomeLocationsCount(lang, n) {
 
 export function mtHomePlaceLine(lang, cityName, distKm) {
   const b = mainLangBase(lang);
-  const d = typeof distKm === 'number' && Number.isFinite(distKm) ? distKm : 0.5;
-  const ds = b === 'uk' ? d.toFixed(1).replace('.', ',') : d.toFixed(1);
+  const d = typeof distKm === 'number' && Number.isFinite(distKm) ? distKm : null;
+  const ds =
+    d == null
+      ? '—'
+      : d < 10
+        ? b === 'uk'
+          ? d.toFixed(1).replace('.', ',')
+          : d.toFixed(1)
+        : String(Math.round(d));
   const name = cityName || '';
   if (b === 'uk') return `${name} — ${ds} км`;
   return `${name} — ${ds} km`;
+}
+
+/** Лише відстань: «0,7 км» / «0.7 km». */
+export function mtHomeDistKm(lang, distKm) {
+  const b = mainLangBase(lang);
+  if (typeof distKm !== 'number' || !Number.isFinite(distKm)) {
+    return b === 'uk' ? '— км' : '— km';
+  }
+  const d = Math.max(0, distKm);
+  const ds =
+    d < 10
+      ? (b === 'uk' ? d.toFixed(1).replace('.', ',') : d.toFixed(1))
+      : String(Math.round(d));
+  if (b === 'uk') return `${ds} км`;
+  return `${ds} km`;
 }

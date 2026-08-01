@@ -93,6 +93,17 @@ export const adminActionRateLimiter = rateLimit({
         res.status(429).json({ error: 'rate_limited' });
     },
 });
+/** Polling AI enrich job status (CMS polls ~every 1.5s). */
+export const adminAiJobPollRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 180,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    validate: rateLimitValidate,
+    handler: (_req, res) => {
+        res.status(429).json({ error: 'rate_limited' });
+    },
+});
 export const billingVerifyRateLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     limit: 60,
@@ -136,6 +147,16 @@ export const visionLandmarkRateLimiter = rateLimit({
 export const landmarkTtsRateLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 12,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    validate: rateLimitValidate,
+    handler: (_req, res) => {
+        res.status(429).json({ error: 'rate_limited' });
+    },
+});
+export const walkNarrateRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 24,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     validate: rateLimitValidate,

@@ -16,6 +16,8 @@ const L = {
     lv: 'Aizvērt',
     ro: 'Închide',
     it: 'Chiudi',
+    hy: 'Փակել',
+    fr: 'Fermer',
   },
   createAccount: {
     uk: 'Зареєструватися',
@@ -28,6 +30,8 @@ const L = {
     lv: 'Izveidot kontu',
     ro: 'Creează cont',
     it: 'Crea account',
+    hy: 'Ստեղծել հաշիվ',
+    fr: 'Créer un compte',
   },
   loading: {
     uk: 'Завантаження',
@@ -40,6 +44,8 @@ const L = {
     lv: 'Ielādē',
     ro: 'Se încarcă',
     it: 'Caricamento',
+    hy: 'Բեռնվում է',
+    fr: 'Chargement',
   },
   back: {
     uk: 'Назад',
@@ -52,6 +58,8 @@ const L = {
     lv: 'Atpakaļ',
     ro: 'Înapoi',
     it: 'Indietro',
+    hy: 'Հետ',
+    fr: 'Retour',
   },
   swipeBackHint: {
     uk: 'Свайп вправо — назад',
@@ -64,6 +72,8 @@ const L = {
     lv: 'Velciet pa labi — atpakaļ',
     ro: 'Glisează la dreapta pentru înapoi',
     it: 'Scorri a destra per tornare indietro',
+    hy: 'Սահեցրեք աջ՝ հետ գնալու համար',
+    fr: 'Balayez vers la droite pour revenir',
   },
   checkDetails: {
     uk: 'Перевірте дані',
@@ -76,6 +86,8 @@ const L = {
     lv: 'Pārbaudiet datus',
     ro: 'Verifică datele',
     it: 'Controlla i dati',
+    hy: 'Ստուգեք տվյալները',
+    fr: 'Vérifiez vos informations',
   },
   loginError: {
     uk: 'Помилка входу',
@@ -88,6 +100,8 @@ const L = {
     lv: 'Pieteikšanās kļūda',
     ro: 'Eroare la autentificare',
     it: 'Errore di accesso',
+    hy: 'Մուտքի սխալ',
+    fr: 'Erreur de connexion',
   },
   signInFailedTitle: {
     uk: 'Не вдалося увійти',
@@ -100,6 +114,8 @@ const L = {
     lv: 'Pieteikšanās neizdevās',
     ro: 'Autentificare eșuată',
     it: 'Accesso non riuscito',
+    hy: 'Մուտքը չհաջողվեց',
+    fr: 'Échec de la connexion',
   },
   signInFailedBody: {
     uk: 'Сталася несподівана помилка. Спробуйте ще раз або перевірте інтернет.',
@@ -112,6 +128,8 @@ const L = {
     lv: 'Radās neparedzēta kļūda. Mēģiniet vēlreiz vai pārbaudiet savienojumu.',
     ro: 'A apărut o eroare neașteptată. Încearcă din nou sau verifică conexiunea.',
     it: 'Si è verificato un errore imprevisto. Riprova o controlla la connessione.',
+    hy: 'Չհաջողվեց մուտք գործել։ Ստուգեք տվյալները և կրկին փորձեք։',
+    fr: 'Impossible de se connecter. Vérifiez vos informations et réessayez.',
   },
   registerFailedTitle: {
     uk: 'Не вдалося зареєструвати',
@@ -124,6 +142,8 @@ const L = {
     lv: 'Reģistrācija neizdevās',
     ro: 'Înregistrare eșuată',
     it: 'Registrazione non riuscita',
+    hy: 'Գրանցումը չհաջողվեց',
+    fr: 'Échec de l’inscription',
   },
   connectionProblemBody: {
     uk: 'Не вдалося виконати запит. Перевірте інтернет і спробуйте знову.',
@@ -136,6 +156,8 @@ const L = {
     lv: 'Neizdevās pabeigt pieprasījumu. Pārbaudiet savienojumu.',
     ro: 'Nu s-a putut finaliza cererea. Verifică conexiunea.',
     it: 'Impossibile completare la richiesta. Controlla la connessione.',
+    hy: 'Կապի խնդիր։ Ստուգեք ինտերնետը և կրկին փորձեք։',
+    fr: 'Problème de connexion. Vérifiez Internet et réessayez.',
   },
   forgotBackendOutdated: {
     uk: 'Код підтверджено, але сервер ще не оновлено. Зверніться до підтримки або спробуйте пізніше.',
@@ -148,6 +170,8 @@ const L = {
     lv: 'Kods apstiprināts, bet serverim nepieciešams atjauninājums. Sazinieties ar atbalstu.',
     ro: 'Cod verificat, dar serverul trebuie actualizat. Contactează suportul.',
     it: 'Codice verificato, ma il server deve essere aggiornato. Contatta il supporto.',
+    hy: 'Սերվերը հնացած է։ Թարմացրեք հավելվածը կամ փորձեք ավելի ուշ։',
+    fr: 'Le serveur est obsolète. Mettez à jour l’app ou réessayez plus tard.',
   },
   registerFailedBody: {
     uk: 'Сталася несподівана помилка. Спробуйте ще раз або перевірте інтернет.',
@@ -160,6 +184,8 @@ const L = {
     lv: 'Radās neparedzēta kļūda. Mēģiniet vēlreiz vai pārbaudiet savienojumu.',
     ro: 'A apărut o eroare neașteptată. Încearcă din nou sau verifică conexiunea.',
     it: 'Si è verificato un errore imprevisto. Riprova o controlla la connessione.',
+    hy: 'Չհաջողվեց գրանցվել։ Ստուգեք տվյալները և կրկին փորձեք։',
+    fr: 'Impossible de s’inscrire. Vérifiez vos informations et réessayez.',
   },
   connectionProblemTitle: {
     uk: 'Збій з’єднання',
@@ -172,6 +198,8 @@ const L = {
     lv: 'Savienojuma problēma',
     ro: 'Problemă de conexiune',
     it: 'Problema di connessione',
+    hy: 'Կապի խնդիր',
+    fr: 'Problème de connexion',
   },
   somethingWrong: {
     uk: 'Помилка',
@@ -184,6 +212,8 @@ const L = {
     lv: 'Kaut kas nogāja greizi',
     ro: 'Ceva nu a funcționat',
     it: 'Qualcosa è andato storto',
+    hy: 'Ինչ-որ բան սխալ է',
+    fr: 'Une erreur s’est produite',
   },
   tryAgain: {
     uk: 'Спробуйте ще раз.',
@@ -196,6 +226,8 @@ const L = {
     lv: 'Lūdzu, mēģiniet vēlreiz.',
     ro: 'Încearcă din nou.',
     it: 'Riprova.',
+    hy: 'Կրկին փորձել',
+    fr: 'Réessayer',
   },
   no: {
     uk: 'Ні',
@@ -208,6 +240,8 @@ const L = {
     lv: 'Nē',
     ro: 'Nu',
     it: 'No',
+    hy: 'Ոչ',
+    fr: 'Non',
   },
   yes: {
     uk: 'Так',
@@ -220,6 +254,8 @@ const L = {
     lv: 'Jā',
     ro: 'Da',
     it: 'Sì',
+    hy: 'Այո',
+    fr: 'Oui',
   },
   googleSignInError: {
     uk: 'Помилка входу через Google',
@@ -232,6 +268,8 @@ const L = {
     lv: 'Google pieteikšanās kļūda',
     ro: 'Eroare la autentificare Google',
     it: 'Errore di accesso con Google',
+    hy: 'Google մուտքի սխալ',
+    fr: 'Erreur de connexion Google',
   },
   facebookSignInError: {
     uk: 'Помилка входу через Facebook',
@@ -244,6 +282,8 @@ const L = {
     lv: 'Facebook pieteikšanās kļūda',
     ro: 'Eroare la autentificare Facebook',
     it: 'Errore di accesso con Facebook',
+    hy: 'Facebook մուտքի սխալ',
+    fr: 'Erreur de connexion Facebook',
   },
   appleIosOnly: {
     uk: 'Увійти через Apple можна лише на iPhone/iPad',
@@ -256,6 +296,8 @@ const L = {
     lv: 'Apple pieteikšanās tikai iOS',
     ro: 'Apple doar pe iOS',
     it: 'Apple solo su iOS',
+    hy: 'Apple մուտքը հասանելի է միայն iOS-ում',
+    fr: 'La connexion Apple est disponible uniquement sur iOS',
   },
   appleUnavailable: {
     uk: 'Sign in with Apple недоступний на цьому пристрої.',
@@ -268,6 +310,8 @@ const L = {
     lv: 'Apple pieteikšanās nav pieejama šajā ierīcē.',
     ro: 'Apple nu este disponibil pe acest dispozitiv.',
     it: 'Accesso con Apple non disponibile su questo dispositivo.',
+    hy: 'Apple մուտքը հասանելի չէ այս սարքում',
+    fr: 'La connexion Apple n’est pas disponible sur cet appareil',
   },
   appleTokenError: {
     uk: 'Не вдалося отримати токен Apple.',
@@ -280,6 +324,8 @@ const L = {
     lv: 'Neizdevās iegūt Apple tokenu.',
     ro: 'Nu s-a putut obține tokenul Apple.',
     it: 'Impossibile ottenere il token Apple.',
+    hy: 'Apple նույնականացման սխալ',
+    fr: 'Erreur d’authentification Apple',
   },
   appleSignInFailed: {
     uk: 'Помилка входу через Apple. Перевір Firebase (Apple provider) та Capability Sign in with Apple.',
@@ -292,6 +338,8 @@ const L = {
     lv: 'Apple pieteikšanās neizdevās. Pārbaudiet Firebase un capability.',
     ro: 'Autentificare Apple eșuată. Verifică Firebase și capability.',
     it: 'Accesso Apple non riuscito. Controlla Firebase e la capability.',
+    hy: 'Apple մուտքը չհաջողվեց',
+    fr: 'Échec de la connexion Apple',
   },
   agreePrefix: {
     uk: 'Погоджуюся з ',
@@ -304,6 +352,8 @@ const L = {
     lv: 'Es piekrītu ',
     ro: 'Sunt de acord cu ',
     it: 'Accetto i ',
+    hy: 'Համաձայն եմ ',
+    fr: 'J’accepte les ',
   },
   termsLink: {
     uk: 'Умовами користування',
@@ -316,6 +366,8 @@ const L = {
     lv: 'Lietošanas noteikumiem',
     ro: 'Termenii de utilizare',
     it: 'Termini di utilizzo',
+    hy: 'օգտագործման պայմանների հետ',
+    fr: 'Conditions d’utilisation',
   },
   passwordUpdated: {
     uk: 'Пароль змінено. Увійдіть з новим паролем на головному екрані.',
@@ -328,6 +380,8 @@ const L = {
     lv: 'Parole atjaunināta. Pierakstieties ar jauno.',
     ro: 'Parolă schimbată. Autentifică-te cu noua parolă.',
     it: 'Password aggiornata. Accedi con la nuova password.',
+    hy: 'Գաղտնաբառը թարմացվել է։ Մուտք գործեք նոր գաղտնաբառով։',
+    fr: 'Mot de passe mis à jour. Connectez-vous avec le nouveau.',
   },
   forgotLabelEmail: {
     uk: 'Пошта',
@@ -340,6 +394,8 @@ const L = {
     lv: 'E-pasts',
     ro: 'E-mail',
     it: 'Email',
+    hy: 'Էլ. փոստ',
+    fr: 'E-mail',
   },
   forgotLabelCode: {
     uk: 'Код',
@@ -352,6 +408,8 @@ const L = {
     lv: 'Kods',
     ro: 'Cod',
     it: 'Codice',
+    hy: 'Կոդ',
+    fr: 'Code',
   },
   forgotLabelPassword: {
     uk: 'Пароль',
@@ -364,6 +422,8 @@ const L = {
     lv: 'Parole',
     ro: 'Parolă',
     it: 'Password',
+    hy: 'Գաղտնաբառ',
+    fr: 'Mot de passe',
   },
   forgotSubtitleEmail: {
     uk: 'Введіть пошту — надішлемо код для відновлення пароля.',
@@ -376,6 +436,8 @@ const L = {
     lv: 'Ievadiet e-pastu — nosūtīsim kodu paroles atiestatīšanai.',
     ro: 'Introdu e-mail — trimitem cod pentru resetarea parolei.',
     it: 'Inserisci l’email — invieremo un codice per reimpostare la password.',
+    hy: 'Մուտքագրեք էլ. փոստը՝ վերականգնման կոդ ստանալու համար',
+    fr: 'Entrez votre e-mail pour recevoir un code de récupération',
   },
   forgotSubtitleNewPassword: {
     uk: 'Створіть новий пароль і підтвердьте його нижче.',
@@ -388,6 +450,8 @@ const L = {
     lv: 'Izveidojiet jaunu paroli un apstipriniet zemāk.',
     ro: 'Creează o parolă nouă și confirmă mai jos.',
     it: 'Crea una nuova password e confermala qui sotto.',
+    hy: 'Մուտքագրեք նոր գաղտնաբառը',
+    fr: 'Entrez un nouveau mot de passe',
   },
   forgotSubtitleNoProfile: {
     uk: 'Для цієї пошти профіль ще не створений.',
@@ -400,6 +464,8 @@ const L = {
     lv: 'Šim e-pastam vēl nav profila.',
     ro: 'Nu există încă profil pentru acest e-mail.',
     it: 'Non esiste ancora un profilo per questa email.',
+    hy: 'Այս էլ. փոստով պրոֆիլ չկա',
+    fr: 'Aucun profil pour cet e-mail',
   },
   sendCodeAgain: {
     uk: 'Надіслати код ще раз',
@@ -412,6 +478,8 @@ const L = {
     lv: 'Nosūtīt kodu vēlreiz',
     ro: 'Trimite codul din nou',
     it: 'Invia di nuovo il codice',
+    hy: 'Կրկին ուղարկել կոդը',
+    fr: 'Renvoyer le code',
   },
   registerToCreateProfile: {
     uk: 'Зареєструйтеся, щоб створити профіль.',
@@ -424,6 +492,8 @@ const L = {
     lv: 'Reģistrējieties, lai izveidotu profilu.',
     ro: 'Înregistrează-te pentru a crea un profil.',
     it: 'Registrati per creare un profilo.',
+    hy: 'Գրանցվել՝ պրոֆիլ ստեղծելու համար',
+    fr: 'S’inscrire pour créer un profil',
   },
   fbFirebase: {
     uk: 'Увімкни Firebase Authentication і Facebook у консолі Firebase.',
@@ -436,6 +506,8 @@ const L = {
     lv: 'Ieslēdziet Firebase Authentication un Facebook konsolē.',
     ro: 'Activează Firebase Authentication și Facebook în consolă.',
     it: 'Attiva Firebase Authentication e Facebook nella console.',
+    hy: 'Facebook / Firebase կարգավորման սխալ',
+    fr: 'Erreur de configuration Facebook / Firebase',
   },
   fbTimeout: {
     uk: 'Facebook не відповів у час. Перевір інтернет або спробуй пізніше.',
@@ -448,6 +520,8 @@ const L = {
     lv: 'Facebook neatbildēja laikā. Pārbaudiet savienojumu.',
     ro: 'Facebook nu a răspuns la timp. Verifică conexiunea.',
     it: 'Facebook non ha risposto in tempo. Controlla la connessione.',
+    hy: 'Facebook մուտքի ժամանակը սպառվել է',
+    fr: 'Délai de connexion Facebook dépassé',
   },
   fbProfile: {
     uk: 'Не вдалося отримати профіль Facebook. Спробуй ще раз.',
@@ -460,6 +534,8 @@ const L = {
     lv: 'Neizdevās ielādēt Facebook profilu. Mēģiniet vēlreiz.',
     ro: 'Nu s-a putut încărca profilul Facebook. Încearcă din nou.',
     it: 'Impossibile caricare il profilo Facebook. Riprova.',
+    hy: 'Չհաջողվեց ստանալ Facebook պրոֆիլը',
+    fr: 'Impossible d’obtenir le profil Facebook',
   },
   fbGeneric: {
     uk: 'Помилка входу через Facebook',
@@ -472,6 +548,8 @@ const L = {
     lv: 'Facebook pieteikšanās kļūda',
     ro: 'Eroare la autentificare Facebook',
     it: 'Errore di accesso con Facebook',
+    hy: 'Facebook մուտքի սխալ։ Կրկին փորձեք։',
+    fr: 'Erreur Facebook. Réessayez.',
   },
   googleDevSha: {
     uk: 'Додай SHA-1 debug/release у Firebase та Google Cloud (Android). Для входу через браузер у Web OAuth-клієнті вкажи redirect: com.kraina.app://oauth (див. AUTH_SETUP.md). Спробувати браузер?',
@@ -484,6 +562,8 @@ const L = {
     lv: 'Konfigurējiet SHA-1 / OAuth Google Console (AUTH_SETUP.md). Mēģināt pārlūkā?',
     ro: 'Configurează SHA-1 / OAuth în Google Console (AUTH_SETUP.md). Încerci în browser?',
     it: 'Configura SHA-1 / OAuth in Google Console (AUTH_SETUP.md). Provare nel browser?',
+    hy: 'Google մուտք՝ ավելացրեք SHA մատնահետքը Firebase-ում',
+    fr: 'Connexion Google : ajoutez l’empreinte SHA dans Firebase',
   },
   googleOauthAdd: {
     uk: 'Додай OAuth у Google Console: Android (package com.kraina.app + SHA-1), iOS (bundle), Web client з redirect com.kraina.app://oauth. Див. AUTH_SETUP.md.',
@@ -496,6 +576,8 @@ const L = {
     lv: 'Pievienojiet OAuth klientus Google Console. Skat. AUTH_SETUP.md.',
     ro: 'Adaugă clienți OAuth în Google Console. Vezi AUTH_SETUP.md.',
     it: 'Aggiungi client OAuth in Google Console. Vedi AUTH_SETUP.md.',
+    hy: 'Ավելացրեք OAuth հաճախորդ Google Cloud-ում',
+    fr: 'Ajoutez un client OAuth dans Google Cloud',
   },
   googleTryBrowserIos: {
     uk: 'Нативний Google не вдався. Спробувати вхід через браузер (підходить для Expo Go / тимчасово)?',
@@ -508,6 +590,8 @@ const L = {
     lv: 'Vietējais Google neizdevās. Mēģināt pārlūkā (Expo Go)?',
     ro: 'Google nativ a eșuat. Încerci în browser (Expo Go)?',
     it: 'Google nativo non riuscito. Provare nel browser (Expo Go)?',
+    hy: 'Փորձեք բացել մուտքը բրաուզերում (iOS)',
+    fr: 'Essayez la connexion via le navigateur (iOS)',
   },
   googleWebClientId: {
     uk: 'Додай Web client ID: файл google-services.json з Firebase або EXPO_PUBLIC_GOOGLE_CLIENT_ID у .env. Див. AUTH_SETUP.md.',
@@ -520,6 +604,8 @@ const L = {
     lv: 'Pievienojiet Web client ID: google-services.json vai EXPO_PUBLIC_GOOGLE_CLIENT_ID .env. Skat. AUTH_SETUP.md.',
     ro: 'Adaugă Web client ID: google-services.json sau EXPO_PUBLIC_GOOGLE_CLIENT_ID în .env. Vezi AUTH_SETUP.md.',
     it: 'Aggiungi Web client ID: google-services.json o EXPO_PUBLIC_GOOGLE_CLIENT_ID nel .env. Vedi AUTH_SETUP.md.',
+    hy: 'Սխալ է Google Web Client ID-ը',
+    fr: 'Identifiant client Web Google incorrect',
   },
   googleOauthWait: {
     uk: 'Зачекай кілька секунд і натисни ще раз (OAuth ще завантажується).',
@@ -532,6 +618,8 @@ const L = {
     lv: 'Uzgaidiet dažas sekundes (OAuth vēl ielādējas).',
     ro: 'Așteaptă câteva secunde (OAuth se încarcă).',
     it: 'Attendi qualche secondo (OAuth si sta caricando).',
+    hy: 'Սպասեք Google մուտքի պատրաստմանը',
+    fr: 'Patientez pendant la préparation de Google',
   },
   googleOauthRequestFail: {
     uk: 'Не вдалося зібрати запит Google OAuth. Перезапусти застосунок, перевір інтернет. Див. AUTH_SETUP.md.',
@@ -544,6 +632,8 @@ const L = {
     lv: 'Neizdevās izveidot Google OAuth pieprasījumu. Restartējiet lietotni.',
     ro: 'Nu s-a putut construi cererea Google OAuth. Repornește aplicația.',
     it: 'Impossibile creare la richiesta Google OAuth. Riavvia l’app.',
+    hy: 'Google OAuth հարցումը չհաջողվեց',
+    fr: 'Échec de la requête OAuth Google',
   },
   googleBrowserUnavailable: {
     uk: 'Браузерний вхід Google недоступний (немає expo-auth-session). Потрібна збірка dev client з нативним Google або з expo-web-browser. AUTH_SETUP.md.',
@@ -556,6 +646,8 @@ const L = {
     lv: 'Pārlūka Google pieteikšanās nav pieejama (nav expo-auth-session).',
     ro: 'Autentificarea Google în browser indisponibilă (lipsește expo-auth-session).',
     it: 'Accesso Google nel browser non disponibile (manca expo-auth-session).',
+    hy: 'Բրաուզերը հասանելի չէ Google մուտքի համար',
+    fr: 'Navigateur indisponible pour la connexion Google',
   },
   facebookConfig: {
     uk: 'Facebook: додай EXPO_PUBLIC_FACEBOOK_APP_ID у app/.env, увімкни Facebook у Firebase Authentication і додай redirect URI com.kraina.app://oauth у Meta Developers.',
@@ -568,6 +660,8 @@ const L = {
     lv: 'Facebook: iestatiet EXPO_PUBLIC_FACEBOOK_APP_ID app/.env un pievienojiet redirect com.kraina.app://oauth Meta Developers.',
     ro: 'Facebook: setează EXPO_PUBLIC_FACEBOOK_APP_ID în app/.env și adaugă redirect com.kraina.app://oauth în Meta Developers.',
     it: 'Facebook: imposta EXPO_PUBLIC_FACEBOOK_APP_ID in app/.env e aggiungi redirect com.kraina.app://oauth in Meta Developers.',
+    hy: 'Facebook-ը կարգավորված չէ',
+    fr: 'Facebook n’est pas configuré',
   },
   facebookNotConfigured: {
     uk: 'Facebook ще не налаштований.\n\n1. Створи застосунок на developers.facebook.com\n2. Скопіюй App ID (число)\n3. У файлі app/.env додай:\nEXPO_PUBLIC_FACEBOOK_APP_ID=твій_id\n4. У Meta → Facebook Login → Settings додай redirect:\ncom.kraina.app://oauth\n5. Перезапусти Metro: cd app && npm run start:clear',
@@ -581,6 +675,8 @@ const L = {
     lv: 'Facebook nav konfigurēts.\n\n1. Izveidojiet lietotni developers.facebook.com\n2. Nokopējiet App ID\n3. app/.env pievienojiet:\nEXPO_PUBLIC_FACEBOOK_APP_ID=jūsu_id\n4. Meta pievienojiet redirect: com.kraina.app://oauth\n5. Restartējiet Metro: cd app && npm run start:clear',
     ro: 'Facebook nu este configurat.\n\n1. Creează o aplicație pe developers.facebook.com\n2. Copiază App ID\n3. Adaugă în app/.env:\nEXPO_PUBLIC_FACEBOOK_APP_ID=id_tău\n4. În Meta adaugă redirect: com.kraina.app://oauth\n5. Repornește Metro: cd app && npm run start:clear',
     it: 'Facebook non è configurato.\n\n1. Crea un\'app su developers.facebook.com\n2. Copia l\'App ID\n3. Aggiungi in app/.env:\nEXPO_PUBLIC_FACEBOOK_APP_ID=tuo_id\n4. In Meta aggiungi redirect: com.kraina.app://oauth\n5. Riavvia Metro: cd app && npm run start:clear',
+    hy: 'Facebook մուտքը կարգավորված չէ այս կառուցվածքում',
+    fr: 'La connexion Facebook n’est pas configurée dans cette build',
   },
   adminPinTitle: {
     uk: 'Адміністративний PIN-код',
@@ -593,6 +689,8 @@ const L = {
     lv: 'Administratora PIN',
     ro: 'PIN administrator',
     it: 'PIN amministratore',
+    hy: 'Ադմին PIN',
+    fr: 'PIN admin',
   },
   adminPinSubtitle: {
     uk: 'Введіть PIN, щоб отримати доступ до панелі адміністратора.',
@@ -605,6 +703,8 @@ const L = {
     lv: 'Ievadiet PIN administratora piekļuvei.',
     ro: 'Introdu PIN pentru acces admin.',
     it: 'Inserisci il PIN per l’accesso admin.',
+    hy: 'Մուտքագրեք PIN՝ ադմին մուտքի համար։',
+    fr: 'Entrez le PIN pour l’accès administrateur.',
   },
   adminPinConfirm: {
     uk: 'Підтвердити',
@@ -617,6 +717,8 @@ const L = {
     lv: 'Turpināt',
     ro: 'Continuă',
     it: 'Continua',
+    hy: 'Շարունակել',
+    fr: 'Continuer',
   },
   adminPinWrong: {
     uk: 'Невірний PIN.',
@@ -629,22 +731,32 @@ const L = {
     lv: 'Nepareizs PIN.',
     ro: 'PIN incorect.',
     it: 'PIN errato.',
+    hy: 'Սխալ PIN։',
+    fr: 'PIN incorrect.',
   },
   adminGateBlockedTitle: {
     uk: 'Доступ до адмін-панелі заблоковано',
     en: 'Admin access is blocked',
+    hy: 'Ադմին մուտքը արգելափակված է',
+    fr: 'Accès admin bloqué',
   },
   adminGateBlockedBody: {
     uk: 'На цьому пристрої введено невірний адміністративний PIN. Вхід у панель адміністратора з цього телефону вимкнено. Зверніться до головного адміністратора або відкрийте журнал у панелі на іншому авторизованому пристрої.',
     en: 'An incorrect administrator PIN was entered on this device. Admin panel sign-in is disabled on this phone. Contact the lead admin or use the audit screen on another authorized device to clear the lockout.',
+    hy: 'Այս սարքում սխալ ադմին PIN է մուտքագրվել։ Ադմին վահանակի մուտքն անջատված է։ Դիմեք գլխավոր ադմինին կամ օգտագործեք այլ սարք։',
+    fr: 'Un PIN administrateur incorrect a été saisi sur cet appareil. L’accès au panneau admin est désactivé. Contactez l’admin principal ou utilisez un autre appareil.',
   },
   adminPinWrongBlockedTitle: {
     uk: 'PIN невірний — доступ заблоковано',
     en: 'Wrong PIN — access locked',
+    hy: 'Սխալ PIN — մուտքը արգելափակված է',
+    fr: 'Mauvais PIN — accès verrouillé',
   },
   adminPinWrongBlockedBody: {
     uk: 'Вхід у адмін-панель з цього пристрою більше недоступний. Подія записана в журнал безпеки.',
     en: 'You can no longer open the admin panel from this device. This attempt was logged in the security audit.',
+    hy: 'Այլևս չեք կարող բացել ադմին վահանակը այս սարքից։ Փորձը գրանցվել է անվտանգության մատյանում։',
+    fr: 'Vous ne pouvez plus ouvrir le panneau admin depuis cet appareil. Cette tentative a été enregistrée.',
   },
 };
 

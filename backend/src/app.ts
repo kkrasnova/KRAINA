@@ -63,6 +63,7 @@ export function createApp(): express.Application {
     express.json({ limit: '15mb' }),
     landmarkContentAdminRouter,
   );
+  app.use('/api/admin/locations/ai-enrich-job', express.json({ limit: '15mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/api/app', appMetaRouter);
   app.use('/static/avatars', express.static(path.join(config.uploadDir, 'avatars')));

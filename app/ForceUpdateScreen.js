@@ -38,7 +38,7 @@ export default function ForceUpdateScreen({ gate, onRecheckResult }) {
     let cancelled = false;
     (async () => {
       const t = await getAppTheme();
-      if (!cancelled) setAppTheme(t === 'light' ? 'light' : 'dark');
+      if (!cancelled) setAppTheme(t === 'dark' ? 'dark' : 'light');
       try {
         const raw = await AsyncStorage.getItem('@kraina_app_language');
         if (!cancelled && raw && typeof raw === 'string') {
@@ -56,7 +56,7 @@ export default function ForceUpdateScreen({ gate, onRecheckResult }) {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(THEME_CHANGED_EVENT, (v) => {
-      setAppTheme(v === 'light' ? 'light' : 'dark');
+      setAppTheme(v === 'dark' ? 'dark' : 'light');
     });
     return () => sub.remove();
   }, []);

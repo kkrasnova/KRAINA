@@ -218,16 +218,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrate: async () => {
     try {
+      const legacyPeek = await getLegacySession();
+      let signedInPeek = null;
+      try {
+        const { getSignedInUser } = await import('../signedInStorage');
+        signedInPeek = await getSignedInUser();
+      } catch {
+        /* ignore */
+      }
+      // Жива сесія/мітка — ніколи не чистимо токени через застарілий logout-прапорець.
+      if (legacyPeek?.user || signedInPeek) {
+        await clearExplicitLogout();
+      }
+
       if (await isExplicitLogout()) {
-        const legacyOnExplicitLogout = await getLegacySession();
-        if (!legacyOnExplicitLogout?.user) {
+        if (!legacyPeek?.user && !signedInPeek) {
           await secureAuthDelete(KEY_ACCESS);
           await secureAuthDelete(KEY_REFRESH);
-          set({ hydrated: true });
+          set({ hydrated: true, user: null, accessToken: null, refreshToken: null });
           return;
         }
-        // Міграція: прапорець «явний вихід» міг зʼявитись через протухлий refresh,
-        // хоча локальна сесія ще є — відновлюємо вхід без повторного логіну.
         await clearExplicitLogout();
       }
 
@@ -248,6 +258,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           profileMe: buildProfileMe(s.user),
           hydrated: true,
         });
+        try {
+          const { markSignedIn } = await import('../signedInStorage');
+          await markSignedIn(s.user);
+        } catch {
+          /* ignore */
+        }
         return;
       }
 
@@ -257,41 +273,74 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (s?.user) {
           const legacyUser = mapLegacyUserToDto(s.user);
           const legacyProfile = buildProfileMe(s.user);
+          // Не блокуємо cold start мережею: одразу вважаємо залогіненим, refresh — у фоні.
           set({
-            refreshToken: refresh,
-            user: legacyUser,
-            profileMe: legacyProfile,
-          });
-          const ok = await get().refreshSession();
-          if (ok) {
-            set({ hydrated: true });
-            return;
-          }
-          set({
-            accessToken: null,
+            accessToken: accessJwt,
             refreshToken: refresh,
             user: legacyUser,
             profileMe: legacyProfile,
             hydrated: true,
           });
+          try {
+            const { markSignedIn } = await import('../signedInStorage');
+            await markSignedIn(s.user);
+          } catch {
+            /* ignore */
+          }
+          void get().refreshSession().catch(() => {});
           return;
         }
 
         // No legacy user - recover purely from refresh/access tokens.
-        // refreshSession signs in Firebase (best-effort) and updates access/refresh in SecureStore.
+        // Якщо access ще валідний для decode — одразу user, refresh у фоні.
+        const userFromAccess = accessJwt ? buildUserFromJwt(accessJwt) : null;
+        if (userFromAccess) {
+          set({
+            accessToken: accessJwt,
+            refreshToken: refresh,
+            user: userFromAccess,
+            profileMe: null,
+            hydrated: true,
+          });
+          try {
+            const { markSignedIn } = await import('../signedInStorage');
+            await markSignedIn(userFromAccess);
+            await saveLegacySession({
+              id: userFromAccess.id,
+              email: userFromAccess.email,
+              role: userFromAccess.role,
+              status: userFromAccess.status,
+            } as any);
+          } catch {
+            /* ignore */
+          }
+          void get().refreshSession().catch(() => {});
+          return;
+        }
+
         set({ refreshToken: refresh, hydrated: false });
         const ok = await get().refreshSession();
         const accessAfter = get().accessToken;
         const refreshAfter = get().refreshToken;
         const accessForDecode = accessAfter ?? accessJwt;
-        // Если refreshSession реально “зачистил” токены (невалидний refresh), refreshAfter буде null.
-        // Тоді не відновлюємо user з старого accessJwt (щоб не показувати залогінений стан з мертвими токенами).
         const userFromJwt =
           refreshAfter && accessForDecode && isBackendJwt(accessForDecode) ? buildUserFromJwt(accessForDecode) : null;
-        if (userFromJwt) set({ user: userFromJwt, profileMe: null });
-        // Even if refresh failed (offline), we can still proceed if we decoded a usable user.
+        if (userFromJwt) {
+          set({ user: userFromJwt, profileMe: null });
+          try {
+            const { markSignedIn } = await import('../signedInStorage');
+            await markSignedIn(userFromJwt);
+            await saveLegacySession({
+              id: userFromJwt.id,
+              email: userFromJwt.email,
+              role: userFromJwt.role,
+              status: userFromJwt.status,
+            } as any);
+          } catch {
+            /* ignore */
+          }
+        }
         set({ hydrated: true });
-        // If refresh failed and it cleared tokens, userFromJwt will likely be null already.
         if (ok || userFromJwt) return;
         return;
       }
@@ -302,6 +351,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           profileMe: buildProfileMe(s.user),
           hydrated: true,
         });
+        try {
+          const { markSignedIn } = await import('../signedInStorage');
+          await markSignedIn(s.user);
+        } catch {
+          /* ignore */
+        }
         return;
       }
 
@@ -316,8 +371,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             profileMe: null,
             hydrated: true,
           });
+          try {
+            const { markSignedIn } = await import('../signedInStorage');
+            await markSignedIn(userFromJwt);
+          } catch {
+            /* ignore */
+          }
           return;
         }
+      }
+
+      // Останній шанс: мітка signed-in (AsyncStorage) — без повторного логіну.
+      try {
+        const { getSignedInUser } = await import('../signedInStorage');
+        const marked = await getSignedInUser();
+        if (marked?.id || marked?.email) {
+          const asUser = {
+            id: String(marked.id || marked.email),
+            email: String(marked.email || ''),
+            role: String(marked.role || 'user'),
+            name: marked.name,
+            provider: marked.provider,
+          };
+          set({
+            user: mapLegacyUserToDto(asUser as Record<string, unknown>),
+            profileMe: buildProfileMe(asUser as Record<string, unknown>),
+            hydrated: true,
+          });
+          await saveLegacySession(asUser as any);
+          return;
+        }
+      } catch {
+        /* ignore */
       }
     } catch {
       /* ignore */
@@ -342,6 +427,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Токени зберігаємо синхронно — інакше при закритті застосунку сесія губиться.
     await persistTokens(tokens.access_token, tokens.refresh_token);
+
+    try {
+      const { markSignedIn } = await import('../signedInStorage');
+      await markSignedIn(user);
+    } catch {
+      /* ignore */
+    }
 
     void (async () => {
       try {
@@ -369,6 +461,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await markExplicitLogout();
     await secureAuthDelete(KEY_ACCESS);
     await secureAuthDelete(KEY_REFRESH);
+    try {
+      const { clearSignedIn } = await import('../signedInStorage');
+      await clearSignedIn();
+    } catch {
+      /* ignore */
+    }
     set({
       accessToken: null,
       refreshToken: null,

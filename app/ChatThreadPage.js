@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { FlashList } from '@shopify/flash-list';
+import RemotePhoto from './RemotePhoto';
 import {
   View,
   Text,
@@ -395,11 +396,11 @@ export default function ChatThreadPage({ navigation, route }) {
   const menuSheetPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponder: (_, g) => g.dy > 2 && g.dy >= Math.abs(g.dx) * 0.85,
-        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
-        onPanResponderTerminationRequest: (_, g) => !(g.dy > 4 && g.dy > Math.abs(g.dx)),
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_, g) => g.dy > 8 && g.dy >= Math.abs(g.dx) * 1.15,
+        onMoveShouldSetPanResponderCapture: (_, g) => g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2,
+        onPanResponderTerminationRequest: (_, g) => !(g.dy > 12 && g.dy > Math.abs(g.dx) * 1.2),
         onPanResponderMove: (_, g) => {
           menuSheetDragY.setValue(Math.max(0, g.dy));
         },
@@ -1125,13 +1126,13 @@ export default function ChatThreadPage({ navigation, route }) {
             ]}
           >
             {!mine ? avatarNode : null}
-            <Image
+            <RemotePhoto
               source={{ uri: item.imageUri }}
               style={[
                 styles.chatImage,
                 (item.optimistic || item.pendingSync || item.uploading) && { opacity: 0.88 },
               ]}
-              resizeMode="cover"
+              contentFit="cover"
             />
           </View>
         );

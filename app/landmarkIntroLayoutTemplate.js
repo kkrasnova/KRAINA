@@ -17,13 +17,15 @@
 export const LANDMARK_INTRO_LAYOUT_TEMPLATE = [
   // Слайд 2 — карта / історичний контекст + ілюстрація «як могло виглядати»
   {
+    heroFit: 'cover',
     heroHeightRatio: 0.4,
     heroHeightMax: 340,
     introHeroInsetRounded: true,
     heroStackGap: 22,
   },
-  // Слайд 3 — порівняння «було / стало»
+  // Слайд 3 — порівняння «було / стало» (під верхньою панелькою)
   {
+    heroFit: 'cover',
     compareHeroHeightRatio: 0.6,
     compareHeroHeightMax: 540,
     compareHeroTopInset: 22,
@@ -31,9 +33,10 @@ export const LANDMARK_INTRO_LAYOUT_TEMPLATE = [
     heroStackGap: 22,
   },
   // Слайд 4 — фото на всю ширину зверху
-  { introHeroBleedTop: true },
+  { heroFit: 'cover', introHeroBleedTop: true },
   // Слайд 5 — високе фото зверху
   {
+    heroFit: 'cover',
     introHeroBleedTop: true,
     heroHeightRatio: 0.68,
     heroHeightMax: 600,
@@ -41,6 +44,7 @@ export const LANDMARK_INTRO_LAYOUT_TEMPLATE = [
   },
   // Слайд 6 — два фото одне під одним
   {
+    heroFit: 'cover',
     introHeroBleedTop: true,
     heroHeightRatio: 0.48,
     heroHeightMax: 400,
@@ -52,48 +56,62 @@ export const LANDMARK_INTRO_LAYOUT_TEMPLATE = [
   },
   // Слайд 7 — округле фото + текст
   {
+    heroFit: 'cover',
     introHeroInsetRounded: true,
-    heroHeightRatio: 0.62,
-    heroHeightMax: 560,
-    heroStackGap: 22,
+    heroHeightRatio: 0.42,
+    heroHeightMax: 360,
+    heroStackGap: 18,
   },
   // Слайд 8 — округле фото + текст
   {
+    heroFit: 'cover',
     introHeroInsetRounded: true,
-    heroHeightRatio: 0.46,
-    heroHeightMax: 380,
-    heroPosition: { left: '50%', top: '34%' },
-    heroStackGap: 22,
+    heroHeightRatio: 0.42,
+    heroHeightMax: 360,
+    heroStackGap: 18,
   },
-  // Слайд 9 — текст, потім фото
+  // Слайд 9 — короткий лід, потім велике фото, далі текст
   {
+    heroFit: 'cover',
     introHeroAfterText: true,
-    heroHeightRatio: 0.44,
-    heroHeightMax: 380,
+    heroHeightRatio: 0.5,
+    heroHeightMax: 420,
+    introHeroInsetRounded: true,
   },
   // Слайд 10 — два фото (історія / подія)
   {
+    heroFit: 'cover',
     introHeroBleedTop: true,
     heroHeightRatio: 0.44,
     heroHeightMax: 380,
-    secondaryHeroHeightRatio: 0.4,
-    secondaryHeroHeightMax: 340,
+    secondaryStackGap: 12,
+    secondaryHeroHeightRatio: 0.28,
+    secondaryHeroHeightMax: 240,
   },
   // Слайд 11 — картка-факт поверх фото
-  { introFactCard: true },
+  {
+    heroFit: 'cover',
+    introFactCard: true,
+    introHeroBleedTop: true,
+    heroHeightRatio: 0.55,
+    heroHeightMax: 480,
+  },
   // Слайд 12 — компактне округле фото
   {
+    heroFit: 'cover',
     introHeroInsetRounded: true,
     heroHeightRatio: 0.36,
     heroHeightMax: 300,
-    heroStackGap: 22,
+    heroStackGap: 16,
+    introHeroBleedTop: true,
   },
   // Слайд 13 — фінал
   {
+    heroFit: 'cover',
     introHeroInsetRounded: true,
-    heroHeightRatio: 0.44,
-    heroHeightMax: 380,
-    heroStackGap: 22,
+    heroHeightRatio: 0.38,
+    heroHeightMax: 320,
+    heroStackGap: 20,
   },
 ];
 

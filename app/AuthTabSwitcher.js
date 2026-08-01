@@ -1,7 +1,8 @@
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { brandFontText } from './brandFont';
 import { rippleOnDarkSurface } from './androidFeedback';
+import FittingText from './FittingText';
 
 const ACCENT = '#E1FF00';
 const TEXT_DARK = '#121212';
@@ -25,13 +26,12 @@ function AuthTabButton({ label, selected, onPress, accessibilityLabel }) {
         accessibilityLabel={accessibilityLabel}
         accessibilityState={{ selected }}
       >
-        <Text
+        <FittingText
           style={[styles.buttonText, selected ? styles.buttonTextActive : styles.buttonTextInactive]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
+          minimumFontScale={0.7}
         >
           {label}
-        </Text>
+        </FittingText>
       </Pressable>
     </View>
   );
@@ -110,6 +110,7 @@ const styles = StyleSheet.create({
     fontSize: Platform.OS === 'ios' ? 11 : 13,
     lineHeight: Platform.OS === 'ios' ? 14 : 16,
     textAlign: 'center',
+    width: '100%',
   },
   buttonTextInactive: {
     color: INACTIVE_TEXT,

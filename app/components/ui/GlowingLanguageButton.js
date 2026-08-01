@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   View,
@@ -9,39 +9,39 @@ import {
 } from 'react-native';
 import { noAndroidRipple } from '../../androidFeedback';
 
-function hexToRgba(hex, alpha = 1) {
-  let hexValue = String(hex || '').replace('#', '');
-  if (hexValue.length === 3) {
-    hexValue = hexValue
-      .split('')
-      .map((c) => c + c)
-      .join('');
-  }
-  const r = parseInt(hexValue.substring(0, 2), 16);
-  const g = parseInt(hexValue.substring(2, 4), 16);
-  const b = parseInt(hexValue.substring(4, 6), 16);
-  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
-    return `rgba(0, 0, 0, ${alpha})`;
-  }
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-
 const LEMON = '#E1FF00';
-
+const INK = '#0A0B0C';
 
 export default function GlowingLanguageButton({
   flag,
   labelNode,
-  flagFontSize = 26,
+  flagFontSize = 22,
   selected = false,
   onPress,
-  minHeight = 42,
+  minHeight = 52,
+  compact = false,
   style,
   accessibilityLabel,
 }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const selectPop = useRef(new Animated.Value(selected ? 1 : 0)).current;
   const [pressed, setPressed] = useState(false);
+  const wasSelected = useRef(selected);
+
+  useEffect(() => {
+    if (selected && !wasSelected.current) {
+      selectPop.setValue(0);
+      Animated.spring(selectPop, {
+        toValue: 1,
+        friction: 6,
+        tension: 240,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      selectPop.setValue(selected ? 1 : 0);
+    }
+    wasSelected.current = selected;
+  }, [selected, selectPop]);
 
   const onPressIn = () => {
     setPressed(true);
@@ -58,25 +58,25 @@ export default function GlowingLanguageButton({
     Animated.spring(scale, {
       toValue: 1,
       friction: 7,
-      tension: 320,
+      tension: 300,
       useNativeDriver: true,
     }).start();
   };
 
-  const lemonActive = pressed || selected;
-  const leftBg = pressed
-    ? hexToRgba(LEMON, 0.82)
-    : 'rgba(255, 255, 255, 0.13)';
-  const borderColor = 'transparent';
-  const rightBg = pressed
-    ? hexToRgba(LEMON, 0.26)
-    : 'rgba(8, 9, 14, 0.96)';
+  const flagScale = selectPop.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 1.1, 1],
+  });
+
+  const radius = compact ? 18 : 20;
+  const flagBox = compact ? 30 : 36;
+  const checkBox = compact ? 20 : 24;
 
   return (
     <Animated.View
       style={[
         styles.wrap,
-        { transform: [{ scale }], opacity: pressed ? 0.9 : 1 },
+        { transform: [{ scale }], opacity: pressed ? 0.94 : 1 },
         style,
       ]}
     >
@@ -92,47 +92,76 @@ export default function GlowingLanguageButton({
           styles.card,
           {
             minHeight,
-            borderRadius: 999,
-            borderCurve: 'continuous',
-            borderColor,
-            ...(Platform.OS === 'android' ? { elevation: 0 } : {}),
+            borderRadius: radius,
+            borderColor: selected ? LEMON : 'rgba(255,255,255,0.1)',
+            borderWidth: selected ? 1.5 : 1,
+            backgroundColor: selected ? LEMON : 'rgba(255,255,255,0.05)',
+            ...(Platform.OS === 'ios'
+              ? {
+                  shadowColor: selected ? LEMON : '#000',
+                  shadowOpacity: selected ? 0.35 : 0.25,
+                  shadowRadius: selected ? 12 : 6,
+                  shadowOffset: { width: 0, height: selected ? 4 : 2 },
+                }
+              : { elevation: selected ? 5 : 1 }),
           },
-          selected && styles.cardSelected,
         ]}
       >
-        <View style={[styles.split, { minHeight: Math.max(34, minHeight - 2) }]}>
-          <View
+        <View
+          style={[
+            styles.row,
+            {
+              minHeight: Math.max(compact ? 28 : 34, minHeight - 8),
+              paddingVertical: compact ? 5 : 8,
+              paddingHorizontal: compact ? 8 : 12,
+              gap: compact ? 8 : 12,
+            },
+          ]}
+        >
+          <Animated.View
             style={[
-              styles.leftPane,
+              styles.flagBadge,
               {
-                backgroundColor: leftBg,
-                borderRightColor: lemonActive ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.08)',
-                borderTopLeftRadius: 999,
-                borderBottomLeftRadius: 999,
+                width: flagBox,
+                height: flagBox,
+                borderRadius: compact ? 10 : 12,
+                backgroundColor: selected ? 'rgba(0,0,0,0.1)' : 'rgba(225,255,0,0.1)',
+                transform: [{ scale: flagScale }],
               },
             ]}
           >
-            <Text style={[styles.flag, { fontSize: flagFontSize }]}>{flag ?? ''}</Text>
-          </View>
-          <View
-            style={[
-              styles.rightPane,
-              {
-                backgroundColor: rightBg,
-                borderTopRightRadius: 999,
-                borderBottomRightRadius: 999,
-              },
-            ]}
-          >
-            {labelNode}
-          </View>
+            <Text
+              style={[
+                styles.flag,
+                {
+                  fontSize: flagFontSize,
+                  lineHeight: Math.round(flagFontSize * 1.2),
+                },
+              ]}
+            >
+              {flag ?? ''}
+            </Text>
+          </Animated.View>
+
+          <View style={styles.labelFlex}>{labelNode}</View>
+
+          {selected ? (
+            <View
+              style={[
+                styles.checkBadge,
+                { width: checkBox, height: checkBox, borderRadius: checkBox / 2 },
+              ]}
+            >
+              <Text style={[styles.checkMark, compact && { fontSize: 11 }]}>✓</Text>
+            </View>
+          ) : (
+            <View style={styles.idleRing} />
+          )}
         </View>
       </Pressable>
     </Animated.View>
   );
 }
-
-const FLAG_PANE_W = 56;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -140,49 +169,44 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    borderRadius: 999,
-    borderWidth: 0,
     overflow: 'hidden',
-    backgroundColor: 'rgba(6, 7, 11, 0.95)',
+    borderCurve: 'continuous',
   },
-  cardSelected: {
-    borderWidth: 0,
-  },
-  split: {
+  row: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    borderRadius: 999,
-    overflow: 'hidden',
+    alignItems: 'center',
   },
-  leftPane: {
-    width: FLAG_PANE_W,
-    borderRightWidth: 1,
-    borderTopLeftRadius: 999,
-    borderBottomLeftRadius: 999,
+  flagBadge: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 6,
   },
   flag: {
-    lineHeight: 32,
     textAlign: 'center',
-    textShadowColor: 'rgba(255,255,255,0.45)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
     ...Platform.select({
       android: { textAlignVertical: 'center', includeFontPadding: true },
       ios: {},
     }),
   },
-  rightPane: {
+  labelFlex: {
     flex: 1,
-    borderTopRightRadius: 999,
-    borderBottomRightRadius: 999,
-    justifyContent: 'center',
-    paddingVertical: 4,
-    paddingLeft: 12,
-    paddingRight: 10,
     minWidth: 0,
+  },
+  checkBadge: {
+    backgroundColor: INK,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkMark: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: LEMON,
+    marginTop: -1,
+  },
+  idleRing: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: 'rgba(225,255,0,0.28)',
   },
 });
