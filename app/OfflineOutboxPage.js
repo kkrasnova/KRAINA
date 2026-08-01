@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable, SectionList, DeviceEventEmitter } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppTopBar, { APP_SCREEN_BG, LIGHT_BAR_BG } from './AppTopBar';
 import { getOutboxItems, getOutboxHistory, OFFLINE_OUTBOX_CHANGED, clearOutboxHistory } from './offline/outboxStore';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { getAppTheme, getAppThemeSync, THEME_CHANGED_EVENT } from './themeStorage';
 import { flushOutboxNow } from './offline/syncEngine';
 
 export default function OfflineOutboxPage({ navigation }) {

@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAppTheme, THEME_CHANGED_EVENT } from './themeStorage';
+import { getAppTheme, getAppThemeSync, THEME_CHANGED_EVENT } from './themeStorage';
 import { fetchAppVersionGate } from './fetchAppVersionGate';
 import { getForceUpdateTexts } from './appUpdateGateI18n';
 import { appLangBase } from './appLang';
