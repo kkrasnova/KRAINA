@@ -29,7 +29,7 @@ const server: Server = app.listen(config.port, () => {
 // Sequence on SIGTERM / SIGINT:
 //   1. Stop accepting new HTTP connections (server.close).
 //   2. Stop scheduling new cleanup job runs (existing runs finish naturally).
-//   3. Close the PostgreSQL pool (waits for in-flight queries to complete).
+//   3. Close WebSocket server, then the PostgreSQL pool.
 //   4. Exit 0.
 // A hard timeout forces exit(1) if shutdown takes longer than SHUTDOWN_TIMEOUT_MS.
 // This prevents a container from hanging indefinitely during a rolling deploy.
@@ -67,15 +67,18 @@ function shutdown(signal: string): void {
   // Step 2.5: close the storage provider (S3 client connections)
   destroyStorageProvider();
 
-  // Step 3: drain the PostgreSQL pool
-  pool
-    .end()
+  // Step 3: close WebSocket server, then drain the PostgreSQL pool
+  void closeWsServer()
+    .then(() => {
+      logger.info('shutdown.ws_closed');
+      return pool.end();
+    })
     .then(() => {
       logger.info('shutdown.pg_pool_closed');
       process.exit(0);
     })
     .catch((e: unknown) => {
-      logger.error('shutdown.pg_pool_error', {
+      logger.error('shutdown.error', {
         err: e instanceof Error ? e.message : String(e),
       });
       process.exit(1);

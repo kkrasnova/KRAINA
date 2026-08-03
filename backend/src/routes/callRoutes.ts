@@ -25,7 +25,7 @@ function assertLiveKitConfigured(): void {
 }
 
 /** GET /api/calls/config — чи доступні дзвінки на сервері. */
-router.get('/config', authenticateToken, async (req, res) => {
+router.get('/config', authenticateToken, async (_req, res) => {
   res.status(200).json({ enabled: config.livekitConfigured });
 });
 

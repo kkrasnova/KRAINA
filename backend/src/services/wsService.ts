@@ -223,7 +223,7 @@ function handleConnection(ws: WebSocket, req: import('node:http').IncomingMessag
     handleClientEvent(ws, client, event);
   });
 
-  ws.on('close', (code, reason) => {
+  ws.on('close', () => {
     handleDisconnect(client);
   });
 
